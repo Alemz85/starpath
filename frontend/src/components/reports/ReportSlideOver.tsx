@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { X, ExternalLink, FileText } from 'lucide-react'
+import { X, FileText } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
 import type { ScoreEntry } from '@/types'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface ReportSlideOverProps {
   company: string
@@ -21,6 +22,17 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setOpen(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  const handleClose = useCallback(() => {
+    setOpen(false)
+    setTimeout(onClose, 260)
+  }, [onClose])
 
   const loadReport = useCallback(async () => {
     setLoading(true)
@@ -70,10 +82,10 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
   }, [loadReport])
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [handleClose])
 
   const tierKey = (scoreEntry.tier as TierKey) in TIER_COLORS ? (scoreEntry.tier as TierKey) : 'T4'
   const { text: tierText } = TIER_COLORS[tierKey]
@@ -82,12 +94,19 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
+        className={cn(
+          'fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] transition-opacity duration-[260ms]',
+          open ? 'opacity-100' : 'opacity-0',
+        )}
+        onClick={handleClose}
       />
 
       {/* Panel */}
-      <div className="fixed right-0 top-0 bottom-0 z-40 w-[680px] max-w-full bg-bg-panel border-l border-border-strong flex flex-col shadow-2xl">
+      <div className={cn(
+        'fixed right-0 top-0 bottom-0 z-40 w-[720px] max-w-full bg-bg-panel border-l border-border-strong flex flex-col shadow-2xl',
+        'transition-[transform,opacity] duration-[260ms] ease-out',
+        open ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
+      )}>
         {/* Header */}
         <div className="titlebar-drag h-11 shrink-0 border-b border-border-default" />
         <div className="flex items-start gap-3 px-5 py-4 border-b border-border-default shrink-0">
@@ -110,7 +129,7 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
               title="Close (Esc)"
             >
@@ -139,7 +158,7 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
           )}
           {content && (
             <div className="prose-report">
-              <ReactMarkdown>{content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
           )}
         </div>

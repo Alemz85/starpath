@@ -97,6 +97,15 @@ p, td, th, li, .selectable {
   background: radial-gradient(ellipse at 30% 40%, #1A0F3D 0%, #0D0A1F 60%);
 }
 
+/* Suggestion chip appear animation */
+@keyframes chip-appear {
+  from { opacity: 0; transform: translateY(5px) scale(0.94); }
+  to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+.suggestion-chip {
+  animation: chip-appear 220ms ease both;
+}
+
 /* Report markdown prose */
 .prose-report {
   color: #C8C5D6;
@@ -104,15 +113,35 @@ p, td, th, li, .selectable {
   line-height: 1.7;
   user-select: text;
 }
-.prose-report h1, .prose-report h2, .prose-report h3 {
-  color: #E8E6F0;
-  font-weight: 600;
-  margin-top: 1.25rem;
-  margin-bottom: 0.5rem;
+/* h1: report title — de-emphasised, it's just the company/role */
+.prose-report h1 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #6B6582;
+  margin-top: 0;
+  margin-bottom: 1rem;
+  letter-spacing: 0;
 }
-.prose-report h1 { font-size: 16px; }
-.prose-report h2 { font-size: 14px; border-bottom: 1px solid #2A2342; padding-bottom: 0.25rem; }
-.prose-report h3 { font-size: 13px; color: #A89FCC; }
+/* h2: section headers — punchy, uppercase micro labels */
+.prose-report h2 {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #7C5CFF;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #2A2342;
+}
+/* h3: sub-sections */
+.prose-report h3 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #A89FCC;
+  margin-top: 1rem;
+  margin-bottom: 0.375rem;
+}
 .prose-report p { margin-bottom: 0.75rem; }
 .prose-report ul, .prose-report ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
 .prose-report li { margin-bottom: 0.25rem; }
@@ -131,25 +160,32 @@ p, td, th, li, .selectable {
   color: #A89FCC;
   margin: 0.75rem 0;
 }
-.prose-report table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; }
+/* Tables */
+.prose-report table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+.prose-report thead { background: #15102B; }
 .prose-report th {
   text-align: left;
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 600;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: #6B6582;
   border-bottom: 1px solid #2A2342;
-  padding: 0.375rem 0.5rem;
+  padding: 0.4rem 0.625rem;
 }
 .prose-report td {
-  padding: 0.375rem 0.5rem;
-  border-bottom: 1px solid #1D1638;
+  padding: 0.375rem 0.625rem;
+  border-bottom: 1px solid #1A1530;
   color: #C8C5D6;
   font-size: 12px;
+  vertical-align: top;
 }
+.prose-report td:first-child { color: #E8E6F0; font-weight: 500; }
+.prose-report tbody tr:hover { background: rgba(124, 92, 255, 0.04); }
 .prose-report hr {
   border: none;
   border-top: 1px solid #2A2342;
-  margin: 1rem 0;
+  margin: 1.25rem 0;
 }
 
 /* Score bar */
