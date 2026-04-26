@@ -182,19 +182,19 @@ function ReportCard({
           : 'bg-bg-panel border-border-default hover:border-border-strong hover:bg-bg-elevated',
       )}
     >
-      <div className="flex items-start gap-2.5 min-w-0">
-        <CompanyLogo company={report.company} size={28} className="mt-0.5 shrink-0" />
+      <div className="flex items-start gap-2 min-w-0">
+        <CompanyLogo company={report.company} size={24} className="mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <span className={cn('px-1 py-px text-[9px] font-mono font-semibold rounded border shrink-0', bg, tierText, border)}>
+          <div className="flex items-center justify-between gap-1 mb-0.5">
+            <span className={cn('px-1.5 py-px text-[9.5px] font-mono font-semibold rounded border shrink-0', bg, tierText, border)}>
               {label}
             </span>
-            {score && (
-              <span className="text-micro font-mono text-text-4">{score.overall.toFixed(1)}</span>
+            {score && score.overall > 0 && (
+              <span className="text-micro font-mono text-text-4 shrink-0">{score.overall.toFixed(1)}</span>
             )}
           </div>
           <div className="text-label text-text-1 font-medium leading-snug truncate">{report.company}</div>
-          <div className="text-[11px] text-text-3 truncate mt-0.5">{report.role}</div>
+          <div className="text-label text-text-3 truncate mt-0.5 leading-snug">{report.role}</div>
         </div>
       </div>
     </button>
