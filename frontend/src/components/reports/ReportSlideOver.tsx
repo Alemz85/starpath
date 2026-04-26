@@ -110,14 +110,20 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
       )}>
         {/* Header */}
         <div className="titlebar-drag h-11 shrink-0 border-b border-border-default" />
-        <div className="flex items-start gap-3 px-5 py-4 border-b border-border-default shrink-0">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-border-default shrink-0">
+          <CompanyLogo company={company} size={40} className="shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1.5">
+            <h2 className="text-[15px] font-semibold text-text-1 leading-tight truncate">{company}</h2>
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
               <span className={cn('text-micro font-mono font-semibold', tierText)}>
                 {tierKey === 'T2-high' ? 'T2+' : tierKey}
               </span>
-              <span className="text-micro text-text-4">·</span>
-              <span className="text-micro text-text-4 font-mono">{scoreEntry.overall.toFixed(1)} / 10</span>
+              {scoreEntry.overall > 0 && (
+                <>
+                  <span className="text-micro text-text-4">·</span>
+                  <span className="text-micro text-text-4 font-mono">{scoreEntry.overall.toFixed(1)} / 10</span>
+                </>
+              )}
               {scoreEntry.location && (
                 <>
                   <span className="text-micro text-text-4">·</span>
@@ -125,27 +131,19 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
                 </>
               )}
             </div>
-            <div className="flex items-center gap-2.5 min-w-0">
-              <CompanyLogo company={company} size={28} />
-              <div className="min-w-0">
-                <h2 className="text-section text-text-1 font-semibold leading-tight truncate">{company}</h2>
-                <p className="text-label text-text-3 truncate">{role}</p>
-              </div>
-            </div>
+            <p className="text-label text-text-3 truncate mt-1">{role}</p>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={handleClose}
-              className="p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
-              title="Close (Esc)"
-            >
-              <X size={15} />
-            </button>
-          </div>
+          <button
+            onClick={handleClose}
+            className="shrink-0 p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
+            title="Close (Esc)"
+          >
+            <X size={15} />
+          </button>
         </div>
 
-        {/* Score mini-bar */}
-        <ScoreMiniBar entry={scoreEntry} />
+        {/* Score mini-bar — only when we have real score data */}
+        {scoreEntry.overall > 0 && <ScoreMiniBar entry={scoreEntry} />}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
