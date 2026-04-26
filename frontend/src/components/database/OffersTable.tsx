@@ -14,6 +14,7 @@ import { ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
 import { TIER_COLORS, TIER_LABELS, type TierKey } from '@/types'
+import { CompanyLogo } from '@/components/shared/CompanyLogo'
 
 interface OffersTableProps {
   rows: ScoreEntry[]
@@ -62,9 +63,12 @@ export function OffersTable({ rows, onSelect, selectedId }: OffersTableProps) {
     }),
     col.accessor('company', {
       header: 'Company',
-      size: 160,
+      size: 180,
       cell: info => (
-        <span className="text-label text-text-1 font-medium truncate block max-w-[148px]">{info.getValue()}</span>
+        <div className="flex items-center gap-2 max-w-[168px]">
+          <CompanyLogo company={info.getValue()} size={16} />
+          <span className="text-label text-text-1 font-medium truncate">{info.getValue()}</span>
+        </div>
       ),
     }),
     col.accessor('role', {

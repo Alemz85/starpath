@@ -9,6 +9,7 @@ import { TIER_COLORS, type TierKey } from '@/types'
 import type { ScoreEntry } from '@/types'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CompanyLogo } from '@/components/shared/CompanyLogo'
 
 interface ReportSlideOverProps {
   company: string
@@ -111,7 +112,7 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
         <div className="titlebar-drag h-11 shrink-0 border-b border-border-default" />
         <div className="flex items-start gap-3 px-5 py-4 border-b border-border-default shrink-0">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
+            <div className="flex items-center gap-2 mb-1.5">
               <span className={cn('text-micro font-mono font-semibold', tierText)}>
                 {tierKey === 'T2-high' ? 'T2+' : tierKey}
               </span>
@@ -124,8 +125,13 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
                 </>
               )}
             </div>
-            <h2 className="text-section text-text-1 font-semibold leading-tight truncate">{company}</h2>
-            <p className="text-label text-text-3 truncate">{role}</p>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <CompanyLogo company={company} size={28} />
+              <div className="min-w-0">
+                <h2 className="text-section text-text-1 font-semibold leading-tight truncate">{company}</h2>
+                <p className="text-label text-text-3 truncate">{role}</p>
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
