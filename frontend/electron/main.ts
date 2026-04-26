@@ -157,8 +157,8 @@ function createWindow(): void {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           isDev
-            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3000; img-src 'self' data: https://logo.clearbit.com https://unavatar.io;"
-            : "default-src 'self' 'unsafe-inline'; img-src 'self' data: https://logo.clearbit.com https://unavatar.io; connect-src 'none';",
+            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3000; img-src 'self' data: https://logo.clearbit.com https://unavatar.io https://www.google.com https://t1.gstatic.com;"
+            : "default-src 'self' 'unsafe-inline'; img-src 'self' data: https://logo.clearbit.com https://unavatar.io https://www.google.com https://t1.gstatic.com; connect-src 'none';",
         ],
       },
     })
