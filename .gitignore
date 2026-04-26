@@ -1,0 +1,68 @@
+# Personal data (user fills these)
+data/applications.md
+data/pipeline.md
+data/scan-history.tsv
+data/scouting.md
+data/score-history.tsv
+data/comp-cache.tsv
+data/report-summaries.tsv
+reports/**/*.md
+reports/tier-*/*.md
+!reports/.gitkeep
+
+# Interview prep (personal)
+interview-prep/*.md
+interview-prep/**/*.md
+output/*
+!output/.gitkeep
+batch/logs/*
+!batch/logs/.gitkeep
+batch/batch-state.tsv
+batch/batch-input.tsv
+batch/tracker-additions/**/*.tsv
+!batch/tracker-additions/.gitkeep
+jds/*
+!jds/.gitkeep
+
+# User config and customization (never auto-updated)
+user/profile.yml
+user/portals.yml
+user/_profile.md
+user/cv.md
+user/article-digest.md
+.update-dismissed
+.update-lock
+
+# Generated
+.resolved-prompt-*
+node_modules/
+bun.lock
+
+# OS
+.DS_Store
+*.mov
+*.mp4
+
+# Claude Code local
+.claude/settings.local.json
+.claude/memory/
+career-dashboard
+package-lock.json
+
+# Agent skills — user-installed generic skills, not project-specific
+.claude/skills/agent-browser/
+.claude/skills/electron-pro/
+.claude/skills/frontend-design/
+.claude/skills/impeccable/
+.claude/skills/web-design-guidelines/
+.claude/skills/webapp-testing/
+
+# Playwright MCP session artifacts
+.playwright-mcp/
+
+# Generated landscape analysis outputs
+data/landscape-*.csv
+
+# Filter intelligence state (local, machine-specific)
+data/filter-log.md
+data/filter-audit-state.json
