@@ -1,0 +1,166 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #__next {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: #0D0A1F;
+  color: #E8E6F0;
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+
+/* Allow text selection in content areas */
+p, td, th, li, .selectable {
+  user-select: text;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2A2342;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3D3458;
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid #7C5CFF;
+  outline-offset: 2px;
+}
+
+/* Electron titlebar drag area */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Typography utilities */
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* Tier row left accent */
+.row-tier-1 { box-shadow: inset 2px 0 0 #E8B547; }
+.row-tier-2 { box-shadow: inset 2px 0 0 #C8C5D6; }
+.row-tier-3 { box-shadow: inset 2px 0 0 #C77B3B; }
+.row-tier-4 { opacity: 0.55; }
+
+/* Shimmer animation for loading states */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    #15102B 25%,
+    #1D1638 50%,
+    #15102B 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Galaxy gradient for entry surfaces */
+.galaxy-bg {
+  background: radial-gradient(ellipse at 30% 40%, #1A0F3D 0%, #0D0A1F 60%);
+}
+
+/* Report markdown prose */
+.prose-report {
+  color: #C8C5D6;
+  font-size: 13px;
+  line-height: 1.7;
+  user-select: text;
+}
+.prose-report h1, .prose-report h2, .prose-report h3 {
+  color: #E8E6F0;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+.prose-report h1 { font-size: 16px; }
+.prose-report h2 { font-size: 14px; border-bottom: 1px solid #2A2342; padding-bottom: 0.25rem; }
+.prose-report h3 { font-size: 13px; color: #A89FCC; }
+.prose-report p { margin-bottom: 0.75rem; }
+.prose-report ul, .prose-report ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+.prose-report li { margin-bottom: 0.25rem; }
+.prose-report strong { color: #E8E6F0; font-weight: 500; }
+.prose-report code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  background: #1D1638;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  color: #7C5CFF;
+}
+.prose-report blockquote {
+  border-left: 2px solid #7C5CFF;
+  padding-left: 0.75rem;
+  color: #A89FCC;
+  margin: 0.75rem 0;
+}
+.prose-report table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; }
+.prose-report th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #6B6582;
+  border-bottom: 1px solid #2A2342;
+  padding: 0.375rem 0.5rem;
+}
+.prose-report td {
+  padding: 0.375rem 0.5rem;
+  border-bottom: 1px solid #1D1638;
+  color: #C8C5D6;
+  font-size: 12px;
+}
+.prose-report hr {
+  border: none;
+  border-top: 1px solid #2A2342;
+  margin: 1rem 0;
+}
+
+/* Score bar */
+.score-bar-track {
+  height: 4px;
+  background: #2A2342;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
