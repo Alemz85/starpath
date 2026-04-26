@@ -45,7 +45,6 @@ const OVERRIDES: Record<string, string> = {
 export function guessDomain(company: string): string {
   const lower = company.toLowerCase().trim()
   if (OVERRIDES[lower]) return OVERRIDES[lower]
-  // partial prefix match
   for (const [key, domain] of Object.entries(OVERRIDES)) {
     if (lower.startsWith(key)) return domain
   }
@@ -59,12 +58,8 @@ export function guessDomain(company: string): string {
 // ─── Avatar fallback ─────────────────────────────────────────────────────────
 
 const PALETTE: [string, string][] = [
-  ['#7C5CFF', '#4A2FA8'],
-  ['#E8B547', '#A8822A'],
-  ['#5CDB8B', '#2E8B57'],
-  ['#C77B3B', '#8B4513'],
-  ['#DB5C7A', '#8B2A4A'],
-  ['#5CB8DB', '#2A7A8B'],
+  ['#7C5CFF', '#4A2FA8'], ['#E8B547', '#A8822A'], ['#5CDB8B', '#2E8B57'],
+  ['#C77B3B', '#8B4513'], ['#DB5C7A', '#8B2A4A'], ['#5CB8DB', '#2A7A8B'],
   ['#9B5CDB', '#6A2FA8'],
 ]
 
@@ -77,12 +72,8 @@ function hashPalette(name: string): [string, string] {
 function initials(company: string): string {
   return company
     .replace(/[^a-zA-Z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(w => w[0])
-    .join('')
-    .toUpperCase() || '?'
+    .split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(w => w[0]).join('').toUpperCase() || '?'
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -93,28 +84,27 @@ interface CompanyLogoProps {
   className?: string
 }
 
+// Three-stage cascade: Clearbit (high-res) → Google favicons (always available) → initials
+type Stage = 'clearbit' | 'google' | 'fallback'
+
 export function CompanyLogo({ company, size = 20, className }: CompanyLogoProps) {
-  const [state, setState] = useState<'loading' | 'ok' | 'fallback'>('loading')
+  const [stage, setStage] = useState<Stage>('clearbit')
   const domain = guessDomain(company)
   const radius = size <= 16 ? 3 : size <= 24 ? 4 : 6
   const [from, to] = hashPalette(company)
   const abbr = initials(company)
   const fontSize = Math.round(size * 0.38)
 
-  if (state === 'fallback') {
+  if (stage === 'fallback') {
     return (
       <div
         className={className}
         style={{
-          width: size, height: size, minWidth: size,
-          borderRadius: radius,
+          width: size, height: size, minWidth: size, borderRadius: radius,
           background: `linear-gradient(135deg, ${from}, ${to})`,
-          fontSize,
-          fontWeight: 600,
-          color: '#fff',
+          fontSize, fontWeight: 600, color: '#fff',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          userSelect: 'none',
-          letterSpacing: '-0.01em',
+          userSelect: 'none', letterSpacing: '-0.01em',
         }}
       >
         {abbr}
@@ -122,25 +112,28 @@ export function CompanyLogo({ company, size = 20, className }: CompanyLogoProps)
     )
   }
 
+  const src = stage === 'clearbit'
+    ? `https://logo.clearbit.com/${domain}`
+    : `https://www.google.com/s2/favicons?domain=${domain}&sz=128`
+
   return (
     <div
       className={className}
       style={{
-        width: size, height: size, minWidth: size,
-        borderRadius: radius,
-        background: '#fff',
+        width: size, height: size, minWidth: size, borderRadius: radius,
+        background: stage === 'clearbit' && size >= 20 ? '#fff' : 'transparent',
         overflow: 'hidden',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
     >
       <img
-        src={`https://logo.clearbit.com/${domain}`}
+        key={stage}
+        src={src}
         alt={company}
         width={size}
         height={size}
         style={{ objectFit: 'contain', width: '100%', height: '100%' }}
-        onLoad={() => setState('ok')}
-        onError={() => setState('fallback')}
+        onError={() => setStage(stage === 'clearbit' ? 'google' : 'fallback')}
       />
     </div>
   )
