@@ -7,6 +7,7 @@ import { ipc } from '@/lib/ipc'
 import { Search, FileText, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
+import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import type { ReportFile } from '@/types'
 import { ReportSlideOver } from './ReportSlideOver'
 import type { ScoreEntry } from '@/types'
@@ -189,8 +190,13 @@ function ReportCard({
           <span className="text-micro font-mono text-text-4">{score.overall.toFixed(1)}</span>
         )}
       </div>
-      <div className="text-label text-text-1 font-medium leading-snug truncate">{report.company}</div>
-      <div className="text-label text-text-3 truncate mt-0.5">{report.role}</div>
+      <div className="flex items-center gap-2 min-w-0">
+        <CompanyLogo company={report.company} size={20} />
+        <div className="min-w-0">
+          <div className="text-label text-text-1 font-medium leading-snug truncate">{report.company}</div>
+          <div className="text-label text-text-3 truncate mt-0.5">{report.role}</div>
+        </div>
+      </div>
     </button>
   )
 }
