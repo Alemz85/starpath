@@ -14,6 +14,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Radar,
+  User,
 } from 'lucide-react'
 
 const NAV_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] = [
@@ -26,6 +27,7 @@ const NAV_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] = [
 ]
 
 const BOTTOM_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] = [
+  { view: 'profile',  label: 'Profile',  icon: User     },
   { view: 'settings', label: 'Settings', icon: Settings },
 ]
 

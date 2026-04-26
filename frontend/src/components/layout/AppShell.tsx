@@ -12,6 +12,7 @@ import { PipelineView } from '@/components/pipeline/PipelineView'
 import { TrendsView } from '@/components/trends/TrendsView'
 import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
+import { ProfileView } from '@/components/profile/ProfileView'
 
 export function AppShell() {
   const load = useDataStore(s => s.load)
@@ -30,6 +31,7 @@ export function AppShell() {
         {view === 'trends'   && <TrendsView />}
         {view === 'scan'     && <ScanView />}
         {view === 'settings' && <SettingsView />}
+        {view === 'profile'  && <ProfileView />}
       </main>
       <CmdK />
     </div>

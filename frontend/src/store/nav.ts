@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type ViewId = 'home' | 'database' | 'reports' | 'pipeline' | 'trends' | 'scan' | 'settings'
+export type ViewId = 'home' | 'database' | 'reports' | 'pipeline' | 'trends' | 'scan' | 'settings' | 'profile'
 
 interface NavState {
   view: ViewId
