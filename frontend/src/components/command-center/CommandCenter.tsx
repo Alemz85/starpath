@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, type SpawnRecord } from '@/store/spawns'
+import { ClaudeLogo } from '@/components/shared/Logos'
 import { StatCard } from './StatCard'
 import {
   BarChart2, Inbox, Target, Radar, Calendar,
@@ -348,12 +349,15 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
       className="flex-1 min-h-0 relative rounded-xl overflow-hidden flex flex-col"
       style={{ background: '#1F1B36', boxShadow: '0 10px 32px rgba(20, 14, 50, 0.18)' }}
     >
-      {/* Header strip — no static "Terminal" label */}
+      {/* Header strip — no static "Terminal" label. When the running spawn is
+          a Claude invocation the brand mark sits next to the label so the user
+          knows what's at the wheel. */}
       <div
         className="shrink-0 h-7 px-3 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider"
         style={{ background: '#2A2548', borderColor: 'rgba(255,255,255,0.05)' }}
       >
-        <span className="text-white/55">
+        <span className="text-white/55 inline-flex items-center gap-1.5">
+          {record?.tool === 'claude' && <ClaudeLogo size={12} />}
           {record ? `${record.label} ${statusGlyph(record)}` : 'Idle'}
         </span>
         {record?.startedAt ? (
@@ -388,7 +392,12 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
           </div>
         ))}
 
-        {showLoadingMessages && <LoadingMessage seed={record!.startedAt} />}
+        {showLoadingMessages && (
+          <LoadingMessage
+            seed={record!.startedAt}
+            showClaudeMark={record!.tool === 'claude'}
+          />
+        )}
 
         {isRunning && hasOutput && (
           <span className="inline-block w-1.5 h-3 bg-accent-light animate-pulse rounded-sm align-middle ml-0.5" />
@@ -414,7 +423,7 @@ function statusGlyph(r: SpawnRecord): string {
   return ''
 }
 
-function LoadingMessage({ seed }: { seed: number }) {
+function LoadingMessage({ seed, showClaudeMark = false }: { seed: number; showClaudeMark?: boolean }) {
   const [idx, setIdx] = useState(() => Math.floor((seed / 1000) % LOADING_MESSAGES.length))
   useEffect(() => {
     const t = setInterval(() => {
@@ -425,16 +434,23 @@ function LoadingMessage({ seed }: { seed: number }) {
 
   return (
     <div className="absolute inset-0 top-7 flex items-center justify-center pointer-events-none px-6">
-      <p
-        key={idx}
-        className="italic text-[12.5px] text-center"
-        style={{
-          color: '#B5A3FF',
-          animation: 'chip-appear 320ms ease both',
-        }}
-      >
-        {LOADING_MESSAGES[idx]}
-      </p>
+      <div className="flex flex-col items-center gap-3">
+        {showClaudeMark && (
+          <div className="animate-pulse">
+            <ClaudeLogo size={28} />
+          </div>
+        )}
+        <p
+          key={idx}
+          className="italic text-[12.5px] text-center"
+          style={{
+            color: '#B5A3FF',
+            animation: 'chip-appear 320ms ease both',
+          }}
+        >
+          {LOADING_MESSAGES[idx]}
+        </p>
+      </div>
     </div>
   )
 }

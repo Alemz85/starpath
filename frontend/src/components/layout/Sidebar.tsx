@@ -20,6 +20,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
+import { StarpathLogo } from '@/components/shared/Logos'
 import type { AppMode } from '@/types'
 
 interface NavItem {
@@ -112,11 +113,13 @@ export function Sidebar() {
           expanded ? 'justify-between' : 'justify-center',
         )}
       >
-        {expanded && <span className="w-6 shrink-0" aria-hidden />}
         {expanded && (
-          <span className="text-[20px] tracking-tight galaxy-text titlebar-no-drag select-none font-bold lowercase leading-none">
-            starpath
-          </span>
+          <div className="titlebar-no-drag select-none flex items-center gap-1.5">
+            <StarpathLogo size={18} />
+            <span className="text-[20px] tracking-tight galaxy-text font-bold lowercase leading-none">
+              starpath
+            </span>
+          </div>
         )}
         <button
           className="titlebar-no-drag p-1 rounded-md text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors"
