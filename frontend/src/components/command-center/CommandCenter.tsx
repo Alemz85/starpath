@@ -164,7 +164,7 @@ function ScoutingActionPanel({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 gap-7">
+    <div className="flex-1 flex flex-col min-h-0 gap-12">
       {/* Button row — centered, with | as the midpoint */}
       <div className="shrink-0 flex items-center justify-center gap-3 pt-2">
         <ActionButton
@@ -229,26 +229,36 @@ function ActionButton({
   disabled?: boolean
   title?: string
 }) {
+  const tooltip = running ? 'Click to stop' : title
+
+  let buttonEl: React.ReactNode
   if (running) {
-    return (
+    buttonEl = (
       <button
         onClick={onClick}
-        title="Stop"
         className="inline-flex items-center gap-2 rounded-pill px-5 py-2 text-[14px] font-medium border-2 border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
       >
         <Square size={13} className="fill-current" />
         Stop {label}
       </button>
     )
-  }
-
-  if (tone === 'primary') {
-    return (
+  } else if (tone === 'primary') {
+    buttonEl = (
       <button
         onClick={onClick}
         disabled={disabled}
-        title={title}
         className="btn-pill disabled:opacity-50"
+      >
+        <Icon size={14} />
+        {label}
+      </button>
+    )
+  } else {
+    buttonEl = (
+      <button
+        onClick={onClick}
+        disabled={disabled}
+        className="btn-pill-outline disabled:opacity-50"
       >
         <Icon size={14} />
         {label}
@@ -256,16 +266,68 @@ function ActionButton({
     )
   }
 
+  return <TooltipWrapper content={tooltip}>{buttonEl}</TooltipWrapper>
+}
+
+// ─── Tooltip ────────────────────────────────────────────────────────────────
+// Custom hover tooltip — fast (180ms delay), styled to the matte galaxy
+// palette, points down into the gap between the button row and the activity
+// panel. Replaces native `title=` (which has a long delay and unstyled look).
+
+function TooltipWrapper({
+  content,
+  children,
+}: {
+  content: string | undefined
+  children: React.ReactNode
+}) {
+  const [show, setShow] = useState(false)
+  const timer = useRef<number | null>(null)
+
+  const onEnter = () => {
+    if (!content) return
+    if (timer.current) window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setShow(true), 180)
+  }
+  const onLeave = () => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null }
+    setShow(false)
+  }
+
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className="btn-pill-outline disabled:opacity-50"
+    <span
+      className="relative inline-flex"
+      onMouseEnter={onEnter}
+      onMouseLeave={onLeave}
+      onFocus={onEnter}
+      onBlur={onLeave}
     >
-      <Icon size={14} />
-      {label}
-    </button>
+      {children}
+      {show && content && (
+        <span
+          role="tooltip"
+          className="absolute left-1/2 -translate-x-1/2 top-[calc(100%+10px)] z-30 pointer-events-none"
+          style={{ animation: 'chip-appear 180ms ease both' }}
+        >
+          {/* Arrow */}
+          <span
+            className="absolute left-1/2 -translate-x-1/2 -top-1 w-2 h-2 rotate-45"
+            style={{ background: '#2A2548' }}
+            aria-hidden
+          />
+          <span
+            className="block px-3 py-2 rounded-md text-[11.5px] leading-snug max-w-[260px] text-center whitespace-normal"
+            style={{
+              background: '#2A2548',
+              color: '#E8E5F5',
+              boxShadow: '0 6px 18px rgba(20, 14, 50, 0.28)',
+            }}
+          >
+            {content}
+          </span>
+        </span>
+      )}
+    </span>
   )
 }
 
