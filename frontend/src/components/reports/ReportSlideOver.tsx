@@ -12,6 +12,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ApplyAction } from '@/components/shared/ApplyAction'
+import { FilesStrip } from '@/components/shared/FilesStrip'
 
 interface ReportSlideOverProps {
   company: string
@@ -167,6 +168,8 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
               Open URL
             </button>
           )}
+          <div className="flex-1" />
+          <FilesStrip company={company} role={role} size="md" />
         </div>
 
         {/* Score mini-bar — only when we have real score data */}
