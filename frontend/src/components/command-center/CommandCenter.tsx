@@ -153,38 +153,57 @@ function ScoutingActionPanel({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 gap-12">
-      {/* Button row — centered, with | as the midpoint */}
-      <div className="shrink-0 flex items-center justify-center gap-3 pt-2">
-        <ActionButton
-          label="Full Scan"
-          icon={Play}
-          tone="primary"
-          running={fullScan?.status === 'running'}
-          onClick={handleFullScan}
-          disabled={!repoPath}
-          title="Playwright + ATS APIs + WebSearch — uses Claude (token cost)"
-        />
-        <ActionButton
-          label="API Only"
-          icon={Zap}
-          tone="outline"
-          running={apiScan?.status === 'running'}
-          onClick={handleApiScan}
-          disabled={!repoPath}
-          title="Direct ATS API calls — zero token cost, instant"
-        />
-        <div className="w-px h-6 bg-border-default" aria-hidden />
-        <ActionButton
-          label="Generate Reports"
-          icon={FileOutput}
-          tone="outline"
-          running={pipeline?.status === 'running'}
-          onClick={handlePipeline}
-          disabled={!repoPath}
-          title="Process pending listings in data/pipeline.md into evaluation reports"
-        />
-      </div>
+    <div className="flex-1 flex flex-col min-h-0">
+      <HoverDescriptionRow
+        items={[
+          {
+            key: 'full',
+            description: 'Playwright + ATS APIs + WebSearch — uses Claude (token cost)',
+            node: (
+              <ActionButton
+                label="Full Scan"
+                icon={Play}
+                tone="primary"
+                running={fullScan?.status === 'running'}
+                onClick={handleFullScan}
+                disabled={!repoPath}
+              />
+            ),
+          },
+          {
+            key: 'api',
+            description: 'Direct ATS API calls — zero token cost, instant',
+            node: (
+              <ActionButton
+                label="API Only"
+                icon={Zap}
+                tone="outline"
+                running={apiScan?.status === 'running'}
+                onClick={handleApiScan}
+                disabled={!repoPath}
+              />
+            ),
+          },
+          {
+            key: 'sep',
+            node: <div className="w-px h-6 bg-border-default" aria-hidden />,
+          },
+          {
+            key: 'pipeline',
+            description: 'Process pending listings in data/pipeline.md into evaluation reports',
+            node: (
+              <ActionButton
+                label="Generate Reports"
+                icon={FileOutput}
+                tone="outline"
+                running={pipeline?.status === 'running'}
+                onClick={handlePipeline}
+                disabled={!repoPath}
+              />
+            ),
+          },
+        ]}
+      />
 
       {/* Activity panel (flex-grows to fill remaining vertical space) */}
       <ActivityPanel record={visible} />
@@ -193,7 +212,7 @@ function ScoutingActionPanel({
 }
 
 // Shared exports — used by ScanView too.
-export { ActionButton, ActivityPanel, LoadingMessage, pickVisible }
+export { ActionButton, ActivityPanel, LoadingMessage, pickVisible, HoverDescriptionRow }
 
 function pickVisible(
   ...records: Array<SpawnRecord | undefined>
@@ -216,91 +235,95 @@ function ActionButton({
   running: boolean
   onClick: () => void
   disabled?: boolean
-  title?: string
+  title?: string  // HTML title attr only — visible tooltip is owned by the row.
 }) {
-  const tooltip = running ? 'Click to stop' : title
-
-  let buttonEl: React.ReactNode
   if (running) {
-    buttonEl = (
+    return (
       <button
         onClick={onClick}
+        title="Click to stop"
         className="inline-flex items-center gap-2 rounded-pill px-5 py-2 text-[14px] font-medium border-2 border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
       >
         <Square size={13} className="fill-current" />
         Stop {label}
       </button>
     )
-  } else if (tone === 'primary') {
-    buttonEl = (
+  }
+  if (tone === 'primary') {
+    return (
       <button
         onClick={onClick}
         disabled={disabled}
+        title={title}
         className="btn-pill disabled:opacity-50"
       >
         <Icon size={14} />
         {label}
       </button>
     )
-  } else {
-    buttonEl = (
-      <button
-        onClick={onClick}
-        disabled={disabled}
-        className="btn-pill-outline disabled:opacity-50"
-      >
-        <Icon size={14} />
-        {label}
-      </button>
-    )
   }
-
-  return <TooltipWrapper content={tooltip}>{buttonEl}</TooltipWrapper>
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className="btn-pill-outline disabled:opacity-50"
+    >
+      <Icon size={14} />
+      {label}
+    </button>
+  )
 }
 
-// ─── Tooltip ────────────────────────────────────────────────────────────────
-// Plain hover description — no card, no arrow, just muted text that fades in
-// below the button on hover and lives in the gap above the activity panel.
+// ─── Hover-description row ──────────────────────────────────────────────────
+// A button row with a single shared description slot centered below it. The
+// slot has fixed height so it doesn't reflow when the description appears or
+// changes, and the description STAYS centered on the row regardless of which
+// button is hovered — only the text swaps. mouseEnter sets the description;
+// the parent container's mouseLeave clears it, so moving between buttons
+// (across the gap or the divider) doesn't flicker.
 
-function TooltipWrapper({
-  content,
-  children,
-}: {
-  content: string | undefined
-  children: React.ReactNode
+interface HoverItem {
+  key: string
+  node: React.ReactNode
+  description?: string
+}
+
+function HoverDescriptionRow({ items, slotMaxWidth = 640 }: {
+  items: HoverItem[]
+  slotMaxWidth?: number
 }) {
-  const [show, setShow] = useState(false)
-  const timer = useRef<number | null>(null)
-
-  const onEnter = () => {
-    if (!content) return
-    if (timer.current) window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => setShow(true), 180)
-  }
-  const onLeave = () => {
-    if (timer.current) { window.clearTimeout(timer.current); timer.current = null }
-    setShow(false)
-  }
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const desc = hoverIdx !== null ? items[hoverIdx]?.description : null
 
   return (
-    <span
-      className="relative inline-flex"
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      onFocus={onEnter}
-      onBlur={onLeave}
-    >
-      {children}
-      {show && content && (
-        <span
-          role="tooltip"
-          className="absolute left-1/2 -translate-x-1/2 top-[calc(100%+10px)] z-10 pointer-events-none whitespace-nowrap text-label text-text-3"
-          style={{ animation: 'chip-appear 180ms ease both' }}
+    <div className="shrink-0 flex flex-col items-center pt-2">
+      <div
+        className="flex items-center gap-3"
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {items.map((item, i) => (
+          <span
+            key={item.key}
+            className="inline-flex"
+            onMouseEnter={item.description ? () => setHoverIdx(i) : undefined}
+          >
+            {item.node}
+          </span>
+        ))}
+      </div>
+      <div
+        className="h-12 flex items-start justify-center pt-3 px-4"
+        style={{ maxWidth: slotMaxWidth }}
+      >
+        <p
+          className="text-[12px] text-text-3 transition-opacity duration-150 text-center whitespace-nowrap"
+          style={{ opacity: desc ? 1 : 0 }}
         >
-          {content}
-        </span>
-      )}
-    </span>
+          {desc ?? '\u00A0'}
+        </p>
+      </div>
+    </div>
   )
 }
 
