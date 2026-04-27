@@ -29,9 +29,16 @@ interface NavItem {
   syncMode?: AppMode
 }
 
-const NAV_ITEMS: NavItem[] = [
+// Primary tabs — these drive `current_mode` and are the entry points to
+// the two phases of the workflow. They sit above a subtle divider in the
+// sidebar to read as the "command" tier.
+const PRIMARY_NAV: NavItem[] = [
   { view: 'scouting', label: 'Scouting', icon: Map,        syncMode: 'scouting' },
   { view: 'applying', label: 'Applying', icon: Briefcase,  syncMode: 'applying' },
+]
+
+// Secondary tabs — supporting views (data, analytics, scanning).
+const SECONDARY_NAV: NavItem[] = [
   { view: 'database', label: 'Database', icon: Database  },
   { view: 'reports',  label: 'Reports',  icon: FileText  },
   { view: 'trends',   label: 'Trends',   icon: TrendingUp },
@@ -136,8 +143,14 @@ export function Sidebar() {
       )}
 
       {/* Nav */}
-      <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map(renderItem)}
+      <nav className="flex-1 p-2 overflow-y-auto">
+        <div className="space-y-0.5">
+          {PRIMARY_NAV.map(renderItem)}
+        </div>
+        <div className={cn('my-2 border-t border-border-default/60', !expanded && 'mx-1')} aria-hidden />
+        <div className="space-y-0.5">
+          {SECONDARY_NAV.map(renderItem)}
+        </div>
       </nav>
 
       {/* Bottom */}

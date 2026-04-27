@@ -56,7 +56,7 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 150)}
           onKeyDown={handleKey}
-          placeholder="Search… or try company:Stripe tier:T1 min-score:7"
+          placeholder="Search…"
           className="flex-1 bg-transparent outline-none text-[13px] text-text-1 placeholder:text-text-4 min-w-0"
           spellCheck={false}
         />
