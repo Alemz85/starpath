@@ -58,16 +58,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    // Auto-complete onboarding if key files already exist in the repo.
+    // Auto-flip both onboarding + tailoring flags whenever the repo on disk
+    // is clearly already set up. Covers two paths:
+    //   1. Fresh install — cfg empty, user files exist → bypass everything.
+    //   2. Re-launch with stale cfg — e.g. userData persisted from a previous
+    //      session that left tailoringComplete=false (the user walked through
+    //      the wizard but the tailoring agent never finished). If the user
+    //      files are present and substantive, the workspace IS tailored;
+    //      no need to re-run the agent.
     let isOnboarded = cfg?.onboardingComplete === true
-    if (!isOnboarded && cfg?.repoPath && await detectExistingSetup()) {
-      await ipc.setOnboardingComplete(true)
-      isOnboarded = true
+    let tailoringComplete = cfg?.tailoringComplete === true
+    const repoIsTuned = !!cfg?.repoPath && await detectExistingSetup()
+    if (repoIsTuned) {
+      if (!isOnboarded) {
+        await ipc.setOnboardingComplete(true)
+        isOnboarded = true
+      }
+      if (!tailoringComplete) {
+        await ipc.setTailoringComplete(true)
+        tailoringComplete = true
+      }
     }
-
-    const tailoringComplete = isOnboarded
-      ? (cfg?.tailoringComplete ?? true)
-      : (cfg?.tailoringComplete ?? false)
 
     set({
       repoPath:          cfg?.repoPath ?? null,
