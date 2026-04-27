@@ -65,13 +65,15 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
 
   return (
     <div className="w-52 shrink-0 border-r border-border-default flex flex-col bg-bg-chrome overflow-y-auto">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default">
+      <div className="flex items-center justify-between px-3 h-10 shrink-0 border-b border-border-default">
         <span className="text-micro text-text-4 uppercase">Filters</span>
-        {activeCount > 0 && (
+        {activeCount > 0 ? (
           <button onClick={clearAll} className="flex items-center gap-1 text-label text-text-3 hover:text-danger transition-colors">
             <X size={11} />
             Clear {activeCount}
           </button>
+        ) : (
+          <span aria-hidden />
         )}
       </div>
 
@@ -202,13 +204,12 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
       </button>
       {expanded && (
         <div className="px-2 pb-3 pt-1 space-y-3">
-          {/* Value pills */}
-          <div className="flex items-center justify-between gap-2">
-            <span className="px-2 py-0.5 rounded-pill bg-accent/10 text-accent font-mono text-[11px] font-semibold tabular-nums">
+          {/* Value labels */}
+          <div className="flex items-center justify-between gap-2 px-1">
+            <span className="font-mono text-[11px] text-text-2 tabular-nums">
               {min.toFixed(1)}
             </span>
-            <div className="flex-1 h-px bg-border-default" />
-            <span className="px-2 py-0.5 rounded-pill bg-accent/10 text-accent font-mono text-[11px] font-semibold tabular-nums">
+            <span className="font-mono text-[11px] text-text-2 tabular-nums">
               {max.toFixed(1)}
             </span>
           </div>
@@ -260,15 +261,8 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
 }
 
 function TierChip({ tier }: { tier: string }) {
-  const colorMap: Record<string, string> = {
-    'T1':     'text-tier-1',
-    'T2-high':'text-success',
-    'T2':     'text-tier-2',
-    'T3':     'text-tier-3',
-    'T4':     'text-tier-4',
-  }
   return (
-    <span className={cn('text-label font-mono font-medium', colorMap[tier] ?? 'text-text-2')}>
+    <span className="text-label font-mono text-text-2">
       {tier === 'T2-high' ? 'T2+' : tier}
     </span>
   )
