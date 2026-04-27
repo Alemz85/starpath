@@ -38,6 +38,9 @@ export const ipc = {
   listDir:              (path: string)          => api().listDir(path) as Promise<string[]>,
   listRecursive:        (dir: string, ext: string) => api().listRecursive(dir, ext) as Promise<string[]>,
 
+  // Logo cache
+  fetchLogo:            (domain: string)             => api().fetchLogo(domain) as Promise<string | null>,
+
   // Shell
   run:                  (cmd: string, args: string[]) => api().run(cmd, args) as Promise<{ stdout: string; stderr: string; code: number }>,
   spawn:                (id: string, cmd: string, args: string[]) => api().spawn(id, cmd, args),
