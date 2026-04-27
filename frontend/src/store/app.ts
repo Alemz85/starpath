@@ -3,6 +3,19 @@ import { ipc } from '@/lib/ipc'
 import { getCurrentMode, setCurrentMode, hasLegacyMode } from '@/lib/parsers/yaml'
 import type { AppMode } from '@/types'
 
+// Returns true if the currently-pointed-at repo already has the four critical
+// user files filled in to a meaningful degree. Used to bypass the onboarding
+// wizard when the user opens an already-tuned workspace.
+async function detectExistingSetup(): Promise<boolean> {
+  const [cv, profile, portals] = await Promise.all([
+    ipc.readFile('user/cv.md'),
+    ipc.readFile('user/profile.yml'),
+    ipc.readFile('user/portals.yml'),
+  ])
+  const hasContent = (s: string | null, min = 100) => !!s && s.trim().length >= min
+  return hasContent(cv) && hasContent(profile, 50) && hasContent(portals, 50)
+}
+
 interface AppState {
   repoPath: string | null
   isOnboarded: boolean
@@ -47,17 +60,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Auto-complete onboarding if key files already exist in the repo.
     let isOnboarded = cfg?.onboardingComplete === true
-    if (!isOnboarded && cfg?.repoPath) {
-      const [cv, profile, portals] = await Promise.all([
-        ipc.readFile('user/cv.md'),
-        ipc.readFile('user/profile.yml'),
-        ipc.readFile('user/portals.yml'),
-      ])
-      const hasContent = (s: string | null, min = 100) => !!s && s.trim().length >= min
-      if (hasContent(cv) && hasContent(profile, 50) && hasContent(portals, 50)) {
-        await ipc.setOnboardingComplete(true)
-        isOnboarded = true
-      }
+    if (!isOnboarded && cfg?.repoPath && await detectExistingSetup()) {
+      await ipc.setOnboardingComplete(true)
+      isOnboarded = true
     }
 
     const tailoringComplete = isOnboarded
@@ -76,6 +81,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   setRepoPath: async (p: string) => {
     await ipc.setRepoPath(p)
     set({ repoPath: p })
+    // If the user pointed the app at a repo that already has the four
+    // critical user/* files filled in, skip the wizard outright. Same logic
+    // as init() — but init() only runs once at launch (when repoPath was
+    // still null), so we have to re-check here after the path is picked.
+    if (!get().isOnboarded && await detectExistingSetup()) {
+      await ipc.setOnboardingComplete(true)
+      await ipc.setTailoringComplete(true)
+      set({ isOnboarded: true, tailoringComplete: true })
+    }
   },
 
   setOnboardingComplete: async () => {
