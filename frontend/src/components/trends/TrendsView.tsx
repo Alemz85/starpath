@@ -10,8 +10,8 @@ import {
 import { cn } from '@/lib/utils'
 
 const DIM_COLORS = [
-  '#0064E0', '#C99518', '#A0612C', '#6B7280',
-  '#2ABBA7', '#F3425F', '#54C7EC', '#9360F7',
+  '#7C5CFF', '#C99518', '#A0612C', '#6B7280',
+  '#2ABBA7', '#F3425F', '#54C7EC', '#A121CE',
 ]
 
 type DimKey = 'avg_overall' | 'avg_current_fit' | 'avg_aspirational_fit' | 'avg_skills_match' | 'avg_brand_value' | 'avg_growth' | 'avg_wlb'

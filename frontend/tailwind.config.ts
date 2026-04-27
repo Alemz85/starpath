@@ -23,13 +23,13 @@ const config: Config = {
         'text-2': '#1C2B33',  // dark charcoal body (--dolly-text-primary)
         'text-3': '#5D6C7B',  // slate gray secondary (--dolly-text-secondary)
         'text-4': '#8595A4',  // muted, disabled labels
-        // Accent — Meta Blue
-        'accent':       '#0064E0',
-        'accent-hover': '#0143B5',
-        'accent-press': '#004BB9',
-        'accent-soft':  'rgba(0,100,224,0.10)',
-        'accent-text':  '#0064E0',
-        'accent-light': '#47A5FA',
+        // Accent — Galaxy violet (lighter version of the immersive #0A0820)
+        'accent':       '#7C5CFF',
+        'accent-hover': '#5B3FE8',
+        'accent-press': '#4A2FC8',
+        'accent-soft':  'rgba(124,92,255,0.12)',
+        'accent-text':  '#7C5CFF',
+        'accent-light': '#B5A3FF',
         // Tier palette (Meta-tuned for white surface)
         'tier-1':      '#C99518',  // gold (deeper for contrast on white)
         'tier-1-bg':   '#FFF8E1',
@@ -42,7 +42,11 @@ const config: Config = {
         'success': '#007D1E',
         'warning': '#F7B928',
         'danger':  '#C80A28',
-        'info':    '#0064E0',
+        'info':    '#7C5CFF',
+        // Galaxy surfaces — matte palette for activity panels
+        'galaxy-deep':    '#0A0820',  // immersive splash
+        'galaxy-matte':   '#1F1B36',  // activity panel body (matte/pastel)
+        'galaxy-matte-2': '#2A2548',  // activity panel header (slightly lighter)
       },
       fontFamily: {
         // Optimistic VF is proprietary; Montserrat (a Meta-listed fallback)

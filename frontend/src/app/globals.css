@@ -6,10 +6,15 @@
 
 :root {
   color-scheme: light;
-  /* Dolly tokens, exposed as CSS vars for ad-hoc use */
-  --meta-blue:        #0064E0;
-  --meta-blue-hover:  #0143B5;
-  --meta-blue-press:  #004BB9;
+  /* Brand accent — galaxy violet (a lighter relative of the immersive #0A0820) */
+  --accent:           #7C5CFF;
+  --accent-hover:     #5B3FE8;
+  --accent-press:     #4A2FC8;
+  --accent-light:     #B5A3FF;
+  /* Galaxy surfaces — matte palette */
+  --galaxy-deep:      #0A0820;
+  --galaxy-matte:     #1F1B36;
+  --galaxy-matte-2:   #2A2548;
   --dolly-bg-grey:    #F1F4F7;
   --dolly-text-primary:   #1C2B33;
   --dolly-text-secondary: #5D6C7B;
@@ -62,9 +67,9 @@ p, td, th, li, .selectable {
   background: #909396;
 }
 
-/* Focus ring — Meta Blue */
+/* Focus ring — Galaxy violet */
 :focus-visible {
-  outline: 2px solid #0064E0;
+  outline: 2px solid #7C5CFF;
   outline-offset: 2px;
 }
 
@@ -117,7 +122,7 @@ p, td, th, li, .selectable {
    Used on Command Center hero, Trends chart, empty-state cards. */
 .galaxy-bg {
   background:
-    radial-gradient(ellipse at 78% 18%, rgba(0, 100, 224, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 78% 18%, rgba(124, 92, 255, 0.06) 0%, transparent 55%),
     radial-gradient(ellipse at 22% 88%, rgba(124, 92, 255, 0.07) 0%, transparent 60%),
     radial-gradient(ellipse at 50% 50%, rgba(161, 33, 206, 0.025) 0%, transparent 70%),
     #FFFFFF;
@@ -140,7 +145,7 @@ p, td, th, li, .selectable {
 
 /* Brand wordmark — galaxy gradient text clip. */
 .galaxy-text {
-  background: linear-gradient(135deg, #0064E0 0%, #7C5CFF 50%, #A121CE 100%);
+  background: linear-gradient(135deg, #5B3FE8 0%, #7C5CFF 50%, #A121CE 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -152,7 +157,7 @@ p, td, th, li, .selectable {
   border: 1px solid transparent;
   background:
     linear-gradient(#FFFFFF, #FFFFFF) padding-box,
-    linear-gradient(135deg, rgba(0,100,224,0.4), rgba(124,92,255,0.4), rgba(161,33,206,0.4)) border-box;
+    linear-gradient(135deg, rgba(124,92,255,0.4), rgba(91,63,232,0.4), rgba(161,33,206,0.4)) border-box;
 }
 
 /* Suggestion chip appear animation */
@@ -171,7 +176,7 @@ p, td, th, li, .selectable {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-/* Pill button utility — Meta primary CTA */
+/* Pill button utility — galaxy primary CTA */
 .btn-pill {
   display: inline-flex;
   align-items: center;
@@ -182,15 +187,16 @@ p, td, th, li, .selectable {
   font-size: 14px;
   font-weight: 500;
   letter-spacing: -0.14px;
-  background: #0064E0;
+  background: #7C5CFF;
   color: #FFFFFF;
   border: none;
   cursor: pointer;
-  transition: background 200ms ease, transform 150ms ease;
+  transition: background 200ms ease, transform 150ms ease, box-shadow 200ms ease;
+  box-shadow: 0 1px 2px rgba(76, 47, 200, 0.15);
 }
-.btn-pill:hover { background: #0143B5; }
-.btn-pill:active { background: #004BB9; transform: scale(0.98); }
-.btn-pill:disabled { background: #DEE3E9; color: #8595A4; cursor: not-allowed; }
+.btn-pill:hover { background: #5B3FE8; box-shadow: 0 4px 12px rgba(124, 92, 255, 0.35); }
+.btn-pill:active { background: #4A2FC8; transform: scale(0.98); }
+.btn-pill:disabled { background: #DEE3E9; color: #8595A4; cursor: not-allowed; box-shadow: none; }
 
 .btn-pill-outline {
   display: inline-flex;
@@ -231,7 +237,7 @@ p, td, th, li, .selectable {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #0064E0;
+  color: #7C5CFF;
   margin-top: 1.5rem;
   margin-bottom: 0.5rem;
   padding-bottom: 0.4rem;
@@ -255,10 +261,10 @@ p, td, th, li, .selectable {
   background: #F1F4F7;
   padding: 0.1rem 0.4rem;
   border-radius: 6px;
-  color: #0064E0;
+  color: #7C5CFF;
 }
 .prose-report blockquote {
-  border-left: 3px solid #0064E0;
+  border-left: 3px solid #7C5CFF;
   padding: 0.25rem 0 0.25rem 0.875rem;
   color: #5D6C7B;
   margin: 0.75rem 0;
@@ -286,7 +292,7 @@ p, td, th, li, .selectable {
   vertical-align: top;
 }
 .prose-report td:first-child { color: #050505; font-weight: 500; }
-.prose-report tbody tr:hover { background: rgba(0, 100, 224, 0.04); }
+.prose-report tbody tr:hover { background: rgba(124, 92, 255, 0.04); }
 .prose-report hr {
   border: none;
   border-top: 1px solid #DEE3E9;
@@ -338,8 +344,8 @@ p, td, th, li, .selectable {
   height: 16px;
   border-radius: 50%;
   background: #FFFFFF;
-  border: 2px solid #0064E0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 100, 224, 0.1);
+  border: 2px solid #7C5CFF;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(124, 92, 255, 0.1);
   pointer-events: auto;
   cursor: grab;
   transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
@@ -348,7 +354,7 @@ p, td, th, li, .selectable {
 .range-overlay::-webkit-slider-thumb:hover {
   transform: scale(1.12);
   background: #F4F8FF;
-  box-shadow: 0 2px 6px rgba(0, 100, 224, 0.25), 0 0 0 4px rgba(0, 100, 224, 0.12);
+  box-shadow: 0 2px 6px rgba(124, 92, 255, 0.25), 0 0 0 4px rgba(124, 92, 255, 0.12);
 }
 .range-overlay::-webkit-slider-thumb:active {
   cursor: grabbing;
@@ -360,7 +366,7 @@ p, td, th, li, .selectable {
   height: 16px;
   border-radius: 50%;
   background: #FFFFFF;
-  border: 2px solid #0064E0;
+  border: 2px solid #7C5CFF;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
   pointer-events: auto;
   cursor: grab;
@@ -369,9 +375,9 @@ p, td, th, li, .selectable {
 .range-overlay::-moz-range-thumb:hover {
   transform: scale(1.12);
   background: #F4F8FF;
-  box-shadow: 0 2px 6px rgba(0, 100, 224, 0.25), 0 0 0 4px rgba(0, 100, 224, 0.12);
+  box-shadow: 0 2px 6px rgba(124, 92, 255, 0.25), 0 0 0 4px rgba(124, 92, 255, 0.12);
 }
 .range-overlay:focus { outline: none; }
 .range-overlay:focus::-webkit-slider-thumb {
-  box-shadow: 0 2px 6px rgba(0, 100, 224, 0.35), 0 0 0 4px rgba(0, 100, 224, 0.2);
+  box-shadow: 0 2px 6px rgba(124, 92, 255, 0.35), 0 0 0 4px rgba(124, 92, 255, 0.2);
 }

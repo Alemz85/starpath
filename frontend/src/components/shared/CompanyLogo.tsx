@@ -62,7 +62,7 @@ export function guessDomain(company: string): string {
 
 // Meta FDS spectrum — pairs of accent + slightly darker variant for gradient avatars on white
 const PALETTE: [string, string][] = [
-  ['#0064E0', '#0143B5'], ['#9360F7', '#6441D2'], ['#2ABBA7', '#1F8478'],
+  ['#7C5CFF', '#5B3FE8'], ['#A121CE', '#6F1B91'], ['#2ABBA7', '#1F8478'],
   ['#FB724B', '#C8431F'], ['#F3425F', '#C81F3D'], ['#54C7EC', '#2A8FB5'],
   ['#FF66BF', '#C73D93'], ['#C99518', '#8E6610'],
 ]
