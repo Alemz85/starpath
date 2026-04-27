@@ -4,6 +4,7 @@ export type ViewId =
   | 'scouting'
   | 'applying'
   | 'database'
+  | 'pipeline'
   | 'reports'
   | 'trends'
   | 'scan'

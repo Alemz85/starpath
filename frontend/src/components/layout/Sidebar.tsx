@@ -9,6 +9,7 @@ import {
   Briefcase,
   Database,
   FileText,
+  GitBranch,
   TrendingUp,
   Search,
   Settings,
@@ -37,12 +38,13 @@ const PRIMARY_NAV: NavItem[] = [
   { view: 'applying', label: 'Applying', icon: Briefcase,  syncMode: 'applying' },
 ]
 
-// Secondary tabs — supporting views (data, analytics, scanning).
+// Secondary tabs — supporting views (data, workflow, analytics, scanning).
 const SECONDARY_NAV: NavItem[] = [
-  { view: 'database', label: 'Database', icon: Database  },
-  { view: 'reports',  label: 'Reports',  icon: FileText  },
+  { view: 'database', label: 'Database', icon: Database   },
+  { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
+  { view: 'reports',  label: 'Reports',  icon: FileText   },
   { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-  { view: 'scan',     label: 'Scan',     icon: Radar     },
+  { view: 'scan',     label: 'Scan',     icon: Radar      },
 ]
 
 const BOTTOM_ITEMS: NavItem[] = [
