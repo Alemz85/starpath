@@ -270,9 +270,8 @@ function ActionButton({
 }
 
 // ─── Tooltip ────────────────────────────────────────────────────────────────
-// Custom hover tooltip — fast (180ms delay), styled to the matte galaxy
-// palette, points down into the gap between the button row and the activity
-// panel. Replaces native `title=` (which has a long delay and unstyled look).
+// Plain hover description — no card, no arrow, just muted text that fades in
+// below the button on hover and lives in the gap above the activity panel.
 
 function TooltipWrapper({
   content,
@@ -306,25 +305,10 @@ function TooltipWrapper({
       {show && content && (
         <span
           role="tooltip"
-          className="absolute left-1/2 -translate-x-1/2 top-[calc(100%+10px)] z-30 pointer-events-none"
+          className="absolute left-1/2 -translate-x-1/2 top-[calc(100%+10px)] z-10 pointer-events-none whitespace-nowrap text-label text-text-3"
           style={{ animation: 'chip-appear 180ms ease both' }}
         >
-          {/* Arrow */}
-          <span
-            className="absolute left-1/2 -translate-x-1/2 -top-1 w-2 h-2 rotate-45"
-            style={{ background: '#2A2548' }}
-            aria-hidden
-          />
-          <span
-            className="block px-3 py-2 rounded-md text-[11.5px] leading-snug max-w-[260px] text-center whitespace-normal"
-            style={{
-              background: '#2A2548',
-              color: '#E8E5F5',
-              boxShadow: '0 6px 18px rgba(20, 14, 50, 0.28)',
-            }}
-          >
-            {content}
-          </span>
+          {content}
         </span>
       )}
     </span>
