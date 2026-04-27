@@ -81,7 +81,7 @@ export function DatabaseView() {
               type="checkbox"
               checked={showClosed}
               onChange={e => setShowClosed(e.target.checked)}
-              className="accent-[#0064E0]"
+              className="accent-[#7C5CFF]"
             />
             Show zero-score
           </label>

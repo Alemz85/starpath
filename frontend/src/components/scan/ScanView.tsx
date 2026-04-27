@@ -1,178 +1,108 @@
 'use client'
 
-import { useRef, useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore } from '@/store/spawns'
-import { Radar, Play, Square, RotateCcw, Zap } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ActionButton, ActivityPanel, pickVisible } from '@/components/command-center/CommandCenter'
+import { Play, Zap, FileOutput, Radar } from 'lucide-react'
 
-const SCAN_VIEW_ID = 'scan-main'
+const FULL_SCAN_ID = 'cmd-full-scan'
+const API_SCAN_ID  = 'cmd-api-scan'
+const PIPELINE_ID  = 'cmd-pipeline'
 
 export function ScanView() {
   const { repoPath } = useAppStore()
   const { refresh } = useDataStore()
   const { spawns, start, kill, clear } = useSpawnsStore()
-  const record = spawns[SCAN_VIEW_ID]
-  const status = record ? record.status : ('idle' as const)
-  const output = record?.output ?? []
-  const isRunning = status === 'running'
-  const [autoScroll, setAutoScroll] = useState(true)
-  const logRef = useRef<HTMLDivElement>(null)
 
-  // Refresh data store whenever a scan finishes.
+  const fullScan = spawns[FULL_SCAN_ID]
+  const apiScan  = spawns[API_SCAN_ID]
+  const pipeline = spawns[PIPELINE_ID]
+
+  const visible = pickVisible(fullScan, apiScan, pipeline)
+  const anyRunning =
+    fullScan?.status === 'running' ||
+    apiScan?.status === 'running' ||
+    pipeline?.status === 'running'
+
+  // Refresh data store whenever any spawn finishes.
   useEffect(() => {
-    if (status === 'done' || status === 'error' || status === 'killed') refresh()
-  }, [status, refresh])
-
+    if (fullScan?.status === 'done' || fullScan?.status === 'error' || fullScan?.status === 'killed') refresh()
+  }, [fullScan?.status, refresh])
   useEffect(() => {
-    if (autoScroll && logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight
-    }
-  }, [output.length, autoScroll])
+    if (apiScan?.status === 'done' || apiScan?.status === 'error' || apiScan?.status === 'killed') refresh()
+  }, [apiScan?.status, refresh])
+  useEffect(() => {
+    if (pipeline?.status === 'done' || pipeline?.status === 'error' || pipeline?.status === 'killed') refresh()
+  }, [pipeline?.status, refresh])
 
-  const runScan = (mode: 'full' | 'api') => {
-    if (!repoPath) return
-    if (record) clear(SCAN_VIEW_ID)
-    if (mode === 'api') start(SCAN_VIEW_ID, 'API Scan',  'node',   ['scripts/scan.mjs'])
-    else                start(SCAN_VIEW_ID, 'Full Scan', 'claude', ['-p', '@modes/scan.md'])
+  const handleFullScan = () => {
+    if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
+    if (fullScan) clear(FULL_SCAN_ID)
+    start(FULL_SCAN_ID, 'Full Scan', 'claude', ['-p', '@modes/scan.md'])
   }
-  const stopScan = () => kill(SCAN_VIEW_ID)
-  const clearLog = () => clear(SCAN_VIEW_ID)
+  const handleApiScan = () => {
+    if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }
+    if (apiScan) clear(API_SCAN_ID)
+    start(API_SCAN_ID, 'API Scan', 'node', ['scripts/scan.mjs'])
+  }
+  const handlePipeline = () => {
+    if (pipeline?.status === 'running') { kill(PIPELINE_ID); return }
+    if (pipeline) clear(PIPELINE_ID)
+    start(PIPELINE_ID, 'Generate Reports', 'claude', ['-p', '@modes/pipeline.md'])
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Scan</h1>
-        <span className={cn(
-          'text-micro font-mono px-2 py-0.5 rounded-full border',
-          status === 'idle'    && 'text-text-4 border-border-default',
-          status === 'running' && 'text-accent border-accent/40 bg-accent/10',
-          status === 'done'    && 'text-success border-success/40 bg-success/10',
-          status === 'error'   && 'text-danger border-danger/40 bg-danger/10',
-          status === 'killed'  && 'text-text-3 border-border-default',
-        )}>
-          {isRunning ? `${record?.label ?? 'scan'} · running` : status}
-        </span>
-        <div className="flex-1" />
-
-        {isRunning ? (
-          <button
-            onClick={stopScan}
-            className="titlebar-no-drag flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-danger/20 text-danger border border-danger/30 text-label hover:bg-danger/30 transition-colors"
-          >
-            <Square size={12} />
-            Stop
-          </button>
-        ) : (
-          <div className="titlebar-no-drag flex items-center gap-2">
-            <button
-              onClick={() => runScan('full')}
-              disabled={!repoPath}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/15 text-accent border border-accent/40 text-label hover:bg-accent/25 disabled:opacity-40 transition-colors"
-              title="Playwright + API + WebSearch — uses Claude (token cost)"
-            >
-              <Play size={12} />
-              Full Scan
-            </button>
-            <button
-              onClick={() => runScan('api')}
-              disabled={!repoPath}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-bg-elevated text-text-3 border border-border-default text-label hover:text-text-2 hover:border-border-strong disabled:opacity-40 transition-colors"
-              title="Direct API calls only — zero token cost"
-            >
-              <Zap size={12} />
-              API Only
-            </button>
-          </div>
-        )}
-
-        {!isRunning && output.length > 0 && (
-          <button
-            onClick={clearLog}
-            className="titlebar-no-drag flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-text-4 hover:text-text-2 border border-border-default text-label transition-colors"
-          >
-            <RotateCcw size={12} />
-            Clear
-          </button>
+        <h1 className="text-body text-text-1 font-medium flex items-center gap-2">
+          <Radar size={14} className="text-accent" />
+          Scan
+        </h1>
+        {anyRunning && (
+          <span className="text-micro font-mono px-2 py-0.5 rounded-pill border text-accent border-accent/40 bg-accent/10">
+            running
+          </span>
         )}
       </div>
 
-      {/* Idle explanation */}
-      {status === 'idle' && output.length === 0 && (
-        <div className="px-6 py-8 space-y-6">
-          <div className="text-center space-y-2">
-            <Radar size={40} className="text-text-4 mx-auto opacity-30" />
-            <p className="text-body text-text-2 font-medium">Portal Scanner</p>
-            <p className="text-label text-text-4">
-              Configure companies and keywords in <code className="text-accent text-micro">user/portals.yml</code>
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 max-w-lg mx-auto">
-            <div className="p-4 bg-bg-panel border border-accent/30 rounded-lg space-y-1.5">
-              <div className="flex items-center gap-2">
-                <Play size={13} className="text-accent" />
-                <span className="text-body text-text-1 font-medium">Full Scan</span>
-              </div>
-              <p className="text-label text-text-3 leading-snug">
-                Playwright + ATS APIs + WebSearch. Covers all tracked companies including those
-                without a public API. Uses Claude (token cost).
-              </p>
-            </div>
-            <div className="p-4 bg-bg-panel border border-border-default rounded-lg space-y-1.5">
-              <div className="flex items-center gap-2">
-                <Zap size={13} className="text-text-3" />
-                <span className="text-body text-text-1 font-medium">API Only</span>
-              </div>
-              <p className="text-label text-text-3 leading-snug">
-                Direct API calls to Greenhouse, Ashby, Lever, Workday, SmartRecruiters.
-                Zero token cost — instant and free.
-              </p>
-            </div>
-          </div>
+      <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-7 overflow-hidden min-h-0">
+        {/* Centered button row */}
+        <div className="shrink-0 flex items-center justify-center gap-3 pt-2">
+          <ActionButton
+            label="Full Scan"
+            icon={Play}
+            tone="primary"
+            running={fullScan?.status === 'running'}
+            onClick={handleFullScan}
+            disabled={!repoPath}
+            title="Playwright + ATS APIs + WebSearch — uses Claude (token cost)"
+          />
+          <ActionButton
+            label="API Only"
+            icon={Zap}
+            tone="outline"
+            running={apiScan?.status === 'running'}
+            onClick={handleApiScan}
+            disabled={!repoPath}
+            title="Direct ATS API calls — zero token cost, instant"
+          />
+          <div className="w-px h-6 bg-border-default" aria-hidden />
+          <ActionButton
+            label="Generate Reports"
+            icon={FileOutput}
+            tone="outline"
+            running={pipeline?.status === 'running'}
+            onClick={handlePipeline}
+            disabled={!repoPath}
+            title="Process pending listings in data/pipeline.md into evaluation reports"
+          />
         </div>
-      )}
 
-      {/* Log output */}
-      {(isRunning || output.length > 0) && (
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex items-center justify-between px-4 py-1.5 border-b border-border-default bg-bg-chrome shrink-0">
-            <span className="text-micro text-text-4 uppercase">Output</span>
-            <label className="flex items-center gap-1.5 text-micro text-text-4 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoScroll}
-                onChange={e => setAutoScroll(e.target.checked)}
-                className="accent-[#0064E0] w-3 h-3"
-              />
-              Auto-scroll
-            </label>
-          </div>
-          <div
-            ref={logRef}
-            className="flex-1 overflow-y-auto p-4 font-mono text-[12px] leading-relaxed bg-bg-base"
-            style={{ userSelect: 'text' }}
-          >
-            {output.map((line, i) => (
-              <div key={i} className={cn(
-                'whitespace-pre-wrap break-all',
-                line.includes('ERROR') || line.includes('error') ? 'text-danger' :
-                line.includes('WARN')  || line.includes('warn')  ? 'text-warning' :
-                line.includes('✓')     || line.includes('found') ? 'text-success' :
-                'text-text-3',
-              )}>
-                {line}
-              </div>
-            ))}
-            {isRunning && (
-              <div className="flex items-center gap-1.5 text-accent mt-1">
-                <span className="inline-block w-1.5 h-3 bg-accent animate-pulse rounded-sm" />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+        {/* Activity panel — fills remaining height */}
+        <ActivityPanel record={visible} />
+      </div>
     </div>
   )
 }

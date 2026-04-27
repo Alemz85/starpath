@@ -61,24 +61,22 @@ export function CommandCenter() {
         <h1 className="text-body text-text-1 font-medium">Command Center</h1>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-8">
-        {/* Hero */}
-        <div className="mb-6">
-          <div className="galaxy-bg rounded-lg p-6 border border-border-default">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-page text-text-1 mb-1">Command Center</h1>
-                <p className="text-body text-text-3">
-                  {loaded ? `${totalEvaluated} offers evaluated · ${pendingListings} pending in pipeline` : 'Loading data…'}
-                </p>
-              </div>
-              <ModeToggle />
+      <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-6 overflow-hidden min-h-0">
+        {/* Hero — fixed height */}
+        <div className="shrink-0 galaxy-bg rounded-lg p-6 border border-border-default">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-page text-text-1 mb-1">Command Center</h1>
+              <p className="text-body text-text-3">
+                {loaded ? `${totalEvaluated} offers evaluated · ${pendingListings} pending in pipeline` : 'Loading data…'}
+              </p>
             </div>
+            <ModeToggle />
           </div>
         </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3 mb-6 lg:grid-cols-5">
+        {/* Stats row — fixed height */}
+        <div className="shrink-0 grid grid-cols-3 gap-3 lg:grid-cols-5">
           <StatCard
             label="Total evaluated"
             value={loaded ? String(totalEvaluated) : '—'}
@@ -114,11 +112,11 @@ export function CommandCenter() {
           />
         </div>
 
-        {/* Action panel — scouting cockpit */}
+        {/* Action panel — scouting cockpit (flex-grows to fill remaining height) */}
         {currentMode === 'scouting' ? (
           <ScoutingActionPanel repoPath={repoPath} onPipelineDone={refresh} />
         ) : (
-          <div className="rounded-lg border border-border-default bg-bg-elevated px-5 py-4 text-body text-text-3 flex items-center gap-2">
+          <div className="shrink-0 rounded-lg border border-border-default bg-bg-elevated px-5 py-4 text-body text-text-3 flex items-center gap-2">
             <Clock size={14} className="text-text-4" />
             Job-seeking mode — manage active offers from the Pipeline tab.
           </div>
@@ -142,7 +140,7 @@ function ScoutingActionPanel({
   const apiScan  = spawns[API_SCAN_ID]
   const pipeline = spawns[PIPELINE_ID]
 
-  // The spawn currently shown in the terminal panel: prefer the running one,
+  // The spawn currently shown in the activity panel: prefer the running one,
   // else the most recently started (so the user sees the latest result).
   const visible = pickVisible(fullScan, apiScan, pipeline)
 
@@ -172,9 +170,9 @@ function ScoutingActionPanel({
   }
 
   return (
-    <div className="space-y-3">
-      {/* Button row */}
-      <div className="flex items-center gap-2 flex-wrap">
+    <div className="flex-1 flex flex-col min-h-0 gap-7">
+      {/* Button row — centered, with | as the midpoint */}
+      <div className="shrink-0 flex items-center justify-center gap-3 pt-2">
         <ActionButton
           label="Full Scan"
           icon={Play}
@@ -182,7 +180,7 @@ function ScoutingActionPanel({
           running={fullScan?.status === 'running'}
           onClick={handleFullScan}
           disabled={!repoPath}
-          title="Playwright + ATS APIs + WebSearch (Claude, token cost)"
+          title="Playwright + ATS APIs + WebSearch — uses Claude (token cost)"
         />
         <ActionButton
           label="API Only"
@@ -193,7 +191,7 @@ function ScoutingActionPanel({
           disabled={!repoPath}
           title="Direct ATS API calls — zero token cost, instant"
         />
-        <div className="w-px h-6 bg-border-default mx-1" aria-hidden />
+        <div className="w-px h-6 bg-border-default" aria-hidden />
         <ActionButton
           label="Generate Reports"
           icon={FileOutput}
@@ -201,15 +199,18 @@ function ScoutingActionPanel({
           running={pipeline?.status === 'running'}
           onClick={handlePipeline}
           disabled={!repoPath}
-          title="Process pending listings into evaluation reports"
+          title="Process pending listings in data/pipeline.md into evaluation reports"
         />
       </div>
 
-      {/* Terminal panel */}
-      <TerminalPanel record={visible} />
+      {/* Activity panel (flex-grows to fill remaining vertical space) */}
+      <ActivityPanel record={visible} />
     </div>
   )
 }
+
+// Shared exports — used by ScanView too.
+export { ActionButton, ActivityPanel, LoadingMessage, pickVisible }
 
 function pickVisible(
   ...records: Array<SpawnRecord | undefined>
@@ -274,9 +275,11 @@ function ActionButton({
   )
 }
 
-// ─── Terminal Panel ─────────────────────────────────────────────────────────
+// ─── Activity Panel ─────────────────────────────────────────────────────────
+// Shared between Command Center and /scan. Flex-grows to fill the remaining
+// vertical space of its parent flex column.
 
-function TerminalPanel({ record }: { record: SpawnRecord | undefined }) {
+function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
   const logRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom on new lines.
@@ -289,11 +292,17 @@ function TerminalPanel({ record }: { record: SpawnRecord | undefined }) {
   const showLoadingMessages = isRunning && !hasOutput
 
   return (
-    <div className="relative h-72 rounded-lg overflow-hidden bg-[#0A0820] shadow-card">
-      {/* Header strip */}
-      <div className="absolute inset-x-0 top-0 h-7 px-3 flex items-center justify-between bg-[#15102B] border-b border-white/5 text-[10px] font-mono uppercase tracking-wider">
-        <span className="text-white/50">
-          {record ? record.label : 'Terminal'} {record && statusGlyph(record)}
+    <div
+      className="flex-1 min-h-0 relative rounded-xl overflow-hidden flex flex-col"
+      style={{ background: '#1F1B36', boxShadow: '0 10px 32px rgba(20, 14, 50, 0.18)' }}
+    >
+      {/* Header strip — no static "Terminal" label */}
+      <div
+        className="shrink-0 h-7 px-3 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider"
+        style={{ background: '#2A2548', borderColor: 'rgba(255,255,255,0.05)' }}
+      >
+        <span className="text-white/55">
+          {record ? `${record.label} ${statusGlyph(record)}` : 'Idle'}
         </span>
         {record?.startedAt ? (
           <span className="text-white/40 tabular-nums">
@@ -305,11 +314,11 @@ function TerminalPanel({ record }: { record: SpawnRecord | undefined }) {
       {/* Body */}
       <div
         ref={logRef}
-        className="absolute inset-x-0 bottom-0 top-7 overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.55]"
-        style={{ userSelect: 'text', color: '#C8C5D6' }}
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.6] relative"
+        style={{ userSelect: 'text', color: '#D4CFE6' }}
       >
         {!record && (
-          <p className="text-white/35 italic">Idle. Pick a scan or generate reports above.</p>
+          <p className="text-white/40 italic">Pick a scan or generate reports above.</p>
         )}
 
         {record && record.output.map((line, i) => (
@@ -317,9 +326,9 @@ function TerminalPanel({ record }: { record: SpawnRecord | undefined }) {
             key={i}
             className={cn(
               'whitespace-pre-wrap break-all',
-              /error/i.test(line)               ? 'text-[#FF8A9B]' :
-              /warn/i.test(line)                ? 'text-[#F7B928]' :
-              /✓|done|found|appended/i.test(line)? 'text-[#7CE08F]' :
+              /error/i.test(line)               ? 'text-[#FF8FA3]' :
+              /warn/i.test(line)                ? 'text-[#F7CC78]' :
+              /✓|done|found|appended/i.test(line)? 'text-[#9AE3A8]' :
               ''
             )}
           >

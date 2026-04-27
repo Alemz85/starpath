@@ -163,7 +163,7 @@ function FacetGroup({
                 type="checkbox"
                 checked={selected.has(item)}
                 onChange={() => onToggle(item)}
-                className="w-3 h-3 accent-[#0064E0] cursor-pointer"
+                className="w-3 h-3 accent-[#7C5CFF] cursor-pointer"
               />
               {renderItem ? renderItem(item) : (
                 <span className="text-label text-text-2 truncate">{item}</span>

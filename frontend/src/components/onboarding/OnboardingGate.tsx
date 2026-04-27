@@ -49,7 +49,7 @@ export function OnboardingGate() {
   const handleAllDone = async (completedSet: Set<OnboardingStep>) => {
     if (completedSet.size < STEPS.length) return
     setDone(true)
-    confetti({ particleCount: 140, spread: 75, origin: { y: 0.6 }, colors: ['#0064E0', '#7C5CFF', '#A121CE', '#C99518'] })
+    confetti({ particleCount: 140, spread: 75, origin: { y: 0.6 }, colors: ['#7C5CFF', '#B5A3FF', '#A121CE', '#C99518'] })
     setTimeout(async () => {
       await setOnboardingComplete()
     }, 1800)
