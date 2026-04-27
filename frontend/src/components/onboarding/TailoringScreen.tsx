@@ -56,7 +56,7 @@ export function TailoringScreen() {
   }, [setTailoringComplete])
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg-base items-center justify-center galaxy-bg">
+    <div className="flex h-screen w-screen overflow-hidden galaxy-immersive items-center justify-center">
       <div className="titlebar-drag absolute top-0 inset-x-0 h-11" />
 
       <div className="flex flex-col items-center gap-7 w-full max-w-md px-8">
@@ -64,8 +64,8 @@ export function TailoringScreen() {
         <div className="relative flex items-center justify-center">
           {state === 'running' && (
             <motion.div
-              className="absolute inset-0 rounded-2xl border-2 border-accent/50"
-              style={{ width: 72, height: 72, margin: 'auto' }}
+              className="absolute inset-0 rounded-2xl border-2"
+              style={{ width: 72, height: 72, margin: 'auto', borderColor: 'rgba(124,92,255,0.55)' }}
               animate={{ scale: [1, 1.25, 1], opacity: [0.6, 0, 0.6] }}
               transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
             />
@@ -73,21 +73,22 @@ export function TailoringScreen() {
           <motion.div
             animate={state === 'running' ? { opacity: [0.7, 1, 0.7] } : { opacity: 1 }}
             transition={{ duration: 2, repeat: state === 'running' ? Infinity : 0, ease: 'easeInOut' }}
-            className="w-[72px] h-[72px] rounded-2xl bg-accent/15 border border-accent/30 flex items-center justify-center"
+            className="w-[72px] h-[72px] rounded-2xl flex items-center justify-center"
+            style={{ background: 'rgba(124,92,255,0.18)', border: '1px solid rgba(124,92,255,0.35)' }}
           >
             {state === 'done' ? (
               <CheckCircle2 size={32} className="text-success" />
             ) : state === 'error' ? (
               <AlertCircle size={32} className="text-warning" />
             ) : (
-              <Sparkles size={30} className="text-accent" />
+              <Sparkles size={30} style={{ color: '#B5A3FF' }} />
             )}
           </motion.div>
         </div>
 
         {/* Status text */}
         <div className="text-center space-y-2">
-          <h2 className="text-section text-text-1">
+          <h2 className="text-section text-white">
             {state === 'running' && 'Claude is tailoring your workspace'}
             {state === 'done'    && 'Workspace ready'}
             {state === 'error'   && 'Setup complete'}
@@ -97,7 +98,7 @@ export function TailoringScreen() {
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="text-label text-text-3"
+            className="text-label text-white/70"
           >
             {state === 'running' && MESSAGES[msgIndex]}
             {state === 'done'    && 'Your workspace has been personalized for your target roles.'}
@@ -109,7 +110,8 @@ export function TailoringScreen() {
         {output.length > 0 && (
           <div
             ref={logRef}
-            className="w-full max-h-32 overflow-y-auto bg-bg-panel border border-border-default rounded-lg px-3 py-2 font-mono text-[11px] text-text-4 leading-relaxed"
+            className="w-full max-h-32 overflow-y-auto rounded-lg px-3 py-2 font-mono text-[11px] leading-relaxed"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)', color: 'rgba(255,255,255,0.6)' }}
           >
             {output.map((line, i) => (
               <div key={i} className="whitespace-pre-wrap break-all">{line}</div>
@@ -120,7 +122,8 @@ export function TailoringScreen() {
         {state === 'error' && (
           <button
             onClick={() => setTailoringComplete()}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-bg-elevated border border-border-default text-label text-text-2 hover:bg-bg-panel transition-colors"
+            className="btn-pill-outline"
+            style={{ color: '#FFFFFF', borderColor: 'rgba(255,255,255,0.25)' }}
           >
             Continue to app
           </button>

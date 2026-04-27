@@ -109,12 +109,47 @@ p, td, th, li, .selectable {
   animation: shimmer 1.5s infinite;
 }
 
-/* Hero/entry surface — soft warm gradient (Linen→Baby Blue) */
+/* Hero/entry surface — ambient galaxy wash (light context).
+   Bright enough to host dark text; faint violet+blue glow for "deeper" feel.
+   Used on Command Center hero, Trends chart, empty-state cards. */
 .galaxy-bg {
   background:
-    radial-gradient(ellipse at 80% 20%, #E8F3FF 0%, transparent 55%),
-    radial-gradient(ellipse at 20% 90%, #F2F0E6 0%, transparent 60%),
+    radial-gradient(ellipse at 78% 18%, rgba(0, 100, 224, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 22% 88%, rgba(124, 92, 255, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 50%, rgba(161, 33, 206, 0.025) 0%, transparent 70%),
     #FFFFFF;
+}
+
+/* Immersive galaxy surface — full-screen splash/onboarding.
+   Meta-grammar "dark immersive moment": deep navy + violet + Oculus Purple. */
+.galaxy-immersive {
+  background:
+    radial-gradient(ellipse at 22% 28%, rgba(124, 92, 255, 0.28) 0%, transparent 55%),
+    radial-gradient(ellipse at 78% 72%, rgba(161, 33, 206, 0.22) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.08) 0%, transparent 40%),
+    #0A0820;
+  color: #FFFFFF;
+}
+.galaxy-immersive ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border: 2px solid transparent;
+}
+
+/* Brand wordmark — galaxy gradient text clip. */
+.galaxy-text {
+  background: linear-gradient(135deg, #0064E0 0%, #7C5CFF 50%, #A121CE 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Empty-state subtle gradient border (no fill change). */
+.galaxy-border {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#FFFFFF, #FFFFFF) padding-box,
+    linear-gradient(135deg, rgba(0,100,224,0.4), rgba(124,92,255,0.4), rgba(161,33,206,0.4)) border-box;
 }
 
 /* Suggestion chip appear animation */

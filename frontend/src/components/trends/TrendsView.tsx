@@ -138,7 +138,7 @@ export function TrendsView() {
             No data to display.
           </div>
         ) : (
-          <div className="bg-bg-panel border border-border-default rounded-lg p-4" style={{ height: 340 }}>
+          <div className="galaxy-bg border border-border-default rounded-lg p-4" style={{ height: 340 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={buckets} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
                 <CartesianGrid stroke="#DEE3E9" strokeDasharray="3 3" />

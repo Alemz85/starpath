@@ -115,9 +115,11 @@ export function ReportsView() {
             ))}
           </div>
         ) : filteredFiles.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-40 text-text-4 gap-3">
-            <FileText size={32} className="opacity-30" />
-            <p className="text-label">No reports match your search.</p>
+          <div className="flex items-center justify-center py-10">
+            <div className="galaxy-bg rounded-xl px-10 py-12 flex flex-col items-center gap-3 max-w-sm">
+              <FileText size={32} className="text-accent opacity-80" />
+              <p className="text-label text-text-3">No reports match your search.</p>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
