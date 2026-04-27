@@ -37,7 +37,7 @@ const config: Config = {
         'tier-2-bg':   '#F1F4F7',
         'tier-3':      '#A0612C',  // bronze
         'tier-3-bg':   '#FBF1E8',
-        'tier-4':      '#B0B5BA',
+        'tier-4':      '#7A8590',  // medium slate, readable when row is dimmed
         // Semantic — Dolly/FDS
         'success': '#007D1E',
         'warning': '#F7B928',

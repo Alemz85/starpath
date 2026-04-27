@@ -76,10 +76,13 @@ p, td, th, li, .selectable {
   -webkit-app-region: no-drag;
 }
 
-/* Window title bar — single source of truth for title-row height. */
+/* Window title bar — single source of truth for title-row height.
+   pt-10 (40px) clears macOS hiddenInset traffic-lights (y≈10–22) with
+   comfortable breathing room. All sidebar/main-pane title rows stay
+   in lockstep so horizontal dividers align across panes. */
 .title-bar {
   -webkit-app-region: drag;
-  @apply flex items-center pt-8 pb-2 shrink-0;
+  @apply flex items-center pt-10 pb-2 shrink-0;
 }
 
 /* Typography utilities */
@@ -91,7 +94,7 @@ p, td, th, li, .selectable {
 .row-tier-1 { box-shadow: inset 3px 0 0 #C99518; }
 .row-tier-2 { box-shadow: inset 3px 0 0 #6B7280; }
 .row-tier-3 { box-shadow: inset 3px 0 0 #A0612C; }
-.row-tier-4 { opacity: 0.55; }
+.row-tier-4 { opacity: 0.65; }
 
 /* Shimmer animation — subtle gray on white */
 @keyframes shimmer {
@@ -301,4 +304,74 @@ p, td, th, li, .selectable {
   height: 100%;
   border-radius: 100px;
   transition: width 0.3s ease;
+}
+
+/* Dual-handle range slider — overlays two native inputs on a single
+   visible track, with the thumbs styled and the tracks invisible.
+   Used for the database "Score range" facet. */
+.range-overlay {
+  -webkit-appearance: none;
+  appearance: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  pointer-events: none;
+  margin: 0;
+  padding: 0;
+}
+.range-overlay::-webkit-slider-runnable-track {
+  background: transparent;
+  border: none;
+  height: 4px;
+}
+.range-overlay::-moz-range-track {
+  background: transparent;
+  border: none;
+  height: 4px;
+}
+.range-overlay::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 2px solid #0064E0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 100, 224, 0.1);
+  pointer-events: auto;
+  cursor: grab;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  margin-top: -6px;
+}
+.range-overlay::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+  background: #F4F8FF;
+  box-shadow: 0 2px 6px rgba(0, 100, 224, 0.25), 0 0 0 4px rgba(0, 100, 224, 0.12);
+}
+.range-overlay::-webkit-slider-thumb:active {
+  cursor: grabbing;
+  transform: scale(1.18);
+  background: #E8F0FF;
+}
+.range-overlay::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 2px solid #0064E0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  pointer-events: auto;
+  cursor: grab;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+.range-overlay::-moz-range-thumb:hover {
+  transform: scale(1.12);
+  background: #F4F8FF;
+  box-shadow: 0 2px 6px rgba(0, 100, 224, 0.25), 0 0 0 4px rgba(0, 100, 224, 0.12);
+}
+.range-overlay:focus { outline: none; }
+.range-overlay:focus::-webkit-slider-thumb {
+  box-shadow: 0 2px 6px rgba(0, 100, 224, 0.35), 0 0 0 4px rgba(0, 100, 224, 0.2);
 }

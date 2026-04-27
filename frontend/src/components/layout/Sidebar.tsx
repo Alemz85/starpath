@@ -51,9 +51,10 @@ export function Sidebar() {
           expanded ? 'justify-between' : 'justify-center',
         )}
       >
+        {expanded && <span className="w-6 shrink-0" aria-hidden />}
         {expanded && (
-          <span className="text-micro tracking-widest uppercase galaxy-text titlebar-no-drag select-none font-semibold">
-            career-ops
+          <span className="text-[20px] tracking-tight galaxy-text titlebar-no-drag select-none font-bold lowercase leading-none">
+            starpath
           </span>
         )}
         <button

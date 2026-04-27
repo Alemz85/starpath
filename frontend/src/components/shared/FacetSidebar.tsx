@@ -201,21 +201,58 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
         {expanded ? <ChevronDown size={12} className="text-text-4" /> : <ChevronRight size={12} className="text-text-4" />}
       </button>
       {expanded && (
-        <div className="px-2 pb-2 space-y-1.5">
-          <div className="flex justify-between text-label text-text-3 font-mono">
-            <span>{min.toFixed(1)}</span>
-            <span>{max.toFixed(1)}</span>
+        <div className="px-2 pb-3 pt-1 space-y-3">
+          {/* Value pills */}
+          <div className="flex items-center justify-between gap-2">
+            <span className="px-2 py-0.5 rounded-pill bg-accent/10 text-accent font-mono text-[11px] font-semibold tabular-nums">
+              {min.toFixed(1)}
+            </span>
+            <div className="flex-1 h-px bg-border-default" />
+            <span className="px-2 py-0.5 rounded-pill bg-accent/10 text-accent font-mono text-[11px] font-semibold tabular-nums">
+              {max.toFixed(1)}
+            </span>
           </div>
-          <input
-            type="range" min={0} max={10} step={0.5} value={min}
-            onChange={e => onChange(parseFloat(e.target.value), Math.max(parseFloat(e.target.value), max))}
-            className="w-full accent-[#0064E0]"
-          />
-          <input
-            type="range" min={0} max={10} step={0.5} value={max}
-            onChange={e => onChange(Math.min(min, parseFloat(e.target.value)), parseFloat(e.target.value))}
-            className="w-full accent-[#0064E0]"
-          />
+
+          {/* Dual-handle slider */}
+          <div className="relative h-4">
+            {/* Inactive track */}
+            <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 bg-border-default rounded-pill" />
+            {/* Active fill between handles */}
+            <div
+              className="absolute top-1/2 -translate-y-1/2 h-1 bg-accent rounded-pill"
+              style={{
+                left:  `${(min / 10) * 100}%`,
+                right: `${(1 - max / 10) * 100}%`,
+              }}
+            />
+            {/* Two native ranges, transparent track + styled thumbs */}
+            <input
+              type="range" min={0} max={10} step={0.5} value={min}
+              onChange={e => {
+                const v = parseFloat(e.target.value)
+                onChange(v, Math.max(v, max))
+              }}
+              className="range-overlay"
+              style={{ zIndex: min > 9.5 ? 3 : 2 }}
+              aria-label="Minimum score"
+            />
+            <input
+              type="range" min={0} max={10} step={0.5} value={max}
+              onChange={e => {
+                const v = parseFloat(e.target.value)
+                onChange(Math.min(min, v), v)
+              }}
+              className="range-overlay"
+              style={{ zIndex: 2 }}
+              aria-label="Maximum score"
+            />
+          </div>
+
+          {/* Endpoint ticks */}
+          <div className="flex justify-between text-[10px] text-text-4 font-mono px-1">
+            <span>0</span>
+            <span>10</span>
+          </div>
         </div>
       )}
     </div>
