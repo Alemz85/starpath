@@ -67,7 +67,7 @@ export function ScanView() {
         )}
       </div>
 
-      <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-7 overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-12 overflow-hidden min-h-0">
         {/* Centered button row */}
         <div className="shrink-0 flex items-center justify-center gap-3 pt-2">
           <ActionButton
