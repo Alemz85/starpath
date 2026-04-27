@@ -164,35 +164,46 @@ function FacetGroup({
     <div className="rounded-md overflow-hidden">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-bg-elevated rounded-md transition-colors"
+        className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-bg-elevated rounded-md transition-colors group"
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-label text-text-2 font-medium">{label}</span>
+          <span className={cn('text-label font-medium transition-colors',
+            activeInGroup > 0 ? 'text-text-1' : 'text-text-2')}>{label}</span>
           {activeInGroup > 0 && (
-            <span className="px-1 py-0.5 text-[10px] bg-accent/20 text-accent-text rounded font-mono">{activeInGroup}</span>
+            <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-pill bg-accent/15 text-accent text-[9.5px] font-mono font-semibold">
+              {activeInGroup}
+            </span>
           )}
         </div>
-        {expanded ? <ChevronDown size={12} className="text-text-4" /> : <ChevronRight size={12} className="text-text-4" />}
+        {expanded
+          ? <ChevronDown size={12} className="text-text-4 group-hover:text-text-2 transition-colors" />
+          : <ChevronRight size={12} className="text-text-4 group-hover:text-text-2 transition-colors" />}
       </button>
 
       {expanded && (
         <div className="space-y-0.5 pb-1">
-          {visible.map(item => (
-            <label
-              key={item}
-              className="flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer hover:bg-bg-elevated transition-colors"
-            >
-              <input
-                type="checkbox"
-                checked={selected.has(item)}
-                onChange={() => onToggle(item)}
-                className="w-3 h-3 accent-[#7C5CFF] cursor-pointer"
-              />
-              {renderItem ? renderItem(item) : (
-                <span className="text-label text-text-2 truncate">{item}</span>
-              )}
-            </label>
-          ))}
+          {visible.map(item => {
+            const isOn = selected.has(item)
+            return (
+              <label
+                key={item}
+                className={cn(
+                  'flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors',
+                  isOn ? 'bg-accent/8' : 'hover:bg-bg-elevated',
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={isOn}
+                  onChange={() => onToggle(item)}
+                  className="w-3 h-3 accent-[#7C5CFF] cursor-pointer"
+                />
+                {renderItem ? renderItem(item) : (
+                  <span className="text-label text-text-2 truncate">{item}</span>
+                )}
+              </label>
+            )
+          })}
           {!showAll && items.length > maxShow && (
             <button
               onClick={() => setShowAll(true)}
@@ -290,11 +301,18 @@ function TierChip({ tier }: { tier: string }) {
 }
 
 function LivenessChip({ liveness }: { liveness: Liveness }) {
-  const cls = liveness === 'active' ? 'text-success'
-            : liveness === 'stale'  ? 'text-warning' : 'text-text-4'
+  const dot = liveness === 'active' ? 'bg-success'
+            : liveness === 'stale'  ? 'bg-warning' : 'bg-text-4'
+  const text = liveness === 'active' ? 'text-text-1'
+            : liveness === 'stale'  ? 'text-text-2' : 'text-text-3'
   return (
-    <span className={cn('text-label font-mono capitalize', cls)}>
-      {liveness}
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        className={cn('inline-block w-1.5 h-1.5 rounded-full', dot)}
+        style={{ boxShadow: liveness === 'active' ? '0 0 0 2px rgba(34,197,94,0.18)' : undefined }}
+        aria-hidden
+      />
+      <span className={cn('text-label capitalize', text)}>{liveness}</span>
     </span>
   )
 }
