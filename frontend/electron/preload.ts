@@ -23,6 +23,24 @@ const electronAPI = {
   listDir: (path: string) => ipcRenderer.invoke('fs:list', path),
   listRecursive: (dir: string, ext: string) => ipcRenderer.invoke('fs:list-recursive', dir, ext),
 
+  // SQLite-backed query layer (markdown/TSV remain canonical; this is a
+  // derived cache rebuilt via the watcher). No raw SQL crosses the boundary —
+  // higher-level queries only.
+  dbApplications:           (f?: { tier?: string; status?: string; search?: string }) => ipcRenderer.invoke('db:applications', f),
+  dbScouting:               (f?: { tier?: string; search?: string })                  => ipcRenderer.invoke('db:scouting', f),
+  dbScoreHistory:           (f?: { since?: string; until?: string; company?: string; tier?: string }) => ipcRenderer.invoke('db:score-history', f),
+  dbPipeline:               ()                                                         => ipcRenderer.invoke('db:pipeline'),
+  dbReports:                (f?: { tier?: string; search?: string })                   => ipcRenderer.invoke('db:reports', f),
+  dbApplicationsWithScores: ()                                                         => ipcRenderer.invoke('db:applications-with-scores'),
+  dbTrends:                 ()                                                         => ipcRenderer.invoke('db:trends'),
+  dbResync:                 ()                                                         => ipcRenderer.invoke('db:resync'),
+  dbRebuild:                ()                                                         => ipcRenderer.invoke('db:rebuild'),
+  onDbChanged:              (cb: (sources: string[]) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, sources: string[]) => cb(sources)
+    ipcRenderer.on('db:changed', listener)
+    return () => ipcRenderer.removeListener('db:changed', listener)
+  },
+
   // Shell (one-shot)
   run: (cmd: string, args: string[]) => ipcRenderer.invoke('shell:run', cmd, args),
 

@@ -13,6 +13,11 @@ import https from 'https'
 import http from 'http'
 import { exec, spawn, ChildProcess } from 'child_process'
 import { promisify } from 'util'
+import {
+  openDb, closeDb, rebuildDb, startWatcher, ensureSynced, resync,
+  queryApplications, queryScouting, queryScoreHistory, queryPipeline,
+  queryReports, queryApplicationsWithScores, queryTrends,
+} from './db'
 
 const execAsync = promisify(exec)
 
@@ -426,11 +431,84 @@ ipcMain.handle('logo:fetch', async (_e, domain: unknown) => {
   return null
 })
 
+// ─── IPC: SQLite cache ────────────────────────────────────────────────────────
+//
+// Markdown/TSV files in the repo remain canonical. SQLite is a derived index
+// rebuilt from them, kept in sync via mtime checks + a chokidar watcher.
+// Schema bumps drop and rebuild — see electron/db/schema.ts.
+
+function ensureDbReady(): boolean {
+  const repoPath = getRepoPath()
+  if (!repoPath) return false
+  openDb(app.getPath('userData'))
+  ensureSynced(repoPath)
+  startWatcher(repoPath, {
+    onChanged: (sources) => mainWindow?.webContents.send('db:changed', sources),
+  })
+  return true
+}
+
+ipcMain.handle('db:applications', (_e, filters: unknown) => {
+  if (!ensureDbReady()) return []
+  return queryApplications((filters ?? {}) as Parameters<typeof queryApplications>[0])
+})
+
+ipcMain.handle('db:scouting', (_e, filters: unknown) => {
+  if (!ensureDbReady()) return []
+  return queryScouting((filters ?? {}) as Parameters<typeof queryScouting>[0])
+})
+
+ipcMain.handle('db:score-history', (_e, filters: unknown) => {
+  if (!ensureDbReady()) return []
+  return queryScoreHistory((filters ?? {}) as Parameters<typeof queryScoreHistory>[0])
+})
+
+ipcMain.handle('db:pipeline', () => {
+  if (!ensureDbReady()) return []
+  return queryPipeline()
+})
+
+ipcMain.handle('db:reports', (_e, filters: unknown) => {
+  if (!ensureDbReady()) return []
+  return queryReports((filters ?? {}) as Parameters<typeof queryReports>[0])
+})
+
+ipcMain.handle('db:applications-with-scores', () => {
+  if (!ensureDbReady()) return []
+  return queryApplicationsWithScores()
+})
+
+ipcMain.handle('db:trends', () => {
+  if (!ensureDbReady()) return { byMonth: [], byArchetype: [], tierDistribution: [] }
+  return queryTrends()
+})
+
+ipcMain.handle('db:resync', () => {
+  const repoPath = getRepoPath()
+  if (!repoPath) return null
+  openDb(app.getPath('userData'))
+  return resync(repoPath)
+})
+
+ipcMain.handle('db:rebuild', () => {
+  const repoPath = getRepoPath()
+  if (!repoPath) return null
+  rebuildDb(app.getPath('userData'))
+  return ensureSynced(repoPath)
+})
+
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+  // Best-effort initial sync. Failures here shouldn't block the UI; the
+  // first db:* call will retry. Guarded so onboarding (no repoPath yet)
+  // doesn't crash.
+  try { ensureDbReady() } catch (e) { console.error('[db] init failed:', e) }
+})
 
 app.on('window-all-closed', () => {
+  closeDb()
   if (process.platform !== 'darwin') app.quit()
 })
 

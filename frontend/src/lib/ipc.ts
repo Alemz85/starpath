@@ -41,10 +41,83 @@ export const ipc = {
   // Logo cache
   fetchLogo:            (domain: string)             => api().fetchLogo(domain) as Promise<string | null>,
 
+  // DB-backed query layer. Returns rows shaped to match the corresponding
+  // ScoreEntry / ApplicationEntry / ScoutingEntry / ReportFile types, with
+  // SQL columns mapped 1:1. Use these instead of re-parsing files in the
+  // renderer.
+  db: {
+    applications:           (f?: { tier?: string; status?: string; search?: string }) =>
+                              api().dbApplications(f) as Promise<DbApplicationRow[]>,
+    scouting:               (f?: { tier?: string; search?: string }) =>
+                              api().dbScouting(f) as Promise<DbScoutingRow[]>,
+    scoreHistory:           (f?: { since?: string; until?: string; company?: string; tier?: string }) =>
+                              api().dbScoreHistory(f) as Promise<DbScoreHistoryRow[]>,
+    pipeline:               () =>
+                              api().dbPipeline() as Promise<DbPipelineRow[]>,
+    reports:                (f?: { tier?: string; search?: string }) =>
+                              api().dbReports(f) as Promise<DbReportRow[]>,
+    applicationsWithScores: () =>
+                              api().dbApplicationsWithScores() as Promise<Array<DbApplicationRow & { overall: number | null; current_fit: number | null; aspirational_fit: number | null; archetype: string | null }>>,
+    trends:                 () =>
+                              api().dbTrends() as Promise<DbTrends>,
+    resync:                 () => api().dbResync() as Promise<unknown>,
+    rebuild:                () => api().dbRebuild() as Promise<unknown>,
+    onChanged:              (cb: (sources: string[]) => void) => api().onDbChanged(cb),
+  },
+
   // Shell
   run:                  (cmd: string, args: string[]) => api().run(cmd, args) as Promise<{ stdout: string; stderr: string; code: number }>,
   spawn:                (id: string, cmd: string, args: string[]) => api().spawn(id, cmd, args),
   kill:                 (id: string)            => api().kill(id),
   onSpawnOutput:        (cb: (id: string, chunk: string) => void) => api().onSpawnOutput(cb),
   onSpawnDone:          (cb: (id: string, code: number) => void)  => api().onSpawnDone(cb),
+}
+
+// ─── DB row shapes (mirrors of SQLite columns) ────────────────────────────────
+
+export interface DbApplicationRow {
+  num: number; date: string; company: string; role: string
+  score_raw: string; score_num: number | null
+  status: string; pdf: number; deadline: string; report: string; notes: string
+  tier: string
+}
+
+export interface DbScoutingRow {
+  num: number; date: string; company: string; role: string
+  score_raw: string; score_num: number | null
+  tier: string; cfaf: string; report: string
+  deadline: string; promotion_hint: string; notes: string
+}
+
+export interface DbScoreHistoryRow {
+  id: number; date: string; archetype: string
+  skills_match: number; ease_of_entry: number; strategic_fit: number
+  current_fit: number; growth_mobility: number; optionality_exit: number
+  brand_value: number; sales_trap_risk: number; aspirational_fit: number
+  overall: number; best_cities: number; salary_adj_city: number
+  work_life_balance: number; best_fit_roles: string
+  mode: string; company: string; role: string; tier: string
+  source: string; location: string; employment_type: string
+  duration: string; salary_raw: string
+}
+
+export interface DbPipelineRow {
+  url: string; added_date: string | null; is_stale: number
+}
+
+export interface DbReportRow {
+  path: string; company: string; role: string; tier: string; mtime: number
+  overall: number | null; current_fit: number | null; aspirational_fit: number | null
+}
+
+export interface DbTrendBucket {
+  label: string; count: number
+  avg_overall: number; avg_current_fit: number; avg_aspirational_fit: number
+  avg_skills_match: number; avg_brand_value: number; avg_growth: number; avg_wlb: number
+}
+
+export interface DbTrends {
+  byDate: DbTrendBucket[]
+  byArchetype: DbTrendBucket[]
+  tierDistribution: Array<{ tier: string; count: number }>
 }

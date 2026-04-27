@@ -267,8 +267,11 @@ function GeneralTab() {
       </SettingRow>
 
       <SettingRow title="Data" description="Reload all data files from disk if they were modified outside the app.">
+        {/* Shift-click forces a full SQLite resync from the markdown/TSV
+            sources — useful when debugging cache divergence. Plain click
+            just re-reads from the DB (the watcher keeps it current). */}
         <button
-          onClick={() => refresh()}
+          onClick={(e) => refresh({ resync: e.shiftKey })}
           className="flex items-center gap-1.5 px-3 py-2 mt-3 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors"
         >
           <RefreshCw size={13} />
