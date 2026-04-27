@@ -52,7 +52,7 @@ export function Sidebar() {
         )}
       >
         {expanded && (
-          <span className="text-micro tracking-widest uppercase text-text-3 titlebar-no-drag select-none">
+          <span className="text-micro tracking-widest uppercase galaxy-text titlebar-no-drag select-none font-semibold">
             career-ops
           </span>
         )}

@@ -49,16 +49,16 @@ export function OnboardingGate() {
   const handleAllDone = async (completedSet: Set<OnboardingStep>) => {
     if (completedSet.size < STEPS.length) return
     setDone(true)
-    confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 }, colors: ['#0064E0', '#47A5FA', '#C99518'] })
+    confetti({ particleCount: 140, spread: 75, origin: { y: 0.6 }, colors: ['#0064E0', '#7C5CFF', '#A121CE', '#C99518'] })
     setTimeout(async () => {
       await setOnboardingComplete()
     }, 1800)
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg-base galaxy-bg">
-      {/* Left: checklist */}
-      <div className="w-80 shrink-0 flex flex-col border-r border-border-default bg-bg-chrome/60">
+    <div className="flex h-screen w-screen overflow-hidden galaxy-immersive p-3 gap-3">
+      {/* Left: checklist (white card floating on galaxy) */}
+      <div className="w-80 shrink-0 flex flex-col bg-bg-base rounded-xl shadow-card overflow-hidden">
         <div className="titlebar-drag h-11 border-b border-border-default" />
 
         <div className="flex-1 p-6 flex flex-col gap-6">
@@ -124,8 +124,8 @@ export function OnboardingGate() {
         </div>
       </div>
 
-      {/* Right: step content */}
-      <div className="flex-1 flex flex-col">
+      {/* Right: step content (white card floating on galaxy) */}
+      <div className="relative flex-1 flex flex-col bg-bg-base rounded-xl shadow-card overflow-hidden">
         <div className="titlebar-drag h-11 border-b border-border-default shrink-0" />
 
         <div className="flex-1 flex overflow-hidden">

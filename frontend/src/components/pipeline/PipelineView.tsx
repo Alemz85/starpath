@@ -133,7 +133,9 @@ function KanbanColumn({ status, items }: { status: AppStatus; items: Application
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {items.length === 0 ? (
-          <p className="text-micro text-text-4 text-center py-4">Empty</p>
+          <div className="galaxy-bg rounded-md py-4 text-center">
+            <p className="text-micro text-text-4">Empty</p>
+          </div>
         ) : (
           items.map((app, i) => {
             const urgency = deadlineUrgency(app.deadline)
