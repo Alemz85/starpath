@@ -1,11 +1,20 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  /* Dolly tokens, exposed as CSS vars for ad-hoc use */
+  --meta-blue:        #0064E0;
+  --meta-blue-hover:  #0143B5;
+  --meta-blue-press:  #004BB9;
+  --dolly-bg-grey:    #F1F4F7;
+  --dolly-text-primary:   #1C2B33;
+  --dolly-text-secondary: #5D6C7B;
+  --divider-gray:     #DEE3E9;
+  --card-corner-radius: 20px;
 }
 
 * {
@@ -20,9 +29,10 @@ html, body, #__next {
 }
 
 body {
-  background-color: #0D0A1F;
-  color: #E8E6F0;
-  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  background-color: #FFFFFF;
+  color: #1C2B33;
+  font-family: 'Montserrat', 'Inter', -apple-system, system-ui, Helvetica, Arial, sans-serif;
+  font-feature-settings: "ss01", "ss02";
   font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -35,25 +45,26 @@ p, td, th, li, .selectable {
   user-select: text;
 }
 
-/* Scrollbar */
+/* Scrollbar — quiet, light */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #2A2342;
-  border-radius: 3px;
+  background: #CED0D4;
+  border-radius: 100px;
+  border: 2px solid #FFFFFF;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3D3458;
+  background: #909396;
 }
 
-/* Focus ring */
+/* Focus ring — Meta Blue */
 :focus-visible {
-  outline: 2px solid #7C5CFF;
+  outline: 2px solid #0064E0;
   outline-offset: 2px;
 }
 
@@ -65,12 +76,7 @@ p, td, th, li, .selectable {
   -webkit-app-region: no-drag;
 }
 
-/* Window title bar — single source of truth for title-row height.
-   Used by the sidebar wordmark row and every main-pane title row so they stay
-   in lockstep. Adjust pt-X / pb-X here to retune all bars at once.
-   pt-8 (32px) clears the macOS hiddenInset traffic-light zone (~y=10–22) with
-   ~10px breathing room. Children get -webkit-app-region: drag (window can be
-   dragged from the bar); add `titlebar-no-drag` to interactive controls inside. */
+/* Window title bar — single source of truth for title-row height. */
 .title-bar {
   -webkit-app-region: drag;
   @apply flex items-center pt-8 pb-2 shrink-0;
@@ -81,13 +87,13 @@ p, td, th, li, .selectable {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
 }
 
-/* Tier row left accent */
-.row-tier-1 { box-shadow: inset 2px 0 0 #E8B547; }
-.row-tier-2 { box-shadow: inset 2px 0 0 #C8C5D6; }
-.row-tier-3 { box-shadow: inset 2px 0 0 #C77B3B; }
+/* Tier row left accent (now visible against white surfaces) */
+.row-tier-1 { box-shadow: inset 3px 0 0 #C99518; }
+.row-tier-2 { box-shadow: inset 3px 0 0 #6B7280; }
+.row-tier-3 { box-shadow: inset 3px 0 0 #A0612C; }
 .row-tier-4 { opacity: 0.55; }
 
-/* Shimmer animation for loading states */
+/* Shimmer animation — subtle gray on white */
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
@@ -95,17 +101,20 @@ p, td, th, li, .selectable {
 .shimmer {
   background: linear-gradient(
     90deg,
-    #15102B 25%,
-    #1D1638 50%,
-    #15102B 75%
+    #F1F4F7 25%,
+    #E4E8EC 50%,
+    #F1F4F7 75%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
-/* Galaxy gradient for entry surfaces */
+/* Hero/entry surface — soft warm gradient (Linen→Baby Blue) */
 .galaxy-bg {
-  background: radial-gradient(ellipse at 30% 40%, #1A0F3D 0%, #0D0A1F 60%);
+  background:
+    radial-gradient(ellipse at 80% 20%, #E8F3FF 0%, transparent 55%),
+    radial-gradient(ellipse at 20% 90%, #F2F0E6 0%, transparent 60%),
+    #FFFFFF;
 }
 
 /* Suggestion chip appear animation */
@@ -117,97 +126,144 @@ p, td, th, li, .selectable {
   animation: chip-appear 220ms ease both;
 }
 
-/* Report markdown prose */
+/* Frosted glass utility — for sticky nav / sidebar */
+.frosted {
+  background: rgba(241, 244, 247, 0.8);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+/* Pill button utility — Meta primary CTA */
+.btn-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.14px;
+  background: #0064E0;
+  color: #FFFFFF;
+  border: none;
+  cursor: pointer;
+  transition: background 200ms ease, transform 150ms ease;
+}
+.btn-pill:hover { background: #0143B5; }
+.btn-pill:active { background: #004BB9; transform: scale(0.98); }
+.btn-pill:disabled { background: #DEE3E9; color: #8595A4; cursor: not-allowed; }
+
+.btn-pill-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 500;
+  background: transparent;
+  color: #1C2B33;
+  border: 2px solid rgba(10, 19, 23, 0.12);
+  cursor: pointer;
+  transition: background 200ms ease, color 200ms ease;
+}
+.btn-pill-outline:hover { background: rgba(70, 90, 105, 0.08); }
+
+/* Report markdown prose — Meta editorial, dark text on white */
 .prose-report {
-  color: #C8C5D6;
-  font-size: 13px;
-  line-height: 1.7;
+  color: #1C2B33;
+  font-size: 14px;
+  line-height: 1.6;
   user-select: text;
 }
-/* h1: report title — de-emphasised, it's just the company/role */
+/* h1: report title — de-emphasised micro label */
 .prose-report h1 {
   font-size: 13px;
   font-weight: 500;
-  color: #6B6582;
+  color: #5D6C7B;
   margin-top: 0;
   margin-bottom: 1rem;
   letter-spacing: 0;
 }
-/* h2: section headers — punchy, uppercase micro labels */
+/* h2: section headers — Meta micro labels */
 .prose-report h2 {
-  font-size: 10.5px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #7C5CFF;
+  color: #0064E0;
   margin-top: 1.5rem;
   margin-bottom: 0.5rem;
-  padding-bottom: 0.25rem;
-  border-bottom: 1px solid #2A2342;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #DEE3E9;
 }
 /* h3: sub-sections */
 .prose-report h3 {
-  font-size: 13px;
-  font-weight: 500;
-  color: #A89FCC;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1C2B33;
   margin-top: 1rem;
   margin-bottom: 0.375rem;
 }
-.prose-report p { margin-bottom: 0.75rem; }
+.prose-report p { margin-bottom: 0.75rem; color: #1C2B33; }
 .prose-report ul, .prose-report ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
-.prose-report li { margin-bottom: 0.25rem; }
-.prose-report strong { color: #E8E6F0; font-weight: 500; }
+.prose-report li { margin-bottom: 0.25rem; color: #1C2B33; }
+.prose-report strong { color: #050505; font-weight: 600; }
 .prose-report code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 12px;
-  background: #1D1638;
-  padding: 0.1rem 0.3rem;
-  border-radius: 3px;
-  color: #7C5CFF;
+  background: #F1F4F7;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  color: #0064E0;
 }
 .prose-report blockquote {
-  border-left: 2px solid #7C5CFF;
-  padding-left: 0.75rem;
-  color: #A89FCC;
+  border-left: 3px solid #0064E0;
+  padding: 0.25rem 0 0.25rem 0.875rem;
+  color: #5D6C7B;
   margin: 0.75rem 0;
+  background: #F7F8FA;
+  border-radius: 0 8px 8px 0;
 }
 /* Tables */
-.prose-report table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
-.prose-report thead { background: #15102B; }
+.prose-report table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; border-radius: 12px; overflow: hidden; }
+.prose-report thead { background: #F1F4F7; }
 .prose-report th {
   text-align: left;
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 10.5px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: #6B6582;
-  border-bottom: 1px solid #2A2342;
-  padding: 0.4rem 0.625rem;
+  color: #5D6C7B;
+  border-bottom: 1px solid #DEE3E9;
+  padding: 0.5rem 0.75rem;
 }
 .prose-report td {
-  padding: 0.375rem 0.625rem;
-  border-bottom: 1px solid #1A1530;
-  color: #C8C5D6;
-  font-size: 12px;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #F0F2F5;
+  color: #1C2B33;
+  font-size: 12.5px;
   vertical-align: top;
 }
-.prose-report td:first-child { color: #E8E6F0; font-weight: 500; }
-.prose-report tbody tr:hover { background: rgba(124, 92, 255, 0.04); }
+.prose-report td:first-child { color: #050505; font-weight: 500; }
+.prose-report tbody tr:hover { background: rgba(0, 100, 224, 0.04); }
 .prose-report hr {
   border: none;
-  border-top: 1px solid #2A2342;
+  border-top: 1px solid #DEE3E9;
   margin: 1.25rem 0;
 }
 
 /* Score bar */
 .score-bar-track {
   height: 4px;
-  background: #2A2342;
-  border-radius: 2px;
+  background: #DEE3E9;
+  border-radius: 100px;
   overflow: hidden;
 }
 .score-bar-fill {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 100px;
   transition: width 0.3s ease;
 }

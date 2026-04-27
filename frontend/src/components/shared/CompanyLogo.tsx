@@ -60,10 +60,11 @@ export function guessDomain(company: string): string {
 
 // ─── Avatar fallback ─────────────────────────────────────────────────────────
 
+// Meta FDS spectrum — pairs of accent + slightly darker variant for gradient avatars on white
 const PALETTE: [string, string][] = [
-  ['#7C5CFF', '#4A2FA8'], ['#E8B547', '#A8822A'], ['#5CDB8B', '#2E8B57'],
-  ['#C77B3B', '#8B4513'], ['#DB5C7A', '#8B2A4A'], ['#5CB8DB', '#2A7A8B'],
-  ['#9B5CDB', '#6A2FA8'],
+  ['#0064E0', '#0143B5'], ['#9360F7', '#6441D2'], ['#2ABBA7', '#1F8478'],
+  ['#FB724B', '#C8431F'], ['#F3425F', '#C81F3D'], ['#54C7EC', '#2A8FB5'],
+  ['#FF66BF', '#C73D93'], ['#C99518', '#8E6610'],
 ]
 
 function hashPalette(name: string): [string, string] {

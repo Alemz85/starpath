@@ -168,7 +168,7 @@ export function ScanView() {
                 type="checkbox"
                 checked={autoScroll}
                 onChange={e => setAutoScroll(e.target.checked)}
-                className="accent-[#7C5CFF] w-3 h-3"
+                className="accent-[#0064E0] w-3 h-3"
               />
               Auto-scroll
             </label>

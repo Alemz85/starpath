@@ -10,53 +10,66 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Backgrounds
-        'bg-base':     '#0D0A1F',
-        'bg-panel':    '#15102B',
-        'bg-elevated': '#1D1638',
-        'bg-chrome':   '#1A1432',
-        // Borders
-        'border-default': '#2A2342',
-        'border-strong':  '#3D3458',
-        // Text
-        'text-1': '#E8E6F0',
-        'text-2': '#C8C5D6',
-        'text-3': '#8A83A8',
-        'text-4': '#6B6680',
-        // Accent (galaxy violet)
-        'accent':      '#7C5CFF',
-        'accent-soft': 'rgba(124,92,255,0.15)',
-        'accent-text': '#B5A3FF',
-        // Tier palette (metals)
-        'tier-1':      '#E8B547',
-        'tier-1-bg':   '#1A0F00',
-        'tier-2':      '#C8C5D6',
-        'tier-2-bg':   '#2A2342',
-        'tier-3':      '#C77B3B',
-        'tier-3-bg':   '#1A0A00',
-        'tier-4':      '#525252',
-        // Semantic
-        'success': '#10B981',
-        'warning': '#F59E0B',
-        'danger':  '#EF4444',
-        'info':    '#3B82F6',
+        // Backgrounds — Meta Store binary surface strategy
+        'bg-base':     '#FFFFFF',  // pure white canvas
+        'bg-panel':    '#F1F4F7',  // soft gray secondary sections (--dolly-bg-grey)
+        'bg-elevated': '#F7F8FA',  // warm gray card surface
+        'bg-chrome':   '#F0F2F5',  // web wash deemphasized
+        // Borders — Dolly divider scale
+        'border-default': '#DEE3E9',  // dolly divider gray
+        'border-strong':  '#CED0D4',  // standard divider / input border
+        // Text — Dolly hierarchy on light
+        'text-1': '#050505',  // primary headings, max contrast
+        'text-2': '#1C2B33',  // dark charcoal body (--dolly-text-primary)
+        'text-3': '#5D6C7B',  // slate gray secondary (--dolly-text-secondary)
+        'text-4': '#8595A4',  // muted, disabled labels
+        // Accent — Meta Blue
+        'accent':       '#0064E0',
+        'accent-hover': '#0143B5',
+        'accent-press': '#004BB9',
+        'accent-soft':  'rgba(0,100,224,0.10)',
+        'accent-text':  '#0064E0',
+        'accent-light': '#47A5FA',
+        // Tier palette (Meta-tuned for white surface)
+        'tier-1':      '#C99518',  // gold (deeper for contrast on white)
+        'tier-1-bg':   '#FFF8E1',
+        'tier-2':      '#6B7280',  // silver gray
+        'tier-2-bg':   '#F1F4F7',
+        'tier-3':      '#A0612C',  // bronze
+        'tier-3-bg':   '#FBF1E8',
+        'tier-4':      '#B0B5BA',
+        // Semantic — Dolly/FDS
+        'success': '#007D1E',
+        'warning': '#F7B928',
+        'danger':  '#C80A28',
+        'info':    '#0064E0',
       },
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'system-ui', 'sans-serif'],
+        // Optimistic VF is proprietary; Montserrat (a Meta-listed fallback)
+        // and Inter approximate its humanist-geometric feel.
+        sans: ['Montserrat', 'Inter', '-apple-system', 'system-ui', 'Helvetica', 'Arial', 'Noto Sans', 'sans-serif'],
         mono: ['JetBrains Mono', 'ui-monospace', 'SF Mono', 'monospace'],
       },
       fontSize: {
-        'page':    ['22px', { lineHeight: '1.3', fontWeight: '500' }],
-        'section': ['16px', { lineHeight: '1.4', fontWeight: '500' }],
-        'body':    ['13px', { lineHeight: '1.5', fontWeight: '400' }],
-        'cell':    ['13px', { lineHeight: '1', fontWeight: '400' }],
-        'label':   ['12px', { lineHeight: '1.4', fontWeight: '400' }],
-        'micro':   ['11px', { lineHeight: '1', fontWeight: '500', letterSpacing: '0.04em' }],
+        'page':    ['22px', { lineHeight: '1.28', fontWeight: '500' }],
+        'section': ['16px', { lineHeight: '1.4',  fontWeight: '500', letterSpacing: '-0.16px' }],
+        'body':    ['13px', { lineHeight: '1.5',  fontWeight: '400' }],
+        'cell':    ['13px', { lineHeight: '1',    fontWeight: '400' }],
+        'label':   ['12px', { lineHeight: '1.4',  fontWeight: '400', letterSpacing: '-0.14px' }],
+        'micro':   ['11px', { lineHeight: '1',    fontWeight: '600', letterSpacing: '0.06em' }],
       },
       borderRadius: {
-        'sm': '4px',
-        'md': '6px',
-        'lg': '8px',
+        'sm':   '8px',    // inputs, small UI elements
+        'md':   '12px',   // mid containers
+        'lg':   '20px',   // standard card (--card-corner-radius)
+        'xl':   '24px',   // feature card
+        'pill': '100px',  // pill buttons, tags, badges
+      },
+      boxShadow: {
+        // Meta dual-shadow pattern: ambient + direct
+        'card':  '0 12px 28px 0 rgba(0,0,0,0.08), 0 2px 4px 0 rgba(0,0,0,0.04)',
+        'lift':  '0 16px 32px 0 rgba(0,0,0,0.10), 0 2px 6px 0 rgba(0,0,0,0.05)',
+        'subtle':'0 2px 4px 0 rgba(0,0,0,0.06)',
       },
       spacing: {
         '4.5': '18px',

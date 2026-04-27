@@ -10,8 +10,8 @@ import {
 import { cn } from '@/lib/utils'
 
 const DIM_COLORS = [
-  '#7C5CFF', '#E8B547', '#C8C5D6', '#C77B3B',
-  '#5CFFB8', '#FF5CAA', '#5CB8FF', '#FFD05C',
+  '#0064E0', '#C99518', '#A0612C', '#6B7280',
+  '#2ABBA7', '#F3425F', '#54C7EC', '#9360F7',
 ]
 
 type DimKey = 'avg_overall' | 'avg_current_fit' | 'avg_aspirational_fit' | 'avg_skills_match' | 'avg_brand_value' | 'avg_growth' | 'avg_wlb'
@@ -124,7 +124,7 @@ export function TrendsView() {
             >
               <span
                 className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: activeDims.has(key) ? DIM_COLORS[i % DIM_COLORS.length] : '#3D3458' }}
+                style={{ background: activeDims.has(key) ? DIM_COLORS[i % DIM_COLORS.length] : '#CED0D4' }}
               />
               {label}
             </button>
@@ -141,24 +141,24 @@ export function TrendsView() {
           <div className="bg-bg-panel border border-border-default rounded-lg p-4" style={{ height: 340 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={buckets} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
-                <CartesianGrid stroke="#2A2342" strokeDasharray="3 3" />
+                <CartesianGrid stroke="#DEE3E9" strokeDasharray="3 3" />
                 <XAxis
                   dataKey="label"
-                  tick={{ fill: '#6B6582', fontSize: 11 }}
+                  tick={{ fill: '#5D6C7B', fontSize: 11 }}
                   tickLine={false}
-                  axisLine={{ stroke: '#2A2342' }}
+                  axisLine={{ stroke: '#DEE3E9' }}
                 />
                 <YAxis
                   domain={[0, 10]}
-                  tick={{ fill: '#6B6582', fontSize: 11 }}
+                  tick={{ fill: '#5D6C7B', fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
                   width={28}
                 />
                 <Tooltip
-                  contentStyle={{ background: '#15102B', border: '1px solid #2A2342', borderRadius: 6, fontSize: 12 }}
-                  labelStyle={{ color: '#C8C5D6' }}
-                  itemStyle={{ color: '#A89FCC' }}
+                  contentStyle={{ background: '#FFFFFF', border: '1px solid #DEE3E9', borderRadius: 12, fontSize: 12, boxShadow: '0 12px 28px 0 rgba(0,0,0,0.08), 0 2px 4px 0 rgba(0,0,0,0.04)' }}
+                  labelStyle={{ color: '#1C2B33', fontWeight: 600 }}
+                  itemStyle={{ color: '#5D6C7B' }}
                 />
                 {DIMENSIONS.map(({ key }, i) =>
                   activeDims.has(key) ? (
