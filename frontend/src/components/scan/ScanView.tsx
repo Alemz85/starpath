@@ -46,7 +46,7 @@ export function ScanView() {
     setStatus('running')
     setMode(scanMode)
     if (scanMode === 'api') {
-      ipc.spawn(SPAWN_ID, 'node', ['scan.mjs'])
+      ipc.spawn(SPAWN_ID, 'node', ['scripts/scan.mjs'])
     } else {
       // Full scan: Claude reads scan.md and runs Playwright + API + WebSearch
       ipc.spawn(SPAWN_ID, 'claude', ['-p', '@modes/scan.md'])
@@ -62,10 +62,8 @@ export function ScanView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="titlebar-drag h-11 shrink-0 border-b border-border-default" />
-
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-border-default bg-bg-chrome shrink-0">
+      {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
+      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Scan</h1>
         <span className={cn(
           'text-micro font-mono px-2 py-0.5 rounded-full border',
@@ -81,13 +79,13 @@ export function ScanView() {
         {isRunning ? (
           <button
             onClick={stopScan}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-danger/20 text-danger border border-danger/30 text-label hover:bg-danger/30 transition-colors"
+            className="titlebar-no-drag flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-danger/20 text-danger border border-danger/30 text-label hover:bg-danger/30 transition-colors"
           >
             <Square size={12} />
             Stop
           </button>
         ) : (
-          <div className="flex items-center gap-2">
+          <div className="titlebar-no-drag flex items-center gap-2">
             {/* Primary: Full scan */}
             <button
               onClick={() => runScan('full')}
@@ -116,7 +114,7 @@ export function ScanView() {
         {!isRunning && output.length > 0 && (
           <button
             onClick={() => { setOutput([]); setStatus('idle') }}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-text-4 hover:text-text-2 border border-border-default text-label transition-colors"
+            className="titlebar-no-drag flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-text-4 hover:text-text-2 border border-border-default text-label transition-colors"
           >
             <RotateCcw size={12} />
             Clear

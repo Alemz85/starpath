@@ -42,10 +42,12 @@ export function Sidebar() {
         expanded ? 'w-[220px]' : 'w-14',
       )}
     >
-      {/* Header / wordmark */}
+      {/* Header / wordmark — shares the .title-bar height with every main-pane title row.
+          No border-b so the sidebar flows continuously through search and nav.
+          The main pane's divider visually terminates at the sidebar/main seam. */}
       <div
         className={cn(
-          'titlebar-drag flex items-center h-11 px-3 border-b border-border-default shrink-0',
+          'title-bar px-3',
           expanded ? 'justify-between' : 'justify-center',
         )}
       >
@@ -65,7 +67,7 @@ export function Sidebar() {
 
       {/* Search hint */}
       {expanded && (
-        <div className="px-3 py-2 border-b border-border-default">
+        <div className="px-3 py-2">
           <button
             className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-bg-base border border-border-default text-text-3 hover:text-text-2 transition-colors text-label"
             onClick={() => {

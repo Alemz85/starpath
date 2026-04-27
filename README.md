@@ -9,7 +9,7 @@ AI-powered job search pipeline: offer evaluation, CV generation, portal scanning
 ## Stack
 
 - **Modes** (`modes/`) — Claude skills for evaluating offers, scouting, pipeline, CV generation, and more
-- **Scripts** (`scan.mjs`, `generate-pdf.mjs`, etc.) — zero-token scanners and automation
+- **Scripts** (`scripts/scan.mjs`, `scripts/generate-pdf.mjs`, etc.) — zero-token scanners and automation
 - **Frontend** (`frontend/`) — Electron + Next.js desktop app
 - **User data** (`user/`) — CV, profile, portals config — gitignored, never committed
 

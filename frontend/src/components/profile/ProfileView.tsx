@@ -222,10 +222,13 @@ export function ProfileView() {
   const unlockedCount = badgeList.filter(b => b.unlocked).length
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto bg-bg-base">
-      <div className="titlebar-drag h-11 shrink-0" />
+    <div className="flex flex-col h-full overflow-hidden bg-bg-base">
+      {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
+      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
+        <h1 className="text-body text-text-1 font-medium">Profile</h1>
+      </div>
 
-      <div className="max-w-[740px] mx-auto w-full px-5 pb-10 space-y-4">
+      <div className="flex-1 overflow-y-auto max-w-[740px] mx-auto w-full px-5 pb-10 pt-4 space-y-4">
 
         {/* ── Hero ── */}
         <div className="relative rounded-xl bg-bg-panel border border-border-default p-5 overflow-hidden">

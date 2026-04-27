@@ -11,7 +11,7 @@
  * Run: node career-ops/promote-to-applications.mjs <scouting-num> [--dry-run]
  *
  * Example:
- *   node promote-to-applications.mjs 17
+ *   node scripts/promote-to-applications.mjs 17
  *   → moves Glovo QCommerce Finance & Strategy Intern from scouting.md to
  *     applications.md as a new Evaluated entry, preserving the report link.
  */
@@ -20,14 +20,14 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
+const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
 const APPS_FILE = join(CAREER_OPS, 'data/applications.md');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
 if (args.length === 0) {
-  console.error('Usage: node promote-to-applications.mjs <scouting-num> [--dry-run]');
+  console.error('Usage: node scripts/promote-to-applications.mjs <scouting-num> [--dry-run]');
   process.exit(1);
 }
 const targetNum = parseInt(args[0]);

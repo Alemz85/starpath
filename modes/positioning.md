@@ -339,6 +339,6 @@ Full report: reports/positioning/positioning-{YY-MM}.md
 - **Never invent data.** If `score-history.tsv` has 4 rows for an archetype, do not claim a "trend" — say "insufficient signal".
 - **Do not tailor CV or generate PDFs** in this mode. It's analytical, not generative.
 - **Do not modify `_profile.md` or `user/profile.yml`** automatically. If the report recommends a change (e.g., drop a dead archetype), surface it as a suggestion and ask the user before editing.
-- **Do not rerun `scan.mjs` or `analyze-patterns.mjs`** — those are separate modes. Positioning reads; it does not scan or re-process.
+- **Do not rerun `scripts/scan.mjs` or `scripts/analyze-patterns.mjs`** — those are separate modes. Positioning reads; it does not scan or re-process.
 - **Respect the Data Contract.** This mode reads a lot of files but writes ONLY to `reports/positioning/positioning-*.md`.
 - **One positioning report per month max.** If `reports/positioning/positioning-{YY-MM}.md` already exists, ask the user whether to overwrite or skip. Usually you want to skip — a month's gap allows enough new data to accumulate.

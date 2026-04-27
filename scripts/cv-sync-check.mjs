@@ -15,7 +15,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const projectRoot = __dirname;
+const projectRoot = dirname(__dirname);
 
 const warnings = [];
 const errors = [];

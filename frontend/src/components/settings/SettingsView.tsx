@@ -189,9 +189,8 @@ export function SettingsView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="titlebar-drag h-11 shrink-0 border-b border-border-default" />
-
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-border-default bg-bg-chrome shrink-0">
+      {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
+      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Settings</h1>
       </div>
 
