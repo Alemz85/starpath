@@ -163,7 +163,7 @@ function FacetGroup({
                 type="checkbox"
                 checked={selected.has(item)}
                 onChange={() => onToggle(item)}
-                className="w-3 h-3 accent-[#7C5CFF] cursor-pointer"
+                className="w-3 h-3 accent-[#0064E0] cursor-pointer"
               />
               {renderItem ? renderItem(item) : (
                 <span className="text-label text-text-2 truncate">{item}</span>
@@ -209,12 +209,12 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
           <input
             type="range" min={0} max={10} step={0.5} value={min}
             onChange={e => onChange(parseFloat(e.target.value), Math.max(parseFloat(e.target.value), max))}
-            className="w-full accent-[#7C5CFF]"
+            className="w-full accent-[#0064E0]"
           />
           <input
             type="range" min={0} max={10} step={0.5} value={max}
             onChange={e => onChange(Math.min(min, parseFloat(e.target.value)), parseFloat(e.target.value))}
-            className="w-full accent-[#7C5CFF]"
+            className="w-full accent-[#0064E0]"
           />
         </div>
       )}

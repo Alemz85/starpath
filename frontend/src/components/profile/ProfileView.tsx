@@ -39,11 +39,11 @@ function extractList(yaml: string, key: string): string[] {
 const TIER_RANK: Record<string, number> = { T1: 5, 'T2-high': 4, T2: 3, T3: 2, T4: 1 }
 
 function tierHeatColor(tier: string, count: number): string {
-  if (count === 0) return '#181330'
+  if (count === 0) return '#F1F4F7'
   const map: Record<string, string> = {
-    T1: '#E8B547', 'T2-high': '#5CDB8B', T2: '#7C5CFF', T3: '#C77B3B', T4: '#3A3060',
+    T1: '#C99518', 'T2-high': '#2ABBA7', T2: '#0064E0', T3: '#A0612C', T4: '#CED0D4',
   }
-  return map[tier] ?? '#3A3060'
+  return map[tier] ?? '#CED0D4'
 }
 
 interface HeatCell { date: string; count: number; bestTier: string }
@@ -107,14 +107,14 @@ function Sparkline({ values }: { values: number[] }) {
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-12 overflow-visible">
         <defs>
           <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#7C5CFF" stopOpacity="0.25" />
-            <stop offset="100%" stopColor="#7C5CFF" stopOpacity="0" />
+            <stop offset="0%" stopColor="#0064E0" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="#0064E0" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={areaPath} fill="url(#sg)" />
-        <path d={linePath} fill="none" stroke="#7C5CFF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx={last.x} cy={last.y} r="3" fill="#7C5CFF" />
-        <text x={last.x + 6} y={last.y + 1} fontSize="9" fill="#A89FCC" dominantBaseline="middle">
+        <path d={linePath} fill="none" stroke="#0064E0" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={last.x} cy={last.y} r="3" fill="#0064E0" />
+        <text x={last.x + 6} y={last.y + 1} fontSize="9" fill="#5D6C7B" dominantBaseline="middle">
           {values[values.length - 1].toFixed(1)}
         </text>
       </svg>
@@ -333,12 +333,12 @@ export function ProfileView() {
           <div className="flex items-center gap-3 mt-3">
             <span className="text-micro text-text-4">Less</span>
             {[
-              { color: '#181330', label: 'none' },
-              { color: '#3A3060', label: 'T4'   },
-              { color: '#C77B3B', label: 'T3'   },
-              { color: '#7C5CFF', label: 'T2'   },
-              { color: '#5CDB8B', label: 'T2+'  },
-              { color: '#E8B547', label: 'T1'   },
+              { color: '#F1F4F7', label: 'none' },
+              { color: '#CED0D4', label: 'T4'   },
+              { color: '#A0612C', label: 'T3'   },
+              { color: '#0064E0', label: 'T2'   },
+              { color: '#2ABBA7', label: 'T2+'  },
+              { color: '#C99518', label: 'T1'   },
             ].map(({ color, label }) => (
               <span key={label} className="flex items-center gap-1">
                 <span className="w-[11px] h-[11px] rounded-[2px] inline-block" style={{ backgroundColor: color }} />
