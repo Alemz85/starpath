@@ -218,16 +218,6 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
     getSortedRowModel: getSortedRowModel(),
   })
 
-  const tierRowClass = (tier: string) => {
-    switch (tier) {
-      case 'T1':     return 'row-tier-1'
-      case 'T2-high':return 'row-tier-2'
-      case 'T2':     return 'row-tier-2'
-      case 'T3':     return 'row-tier-3'
-      default:       return 'row-tier-4'
-    }
-  }
-
   return (
     <div className="h-full overflow-auto">
       <table className="w-full border-collapse text-left" style={{ minWidth: 840 }}>
@@ -271,16 +261,16 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
             const isSelected = id === selectedId
             const lvKey = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
             const lv = liveness[lvKey] ?? 'closed'
-            const dim = lv === 'stale' || lv === 'closed'
+            // T4 = "don't apply" — keep visually quiet alongside stale/closed listings.
+            const dim = lv === 'stale' || lv === 'closed' || entry.tier === 'T4'
             return (
               <tr
                 key={row.id}
                 onClick={(evt) => onRowClick(entry, evt)}
                 className={cn(
-                  tierRowClass(entry.tier),
                   dim && 'opacity-65',
                   'border-b border-border-default/30 cursor-pointer',
-                  'transition-[background-color,box-shadow] duration-150',
+                  'transition-colors duration-150',
                   isSelected
                     ? 'bg-accent/10'
                     : 'hover:bg-accent/[0.04]',
