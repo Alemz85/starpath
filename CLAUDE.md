@@ -144,9 +144,18 @@ This system is designed to be customized by you (AI Agent). Common requests:
 - JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md)
 - Batch in `batch/` (gitignored except scripts and prompt)
 - Report naming: `{Company} - {Role}.md` (human-readable, no sequential numbering in filenames)
-- **Frontend cache:** the Electron app mirrors `data/*` and `reports/**` into a SQLite cache at `{userData}/cache.db` for fast queries. It is fully derived from the Markdown/TSV files and rebuilds on launch via mtime comparison + a chokidar watcher. Markdown/TSV remain canonical; modes never read or write the cache. See `frontend/ARCHITECTURE.md`.
+- **Frontend (Electron app):** the desktop app under `frontend/` is branded **starpath** (the project itself stays `career-ops`; the GUI app is just one consumer). Its top-level cockpit is two primary tabs that drive `user/profile.yml → current_mode`:
+  - **Scouting** (`current_mode: scouting`) — landscape mapping. Scan + Generate Reports buttons; activity panel streams live spawn output.
+  - **Applying** (`current_mode: applying`) — active-application work. Per-listing actions: Tailor CV (`modes/pdf.md`), Draft (`modes/apply.md`), Prep Interview (`modes/interview-prep.md`).
+
+  Below those, secondary tabs (Database, Pipeline, Reports, Trends, Scan) are read-only data lenses + the workflow Kanban. **Database** is the universal lens with a `liveness` filter (active <14d / stale 14–90d / closed >90d) derived from `data/scan-history.tsv`. **Pipeline** is the application-status Kanban + Inbox. Cross-linking spine: every entity is keyed by `company + role`; clicking a Database row opens an action popover (View report · Apply · Tailor CV · Prep · Open URL · Mark not interested), and the Reports slide-over header pills mirror the same actions.
+
+  **Apply / Status writebacks.** The Apply button (in the popover and slide-over) and the inline status dropdown both write directly to `data/applications.md` from the renderer — appending a new row on first Apply, then rewriting the matching row's `Status` cell on each status change. The chokidar watcher resyncs the SQLite cache automatically.
+
+- **Frontend cache:** the Electron app mirrors `data/*` and `reports/**` into a SQLite cache at `{userData}/cache.db` for fast queries. It is fully derived from the Markdown/TSV files and rebuilds on launch via mtime comparison + a chokidar watcher. Markdown/TSV remain canonical; backend modes (Claude) never read or write the cache. See `frontend/ARCHITECTURE.md`.
+
 - **RULE: After each batch of evaluations, run `node scripts/merge-tracker.mjs`** to merge tracker additions and avoid duplications.
-- **RULE: NEVER create new entries in applications.md if company+role already exists.** Update the existing entry.
+- **RULE for backend modes: NEVER create new entries in applications.md if company+role already exists.** Update the existing entry. (The frontend Apply button currently appends without this check — same-role re-evaluation across years is a known gap; manual cleanup if it happens.)
 
 ### TSV Format for Tracker Additions
 

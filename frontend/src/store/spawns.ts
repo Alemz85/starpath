@@ -21,6 +21,9 @@ export interface SpawnRecord {
   output: string[]
   startedAt: number
   exitCode?: number
+  /** Underlying executable — used by the activity panel to brand running
+   *  Claude spawns with the Claude logo. Not all spawns are AI-driven. */
+  tool: 'claude' | 'node' | 'shell'
 }
 
 interface SpawnsState {
@@ -36,6 +39,9 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
   spawns: {},
 
   start: (id, label, cmd, args) => {
+    const tool: SpawnRecord['tool'] =
+      cmd === 'claude' ? 'claude' :
+      cmd === 'node'   ? 'node'   : 'shell'
     set(state => ({
       spawns: {
         ...state.spawns,
@@ -45,6 +51,7 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
           status: 'running',
           output: [],
           startedAt: Date.now(),
+          tool,
         },
       },
     }))

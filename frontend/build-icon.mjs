@@ -32,44 +32,45 @@ const ICON_HTML = `<!DOCTYPE html>
 <body>
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bg" cx="38%" cy="36%" r="70%">
+    <radialGradient id="bg" cx="50%" cy="42%" r="68%">
       <stop offset="0%" stop-color="#211050"/>
-      <stop offset="100%" stop-color="#0D0A1F"/>
+      <stop offset="100%" stop-color="#0A0820"/>
     </radialGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#7C5CFF" stop-opacity="0.22"/>
+    <radialGradient id="glow" cx="50%" cy="48%" r="48%">
+      <stop offset="0%" stop-color="#7C5CFF" stop-opacity="0.32"/>
       <stop offset="100%" stop-color="#7C5CFF" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="body-fill" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#3D2A8A"/>
-      <stop offset="100%" stop-color="#1E1050"/>
+    <linearGradient id="star-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"  stop-color="#D4C5FF"/>
+      <stop offset="55%" stop-color="#7C5CFF"/>
+      <stop offset="100%" stop-color="#A121CE"/>
     </linearGradient>
-    <linearGradient id="stroke-grad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#9B7FFF"/>
-      <stop offset="100%" stop-color="#5C3FCC"/>
-    </linearGradient>
+    <filter id="star-shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dx="0" dy="6" result="o"/>
+      <feFlood flood-color="#000" flood-opacity="0.28"/>
+      <feComposite in2="o" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
 
   <!-- Background -->
   <rect width="1024" height="1024" fill="url(#bg)"/>
 
-  <!-- Ambient glow -->
-  <ellipse cx="512" cy="510" rx="370" ry="360" fill="url(#glow)"/>
+  <!-- Ambient glow behind the star -->
+  <ellipse cx="512" cy="492" rx="420" ry="400" fill="url(#glow)"/>
 
-  <!-- ── Briefcase ── centered, 580px wide -->
-  <!-- Handle -->
-  <path d="M390 390 L390 330 Q390 278 440 278 L584 278 Q634 278 634 330 L634 390"
-    fill="none" stroke="url(#stroke-grad)" stroke-width="52" stroke-linecap="round" stroke-linejoin="round"/>
-
-  <!-- Body -->
-  <rect x="172" y="390" width="680" height="460" rx="72" fill="url(#body-fill)" stroke="url(#stroke-grad)" stroke-width="44"/>
-
-  <!-- Mid divider -->
-  <rect x="172" y="590" width="680" height="44" fill="#7C5CFF" opacity="0.18"/>
-
-  <!-- Clasp -->
-  <rect x="456" y="568" width="112" height="88" rx="22" fill="#7C5CFF" opacity="0.9"/>
-  <rect x="478" y="590" width="68" height="44" rx="12" fill="#B8A4FF" opacity="0.7"/>
+  <!-- ── Starpath comet ── centered, ~660px wide
+       Source path is at viewBox 0 0 1024 1024. Translate +0,+30 to bias the
+       comet's body downward so the icon reads as centered with the tail
+       trailing toward the bottom-left. -->
+  <g transform="translate(0,30)">
+    <path
+      d="M640 140 L682 298 L840 340 L682 382 C770 540 520 800 180 840 C440 760 610 540 598 382 L440 340 L598 298 Z"
+      fill="url(#star-fill)"
+      filter="url(#star-shadow)"
+    />
+  </g>
 </svg>
 </body>
 </html>`;
@@ -120,10 +121,10 @@ const DMG_HTML = `<!DOCTYPE html>
 </style>
 </head>
 <body>
-  <div class="title">career-ops</div>
+  <div class="title">starpath</div>
   <div class="side">
     <div class="icon-placeholder"></div>
-    <div class="label">career-ops</div>
+    <div class="label">starpath</div>
   </div>
   <div class="arrow">→</div>
   <div class="side">

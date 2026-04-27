@@ -1,5 +1,5 @@
 {
-  "name": "career-ops-desktop",
+  "name": "starpath-desktop",
   "version": "0.1.0",
   "private": true,
   "main": "dist-electron/electron/main.js",
@@ -60,8 +60,8 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.career-ops.desktop",
-    "productName": "career-ops",
+    "appId": "com.starpath.desktop",
+    "productName": "starpath",
     "directories": {
       "output": "dist"
     },
@@ -78,11 +78,11 @@
       "category": "public.app-category.productivity",
       "icon": "assets/icon.icns",
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] }
+        { "target": "dmg", "arch": ["arm64"] }
       ]
     },
     "dmg": {
-      "title": "career-ops",
+      "title": "starpath",
       "background": "assets/dmg-background.png",
       "window": { "width": 540, "height": 380 },
       "contents": [
