@@ -1,25 +1,33 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDataStore } from '@/store/data'
-import { useAppStore } from '@/store/app'
-import { ipc } from '@/lib/ipc'
+import { ipc, type DbReportRow } from '@/lib/ipc'
 import { Search, FileText, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
-import type { ReportFile } from '@/types'
+import type { ReportFile, ScoreEntry } from '@/types'
 import { ReportSlideOver } from './ReportSlideOver'
-import type { ScoreEntry } from '@/types'
 
 export function ReportsView() {
-  const { reports: reportFiles, scoreHistory, loaded } = useDataStore()
+  const { scoreHistory, loaded } = useDataStore()
+  // Pulls from the SQL join in db.reports() so each card already carries its
+  // matching overall score. The slide-over still looks up the full
+  // ScoreEntry in memory (one find per click is fine at this volume).
+  const [reportRows, setReportRows] = useState<DbReportRow[]>([])
   const [query, setQuery] = useState('')
   const [selectedTiers, setSelectedTiers] = useState<Set<string>>(new Set())
   const [selected, setSelected] = useState<ReportFile | null>(null)
 
+  useEffect(() => {
+    let cancelled = false
+    ipc.db.reports().then(rs => { if (!cancelled) setReportRows(rs ?? []) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [scoreHistory.length])
+
   const filteredFiles = useMemo(() => {
-    let rows = reportFiles
+    let rows = reportRows
     if (selectedTiers.size > 0) rows = rows.filter(r => selectedTiers.has(r.tier))
     if (query) {
       const q = query.toLowerCase()
@@ -27,11 +35,12 @@ export function ReportsView() {
         r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q)
       )
     }
-    return rows.sort((a, b) => {
-      const tierOrder = ['tier-1', 'tier-2', 'tier-3', 'tier-4']
-      return tierOrder.indexOf(a.tier) - tierOrder.indexOf(b.tier)
+    const tierOrder = ['T1', 'T2-high', 'T2', 'T3', 'T4']
+    return [...rows].sort((a, b) => {
+      const ai = tierOrder.indexOf(a.tier); const bi = tierOrder.indexOf(b.tier)
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
     })
-  }, [reportFiles, query, selectedTiers])
+  }, [reportRows, query, selectedTiers])
 
   const toggleTier = (tier: string) => {
     const next = new Set(selectedTiers)
@@ -39,8 +48,9 @@ export function ReportsView() {
     setSelectedTiers(next)
   }
 
-  // Find matching ScoreEntry for a report file
-  const scoreFor = (r: ReportFile): ScoreEntry | null =>
+  // Slide-over needs the full ScoreEntry (all scoring dimensions), not just
+  // the overall — pulled from the in-memory store on click.
+  const scoreFor = (r: { company: string; role: string }): ScoreEntry | null =>
     scoreHistory.find(s => s.company === r.company && s.role === r.role) ?? null
 
   const selectedScore = selected ? scoreFor(selected) : null
@@ -51,7 +61,7 @@ export function ReportsView() {
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Reports</h1>
         <span className="text-label text-text-4 font-mono">
-          {loaded ? `${filteredFiles.length} / ${reportFiles.length}` : '…'}
+          {loaded ? `${filteredFiles.length} / ${reportRows.length}` : '…'}
         </span>
       </div>
 
@@ -116,9 +126,14 @@ export function ReportsView() {
               <ReportCard
                 key={report.path}
                 report={report}
-                score={scoreFor(report)}
+                overall={report.overall}
                 isSelected={selected?.path === report.path}
-                onClick={() => setSelected(report)}
+                onClick={() => setSelected({
+                  path: report.path,
+                  company: report.company,
+                  role: report.role,
+                  tier: report.tier,
+                })}
               />
             ))}
           </div>
@@ -155,18 +170,17 @@ export function ReportsView() {
 
 function ReportCard({
   report,
-  score,
+  overall,
   isSelected,
   onClick,
 }: {
-  report: ReportFile
-  score: ScoreEntry | null
+  report: { path: string; company: string; role: string; tier: string }
+  overall: number | null
   isSelected: boolean
   onClick: () => void
 }) {
-  const tierKey = (report.tier.replace('tier-', 'T') as TierKey) in TIER_COLORS
-    ? (report.tier.replace('tier-', 'T') as TierKey)
-    : 'T4'
+  const rawKey = report.tier as TierKey
+  const tierKey: TierKey = (rawKey in TIER_COLORS) ? rawKey : 'T4'
   const { text: tierText, border, bg } = TIER_COLORS[tierKey]
   const label = { 'T1': 'T1', 'T2-high': 'T2+', 'T2': 'T2', 'T3': 'T3', 'T4': 'T4' }[tierKey] ?? tierKey
 
@@ -187,8 +201,8 @@ function ReportCard({
             <span className={cn('px-1.5 py-px text-[9.5px] font-mono font-semibold rounded border shrink-0', bg, tierText, border)}>
               {label}
             </span>
-            {score && score.overall > 0 && (
-              <span className="text-micro font-mono text-text-4 shrink-0">{score.overall.toFixed(1)}</span>
+            {overall != null && overall > 0 && (
+              <span className="text-micro font-mono text-text-4 shrink-0">{overall.toFixed(1)}</span>
             )}
           </div>
           <div className="text-label text-text-1 font-medium leading-snug truncate">{report.company}</div>

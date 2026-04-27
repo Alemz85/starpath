@@ -144,6 +144,7 @@ This system is designed to be customized by you (AI Agent). Common requests:
 - JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md)
 - Batch in `batch/` (gitignored except scripts and prompt)
 - Report naming: `{Company} - {Role}.md` (human-readable, no sequential numbering in filenames)
+- **Frontend cache:** the Electron app mirrors `data/*` and `reports/**` into a SQLite cache at `{userData}/cache.db` for fast queries. It is fully derived from the Markdown/TSV files and rebuilds on launch via mtime comparison + a chokidar watcher. Markdown/TSV remain canonical; modes never read or write the cache. See `frontend/ARCHITECTURE.md`.
 - **RULE: After each batch of evaluations, run `node scripts/merge-tracker.mjs`** to merge tracker additions and avoid duplications.
 - **RULE: NEVER create new entries in applications.md if company+role already exists.** Update the existing entry.
 
