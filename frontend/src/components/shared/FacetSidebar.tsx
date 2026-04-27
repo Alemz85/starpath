@@ -101,7 +101,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
         />
         <FacetGroup
           label="Tier"
-          items={['T1', 'T2-high', 'T2', 'T3', 'T4']}
+          items={['T1', 'T2', 'T3', 'T4']}
           selected={filters.tiers}
           onToggle={v => toggle('tiers', v)}
           renderItem={tier => <TierChip tier={tier} />}

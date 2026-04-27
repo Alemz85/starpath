@@ -43,7 +43,10 @@ export function DatabaseView() {
     if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
     if (filters.locations.size)  rows = rows.filter(r => filters.locations.has(r.location))
     if (filters.archetypes.size) rows = rows.filter(r => filters.archetypes.has(r.archetype))
-    if (filters.tiers.size)      rows = rows.filter(r => filters.tiers.has(r.tier))
+    if (filters.tiers.size) {
+      // T2+ (T2-high) rolls up under T2 in the facet — there's no separate chip.
+      rows = rows.filter(r => filters.tiers.has(r.tier) || (r.tier === 'T2-high' && filters.tiers.has('T2')))
+    }
     if (filters.employmentTypes.size) rows = rows.filter(r => filters.employmentTypes.has(r.employment_type))
     if (filters.scoreMin > 0 || filters.scoreMax < 10) {
       rows = rows.filter(r => r.overall >= filters.scoreMin && r.overall <= filters.scoreMax)
