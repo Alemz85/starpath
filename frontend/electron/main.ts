@@ -356,7 +356,14 @@ ipcMain.handle('shell:spawn', (_e, id: unknown, cmd: unknown, args: unknown) => 
   const c = validateString(cmd, 'cmd')
   if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) throw new Error('args must be string[]')
   const repoPath = getRepoPath() ?? app.getPath('home')
-  const proc = spawn(c, args as string[], { cwd: repoPath, shell: false, env: SHELL_ENV })
+  // stdio: ['ignore', 'pipe', 'pipe'] closes stdin entirely — without this,
+  // `claude -p` waits 3s for stdin and emits a warning before proceeding.
+  const proc = spawn(c, args as string[], {
+    cwd: repoPath,
+    shell: false,
+    env: SHELL_ENV,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
   spawnedProcesses.set(sid, proc)
   proc.stdout?.on('data', (chunk: Buffer) => {
     mainWindow?.webContents.send('shell:output', sid, chunk.toString())

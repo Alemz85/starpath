@@ -54,7 +54,8 @@ export function PipelineView() {
   const launch = (id: string, label: string, app: ApplicationEntry, modeFile: string) => {
     if (spawns[id]?.status === 'running') { kill(id); return }
     if (spawns[id]) clear(id)
-    const prompt = `For ${app.company} — ${app.role}: @${modeFile}`
+    const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
+    const prompt = `/career-ops ${mode} for ${app.company} — ${app.role}`
     start(id, `${label}: ${app.company}`, 'claude', ['-p', prompt])
   }
 
