@@ -83,14 +83,13 @@ export function ReportsView() {
           )}
         </div>
 
-        {/* Tier filter chips */}
+        {/* Tier filter chips. Values match `report.tier` ('T1'/'T2'/'T3'/'T4')
+            so `selectedTiers.has(r.tier)` matches directly — earlier code
+            stored 'tier-1'/etc. and never matched. */}
         <div className="flex items-center gap-1.5">
-          {(['tier-1', 'tier-2', 'tier-3', 'tier-4'] as const).map(tier => {
-            const tierKey = tier.replace('tier-', 'T') as TierKey
-            const adjusted = tierKey === 'T2' ? 'T2' : tierKey
-            const colors = TIER_COLORS[adjusted as TierKey] ?? TIER_COLORS['T4']
+          {(['T1', 'T2', 'T3', 'T4'] as const).map(tier => {
+            const colors = TIER_COLORS[tier] ?? TIER_COLORS['T4']
             const active = selectedTiers.has(tier)
-            const label = { 'tier-1': 'T1', 'tier-2': 'T2', 'tier-3': 'T3', 'tier-4': 'T4' }[tier]
             return (
               <button
                 key={tier}
@@ -100,7 +99,7 @@ export function ReportsView() {
                   active ? cn(colors.bg, colors.text, colors.border) : 'text-text-4 border-border-default hover:border-border-strong',
                 )}
               >
-                {label}
+                {tier}
               </button>
             )
           })}

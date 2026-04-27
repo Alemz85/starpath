@@ -38,7 +38,10 @@ const SHELL_PATH = [
 const SHELL_ENV = { ...process.env, PATH: SHELL_PATH }
 
 const isDev = process.env.NODE_ENV === 'development'
-const loadURL = isDev ? null : serve({ directory: path.join(__dirname, '../out') })
+// Compiled main lives at dist-electron/electron/main.js; the Next.js static
+// export lives at out/ (sibling of dist-electron at the project root, and at
+// the asar root in production). Two ../ to climb out of dist-electron/electron/.
+const loadURL = isDev ? null : serve({ directory: path.join(__dirname, '../../out') })
 
 // ─── Config store ─────────────────────────────────────────────────────────────
 

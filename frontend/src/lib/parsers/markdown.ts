@@ -93,8 +93,9 @@ export function parsePipeline(md: string): PipelineUrl[] {
 
   return lines.flatMap(line => {
     const trimmed = line.trim()
-    // Match lines that look like URLs (start with http or are local: prefixed)
-    const urlMatch = trimmed.match(/^[-*]?\s*((?:https?:\/\/|local:)\S+)/)
+    // Supported prefixes: bare, "- ", "* ", "- [ ] ", "- [x] " (GFM
+    // task-list bullets used in pipeline.md to mark processing state).
+    const urlMatch = trimmed.match(/^[-*]?\s*(?:\[[ xX]\]\s+)?((?:https?:\/\/|local:)\S+)/)
     if (!urlMatch) return []
 
     const url = urlMatch[1]
