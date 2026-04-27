@@ -9,11 +9,24 @@ interface DataState {
   pipeline:     PipelineUrl[]
   reports:      ReportFile[]
   scansThisMonth: number   // unique scan-run dates in the current month
+  liveness:     Record<string, 'active' | 'stale' | 'closed'>  // company|role key
   loaded:       boolean
   loading:      boolean
 
   load:    () => Promise<void>
   refresh: (opts?: { resync?: boolean }) => Promise<void>
+
+  // Application writeback. Both write to data/applications.md, then the
+  // chokidar watcher resyncs the SQLite cache and refresh() is called to
+  // mirror disk into the renderer.
+  promoteToApplication: (args: {
+    company: string
+    role: string
+    overall: number
+    tier: string
+    reportPath?: string
+  }) => Promise<void>
+  setApplicationStatus: (company: string, role: string, status: AppStatus) => Promise<void>
 }
 
 export const useDataStore = create<DataState>((set) => ({
@@ -23,6 +36,7 @@ export const useDataStore = create<DataState>((set) => ({
   pipeline:     [],
   reports:      [],
   scansThisMonth: 0,
+  liveness:     {},
   loaded:       false,
   loading:      false,
 
@@ -53,6 +67,25 @@ export const useDataStore = create<DataState>((set) => ({
     })()
     return refreshInFlight
   },
+
+  promoteToApplication: async ({ company, role, overall, tier, reportPath }) => {
+    const path = 'data/applications.md'
+    const raw = await ipc.readFile(path) ?? ''
+    const next = appendApplicationRow(raw, {
+      company, role, overall, tier, reportPath,
+    })
+    await ipc.writeFile(path, next)
+    await useDataStore.getState().refresh()
+  },
+
+  setApplicationStatus: async (company, role, status) => {
+    const path = 'data/applications.md'
+    const raw = await ipc.readFile(path) ?? ''
+    const next = updateApplicationStatus(raw, company, role, status)
+    if (next === raw) return  // no matching row
+    await ipc.writeFile(path, next)
+    await useDataStore.getState().refresh()
+  },
 }))
 
 let refreshInFlight: Promise<void> | null = null
@@ -76,7 +109,65 @@ async function loadAll() {
     pipeline:     (pipelineRows ?? []).map(toPipelineUrl),
     reports:      (reportRows   ?? []).map(toReportFile),
     scansThisMonth: countScansThisMonth(scanHistRaw),
+    liveness:     deriveLiveness(scanHistRaw),
   })
+}
+
+// ─── Liveness ─────────────────────────────────────────────────────────────────
+//
+// Score-history entries don't have URLs but they do have company+role and a
+// `source` (often the URL). scan-history.tsv has the canonical URL → date list.
+// We can't perfectly join them, but we can map company+role → most-recent
+// scan_dates entry and derive liveness from the recency.
+//
+// active: seen <14d ago
+// stale:  seen 14–90d ago
+// closed: seen >90d ago, or never-mapped
+function deriveLiveness(raw: string | null): Record<string, 'active' | 'stale' | 'closed'> {
+  if (!raw) return {}
+  const lines = raw.split('\n')
+  if (lines.length < 2) return {}
+  const header = lines[0].split('\t')
+  const companyIdx = header.indexOf('company')
+  const titleIdx   = header.indexOf('title')
+  const datesIdx   = header.indexOf('scan_dates')
+  if (companyIdx < 0 || titleIdx < 0 || datesIdx < 0) return {}
+
+  const today = new Date()
+  const dayMs = 1000 * 60 * 60 * 24
+  const out: Record<string, 'active' | 'stale' | 'closed'> = {}
+
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i].split('\t')
+    if (row.length < 3) continue
+    const company = (row[companyIdx] ?? '').trim()
+    const title   = (row[titleIdx] ?? '').trim()
+    const dates   = (row[datesIdx] ?? '').split('|').filter(Boolean)
+    if (!company || !title || dates.length === 0) continue
+
+    const last = dates[dates.length - 1]
+    const lastDate = new Date(last)
+    if (Number.isNaN(lastDate.getTime())) continue
+    const daysAgo = (today.getTime() - lastDate.getTime()) / dayMs
+
+    const liveness: 'active' | 'stale' | 'closed' =
+      daysAgo < 14  ? 'active' :
+      daysAgo < 90  ? 'stale' : 'closed'
+
+    const key = livenessKey(company, title)
+    // Keep the freshest verdict if the same company+role appears in multiple rows.
+    const cur = out[key]
+    if (!cur || rank(liveness) > rank(cur)) out[key] = liveness
+  }
+  return out
+}
+
+function rank(l: 'active' | 'stale' | 'closed'): number {
+  return l === 'active' ? 2 : l === 'stale' ? 1 : 0
+}
+
+export function livenessKey(company: string, role: string): string {
+  return `${company.trim().toLowerCase()}|${role.trim().toLowerCase()}`
 }
 
 // Count unique scan-run *dates* in the current calendar month. Each row of
@@ -212,4 +303,119 @@ function toReportFile(row: DbReportRow): ReportFile {
     role:    row.role,
     tier:    row.tier,
   }
+}
+
+// ─── applications.md helpers ──────────────────────────────────────────────────
+//
+// applications.md is a thin markdown table the user can also hand-edit:
+//
+//   | # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
+//   |---|------|---------|------|-------|--------|-----|----------|--------|-------|
+//   | 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Evaluated | ❌ | n/d | [#1](…) | … |
+//
+// We append a new row at the bottom on Apply, and rewrite the Status cell of
+// a matching row on status change. We never mutate other cells.
+
+function isTableSeparator(line: string): boolean {
+  return /^\|\s*-+/.test(line)
+}
+
+function isTableDataRow(line: string): boolean {
+  return line.startsWith('|') && !isTableSeparator(line) && !/^\|\s*#\s*\|/i.test(line)
+}
+
+function splitRow(line: string): string[] {
+  // Strip the leading and trailing pipe, split, trim cells.
+  return line.replace(/^\|/, '').replace(/\|\s*$/, '').split('|').map(c => c.trim())
+}
+
+function joinRow(cells: string[]): string {
+  return `| ${cells.join(' | ')} |`
+}
+
+function tierFolder(tier: string): string {
+  if (tier === 'T1') return 'tier-1'
+  if (tier === 'T2' || tier === 'T2-high') return 'tier-2'
+  if (tier === 'T3') return 'tier-3'
+  return 'tier-4'
+}
+
+export function appendApplicationRow(raw: string, args: {
+  company: string
+  role: string
+  overall: number
+  tier: string
+  reportPath?: string
+}): string {
+  const lines = raw.split('\n')
+
+  // Find the highest existing # so we can increment.
+  let maxNum = 0
+  for (const line of lines) {
+    if (!isTableDataRow(line)) continue
+    const cells = splitRow(line)
+    const n = parseInt(cells[0] ?? '', 10)
+    if (Number.isFinite(n) && n > maxNum) maxNum = n
+  }
+
+  const num = maxNum + 1
+  const today = new Date().toISOString().slice(0, 10)
+  const score = args.overall > 0 ? `${args.overall.toFixed(1)}/10` : '—'
+  const reportLink = args.reportPath
+    ? `[#${num}](${args.reportPath})`
+    : `[#${num}](reports/${tierFolder(args.tier)}/${args.company} - ${args.role}.md)`
+  const newRow = joinRow([
+    String(num),
+    today,
+    args.company,
+    args.role,
+    score,
+    'Evaluated',
+    '❌',
+    'n/d',
+    reportLink,
+    '',
+  ])
+
+  // Find last existing data row index, otherwise append after the separator.
+  let insertAt = -1
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (isTableDataRow(lines[i])) { insertAt = i; break }
+  }
+  if (insertAt === -1) {
+    for (let i = 0; i < lines.length; i++) {
+      if (isTableSeparator(lines[i])) { insertAt = i; break }
+    }
+  }
+
+  if (insertAt === -1) {
+    // No table at all — append at end.
+    return raw.trimEnd() + '\n' + newRow + '\n'
+  }
+  const next = [...lines]
+  next.splice(insertAt + 1, 0, newRow)
+  return next.join('\n')
+}
+
+export function updateApplicationStatus(
+  raw: string,
+  company: string,
+  role: string,
+  status: AppStatus,
+): string {
+  const lines = raw.split('\n')
+  const c = company.trim().toLowerCase()
+  const r = role.trim().toLowerCase()
+  let mutated = false
+  for (let i = 0; i < lines.length; i++) {
+    if (!isTableDataRow(lines[i])) continue
+    const cells = splitRow(lines[i])
+    if (cells.length < 6) continue
+    if (cells[2].toLowerCase() === c && cells[3].toLowerCase() === r) {
+      cells[5] = status
+      lines[i] = joinRow(cells)
+      mutated = true
+    }
+  }
+  return mutated ? lines.join('\n') : raw
 }

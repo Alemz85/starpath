@@ -3,11 +3,12 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useNavStore, type ViewId } from '@/store/nav'
+import { useAppStore } from '@/store/app'
 import {
-  LayoutDashboard,
+  Map,
+  Briefcase,
   Database,
   FileText,
-  GitBranch,
   TrendingUp,
   Search,
   Settings,
@@ -18,17 +19,26 @@ import {
   Loader2,
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
+import type { AppMode } from '@/types'
 
-const NAV_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] = [
-  { view: 'home',     label: 'Command Center', icon: LayoutDashboard },
-  { view: 'database', label: 'Database',        icon: Database },
-  { view: 'reports',  label: 'Reports',         icon: FileText },
-  { view: 'pipeline', label: 'Pipeline',        icon: GitBranch },
-  { view: 'trends',   label: 'Trends',          icon: TrendingUp },
-  { view: 'scan',     label: 'Scan',            icon: Radar },
+interface NavItem {
+  view: ViewId
+  label: string
+  icon: React.ElementType
+  /** If set, navigating to this tab also flips currentMode. */
+  syncMode?: AppMode
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { view: 'scouting', label: 'Scouting', icon: Map,        syncMode: 'scouting' },
+  { view: 'applying', label: 'Applying', icon: Briefcase,  syncMode: 'applying' },
+  { view: 'database', label: 'Database', icon: Database  },
+  { view: 'reports',  label: 'Reports',  icon: FileText  },
+  { view: 'trends',   label: 'Trends',   icon: TrendingUp },
+  { view: 'scan',     label: 'Scan',     icon: Radar     },
 ]
 
-const BOTTOM_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] = [
+const BOTTOM_ITEMS: NavItem[] = [
   { view: 'profile',  label: 'Profile',  icon: User     },
   { view: 'settings', label: 'Settings', icon: Settings },
 ]
@@ -36,7 +46,49 @@ const BOTTOM_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] =
 export function Sidebar() {
   const [expanded, setExpanded] = useState(true)
   const { view: currentView, navigate } = useNavStore()
+  const setMode = useAppStore(s => s.setMode)
   const anyRunning = useSpawnsStore(isAnyRunning)
+
+  const handleNav = (item: NavItem) => {
+    navigate(item.view)
+    if (item.syncMode) void setMode(item.syncMode)
+  }
+
+  const renderItem = (item: NavItem) => {
+    const Icon = item.icon
+    const showRunning = item.view === 'scan' && anyRunning
+    return (
+      <button
+        key={item.view}
+        onClick={() => handleNav(item)}
+        className={cn(
+          'w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors text-body',
+          currentView === item.view
+            ? 'bg-accent/15 text-text-1 border-l-2 border-accent -ml-[1px] pl-[7px]'
+            : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
+          !expanded && 'justify-center px-0',
+        )}
+        title={!expanded ? item.label : undefined}
+      >
+        <span className="relative shrink-0 inline-flex">
+          <Icon size={15} />
+          {showRunning && (
+            <Loader2
+              size={9}
+              className="absolute -top-1 -right-1.5 animate-spin text-accent"
+              strokeWidth={2.5}
+            />
+          )}
+        </span>
+        {expanded && (
+          <span className="flex-1 flex items-center justify-between">
+            <span>{item.label}</span>
+            {showRunning && <span className="text-[10px] font-mono text-accent">running</span>}
+          </span>
+        )}
+      </button>
+    )
+  }
 
   return (
     <aside
@@ -45,9 +97,6 @@ export function Sidebar() {
         expanded ? 'w-[220px]' : 'w-14',
       )}
     >
-      {/* Header / wordmark — shares the .title-bar height with every main-pane title row.
-          No border-b so the sidebar flows continuously through search and nav.
-          The main pane's divider visually terminates at the sidebar/main seam. */}
       <div
         className={cn(
           'title-bar px-3',
@@ -88,61 +137,12 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map(({ view, label, icon: Icon }) => {
-          const showRunning = view === 'scan' && anyRunning
-          return (
-            <button
-              key={view}
-              onClick={() => navigate(view)}
-              className={cn(
-                'w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors text-body',
-                currentView === view
-                  ? 'bg-accent/15 text-text-1 border-l-2 border-accent -ml-[1px] pl-[7px]'
-                  : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
-                !expanded && 'justify-center px-0',
-              )}
-              title={!expanded ? label : undefined}
-            >
-              <span className="relative shrink-0 inline-flex">
-                <Icon size={15} />
-                {showRunning && (
-                  <Loader2
-                    size={9}
-                    className="absolute -top-1 -right-1.5 animate-spin text-accent"
-                    strokeWidth={2.5}
-                  />
-                )}
-              </span>
-              {expanded && (
-                <span className="flex-1 flex items-center justify-between">
-                  <span>{label}</span>
-                  {showRunning && <span className="text-[10px] font-mono text-accent">running</span>}
-                </span>
-              )}
-            </button>
-          )
-        })}
+        {NAV_ITEMS.map(renderItem)}
       </nav>
 
       {/* Bottom */}
       <div className="p-2 border-t border-border-default space-y-0.5">
-        {BOTTOM_ITEMS.map(({ view, label, icon: Icon }) => (
-          <button
-            key={view}
-            onClick={() => navigate(view)}
-            className={cn(
-              'w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors text-body',
-              currentView === view
-                ? 'bg-accent/15 text-text-1 border-l-2 border-accent -ml-[1px] pl-[7px]'
-                : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
-              !expanded && 'justify-center px-0',
-            )}
-            title={!expanded ? label : undefined}
-          >
-            <Icon size={15} className="shrink-0" />
-            {expanded && <span>{label}</span>}
-          </button>
-        ))}
+        {BOTTOM_ITEMS.map(renderItem)}
       </div>
     </aside>
   )

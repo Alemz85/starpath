@@ -107,7 +107,7 @@ Read `modes/_shared.md` § "Dimensional Scoring Framework" for the full rubric. 
 ```
 Current Fit       = (Skills Match + Ease of Entry + Strategic/Analytical Fit) / 3
 Aspirational Fit  = (Growth/Mobility + Optionality/Exit + Brand Value) / 3
-Overall (H)       = Current Fit × 0.6 + Aspirational Fit × 0.4   ← job-seeking weights (see _profile.md § CF/AF Phase Weighting)
+Overall (H)       = Current Fit × 0.6 + Aspirational Fit × 0.4   ← applying weights (see _profile.md § CF/AF Phase Weighting)
 ```
 
 **Render as the standard 14-row dimensional table** (see `_shared.md` for the exact format).

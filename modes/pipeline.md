@@ -53,7 +53,7 @@ b. **Extract JD:** Playwright (`browser_navigate` + `browser_snapshot`) → WebF
 c. If not accessible → mark `- [!]` with a note and continue
 d. **Run auto-pipeline** based on `user/profile.yml → current_mode`:
    - `scouting` → `modes/scouting.md`
-   - `job-seeking` → `modes/oferta.md`
+   - `applying` → `modes/oferta.md`
 e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | Score/10 | Tier | PDF ✅/❌`
 
 **If 3+ pending URLs:** launch agents in parallel (`Agent tool` with `run_in_background`) to maximize speed. Keep company grouping intact — evaluate the same-company batch together before dispatching the next company.

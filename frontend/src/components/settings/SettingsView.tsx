@@ -224,7 +224,7 @@ export function SettingsView() {
 // ─── General tab ──────────────────────────────────────────────────────────────
 
 function GeneralTab() {
-  const { repoPath, setRepoPath, currentMode, toggleMode, resetTailoring } = useAppStore()
+  const { repoPath, setRepoPath, currentMode, setMode, resetTailoring } = useAppStore()
   const { refresh } = useDataStore()
 
   const changeRepo = async () => {
@@ -249,12 +249,12 @@ function GeneralTab() {
         </div>
       </SettingRow>
 
-      <SettingRow title="Mode" description="Controls how pasted JDs are evaluated by default. Override any time with /career-ops scouting or /career-ops oferta.">
+      <SettingRow title="Mode" description="Controls how pasted JDs are evaluated by default. Also reflects which top tab (Scouting / Applying) is active. Override per-invocation with /career-ops scouting or /career-ops oferta.">
         <div className="flex rounded-md overflow-hidden border border-border-default w-fit mt-3">
-          {(['scouting', 'job-seeking'] as const).map(mode => (
+          {(['scouting', 'applying'] as const).map(mode => (
             <button
               key={mode}
-              onClick={() => { if (currentMode !== mode) toggleMode() }}
+              onClick={() => setMode(mode)}
               className={cn(
                 'px-4 py-2 text-label transition-colors capitalize',
                 currentMode === mode ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',

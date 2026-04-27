@@ -5,7 +5,7 @@
 # Default evaluation mode for pasted JDs / URLs / auto-pipeline.
 #   scouting     — lightweight landscape mapping (Current Fit + Aspirational Fit, no PDF per listing).
 #                  Use when you're mapping the market, not actively applying.
-#   job-seeking  — full A-H oferta evaluation with tailored PDF, ready to submit.
+#   applying     — full A-H oferta evaluation with tailored PDF, ready to submit.
 #                  Use when you're in active application mode.
 # You can always override per-invocation with /career-ops scouting or /career-ops oferta.
 current_mode: scouting

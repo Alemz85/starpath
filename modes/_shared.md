@@ -186,7 +186,7 @@ Overall = Current Fit × {CF_weight} + Aspirational Fit × {AF_weight}
 
 **Phase-aware weights** (set in `user/_profile.md` → Scoring Weights):
 - **scouting mode → 70/30** (CF=0.70, AF=0.30): landscape mapping; reachability is the primary question
-- **job-seeking mode → 60/40** (CF=0.60, AF=0.40): choosing between live offers; ambition weighs more
+- **applying mode → 60/40** (CF=0.60, AF=0.40): choosing between live offers; ambition weighs more
 
 **Context modifiers** (applied after the weighted rollup):
 - Salary Adj for City ≤ 4 → **−0.4** to Overall (poverty-wage or well below local market)
@@ -336,7 +336,7 @@ Both `scouting` reports and `oferta` Block H render the dimensions as a single t
 | Best-fit Early-career Roles (context) | — | Comma-separated list of 1-4 alternative roles at this company |
 ```
 
-Note: the Overall line weight shown (0.70/0.30) is for scouting mode. In job-seeking mode use 0.60/0.40. Always show the actual weights used.
+Note: the Overall line weight shown (0.70/0.30) is for scouting mode. In applying mode use 0.60/0.40. Always show the actual weights used.
 
 ### Comparative Rank Block
 

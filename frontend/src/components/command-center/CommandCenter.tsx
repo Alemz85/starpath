@@ -4,10 +4,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, type SpawnRecord } from '@/store/spawns'
-import { ModeToggle } from './ModeToggle'
 import { StatCard } from './StatCard'
 import {
-  BarChart2, Clock, Inbox, Target, Radar, Calendar,
+  BarChart2, Inbox, Target, Radar, Calendar,
   Play, Zap, FileOutput, Square,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -36,7 +35,7 @@ const LOADING_MESSAGES = [
 ]
 
 export function CommandCenter() {
-  const { currentMode, repoPath } = useAppStore()
+  const { repoPath } = useAppStore()
   const { scoreHistory, applications, pipeline, scansThisMonth, loaded, refresh } = useDataStore()
 
   // Compute stats
@@ -53,20 +52,17 @@ export function CommandCenter() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Command Center</h1>
+        <h1 className="text-body text-text-1 font-medium">Scouting</h1>
       </div>
 
       <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-6 overflow-hidden min-h-0">
         {/* Hero — fixed height */}
         <div className="shrink-0 galaxy-bg rounded-lg p-6 border border-border-default">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-page text-text-1 mb-1">Command Center</h1>
-              <p className="text-body text-text-3">
-                {loaded ? `${totalEvaluated} offers evaluated · ${pendingListings} pending in pipeline` : 'Loading data…'}
-              </p>
-            </div>
-            <ModeToggle />
+          <div>
+            <h1 className="text-page text-text-1 mb-1">Scouting</h1>
+            <p className="text-body text-text-3">
+              {loaded ? `${totalEvaluated} offers evaluated · ${pendingListings} pending in pipeline` : 'Loading data…'}
+            </p>
           </div>
         </div>
 
@@ -106,15 +102,8 @@ export function CommandCenter() {
           />
         </div>
 
-        {/* Action panel — scouting cockpit (flex-grows to fill remaining height) */}
-        {currentMode === 'scouting' ? (
-          <ScoutingActionPanel repoPath={repoPath} onPipelineDone={refresh} />
-        ) : (
-          <div className="shrink-0 rounded-lg border border-border-default bg-bg-elevated px-5 py-4 text-body text-text-3 flex items-center gap-2">
-            <Clock size={14} className="text-text-4" />
-            Job-seeking mode — manage active offers from the Pipeline tab.
-          </div>
-        )}
+        {/* Scouting cockpit (flex-grows to fill remaining height) */}
+        <ScoutingActionPanel repoPath={repoPath} onPipelineDone={refresh} />
       </div>
     </div>
   )

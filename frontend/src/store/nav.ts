@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 
-export type ViewId = 'home' | 'database' | 'reports' | 'pipeline' | 'trends' | 'scan' | 'settings' | 'profile'
+export type ViewId =
+  | 'scouting'
+  | 'applying'
+  | 'database'
+  | 'reports'
+  | 'trends'
+  | 'scan'
+  | 'settings'
+  | 'profile'
 
 interface NavState {
   view: ViewId
@@ -9,7 +17,7 @@ interface NavState {
 }
 
 export const useNavStore = create<NavState>((set) => ({
-  view: 'home',
+  view: 'scouting',
   databaseFilter: '',
   navigate: (view, databaseFilter = '') => set({ view, databaseFilter }),
 }))
