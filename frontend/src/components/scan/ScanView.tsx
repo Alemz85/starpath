@@ -40,7 +40,7 @@ export function ScanView() {
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
-    start(FULL_SCAN_ID, 'Full Scan', 'claude', ['-p', '@modes/scan.md'])
+    start(FULL_SCAN_ID, 'Full Scan', 'claude', ['-p', '/career-ops scan'])
   }
   const handleApiScan = () => {
     if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }
@@ -50,7 +50,7 @@ export function ScanView() {
   const handlePipeline = () => {
     if (pipeline?.status === 'running') { kill(PIPELINE_ID); return }
     if (pipeline) clear(PIPELINE_ID)
-    start(PIPELINE_ID, 'Generate Reports', 'claude', ['-p', '@modes/pipeline.md'])
+    start(PIPELINE_ID, 'Generate Reports', 'claude', ['-p', '/career-ops pipeline'])
   }
 
   return (

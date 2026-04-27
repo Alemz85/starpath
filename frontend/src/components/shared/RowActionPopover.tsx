@@ -163,7 +163,8 @@ function spawnPerListing(label: string, modeFile: string, entry: ScoreEntry) {
     const { spawns, start, clear } = useSpawnsStore.getState()
     if (spawns[id]?.status === 'running') return
     if (spawns[id]) clear(id)
-    const prompt = `For ${entry.company} — ${entry.role}: @${modeFile}`
+    const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
+    const prompt = `/career-ops ${mode} for ${entry.company} — ${entry.role}`
     start(id, `${label}: ${entry.company}`, 'claude', ['-p', prompt])
   })
 }
