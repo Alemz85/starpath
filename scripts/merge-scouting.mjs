@@ -21,17 +21,33 @@
  * Run: node career-ops/merge-scouting.mjs [--dry-run] [--verify]
  */
 
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync, appendFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 
-const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
+const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
+const DEDUP_INDEX_FILE = join(CAREER_OPS, 'data/dedup-index.tsv');
+const DEDUP_INDEX_HEADER = 'company_normalized\trole_normalized\tlast_seen_date';
 const ADDITIONS_DIR = join(CAREER_OPS, 'batch/scouting-additions');
 const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
 const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
+
+function normalizeRoleForIndex(role) {
+  return role.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function appendDedupIndex(company, role, date) {
+  if (DRY_RUN) return;
+  const row = `${normalizeCompany(company)}\t${normalizeRoleForIndex(role)}\t${date}\n`;
+  if (!existsSync(DEDUP_INDEX_FILE)) {
+    writeFileSync(DEDUP_INDEX_FILE, DEDUP_INDEX_HEADER + '\n' + row);
+  } else {
+    appendFileSync(DEDUP_INDEX_FILE, row);
+  }
+}
 
 mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
 mkdirSync(ADDITIONS_DIR, { recursive: true });
@@ -162,7 +178,7 @@ if (!existsSync(SCOUTING_FILE)) {
     SCOUTING_FILE,
     '# Scouting Tracker\n\n' +
     'Landscape-mapping inventory. Entries here are NOT active applications — they are observations from `scouting` mode runs.\n\n' +
-    '**Promotion path:** Tier 1 entries are flagged `READY` in the Promotion Hint column. Run `node promote-to-applications.mjs <num>` to move an entry from this file to `data/applications.md` and start the active application flow.\n\n' +
+    '**Promotion path:** Tier 1 entries are flagged `READY` in the Promotion Hint column. Run `node scripts/promote-to-applications.mjs <num>` to move an entry from this file to `data/applications.md` and start the active application flow.\n\n' +
     '| # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes |\n' +
     '|---|------|---------|------|-------|------|-------|--------|----------|----------------|-------|\n'
   );
@@ -249,6 +265,7 @@ for (const file of tsvFiles) {
         };
         fileLines[idx] = formatRow(merged);
         updated++;
+        appendDedupIndex(addition.company, addition.role, addition.date);
       }
     } else {
       console.log(`⏭️  Skip: ${addition.company} — ${addition.role} (existing #${dup.num} ${oldScore} >= new ${newScore})`);
@@ -260,6 +277,7 @@ for (const file of tsvFiles) {
     newRows.push(formatRow({ ...addition, num: entryNum }));
     added++;
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score}, ${addition.tier})`);
+    appendDedupIndex(addition.company, addition.role, addition.date);
   }
 }
 

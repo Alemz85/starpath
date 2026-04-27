@@ -342,9 +342,36 @@ Note: the Overall line weight shown (0.70/0.30) is for scouting mode. In job-see
 
 **Immediately after the dimensional table**, append a rank block comparing this role against same-archetype peers already in `data/score-history.tsv`.
 
-**Conditions:**
-- Read `data/score-history.tsv` and filter to rows where `archetype` matches the current role's detected archetype (fuzzy: match on the first significant word, e.g., "Value Engineering" matches "Value Engineering / Process Optimization")
-- Exclude rows where `overall` is `0`, blank, or `—`
+**Step 1 — Compute primary archetype segment.**
+Split the detected archetype string on the first ` + ` (space-plus-space). The part before ` + ` is the **primary segment**; if no ` + ` is present, the whole string is the primary segment. Convention: `+` separates hybrid archetypes; `/` stays inside compound names.
+
+Examples:
+- `Technology Consulting + AI Transformation` → primary `Technology Consulting`
+- `Value Engineering / AI Solutions Architect` → primary is the whole string (no `+`; `/` stays inside the compound name)
+- `Strategy & Operations` → primary is the whole string
+
+**Step 2 — Pre-flight drift gate.**
+Drift = the same hybrid written both ways in `data/score-history.tsv` (e.g., `X + Y` and `X / Y` both appear). List distinct archetype strings:
+```
+cut -f2 data/score-history.tsv | tail -n +2 | sort -u
+```
+For each pair of distinct archetype strings, check whether one becomes the other by substituting ` + ` ↔ ` / `. If such a pair exists:
+- **If either string in the pair would be matched by the awk filter in Step 3 for the current primary** (i.e., the drift affects this rank block's pool), **halt the rank block** and emit this note instead (verbatim):
+  > *(Rank block skipped — archetype string drift involving primary segment `{PRIMARY}` in `data/score-history.tsv`. Variants: `{X + Y}` and `{X / Y}`. Normalize affected rows to a single canonical form before re-running.)*
+- **Otherwise** (drift is in unrelated archetypes), log a warning at the end of the report under a `## Notes` section (create if absent) and **proceed** with the rank block:
+  > *Note: archetype string drift detected elsewhere in `data/score-history.tsv` (variants: `{X + Y}` and `{X / Y}`). Does not affect this rank block but should be cleaned up.*
+
+**Step 3 — Read pre-step (filtered slice).**
+Pre-filter `data/score-history.tsv` to same-primary rows before reading. Run:
+```
+awk -F'\t' -v p="$PRIMARY" 'NR==1 || $2 ~ "^"p"($| |\\+)"' data/score-history.tsv > /tmp/rank-slice.tsv
+```
+where `$PRIMARY` is the primary segment from Step 1. The boundary `($| |\\+)` matches end-of-field, space, or `+` after the primary — so a row archetyped exactly `X` matches when current primary is `X`, a row `X + Y` matches, a row `X / Y` (compound-name extension) matches, but a row `Z + X` does NOT match. The `$` end-of-string anchor is required because `awk -F'\t'` strips the tab from `$2`, so solo-archetype rows have no trailing char to match against.
+
+Then read `/tmp/rank-slice.tsv` (header + primary-archetype rows) instead of the full `score-history.tsv`.
+
+**Step 4 — Conditions:**
+- The slice is already pre-filtered by primary archetype. Apply the remaining filter: exclude rows where `overall` is `0`, blank, or `—`.
 - **Only produce this block if ≥ 5 qualifying rows exist.** If fewer, append a single line: *"(Not enough archetype peers yet — rank block available after 5+ evaluations)"* and stop.
 
 **Compute:**
@@ -371,10 +398,10 @@ This block appears in **both scouting and oferta reports**. It is purely informa
 
 | Mode | Per-entry tracker | Merge script | TSV drop folder | Columns |
 |------|-------------------|--------------|-----------------|---------|
-| `scouting` | `data/scouting.md` | `merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Score \| Tier \| CF/AF \| Report \| Deadline \| Promotion Hint \| Notes` |
-| `oferta` | `data/applications.md` | `merge-tracker.mjs` | `batch/tracker-additions/` | `# \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes` |
+| `scouting` | `data/scouting.md` | `scripts/merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Score \| Tier \| CF/AF \| Report \| Deadline \| Promotion Hint \| Notes` |
+| `oferta` | `data/applications.md` | `scripts/merge-tracker.mjs` | `batch/tracker-additions/` | `# \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes` |
 
-Scouting entries are NEVER written with status `Scouted` to `data/applications.md` — that column doesn't apply to them. Tier 1 scouting hits flagged `READY` can be promoted to `data/applications.md` via `node promote-to-applications.mjs <num>`, at which point they enter the application flow with status `Evaluated`.
+Scouting entries are NEVER written with status `Scouted` to `data/applications.md` — that column doesn't apply to them. Tier 1 scouting hits flagged `READY` can be promoted to `data/applications.md` via `node scripts/promote-to-applications.mjs <num>`, at which point they enter the application flow with status `Evaluated`.
 
 `data/score-history.tsv` (below) stays **unified** across both modes — it's the trajectory log, not a per-entry tracker.
 
@@ -462,7 +489,7 @@ After detecting archetype, read `user/_profile.md` for the user's specific frami
 
 0. **Cover letter:** If the form allows it, ALWAYS include one. Same visual design as CV. JD quotes mapped to proof points. 1 page max.
 1. Read cv.md, _profile.md, and user/article-digest.md (if exists) before evaluating
-1b. **First evaluation of each session:** Run `node cv-sync-check.mjs`. If warnings, notify user.
+1b. **First evaluation of each session:** Run `node scripts/cv-sync-check.mjs`. If warnings, notify user.
 2. Detect the role archetype and adapt framing per _profile.md
 3. Cite exact lines from CV when matching
 4. **Before WebSearch for comp/company intel:** check `data/comp-cache.tsv` (60-day TTL) and `data/companies/{slug}.md` (30-day TTL). Use cached data if fresh; run WebSearch and save if stale or missing.
@@ -485,7 +512,7 @@ After detecting archetype, read `user/_profile.md` for the user's specific frami
 | Write | Temporary HTML for PDF, applications.md, reports .md |
 | Edit | Update tracker |
 | Canva MCP | Optional visual CV generation. Duplicate base design, edit text, export PDF. Requires `canva_resume_design_id` in profile.yml. |
-| Bash | `node generate-pdf.mjs` |
+| Bash | `node scripts/generate-pdf.mjs` |
 
 ### Time-to-offer priority
 - Working demo + metrics > perfection
@@ -508,7 +535,7 @@ These rules apply to ALL generated text that ends up in candidate-facing documen
 - "demonstrated ability to" / "best practices" (name the practice)
 
 ### Unicode normalization for ATS
-`generate-pdf.mjs` automatically normalizes em-dashes, smart quotes, and zero-width characters to ASCII equivalents for maximum ATS compatibility. But avoid generating them in the first place.
+`scripts/generate-pdf.mjs` automatically normalizes em-dashes, smart quotes, and zero-width characters to ASCII equivalents for maximum ATS compatibility. But avoid generating them in the first place.
 
 ### Vary sentence structure
 - Don't start every bullet with the same verb

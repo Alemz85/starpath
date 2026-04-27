@@ -27,7 +27,7 @@ Electron + Next.js desktop app. MVP built and packaged as DMG (arm64 + x64). Pen
 - [ ] `claude -p` calls: currently spinner only, no streaming output to UI
 
 ### Scan view
-- [ ] Auto-trigger `merge-tracker.mjs` / `merge-scouting.mjs` after scan completes
+- [ ] Auto-trigger `scripts/merge-tracker.mjs` / `scripts/merge-scouting.mjs` after scan completes
 - [ ] Parse and display badge count of new entries found
 
 ### Pipeline

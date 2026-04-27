@@ -65,6 +65,17 @@ p, td, th, li, .selectable {
   -webkit-app-region: no-drag;
 }
 
+/* Window title bar — single source of truth for title-row height.
+   Used by the sidebar wordmark row and every main-pane title row so they stay
+   in lockstep. Adjust pt-X / pb-X here to retune all bars at once.
+   pt-8 (32px) clears the macOS hiddenInset traffic-light zone (~y=10–22) with
+   ~10px breathing room. Children get -webkit-app-region: drag (window can be
+   dragged from the bar); add `titlebar-no-drag` to interactive controls inside. */
+.title-bar {
+  -webkit-app-region: drag;
+  @apply flex items-center pt-8 pb-2 shrink-0;
+}
+
 /* Typography utilities */
 .font-mono {
   font-family: 'JetBrains Mono', ui-monospace, monospace;

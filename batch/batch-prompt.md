@@ -25,7 +25,7 @@ You are a job-offer evaluation worker for the candidate (read name from user/pro
 | user/article-digest.md | `user/article-digest.md (project root)` | ALWAYS (proof points) |
 | i18n.ts | `i18n.ts (if exists, optional)` | Interview/deep only |
 | cv-template.html | `templates/cv-template.html` | For PDF |
-| generate-pdf.mjs | `generate-pdf.mjs` | For PDF |
+| generate-pdf.mjs | `scripts/generate-pdf.mjs` | For PDF |
 
 **RULE: NEVER write to user/cv.md or i18n.ts.** They are read-only.
 **RULE: NEVER hardcode metrics.** Read them from user/cv.md + user/article-digest.md at evaluation time.
@@ -241,7 +241,7 @@ Where `{N}` is derived from the global Score: `Score ≥ 9.0 → tier-1`, `7.0 �
 12. Write the HTML to `/tmp/cv-candidate-{company-slug}.html`
 13. Run:
 ```bash
-node generate-pdf.mjs \
+node scripts/generate-pdf.mjs \
   /tmp/cv-candidate-{company-slug}.html \
   output/cv-candidate-{company-slug}-{{DATE}}.pdf \
   --format={letter|a4}
@@ -325,7 +325,7 @@ TSV format (single line, no header, 9 tab-separated columns):
 | 8 | report | md link | `[647](reports/tier-1/647-...)` | Link to the report |
 | 9 | notes | string | `APPLY HIGH...` | One-sentence summary |
 
-**IMPORTANT:** The TSV order has status BEFORE score (col 5→status, col 6→score). In applications.md the order is reversed (col 5→score, col 6→status). merge-tracker.mjs handles the swap.
+**IMPORTANT:** The TSV order has status BEFORE score (col 5→status, col 6→score). In applications.md the order is reversed (col 5→score, col 6→status). scripts/merge-tracker.mjs handles the swap.
 
 **Valid canonical states:** `Evaluated`, `Applied`, `Responded`, `Interview`, `Offer`, `Rejected`, `Discarded`, `SKIP`
 

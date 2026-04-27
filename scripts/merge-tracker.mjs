@@ -15,20 +15,36 @@
  * Run: node career-ops/merge-tracker.mjs [--dry-run] [--verify]
  */
 
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync, appendFileSync } from 'fs';
 import { join, basename, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 
-const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
+const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
   : join(CAREER_OPS, 'applications.md');
+const DEDUP_INDEX_FILE = join(CAREER_OPS, 'data/dedup-index.tsv');
+const DEDUP_INDEX_HEADER = 'company_normalized\trole_normalized\tlast_seen_date';
 const ADDITIONS_DIR = join(CAREER_OPS, 'batch/tracker-additions');
 const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
 const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
+
+function normalizeRoleForIndex(role) {
+  return role.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function appendDedupIndex(company, role, date) {
+  if (DRY_RUN) return;
+  const row = `${normalizeCompany(company)}\t${normalizeRoleForIndex(role)}\t${date}\n`;
+  if (!existsSync(DEDUP_INDEX_FILE)) {
+    writeFileSync(DEDUP_INDEX_FILE, DEDUP_INDEX_HEADER + '\n' + row);
+  } else {
+    appendFileSync(DEDUP_INDEX_FILE, row);
+  }
+}
 
 // Ensure required directories exist (fresh setup)
 mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
@@ -311,6 +327,7 @@ for (const file of tsvFiles) {
         const updatedLine = `| ${duplicate.num} | ${addition.date} | ${addition.company} | ${addition.role} | ${addition.score} | ${duplicate.status} | ${duplicate.pdf} | ${addition.deadline || duplicate.deadline || 'n/d'} | ${addition.report} | Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes} |`;
         appLines[lineIdx] = updatedLine;
         updated++;
+        appendDedupIndex(addition.company, addition.role, addition.date);
       }
     } else {
       console.log(`⏭️  Skip: ${addition.company} — ${addition.role} (existing #${duplicate.num} ${oldScore} >= new ${newScore})`);
@@ -325,6 +342,7 @@ for (const file of tsvFiles) {
     newLines.push(newLine);
     added++;
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score})`);
+    appendDedupIndex(addition.company, addition.role, addition.date);
   }
 }
 

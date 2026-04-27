@@ -6,7 +6,7 @@ Process accumulated job offer URLs in `data/pipeline.md`. The user adds URLs whe
 
 Before processing any URL:
 ```bash
-node cv-sync-check.mjs
+node scripts/cv-sync-check.mjs
 ```
 If there's a desync, warn the user before continuing.
 
@@ -18,16 +18,30 @@ If there's a desync, warn the user before continuing.
 4. **Priority ordering:** Within each company group, and across companies, sort the processing queue in this order:
    - **Priority 1 — Dream companies** (from `user/_profile.md` § Dream Companies): always first
    - **Priority 2 — Preferred companies** (from `user/profile.yml` → `target_roles` or any company in `_profile.md`'s archetype examples): second
-   - **Priority 3 — Tier estimate from scan metadata** (if the pipeline entry was added by `scan.mjs` and includes a tier hint): T1 hints before T2 before unknown
+   - **Priority 3 — Tier estimate from scan metadata** (if the pipeline entry was added by `scripts/scan.mjs` and includes a tier hint): T1 hints before T2 before unknown
    - **Priority 4 — Date added ascending** (oldest first among equals, so nothing ages out indefinitely)
 
 ## Step 2 — Pre-eval dedup check
 
-Before evaluating any URL, check if the same company + role (fuzzy: ignore minor title variations like trailing dates, parenthetical market tags, "(all genders)" suffixes) already has an entry in `data/scouting.md` or `data/applications.md`.
+Dedup uses `data/dedup-index.tsv` (columns: `company_normalized`, `role_normalized`, `last_seen_date`). The merge scripts append to this index automatically. The full `data/scouting.md` and `data/applications.md` markdown files remain the source of truth — only the dedup pointer changes.
 
-- If a match exists **and is less than 6 months old** → skip:
+**Step 2a — Staleness gate (run BEFORE reading the index):**
+
+Compare the maximum `last_seen_date` in `data/dedup-index.tsv` against the maximum `Date` column in `data/scouting.md` AND `data/applications.md`. If either source-of-truth file has a date newer than the index max, the index is stale (likely from an out-of-band manual edit).
+
+**Halt the evaluation** and tell the user:
+
+> Dedup index is stale (max index date {INDEX_DATE} < max scouting/applications date {SOURCE_DATE}). Run `node scripts/rebuild-dedup-index.mjs` and then re-run this evaluation.
+
+Do NOT proceed with stale dedup data — silent misses are exactly what this index is supposed to prevent.
+
+**Step 2b — Lookup:**
+
+For each URL's detected company + role, look up `(normalize(company), normalize(role))` in `data/dedup-index.tsv` (normalize = lowercase + alphanum-only for company, lowercase + collapsed whitespace + trimmed for role). Apply fuzzy role matching (ignore minor title variations like trailing dates, parenthetical market tags, "(all genders)" suffixes) against the `role_normalized` column.
+
+- If a match exists **and `last_seen_date` is less than 6 months old** → skip:
   - Mark as `- [x] DUPE | URL | Company | Role | → existing #{num}`
-  - Move to "Processed" referencing the existing report
+  - Move to "Processed" referencing the existing report (look up the entry number in `data/scouting.md` or `data/applications.md` if needed)
 - If the match is **6+ months old** → re-evaluate (CV or JD may have changed since)
 
 ## Step 3 — Evaluate each non-duplicate URL

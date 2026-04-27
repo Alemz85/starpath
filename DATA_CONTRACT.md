@@ -51,7 +51,7 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `modes/de/*` | German language modes |
 | `CLAUDE.md` | Agent instructions |
 | `AGENTS.md` | Codex instructions |
-| `*.mjs` | Utility scripts |
+| `scripts/*.mjs` | Utility scripts |
 | `batch/batch-prompt.md` | Batch worker prompt |
 | `batch/batch-runner.sh` | Batch orchestrator |
 | `dashboard/*` | Go TUI dashboard |

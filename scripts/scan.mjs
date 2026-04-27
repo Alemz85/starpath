@@ -10,9 +10,9 @@
  * Zero Claude API tokens — pure HTTP + JSON.
  *
  * Usage:
- *   node scan.mjs                  # scan all enabled companies
- *   node scan.mjs --dry-run        # preview without writing files
- *   node scan.mjs --company Cohere # scan a single company
+ *   node scripts/scan.mjs                  # scan all enabled companies
+ *   node scripts/scan.mjs --dry-run        # preview without writing files
+ *   node scripts/scan.mjs --company Cohere # scan a single company
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';

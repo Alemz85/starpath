@@ -7,10 +7,10 @@
  * NEVER touches user data (cv.md, profile.yml, _profile.md, data/, reports/).
  *
  * Usage:
- *   node update-system.mjs check      # Check if update available
- *   node update-system.mjs apply      # Apply update (after user confirms)
- *   node update-system.mjs rollback   # Rollback last update
- *   node update-system.mjs dismiss    # Dismiss update check
+ *   node scripts/update-system.mjs check      # Check if update available
+ *   node scripts/update-system.mjs apply      # Apply update (after user confirms)
+ *   node scripts/update-system.mjs rollback   # Rollback last update
+ *   node scripts/update-system.mjs dismiss    # Dismiss update check
  *
  * See DATA_CONTRACT.md for the full system/user layer definitions.
  */
@@ -21,13 +21,17 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = __dirname;
+const ROOT = dirname(__dirname);
 
 const CANONICAL_REPO = 'https://github.com/santifer/career-ops.git';
 const RAW_VERSION_URL = 'https://raw.githubusercontent.com/santifer/career-ops/main/VERSION';
 const RELEASES_API = 'https://api.github.com/repos/santifer/career-ops/releases/latest';
 
 // System layer paths — ONLY these files get updated
+//
+// NOTE: .mjs paths here are flat (root-level) to match upstream santifer repo
+// layout. Local layout has these in scripts/. Auto-update for .mjs files is
+// currently broken — fix as part of fork-divergence decision.
 const SYSTEM_PATHS = [
   'modes/_shared.md',
   'modes/oferta.md',
@@ -262,7 +266,7 @@ async function apply() {
 
     console.log(`\nUpdate complete: v${local} → v${remote}`);
     console.log(`Updated ${updated.length} system paths.`);
-    console.log(`Rollback available: node update-system.mjs rollback`);
+    console.log(`Rollback available: node scripts/update-system.mjs rollback`);
 
   } finally {
     // Remove lock
@@ -310,7 +314,7 @@ function rollback() {
 
 function dismiss() {
   writeFileSync(join(ROOT, '.update-dismissed'), new Date().toISOString());
-  console.log('Update check dismissed. Run "node update-system.mjs check" or say "check for updates" to re-enable.');
+  console.log('Update check dismissed. Run "node scripts/update-system.mjs check" or say "check for updates" to re-enable.');
 }
 
 // ── MAIN ────────────────────────────────────────────────────────
@@ -323,6 +327,6 @@ switch (cmd) {
   case 'rollback': rollback(); break;
   case 'dismiss': dismiss(); break;
   default:
-    console.log('Usage: node update-system.mjs [check|apply|rollback|dismiss]');
+    console.log('Usage: node scripts/update-system.mjs [check|apply|rollback|dismiss]');
     process.exit(1);
 }

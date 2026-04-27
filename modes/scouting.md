@@ -12,7 +12,7 @@ Scouting is the **default mode for landscape mapping**. Unlike `oferta` (which i
 
 ## Scouting never auto-generates PDFs
 
-**Rule:** Scouting mode produces only markdown reports (or no artifact for Tier 4 skips). It NEVER auto-runs `node generate-pdf.mjs`, NEVER calls into `modes/pdf.md`, and NEVER produces a recruiter-facing CV at any tier — including Tier 1 hits via the uniform-fingerprint override.
+**Rule:** Scouting mode produces only markdown reports (or no artifact for Tier 4 skips). It NEVER auto-runs `node scripts/generate-pdf.mjs`, NEVER calls into `modes/pdf.md`, and NEVER produces a recruiter-facing CV at any tier — including Tier 1 hits via the uniform-fingerprint override.
 
 **Why:** scouting is the analytical step. CV generation is a separate concern with its own modes:
 - **`/career-ops pdf`** — manual tailored CV generation for any specific listing the user wants to actively pursue
@@ -36,7 +36,21 @@ This separation:
 
 ## Pre-eval Dedup
 
-Before scoring, check if the same company + role already has an entry in `data/scouting.md` or `data/applications.md` (fuzzy match: ignore minor title variations like trailing dates, parenthetical suffixes, or "(all genders)"). If a match exists **and is less than 6 months old** (compare the entry's date column to today), **skip** — do not generate a duplicate report. Reference the existing entry and move on. If the existing entry is **6+ months old**, re-evaluate — the candidate's CV or the JD may have changed.
+Dedup reads `data/dedup-index.tsv` (columns: `company_normalized`, `role_normalized`, `last_seen_date`) — NOT the full `data/scouting.md` or `data/applications.md`. Those markdown files are still the source of truth and the merge scripts (`scripts/merge-scouting.mjs`, `scripts/merge-tracker.mjs`) keep the index in sync automatically.
+
+**Staleness gate (run BEFORE reading the index):**
+
+Compare the maximum `last_seen_date` in `data/dedup-index.tsv` against the maximum `Date` column in `data/scouting.md` AND `data/applications.md`. If either source-of-truth file has a date newer than the index max, the index is stale (likely from an out-of-band manual edit).
+
+**Halt the evaluation** and tell the user:
+
+> Dedup index is stale (max index date {INDEX_DATE} < max scouting/applications date {SOURCE_DATE}). Run `node scripts/rebuild-dedup-index.mjs` and then re-run this evaluation.
+
+Do NOT proceed with stale dedup data.
+
+**Lookup:**
+
+Look up `(normalize(company), normalize(role))` in `data/dedup-index.tsv` (normalize = lowercase + alphanum-only for company, lowercase + collapsed whitespace + trimmed for role). Apply fuzzy role matching against the `role_normalized` column (ignore minor title variations like trailing dates, parenthetical suffixes, or "(all genders)"). If a match exists **and `last_seen_date` is less than 6 months old**, **skip** — do not generate a duplicate report. Reference the existing entry and move on. If the existing entry is **6+ months old**, re-evaluate — the candidate's CV or the JD may have changed.
 
 ## The Scoring Model
 
@@ -104,22 +118,7 @@ Generate a **short summary report**. No PDF. No tailored CV. The dimensional tab
 
 ## Dimensional scoring
 
-| Dimension | Score | Reasoning |
-|-----------|-------|-----------|
-| Skills Match | X/10 | ... |
-| Ease of Entry | X/10 | ... |
-| Strategic/Analytical Fit | X/10 | ... |
-| **Current Fit (rollup)** | **X.X/10** | (Skills + Ease + Strategic) / 3 |
-| Growth/Mobility | X/10 | ... |
-| Optionality/Exit | X/10 | ... |
-| Brand Value | X/10 | ... |
-| Sales-Trap Risk (signal) | X/10 | ... (10 = well protected). *Not in AF rollup.* |
-| **Aspirational Fit (rollup)** | **X.X/10** | (Growth + Optionality + Brand) / 3 |
-| **Overall** | **X.X/10** | CF × 0.7 + AF × 0.3 |
-| Best Cities (context) | X/10 | ... |
-| Salary Adj for City (context) | X/10 | ... |
-| Work-Life Balance (context) | X/10 | ... |
-| Best-fit Early-career Roles (context) | — | role A; role B; role C |
+(use Standard report block format from modes/_shared.md § Standard report block format — do not reprint the table here)
 
 ## Fit / gaps
 {2 bullets max: one on strongest match, one on biggest gap}
@@ -150,7 +149,7 @@ Tier 3 is the MOST COMPACT report format — ~25-30 lines total. The mental mode
 
 ## Dimensional scoring
 
-(Same 14-row table as Tier 2 — required. See `_shared.md` § "Standard report block format".)
+(use Standard report block format from modes/_shared.md § Standard report block format — do not reprint the table here)
 
 ## Gaps and opportunities
 
@@ -190,22 +189,7 @@ Current Fit < 7.0 AND Aspirational Fit < 7.0 → **skip**. Do NOT write a report
 
 ## B) Dimensional scoring
 
-| Dimension | Score | Reasoning |
-|-----------|-------|-----------|
-| Skills Match | X/10 | Brief — CV evidence or gap |
-| Ease of Entry | X/10 | Brief — YoE / level / credentials |
-| Strategic/Analytical Fit | X/10 | Brief — is the work analytical? |
-| **Current Fit (rollup)** | **X.X/10** | Average of the three above |
-| Growth/Mobility | X/10 | Brief — ladder / scope |
-| Optionality/Exit | X/10 | Brief — transferability |
-| Brand Value | X/10 | Brief — name recognition |
-| Sales-Trap Risk | X/10 | Brief — sales exposure (10 = protected). *Not in AF rollup.* |
-| **Aspirational Fit (rollup)** | **X.X/10** | (Growth + Optionality + Brand) / 3 |
-| **Overall** | **X.X/10** | Current Fit × 0.7 + Aspirational Fit × 0.3 |
-| Best Cities (context) | X/10 | Brief — location fit |
-| Salary Adj for City (context) | X/10 | Brief — comp vs CoL |
-| Work-Life Balance (context) | X/10 | Brief — WLB reputation |
-| Best-fit Early-career Roles (context) | — | role A; role B; role C |
+(use Standard report block format from modes/_shared.md § Standard report block format — do not reprint the table here)
 
 ## C) Recommendation
 {2-3 lines max. The verdict (act / monitor / skip), the single biggest lever or blocker, and one growth pointer. No sub-sections.}
@@ -284,7 +268,7 @@ This lets `positioning` mode read one lightweight TSV instead of opening 70+ ful
 
 Scouting observations are landscape-mapping inventory, NOT active applications. They live in **`data/scouting.md`** — a separate tracker from `data/applications.md` — so the active-application flow stays uncontaminated by exploratory runs.
 
-Write a scouting TSV entry to `batch/scouting-additions/{num}-{company-slug}.tsv` (let `merge-scouting.mjs` handle the merge into `data/scouting.md`). **10 tab-separated columns** (no status field — tier replaces status for scouting):
+Write a scouting TSV entry to `batch/scouting-additions/{num}-{company-slug}.tsv` (let `scripts/merge-scouting.mjs` handle the merge into `data/scouting.md`). **10 tab-separated columns** (no status field — tier replaces status for scouting):
 
 ```
 {num}	{date}	{company}	{role}	{overall}/10	{tier}	{cf}/{af}	[{num}](reports/tier-{N}/{Company} - {Role}.md)	{deadline}	{promotion_hint}	{one-line tier summary}
@@ -305,9 +289,9 @@ Column order:
 10. `promotion_hint` — `READY` for Tier 1 hits (flags them for the user to promote to active applications), empty otherwise
 11. `notes` — one-line tier summary
 
-- **PDF:** Scouting never auto-generates PDFs at any tier. The scouting tracker has no PDF column — that's an applications.md concern. If the user later promotes a scouting entry to applications (via `promote-to-applications.mjs`), they can then run `/career-ops pdf` manually.
+- **PDF:** Scouting never auto-generates PDFs at any tier. The scouting tracker has no PDF column — that's an applications.md concern. If the user later promotes a scouting entry to applications (via `scripts/promote-to-applications.mjs`), they can then run `/career-ops pdf` manually.
 - **T4 skips:** still write the TSV with tier `T4`, report `—`, deadline `n/d`, and a short note.
-- **Promotion:** Tier 1 hits get `READY` in column 10. The user runs `node promote-to-applications.mjs <num>` to move an entry into `data/applications.md` with status `Evaluated`. The scouting row stays in `data/scouting.md` as a historical record (its Promotion Hint flips to `PROMOTED-{app_num}`).
+- **Promotion:** Tier 1 hits get `READY` in column 10. The user runs `node scripts/promote-to-applications.mjs <num>` to move an entry into `data/applications.md` with status `Evaluated`. The scouting row stays in `data/scouting.md` as a historical record (its Promotion Hint flips to `PROMOTED-{app_num}`).
 
 ## File Naming
 
@@ -326,7 +310,7 @@ Where `{N}` is the tier (1, 2, 3, or 4). Tier 4 skips do NOT write a file — th
 
 The tier subfolder layout makes it trivial to browse just the Tier 1 hits when deciding what to promote to active applications (`reports/tier-1/`), or scan the candidate-pool shape at a glance (`ls reports/tier-*` shows the distribution).
 
-If the user later promotes a scouting hit into an active application via `node promote-to-applications.mjs <num>`, the oferta report uses the same `{Company} - {Role}.md` convention in the tier folder corresponding to its global Score.
+If the user later promotes a scouting hit into an active application via `node scripts/promote-to-applications.mjs <num>`, the oferta report uses the same `{Company} - {Role}.md` convention in the tier folder corresponding to its global Score.
 
 ## Mode Switching
 
