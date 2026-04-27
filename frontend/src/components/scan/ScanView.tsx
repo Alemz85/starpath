@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore } from '@/store/spawns'
-import { ActionButton, ActivityPanel, pickVisible } from '@/components/command-center/CommandCenter'
+import { ActionButton, ActivityPanel, pickVisible, HoverDescriptionRow } from '@/components/command-center/CommandCenter'
 import { Play, Zap, FileOutput, Radar } from 'lucide-react'
 
 const FULL_SCAN_ID = 'cmd-full-scan'
@@ -67,38 +67,57 @@ export function ScanView() {
         )}
       </div>
 
-      <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-12 overflow-hidden min-h-0">
-        {/* Centered button row */}
-        <div className="shrink-0 flex items-center justify-center gap-3 pt-2">
-          <ActionButton
-            label="Full Scan"
-            icon={Play}
-            tone="primary"
-            running={fullScan?.status === 'running'}
-            onClick={handleFullScan}
-            disabled={!repoPath}
-            title="Playwright + ATS APIs + WebSearch — uses Claude (token cost)"
-          />
-          <ActionButton
-            label="API Only"
-            icon={Zap}
-            tone="outline"
-            running={apiScan?.status === 'running'}
-            onClick={handleApiScan}
-            disabled={!repoPath}
-            title="Direct ATS API calls — zero token cost, instant"
-          />
-          <div className="w-px h-6 bg-border-default" aria-hidden />
-          <ActionButton
-            label="Generate Reports"
-            icon={FileOutput}
-            tone="outline"
-            running={pipeline?.status === 'running'}
-            onClick={handlePipeline}
-            disabled={!repoPath}
-            title="Process pending listings in data/pipeline.md into evaluation reports"
-          />
-        </div>
+      <div className="flex-1 flex flex-col px-8 pt-8 pb-8 overflow-hidden min-h-0">
+        <HoverDescriptionRow
+          items={[
+            {
+              key: 'full',
+              description: 'Playwright + ATS APIs + WebSearch — uses Claude (token cost)',
+              node: (
+                <ActionButton
+                  label="Full Scan"
+                  icon={Play}
+                  tone="primary"
+                  running={fullScan?.status === 'running'}
+                  onClick={handleFullScan}
+                  disabled={!repoPath}
+                />
+              ),
+            },
+            {
+              key: 'api',
+              description: 'Direct ATS API calls — zero token cost, instant',
+              node: (
+                <ActionButton
+                  label="API Only"
+                  icon={Zap}
+                  tone="outline"
+                  running={apiScan?.status === 'running'}
+                  onClick={handleApiScan}
+                  disabled={!repoPath}
+                />
+              ),
+            },
+            {
+              key: 'sep',
+              node: <div className="w-px h-6 bg-border-default" aria-hidden />,
+            },
+            {
+              key: 'pipeline',
+              description: 'Process pending listings in data/pipeline.md into evaluation reports',
+              node: (
+                <ActionButton
+                  label="Generate Reports"
+                  icon={FileOutput}
+                  tone="outline"
+                  running={pipeline?.status === 'running'}
+                  onClick={handlePipeline}
+                  disabled={!repoPath}
+                />
+              ),
+            },
+          ]}
+        />
 
         {/* Activity panel — fills remaining height */}
         <ActivityPanel record={visible} />
