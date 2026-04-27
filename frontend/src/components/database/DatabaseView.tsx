@@ -1,24 +1,25 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
-import { FacetSidebar, type FacetFilters, EMPTY_FILTERS, hasActiveFilters } from '@/components/shared/FacetSidebar'
+import { FacetSidebar, type FacetFilters, EMPTY_FILTERS } from '@/components/shared/FacetSidebar'
 import { FilterBar } from './FilterBar'
 import { OffersTable } from './OffersTable'
 import { ReportSlideOver } from '../reports/ReportSlideOver'
+import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import type { ScoreEntry } from '@/types'
-import { ChevronLeft } from 'lucide-react'
 
 export function DatabaseView() {
-  const { scoreHistory, loaded } = useDataStore()
+  const { scoreHistory, liveness, loaded } = useDataStore()
   const { databaseFilter } = useNavStore()
 
   const [filters, setFilters] = useState<FacetFilters>(EMPTY_FILTERS)
   const [query, setQuery] = useState(databaseFilter ? `company:${databaseFilter}` : '')
   const [selectedEntry, setSelectedEntry] = useState<ScoreEntry | null>(null)
+  const [popoverState, setPopoverState] = useState<{ entry: ScoreEntry; anchor: { x: number; y: number } } | null>(null)
   const [showClosed, setShowClosed] = useState(false)
-  const [facetExpanded, setFacetExpanded] = useState(true)
+  const [facetExpanded] = useState(true)
 
   // Build facet options from data
   const options = useMemo(() => ({
@@ -47,6 +48,14 @@ export function DatabaseView() {
     if (filters.scoreMin > 0 || filters.scoreMax < 10) {
       rows = rows.filter(r => r.overall >= filters.scoreMin && r.overall <= filters.scoreMax)
     }
+    // Liveness facet — entries with no liveness signal default to 'closed'
+    // (no recent scan-history match), so the default 'active'-only filter
+    // hides them too. Toggle 'closed' chip on to see them.
+    rows = rows.filter(r => {
+      const key = `${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`
+      const lv = liveness[key] ?? 'closed'
+      return filters.liveness.has(lv)
+    })
 
     // Token filters from search bar
     if (tokenFilters.company)   rows = rows.filter(r => r.company.toLowerCase().includes(tokenFilters.company!.toLowerCase()))
@@ -66,7 +75,7 @@ export function DatabaseView() {
 
     // Default sort: overall descending
     return [...rows].sort((a, b) => b.overall - a.overall)
-  }, [scoreHistory, filters, tokenFilters, freeText, showClosed])
+  }, [scoreHistory, liveness, filters, tokenFilters, freeText, showClosed])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -102,7 +111,13 @@ export function DatabaseView() {
           {/* Table */}
           <div className="flex-1 min-w-0 overflow-hidden">
             {loaded ? (
-              <OffersTable rows={filtered} onSelect={setSelectedEntry} selectedId={selectedEntry ? `${selectedEntry.company}-${selectedEntry.role}` : null} />
+              <OffersTable
+                rows={filtered}
+                onRowClick={(entry, evt) => {
+                  setPopoverState({ entry, anchor: { x: evt.clientX, y: evt.clientY } })
+                }}
+                selectedId={popoverState ? `${popoverState.entry.company}-${popoverState.entry.role}` : selectedEntry ? `${selectedEntry.company}-${selectedEntry.role}` : null}
+              />
             ) : (
               <div className="flex items-center justify-center h-full">
                 <div className="text-label text-text-4">Loading…</div>
@@ -112,7 +127,17 @@ export function DatabaseView() {
         </div>
       </div>
 
-      {/* Report slide-over */}
+      {/* Action popover (primary row click) */}
+      {popoverState && (
+        <RowActionPopover
+          entry={popoverState.entry}
+          anchor={popoverState.anchor}
+          onClose={() => setPopoverState(null)}
+          onViewReport={() => setSelectedEntry(popoverState.entry)}
+        />
+      )}
+
+      {/* Report slide-over (opened from popover or other surfaces) */}
       {selectedEntry && (
         <ReportSlideOver
           company={selectedEntry.company}

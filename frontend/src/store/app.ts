@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
-import { getCurrentMode, setCurrentMode } from '@/lib/parsers/yaml'
+import { getCurrentMode, setCurrentMode, hasLegacyMode } from '@/lib/parsers/yaml'
+import type { AppMode } from '@/types'
 
 interface AppState {
   repoPath: string | null
   isOnboarded: boolean
   tailoringComplete: boolean
-  currentMode: 'scouting' | 'job-seeking'
+  currentMode: AppMode
   claudeInstalled: boolean
 
   // Actions
@@ -15,7 +16,7 @@ interface AppState {
   setOnboardingComplete: () => Promise<void>
   setTailoringComplete: () => Promise<void>
   resetTailoring: () => Promise<void>
-  toggleMode: () => Promise<void>
+  setMode: (mode: AppMode) => Promise<void>
   recheckClaude: () => Promise<boolean>
 }
 
@@ -30,14 +31,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     const cfg = await ipc.getConfig()
     const claudeCheck = await ipc.checkClaude()
 
-    let mode: 'scouting' | 'job-seeking' = 'scouting'
+    let mode: AppMode = 'scouting'
     if (cfg?.repoPath) {
       const profileRaw = await ipc.readFile('user/profile.yml')
-      if (profileRaw) mode = getCurrentMode(profileRaw)
+      if (profileRaw) {
+        mode = getCurrentMode(profileRaw)
+        // One-shot migration: if profile.yml still has the legacy `job-seeking`
+        // value, rewrite it to `applying` on first launch. After this, no more
+        // backward-compat handling is needed in code.
+        if (hasLegacyMode(profileRaw)) {
+          await ipc.writeFile('user/profile.yml', setCurrentMode(profileRaw, 'applying'))
+        }
+      }
     }
 
     // Auto-complete onboarding if key files already exist in the repo.
-    // Handles the case where the user points the app at an existing setup.
     let isOnboarded = cfg?.onboardingComplete === true
     if (!isOnboarded && cfg?.repoPath) {
       const [cv, profile, portals] = await Promise.all([
@@ -52,8 +60,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    // tailoringComplete defaults to true for existing setups (cfg.tailoringComplete === undefined
-    // means the user was already onboarded before this feature was added).
     const tailoringComplete = isOnboarded
       ? (cfg?.tailoringComplete ?? true)
       : (cfg?.tailoringComplete ?? false)
@@ -94,14 +100,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     return installed
   },
 
-  toggleMode: async () => {
-    const next = get().currentMode === 'scouting' ? 'job-seeking' : 'scouting'
-    // Write to profile.yml
+  setMode: async (mode: AppMode) => {
+    if (get().currentMode === mode) return
     const raw = await ipc.readFile('user/profile.yml')
     if (raw) {
-      const updated = setCurrentMode(raw, next)
+      const updated = setCurrentMode(raw, mode)
       await ipc.writeFile('user/profile.yml', updated)
     }
-    set({ currentMode: next })
+    set({ currentMode: mode })
   },
 }))

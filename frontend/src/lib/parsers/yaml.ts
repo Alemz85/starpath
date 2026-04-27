@@ -1,4 +1,4 @@
-import type { ProfileConfig } from '@/types'
+import type { AppMode, ProfileConfig } from '@/types'
 
 // Lightweight YAML key:value parser — handles nested blocks and lists.
 // Only covers the subset used in profile.yml and user/portals.yml.
@@ -41,7 +41,9 @@ export function parseProfileYaml(raw: string): Partial<ProfileConfig> {
     // Parse current_mode directly from raw string (top-level scalar)
     const modeMatch = raw.match(/^current_mode:\s*(\S+)/m)
     if (modeMatch) {
-      result.current_mode = modeMatch[1].replace(/['"]/g, '') as ProfileConfig['current_mode']
+      const v = modeMatch[1].replace(/['"]/g, '')
+      // Migrate legacy `job-seeking` to `applying` on read.
+      result.current_mode = (v === 'job-seeking' ? 'applying' : v) as ProfileConfig['current_mode']
     }
 
     // Extract candidate fields
@@ -66,12 +68,21 @@ export function parseProfileYaml(raw: string): Partial<ProfileConfig> {
   }
 }
 
-export function getCurrentMode(raw: string): 'scouting' | 'job-seeking' {
+export function getCurrentMode(raw: string): AppMode {
   const match = raw.match(/^current_mode:\s*([^\s#]+)/m)
   const val = match?.[1]?.replace(/['"]/g, '').trim()
-  return val === 'job-seeking' ? 'job-seeking' : 'scouting'
+  // Legacy `job-seeking` aliases to `applying`.
+  if (val === 'applying' || val === 'job-seeking') return 'applying'
+  return 'scouting'
 }
 
-export function setCurrentMode(raw: string, mode: 'scouting' | 'job-seeking'): string {
+export function setCurrentMode(raw: string, mode: AppMode): string {
+  // Always write canonical (`applying` / `scouting`); also rewrites legacy `job-seeking`.
   return raw.replace(/^(current_mode:\s*)(\S+)/m, `$1${mode}`)
+}
+
+// True if the raw profile.yml still has a legacy `job-seeking` value that we
+// should rewrite once on launch.
+export function hasLegacyMode(raw: string): boolean {
+  return /^current_mode:\s*job-seeking/m.test(raw)
 }

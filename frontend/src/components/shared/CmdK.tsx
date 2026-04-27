@@ -6,13 +6,14 @@ import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
 import {
-  Search, LayoutDashboard, Database, FileText,
-  GitBranch, TrendingUp, Radar, Settings, Map, Briefcase,
+  Search, Database, FileText,
+  TrendingUp, Radar, Settings, Map, Briefcase,
 } from 'lucide-react'
 
 export function CmdK() {
   const [open, setOpen] = useState(false)
-  const { toggleMode, currentMode } = useAppStore()
+  const { setMode, currentMode } = useAppStore()
+  const otherMode = currentMode === 'scouting' ? 'applying' : 'scouting'
   const { scoreHistory, scouting } = useDataStore()
   const { navigate } = useNavStore()
 
@@ -62,13 +63,13 @@ export function CmdK() {
 
             <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Navigate</span>}>
               {([
-                { view: 'home',     label: 'Command Center', icon: LayoutDashboard },
-                { view: 'database', label: 'Database',       icon: Database },
-                { view: 'reports',  label: 'Reports',        icon: FileText },
-                { view: 'pipeline', label: 'Pipeline',       icon: GitBranch },
-                { view: 'trends',   label: 'Trends',         icon: TrendingUp },
-                { view: 'scan',     label: 'Scan',           icon: Radar },
-                { view: 'settings', label: 'Settings',       icon: Settings },
+                { view: 'scouting', label: 'Scouting', icon: Map        },
+                { view: 'applying', label: 'Applying', icon: Briefcase  },
+                { view: 'database', label: 'Database', icon: Database   },
+                { view: 'reports',  label: 'Reports',  icon: FileText   },
+                { view: 'trends',   label: 'Trends',   icon: TrendingUp },
+                { view: 'scan',     label: 'Scan',     icon: Radar      },
+                { view: 'settings', label: 'Settings', icon: Settings   },
               ] as const).map(({ view, label, icon: Icon }) => (
                 <Command.Item
                   key={view}
@@ -84,12 +85,12 @@ export function CmdK() {
 
             <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Actions</span>}>
               <Command.Item
-                value="switch mode scouting job-seeking"
-                onSelect={async () => { await toggleMode(); setOpen(false) }}
+                value={`switch mode scouting applying ${otherMode}`}
+                onSelect={async () => { await setMode(otherMode); go(otherMode) }}
                 className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
               >
                 {currentMode === 'scouting' ? <Briefcase size={14} className="text-text-3" /> : <Map size={14} className="text-text-3" />}
-                Switch to {currentMode === 'scouting' ? 'job-seeking' : 'scouting'} mode
+                Switch to {otherMode} mode
               </Command.Item>
               <Command.Item
                 value="run scan portals"

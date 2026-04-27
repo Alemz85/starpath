@@ -98,8 +98,10 @@ export interface ReportFile {
 
 // ─── Profile config (user/profile.yml) ─────────────────────────────────────
 
+export type AppMode = 'scouting' | 'applying'
+
 export interface ProfileConfig {
-  current_mode: 'scouting' | 'job-seeking'
+  current_mode: AppMode
   candidate: {
     full_name: string
     email: string

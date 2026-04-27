@@ -15,10 +15,11 @@ import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
 import { TIER_COLORS, TIER_LABELS, type TierKey } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { useDataStore } from '@/store/data'
 
 interface OffersTableProps {
   rows: ScoreEntry[]
-  onSelect: (entry: ScoreEntry) => void
+  onRowClick: (entry: ScoreEntry, evt: React.MouseEvent) => void
   selectedId: string | null
 }
 
@@ -52,8 +53,9 @@ function TierBadge({ tier }: { tier: string }) {
   )
 }
 
-export function OffersTable({ rows, onSelect, selectedId }: OffersTableProps) {
+export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'overall', desc: true }])
+  const liveness = useDataStore(s => s.liveness)
 
   const columns = useMemo(() => [
     col.accessor('tier', {
@@ -173,12 +175,16 @@ export function OffersTable({ rows, onSelect, selectedId }: OffersTableProps) {
             const entry = row.original
             const id = `${entry.company}-${entry.role}`
             const isSelected = id === selectedId
+            const lvKey = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
+            const lv = liveness[lvKey] ?? 'closed'
+            const dim = lv === 'stale' || lv === 'closed'
             return (
               <tr
                 key={row.id}
-                onClick={() => onSelect(entry)}
+                onClick={(evt) => onRowClick(entry, evt)}
                 className={cn(
                   tierRowClass(entry.tier),
+                  dim && 'opacity-65',
                   'border-b border-border-default/40 cursor-pointer transition-colors',
                   isSelected
                     ? 'bg-accent/10'

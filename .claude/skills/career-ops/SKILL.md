@@ -35,7 +35,7 @@ Determine the mode from `{{mode}}`:
 
 **Auto-pipeline detection:** If `{{mode}}` is not a known sub-command AND contains JD text (keywords: "responsibilities", "requirements", "qualifications", "about the role", "we're looking for", company name + role) or a URL to a JD, execute `auto-pipeline`.
 
-**Mode-aware routing for auto-pipeline:** Before running `auto-pipeline`, read `user/profile.yml` → `current_mode`. If it is `scouting` (default for landscape mapping), route the JD through `modes/scouting.md` instead of `modes/oferta.md`. If `current_mode: job-seeking`, route through the full `auto-pipeline` → `oferta` path as before. Explicit sub-commands (`/career-ops oferta`, `/career-ops scouting`) always override `current_mode`.
+**Mode-aware routing for auto-pipeline:** Before running `auto-pipeline`, read `user/profile.yml` → `current_mode`. If it is `scouting` (default for landscape mapping), route the JD through `modes/scouting.md` instead of `modes/oferta.md`. If `current_mode: applying`, route through the full `auto-pipeline` → `oferta` path as before. Explicit sub-commands (`/career-ops oferta`, `/career-ops scouting`) always override `current_mode`.
 
 If `{{mode}}` is not a sub-command AND doesn't look like a JD, show discovery.
 
@@ -43,12 +43,12 @@ If `{{mode}}` is not a sub-command AND doesn't look like a JD, show discovery.
 
 ## Discovery Mode (no arguments)
 
-Show this menu (tell the user which mode is active — read `user/profile.yml` → `current_mode` and note "Active mode: scouting" or "Active mode: job-seeking" at the top):
+Show this menu (tell the user which mode is active — read `user/profile.yml` → `current_mode` and note "Active mode: scouting" or "Active mode: applying" at the top):
 
 ```
 career-ops -- Command Center
 
-Active mode: {scouting | job-seeking}   (set in user/profile.yml → current_mode)
+Active mode: {scouting | applying}   (set in user/profile.yml → current_mode)
 
 Landscape mapping:
   /career-ops scouting     → Lightweight eval: Current Fit + Aspirational Fit, no per-listing PDF

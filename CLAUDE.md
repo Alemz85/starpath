@@ -105,7 +105,7 @@ This system is designed to be customized by you (AI Agent). Common requests:
 | Asks about deadlines, closing dates, what's urgent | `deadlines` |
 | Wants to browse/filter all evaluated offers as a table | `db` |
 
-**Mode switching:** `user/profile.yml → current_mode` is `scouting` (default for landscape mapping) or `job-seeking` (full oferta + tailored PDF). Explicit sub-commands (`/career-ops oferta`, `/career-ops scouting`) always override `current_mode`. When the user says "I'm actively applying now" or "I'm done exploring", flip the field.
+**Mode switching:** `user/profile.yml → current_mode` is `scouting` (default for landscape mapping) or `applying` (full oferta + tailored PDF). Explicit sub-commands (`/career-ops oferta`, `/career-ops scouting`) always override `current_mode`. When the user says "I'm actively applying now" or "I'm done exploring", flip the field.
 
 ## CV Source of Truth
 

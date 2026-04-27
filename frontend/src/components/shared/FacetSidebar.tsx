@@ -4,22 +4,28 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+export type Liveness = 'active' | 'stale' | 'closed'
+
 export interface FacetFilters {
   companies: Set<string>
   locations: Set<string>
   archetypes: Set<string>
   tiers: Set<string>
   employmentTypes: Set<string>
+  liveness: Set<Liveness>
   scoreMin: number
   scoreMax: number
 }
 
+// Default filter shows only Active listings — stale/closed are kept on disk
+// for historical knowledge but hidden from the day-to-day applying view.
 export const EMPTY_FILTERS: FacetFilters = {
   companies: new Set(),
   locations: new Set(),
   archetypes: new Set(),
   tiers: new Set(),
   employmentTypes: new Set(),
+  liveness: new Set<Liveness>(['active']),
   scoreMin: 0,
   scoreMax: 10,
 }
@@ -31,6 +37,7 @@ export function hasActiveFilters(f: FacetFilters): boolean {
     f.archetypes.size > 0 ||
     f.tiers.size > 0 ||
     f.employmentTypes.size > 0 ||
+    f.liveness.size !== 1 || !f.liveness.has('active') ||
     f.scoreMin > 0 ||
     f.scoreMax < 10
   )
@@ -78,6 +85,20 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
       </div>
 
       <div className="flex-1 p-2 space-y-1">
+        <FacetGroup
+          label="Liveness"
+          items={['active', 'stale', 'closed']}
+          selected={filters.liveness as Set<string>}
+          onToggle={v => {
+            const next = new Set(filters.liveness)
+            const lv = v as Liveness
+            if (next.has(lv)) next.delete(lv); else next.add(lv)
+            // Don't allow zero-selection — fall back to active only.
+            if (next.size === 0) next.add('active')
+            onChange({ ...filters, liveness: next })
+          }}
+          renderItem={lv => <LivenessChip liveness={lv as Liveness} />}
+        />
         <FacetGroup
           label="Tier"
           items={['T1', 'T2-high', 'T2', 'T3', 'T4']}
@@ -264,6 +285,16 @@ function TierChip({ tier }: { tier: string }) {
   return (
     <span className="text-label font-mono text-text-2">
       {tier === 'T2-high' ? 'T2+' : tier}
+    </span>
+  )
+}
+
+function LivenessChip({ liveness }: { liveness: Liveness }) {
+  const cls = liveness === 'active' ? 'text-success'
+            : liveness === 'stale'  ? 'text-warning' : 'text-text-4'
+  return (
+    <span className={cn('text-label font-mono capitalize', cls)}>
+      {liveness}
     </span>
   )
 }

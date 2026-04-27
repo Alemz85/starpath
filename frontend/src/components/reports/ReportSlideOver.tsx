@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { X, FileText } from 'lucide-react'
+import { X, FileText, Database as DatabaseIcon, ExternalLink } from 'lucide-react'
 import { useAppStore } from '@/store/app'
+import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
@@ -10,6 +11,7 @@ import type { ScoreEntry } from '@/types'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { ApplyAction } from '@/components/shared/ApplyAction'
 
 interface ReportSlideOverProps {
   company: string
@@ -20,6 +22,7 @@ interface ReportSlideOverProps {
 
 export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSlideOverProps) {
   const { repoPath } = useAppStore()
+  const navigate = useNavStore(s => s.navigate)
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -140,6 +143,30 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
           >
             <X size={15} />
           </button>
+        </div>
+
+        {/* Action pills */}
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-border-default shrink-0 flex-wrap">
+          <ApplyAction company={company} role={role} scoreEntry={scoreEntry} size="sm" />
+          <button
+            onClick={() => {
+              navigate('database', company)
+              handleClose()
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
+          >
+            <DatabaseIcon size={11} />
+            View in Database
+          </button>
+          {scoreEntry.source && /^https?:\/\//i.test(scoreEntry.source) && (
+            <button
+              onClick={() => ipc.openExternal(scoreEntry.source)}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
+            >
+              <ExternalLink size={11} />
+              Open URL
+            </button>
+          )}
         </div>
 
         {/* Score mini-bar — only when we have real score data */}
