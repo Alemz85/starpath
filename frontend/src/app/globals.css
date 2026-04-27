@@ -353,13 +353,13 @@ p, td, th, li, .selectable {
 }
 .range-overlay::-webkit-slider-thumb:hover {
   transform: scale(1.12);
-  background: #F4F8FF;
+  background: #F5F2FF;
   box-shadow: 0 2px 6px rgba(124, 92, 255, 0.25), 0 0 0 4px rgba(124, 92, 255, 0.12);
 }
 .range-overlay::-webkit-slider-thumb:active {
   cursor: grabbing;
   transform: scale(1.18);
-  background: #E8F0FF;
+  background: #EBE5FF;
 }
 .range-overlay::-moz-range-thumb {
   width: 16px;
@@ -374,7 +374,7 @@ p, td, th, li, .selectable {
 }
 .range-overlay::-moz-range-thumb:hover {
   transform: scale(1.12);
-  background: #F4F8FF;
+  background: #F5F2FF;
   box-shadow: 0 2px 6px rgba(124, 92, 255, 0.25), 0 0 0 4px rgba(124, 92, 255, 0.12);
 }
 .range-overlay:focus { outline: none; }

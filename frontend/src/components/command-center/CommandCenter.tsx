@@ -7,10 +7,10 @@ import { useSpawnsStore, type SpawnRecord } from '@/store/spawns'
 import { ModeToggle } from './ModeToggle'
 import { StatCard } from './StatCard'
 import {
-  BarChart2, Clock, Inbox, Target, AlertTriangle, Calendar,
+  BarChart2, Clock, Inbox, Target, Radar, Calendar,
   Play, Zap, FileOutput, Square,
 } from 'lucide-react'
-import { deadlineUrgency, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 const FULL_SCAN_ID  = 'cmd-full-scan'
 const API_SCAN_ID   = 'cmd-api-scan'
@@ -37,7 +37,7 @@ const LOADING_MESSAGES = [
 
 export function CommandCenter() {
   const { currentMode, repoPath } = useAppStore()
-  const { scoreHistory, scouting, applications, pipeline, loaded, refresh } = useDataStore()
+  const { scoreHistory, applications, pipeline, scansThisMonth, loaded, refresh } = useDataStore()
 
   // Compute stats
   const totalEvaluated = scoreHistory.length
@@ -45,11 +45,6 @@ export function CommandCenter() {
     ['Applied', 'Responded', 'Interview', 'Offer'].includes(a.status)
   ).length
   const pendingListings = pipeline.length
-
-  const urgentDeadlines = [
-    ...scouting.map(s => s.deadline),
-    ...applications.map(a => a.deadline),
-  ].filter(d => deadlineUrgency(d) === 'urgent').length
 
   const lastScanDate = scoreHistory.length
     ? scoreHistory.sort((a, b) => b.date.localeCompare(a.date))[0]?.date
@@ -97,10 +92,9 @@ export function CommandCenter() {
             loading={!loaded}
           />
           <StatCard
-            label="Urgent deadlines"
-            value={loaded ? String(urgentDeadlines) : '—'}
-            icon={AlertTriangle}
-            accent={urgentDeadlines > 0 ? 'text-danger' : undefined}
+            label="Scans this month"
+            value={loaded ? String(scansThisMonth) : '—'}
+            icon={Radar}
             loading={!loaded}
           />
           <StatCard

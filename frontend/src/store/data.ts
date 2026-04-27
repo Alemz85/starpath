@@ -8,6 +8,7 @@ interface DataState {
   applications: ApplicationEntry[]
   pipeline:     PipelineUrl[]
   reports:      ReportFile[]
+  scansThisMonth: number   // unique scan-run dates in the current month
   loaded:       boolean
   loading:      boolean
 
@@ -21,6 +22,7 @@ export const useDataStore = create<DataState>((set) => ({
   applications: [],
   pipeline:     [],
   reports:      [],
+  scansThisMonth: 0,
   loaded:       false,
   loading:      false,
 
@@ -58,12 +60,13 @@ let refreshInFlight: Promise<void> | null = null
 // ─── Loading ──────────────────────────────────────────────────────────────────
 
 async function loadAll() {
-  const [apps, scouting, scoreRows, pipelineRows, reportRows] = await Promise.all([
+  const [apps, scouting, scoreRows, pipelineRows, reportRows, scanHistRaw] = await Promise.all([
     ipc.db.applications(),
     ipc.db.scouting(),
     ipc.db.scoreHistory(),
     ipc.db.pipeline(),
     ipc.db.reports(),
+    ipc.readFile('data/scan-history.tsv'),
   ])
 
   useDataStore.setState({
@@ -72,7 +75,33 @@ async function loadAll() {
     scoreHistory: (scoreRows    ?? []).map(toScoreEntry),
     pipeline:     (pipelineRows ?? []).map(toPipelineUrl),
     reports:      (reportRows   ?? []).map(toReportFile),
+    scansThisMonth: countScansThisMonth(scanHistRaw),
   })
+}
+
+// Count unique scan-run *dates* in the current calendar month. Each row of
+// scan-history.tsv has a `scan_dates` column (pipe-separated YYYY-MM-DD list);
+// many rows can share a scan date because a single scan adds many URLs at once,
+// so we union dates across rows and dedupe before counting.
+function countScansThisMonth(raw: string | null): number {
+  if (!raw) return 0
+  const lines = raw.split('\n')
+  if (lines.length < 2) return 0
+  const header = lines[0].split('\t')
+  const datesIdx = header.indexOf('scan_dates')
+  if (datesIdx === -1) return 0
+
+  const monthPrefix = new Date().toISOString().slice(0, 7)  // "YYYY-MM"
+  const seen = new Set<string>()
+  for (let i = 1; i < lines.length; i++) {
+    const row = lines[i].split('\t')
+    const cell = row[datesIdx]
+    if (!cell) continue
+    for (const d of cell.split('|')) {
+      if (d.startsWith(monthPrefix)) seen.add(d)
+    }
+  }
+  return seen.size
 }
 
 // ─── Live reload ──────────────────────────────────────────────────────────────
