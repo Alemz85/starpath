@@ -1,68 +1,47 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
-import { ipc } from '@/lib/ipc'
+import { useSpawnsStore } from '@/store/spawns'
 import { Radar, Play, Square, RotateCcw, Zap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-type ScanStatus = 'idle' | 'running' | 'done' | 'error'
-type ScanMode = 'full' | 'api'
-
-const SPAWN_ID = 'scan-main'
+const SCAN_VIEW_ID = 'scan-main'
 
 export function ScanView() {
   const { repoPath } = useAppStore()
   const { refresh } = useDataStore()
-  const [status, setStatus] = useState<ScanStatus>('idle')
-  const [mode, setMode] = useState<ScanMode>('full')
-  const [output, setOutput] = useState<string[]>([])
-  const logRef = useRef<HTMLDivElement>(null)
+  const { spawns, start, kill, clear } = useSpawnsStore()
+  const record = spawns[SCAN_VIEW_ID]
+  const status = record ? record.status : ('idle' as const)
+  const output = record?.output ?? []
+  const isRunning = status === 'running'
   const [autoScroll, setAutoScroll] = useState(true)
+  const logRef = useRef<HTMLDivElement>(null)
 
+  // Refresh data store whenever a scan finishes.
   useEffect(() => {
-    const unsubOut = ipc.onSpawnOutput((id, chunk) => {
-      if (id !== SPAWN_ID) return
-      setOutput(prev => [...prev, chunk])
-    })
-    const unsubDone = ipc.onSpawnDone((id, code) => {
-      if (id !== SPAWN_ID) return
-      setStatus(code === 0 ? 'done' : 'error')
-      refresh()
-    })
-    return () => { unsubOut?.(); unsubDone?.() }
-  }, [refresh])
+    if (status === 'done' || status === 'error' || status === 'killed') refresh()
+  }, [status, refresh])
 
   useEffect(() => {
     if (autoScroll && logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
     }
-  }, [output, autoScroll])
+  }, [output.length, autoScroll])
 
-  const runScan = (scanMode: ScanMode) => {
+  const runScan = (mode: 'full' | 'api') => {
     if (!repoPath) return
-    setOutput([])
-    setStatus('running')
-    setMode(scanMode)
-    if (scanMode === 'api') {
-      ipc.spawn(SPAWN_ID, 'node', ['scripts/scan.mjs'])
-    } else {
-      // Full scan: Claude reads scan.md and runs Playwright + API + WebSearch
-      ipc.spawn(SPAWN_ID, 'claude', ['-p', '@modes/scan.md'])
-    }
+    if (record) clear(SCAN_VIEW_ID)
+    if (mode === 'api') start(SCAN_VIEW_ID, 'API Scan',  'node',   ['scripts/scan.mjs'])
+    else                start(SCAN_VIEW_ID, 'Full Scan', 'claude', ['-p', '@modes/scan.md'])
   }
-
-  const stopScan = () => {
-    ipc.kill(SPAWN_ID)
-    setStatus('idle')
-  }
-
-  const isRunning = status === 'running'
+  const stopScan = () => kill(SCAN_VIEW_ID)
+  const clearLog = () => clear(SCAN_VIEW_ID)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Scan</h1>
         <span className={cn(
@@ -71,8 +50,9 @@ export function ScanView() {
           status === 'running' && 'text-accent border-accent/40 bg-accent/10',
           status === 'done'    && 'text-success border-success/40 bg-success/10',
           status === 'error'   && 'text-danger border-danger/40 bg-danger/10',
+          status === 'killed'  && 'text-text-3 border-border-default',
         )}>
-          {isRunning ? `${mode === 'full' ? 'full' : 'api'} · running` : status}
+          {isRunning ? `${record?.label ?? 'scan'} · running` : status}
         </span>
         <div className="flex-1" />
 
@@ -86,18 +66,15 @@ export function ScanView() {
           </button>
         ) : (
           <div className="titlebar-no-drag flex items-center gap-2">
-            {/* Primary: Full scan */}
             <button
               onClick={() => runScan('full')}
               disabled={!repoPath}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/20 text-accent-text border border-accent/30 text-label hover:bg-accent/30 disabled:opacity-40 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/15 text-accent border border-accent/40 text-label hover:bg-accent/25 disabled:opacity-40 transition-colors"
               title="Playwright + API + WebSearch — uses Claude (token cost)"
             >
               <Play size={12} />
               Full Scan
             </button>
-
-            {/* Secondary: API only */}
             <button
               onClick={() => runScan('api')}
               disabled={!repoPath}
@@ -107,13 +84,12 @@ export function ScanView() {
               <Zap size={12} />
               API Only
             </button>
-
           </div>
         )}
 
         {!isRunning && output.length > 0 && (
           <button
-            onClick={() => { setOutput([]); setStatus('idle') }}
+            onClick={clearLog}
             className="titlebar-no-drag flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-text-4 hover:text-text-2 border border-border-default text-label transition-colors"
           >
             <RotateCcw size={12} />

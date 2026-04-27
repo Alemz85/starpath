@@ -15,7 +15,9 @@ import {
   ChevronRight,
   Radar,
   User,
+  Loader2,
 } from 'lucide-react'
+import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
 
 const NAV_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] = [
   { view: 'home',     label: 'Command Center', icon: LayoutDashboard },
@@ -34,6 +36,7 @@ const BOTTOM_ITEMS: { view: ViewId; label: string; icon: React.ElementType }[] =
 export function Sidebar() {
   const [expanded, setExpanded] = useState(true)
   const { view: currentView, navigate } = useNavStore()
+  const anyRunning = useSpawnsStore(isAnyRunning)
 
   return (
     <aside
@@ -85,23 +88,40 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-        {NAV_ITEMS.map(({ view, label, icon: Icon }) => (
-          <button
-            key={view}
-            onClick={() => navigate(view)}
-            className={cn(
-              'w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors text-body',
-              currentView === view
-                ? 'bg-accent/15 text-text-1 border-l-2 border-accent -ml-[1px] pl-[7px]'
-                : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
-              !expanded && 'justify-center px-0',
-            )}
-            title={!expanded ? label : undefined}
-          >
-            <Icon size={15} className="shrink-0" />
-            {expanded && <span>{label}</span>}
-          </button>
-        ))}
+        {NAV_ITEMS.map(({ view, label, icon: Icon }) => {
+          const showRunning = view === 'scan' && anyRunning
+          return (
+            <button
+              key={view}
+              onClick={() => navigate(view)}
+              className={cn(
+                'w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors text-body',
+                currentView === view
+                  ? 'bg-accent/15 text-text-1 border-l-2 border-accent -ml-[1px] pl-[7px]'
+                  : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
+                !expanded && 'justify-center px-0',
+              )}
+              title={!expanded ? label : undefined}
+            >
+              <span className="relative shrink-0 inline-flex">
+                <Icon size={15} />
+                {showRunning && (
+                  <Loader2
+                    size={9}
+                    className="absolute -top-1 -right-1.5 animate-spin text-accent"
+                    strokeWidth={2.5}
+                  />
+                )}
+              </span>
+              {expanded && (
+                <span className="flex-1 flex items-center justify-between">
+                  <span>{label}</span>
+                  {showRunning && <span className="text-[10px] font-mono text-accent">running</span>}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </nav>
 
       {/* Bottom */}
