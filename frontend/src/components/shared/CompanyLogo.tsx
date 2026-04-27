@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { ipc } from '@/lib/ipc'
 
 // ─── Domain guessing ─────────────────────────────────────────────────────────
 
@@ -40,6 +41,8 @@ const OVERRIDES: Record<string, string> = {
   'miro': 'miro.com', 'notion': 'notion.so', 'figma': 'figma.com',
   'canva': 'canva.com', 'vercel': 'vercel.com', 'netlify': 'netlify.com',
   'gitlab': 'gitlab.com', 'docker': 'docker.com', 'hashicorp': 'hashicorp.com',
+  'hellofresh': 'hellofresh.com', 'hello fresh': 'hellofresh.com',
+  'adyen': 'adyen.com', 'mollie': 'mollie.com',
 }
 
 export function guessDomain(company: string): string {
@@ -84,56 +87,66 @@ interface CompanyLogoProps {
   className?: string
 }
 
-// Three-stage cascade: Clearbit (high-res) → Google favicons (always available) → initials
-type Stage = 'clearbit' | 'google' | 'fallback'
-
 export function CompanyLogo({ company, size = 20, className }: CompanyLogoProps) {
-  const [stage, setStage] = useState<Stage>('clearbit')
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
   const domain = guessDomain(company)
   const radius = size <= 16 ? 3 : size <= 24 ? 4 : 6
   const [from, to] = hashPalette(company)
   const abbr = initials(company)
   const fontSize = Math.round(size * 0.38)
 
-  if (stage === 'fallback') {
+  useEffect(() => {
+    let cancelled = false
+    ipc.fetchLogo(domain).then(url => {
+      if (!cancelled) setDataUrl(url)
+    })
+    return () => { cancelled = true }
+  }, [domain])
+
+  const baseStyle: React.CSSProperties = {
+    width: size, height: size, minWidth: size,
+    borderRadius: radius,
+    overflow: 'hidden',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  }
+
+  // Still loading — show initials as placeholder (no flash)
+  if (dataUrl === null) {
     return (
-      <div
-        className={className}
-        style={{
-          width: size, height: size, minWidth: size, borderRadius: radius,
-          background: `linear-gradient(135deg, ${from}, ${to})`,
-          fontSize, fontWeight: 600, color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          userSelect: 'none', letterSpacing: '-0.01em',
-        }}
-      >
+      <div className={className} style={{
+        ...baseStyle,
+        background: `linear-gradient(135deg, ${from}, ${to})`,
+        fontSize, fontWeight: 600, color: '#fff',
+        userSelect: 'none', letterSpacing: '-0.01em',
+      }}>
         {abbr}
       </div>
     )
   }
 
-  const src = stage === 'clearbit'
-    ? `https://logo.clearbit.com/${domain}`
-    : `https://www.google.com/s2/favicons?domain=${domain}&sz=128`
+  // IPC returned nothing — stay on initials permanently
+  if (dataUrl === '') {
+    return (
+      <div className={className} style={{
+        ...baseStyle,
+        background: `linear-gradient(135deg, ${from}, ${to})`,
+        fontSize, fontWeight: 600, color: '#fff',
+        userSelect: 'none', letterSpacing: '-0.01em',
+      }}>
+        {abbr}
+      </div>
+    )
+  }
 
   return (
-    <div
-      className={className}
-      style={{
-        width: size, height: size, minWidth: size, borderRadius: radius,
-        background: stage === 'clearbit' && size >= 20 ? '#fff' : 'transparent',
-        overflow: 'hidden',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-    >
+    <div className={className} style={{ ...baseStyle, background: '#fff' }}>
       <img
-        key={stage}
-        src={src}
+        src={dataUrl}
         alt={company}
         width={size}
         height={size}
         style={{ objectFit: 'contain', width: '100%', height: '100%' }}
-        onError={() => setStage(stage === 'clearbit' ? 'google' : 'fallback')}
+        onError={() => setDataUrl('')}
       />
     </div>
   )

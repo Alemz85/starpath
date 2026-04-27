@@ -9,6 +9,8 @@ import {
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import https from 'https'
+import http from 'http'
 import { exec, spawn, ChildProcess } from 'child_process'
 import { promisify } from 'util'
 
@@ -364,6 +366,64 @@ ipcMain.handle('shell:kill', (_e, id: unknown) => {
   const sid = validateString(id, 'id')
   spawnedProcesses.get(sid)?.kill()
   spawnedProcesses.delete(sid)
+})
+
+// ─── IPC: Logo cache ─────────────────────────────────────────────────────────
+
+function fetchToBuffer(url: string): Promise<{ buf: Buffer; mime: string } | null> {
+  return new Promise((resolve) => {
+    const lib = url.startsWith('https') ? https : http
+    const req = lib.get(url, { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
+      // Follow one redirect
+      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+        resolve(fetchToBuffer(res.headers.location))
+        return
+      }
+      if (res.statusCode !== 200) { resolve(null); return }
+      const chunks: Buffer[] = []
+      res.on('data', (c: Buffer) => chunks.push(c))
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks)
+        const mime = (res.headers['content-type'] ?? 'image/png').split(';')[0].trim()
+        resolve(buf.length > 200 ? { buf, mime } : null)
+      })
+      res.on('error', () => resolve(null))
+    })
+    req.on('error', () => resolve(null))
+    req.on('timeout', () => { req.destroy(); resolve(null) })
+  })
+}
+
+ipcMain.handle('logo:fetch', async (_e, domain: unknown) => {
+  const d = validateString(domain, 'domain')
+  const safeName = d.replace(/[^a-z0-9.-]/gi, '_')
+
+  const cacheDir = path.join(app.getPath('userData'), 'logo-cache')
+  fs.mkdirSync(cacheDir, { recursive: true })
+  const cachePath = path.join(cacheDir, `${safeName}.b64`)
+
+  // Return from disk cache if present
+  if (fs.existsSync(cachePath)) {
+    return fs.readFileSync(cachePath, 'utf-8')
+  }
+
+  // Try sources in order — main process is not subject to renderer CSP
+  const sources = [
+    `https://logo.clearbit.com/${d}`,
+    `https://unavatar.io/${d}`,
+    `https://www.google.com/s2/favicons?domain=${d}&sz=128`,
+  ]
+
+  for (const url of sources) {
+    const result = await fetchToBuffer(url)
+    if (result) {
+      const dataUrl = `data:${result.mime};base64,${result.buf.toString('base64')}`
+      fs.writeFileSync(cachePath, dataUrl, 'utf-8')
+      return dataUrl
+    }
+  }
+
+  return null
 })
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────

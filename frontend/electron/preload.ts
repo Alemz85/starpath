@@ -26,6 +26,9 @@ const electronAPI = {
   // Shell (one-shot)
   run: (cmd: string, args: string[]) => ipcRenderer.invoke('shell:run', cmd, args),
 
+  // Logo cache (fetched by main process, stored on disk)
+  fetchLogo: (domain: string) => ipcRenderer.invoke('logo:fetch', domain),
+
   // Shell (streaming)
   spawn: (id: string, cmd: string, args: string[]) => ipcRenderer.invoke('shell:spawn', id, cmd, args),
   kill: (id: string) => ipcRenderer.invoke('shell:kill', id),
