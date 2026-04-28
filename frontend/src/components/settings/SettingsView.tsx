@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
+import { useConfigDirty } from '@/store/configDirty'
 import { ipc } from '@/lib/ipc'
 import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -265,11 +266,11 @@ function GeneralTab() {
     label: string
     sub: string
   }> = [
-    { key: 'pipeline',       label: 'Pipeline buttons',       sub: 'Filter to Database · Generate Top Reports · Generate All Reports. Also editable via the Model chip on the Scouting cockpit.' },
+    { key: 'pipeline',       label: 'Filter to Database',     sub: 'Score-only run that filters pending URLs and writes scoring rows to data/scouting.md. Also editable via the Model chip on the Scouting cockpit.' },
     { key: 'tailorCv',       label: 'Tailor CV',              sub: 'Per-listing CV regeneration on the Applying tab (modes/pdf.md).' },
     { key: 'draftApp',       label: 'Draft Application',      sub: 'Per-listing form-fill draft on the Applying tab (modes/apply.md).' },
     { key: 'interviewPrep',  label: 'Prep Interview',         sub: 'Per-listing interview brief generation (modes/interview-prep.md).' },
-    { key: 'generateReport', label: 'Generate Report',        sub: 'Promote a Database row to a full per-listing prose report.' },
+    { key: 'generateReport', label: 'Generate Report',        sub: 'Full per-listing prose reports — used by both the Reports tab Generate Top 5 button and the per-listing Generate Report action in the Database popover.' },
   ]
 
   const changeRepo = async () => {
@@ -364,18 +365,32 @@ function GeneralTab() {
 export function RolesTab() {
   const [raw, setRaw] = useState<string | null>(null)
   const [roles, setRoles] = useState<string[]>([])
+  const [baselineRoles, setBaselineRoles] = useState<string[]>([])
   const [addInput, setAddInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const setConfigDirty = useConfigDirty(s => s.setDirty)
 
   useEffect(() => {
     ipc.readFile('user/profile.yml').then(text => {
       if (!text) return
+      const loaded = extractPrimaryRoles(text)
       setRaw(text)
-      setRoles(extractPrimaryRoles(text))
+      setRoles(loaded)
+      setBaselineRoles(loaded)
     })
   }, [])
+
+  // Mark Roles tab dirty when the primary-roles list diverges from what
+  // we loaded. Dream Companies + Target Locations have their own save
+  // buttons and dirty-track separately under different source ids, so
+  // they coexist cleanly.
+  useEffect(() => {
+    const dirty = JSON.stringify(roles) !== JSON.stringify(baselineRoles)
+    setConfigDirty('roles', 'roles-primary', dirty)
+  }, [roles, baselineRoles, setConfigDirty])
+  useEffect(() => () => setConfigDirty('roles', 'roles-primary', false), [setConfigDirty])
 
   const addRole = (role: string) => {
     const r = role.trim()
@@ -399,6 +414,7 @@ export function RolesTab() {
     }
     await ipc.writeFile('user/profile.yml', u)
     setRaw(u)
+    setBaselineRoles(roles)   // dirty resets — current state is now the baseline
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -519,11 +535,19 @@ function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [raw, setRaw] = useState(rawYaml ?? '')
+  const setConfigDirty = useConfigDirty(s => s.setDirty)
 
   useEffect(() => {
     setRaw(rawYaml ?? '')
     setNames(extractDreamCompanies(rawYaml ?? ''))
   }, [rawYaml])
+
+  // The "did anything change since last load/save" check — drives both
+  // the Save button's enabled state below AND the cross-cutting dirty
+  // flag for the Roles tab.
+  const dirty = JSON.stringify(extractDreamCompanies(raw)) !== JSON.stringify(names)
+  useEffect(() => { setConfigDirty('roles', 'roles-dreams', dirty) }, [dirty, setConfigDirty])
+  useEffect(() => () => setConfigDirty('roles', 'roles-dreams', false), [setConfigDirty])
 
   const add = () => {
     const v = input.trim()
@@ -543,8 +567,6 @@ function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
     setSavedAt(Date.now())
     setTimeout(() => setSavedAt(null), 2500)
   }
-
-  const dirty = JSON.stringify(extractDreamCompanies(raw)) !== JSON.stringify(names)
 
   return (
     <SettingRow
@@ -641,11 +663,16 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [raw, setRaw] = useState(rawYaml ?? '')
+  const setConfigDirty = useConfigDirty(s => s.setDirty)
 
   useEffect(() => {
     setRaw(rawYaml ?? '')
     setCities(extractPreferredCities(rawYaml ?? ''))
   }, [rawYaml])
+
+  const dirty = JSON.stringify(extractPreferredCities(raw)) !== JSON.stringify(cities)
+  useEffect(() => { setConfigDirty('roles', 'roles-locations', dirty) }, [dirty, setConfigDirty])
+  useEffect(() => () => setConfigDirty('roles', 'roles-locations', false), [setConfigDirty])
 
   const add = () => {
     const v = input.trim()
@@ -676,8 +703,6 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
     setSavedAt(Date.now())
     setTimeout(() => setSavedAt(null), 2500)
   }
-
-  const dirty = JSON.stringify(extractPreferredCities(raw)) !== JSON.stringify(cities)
 
   return (
     <SettingRow
@@ -764,6 +789,10 @@ export function PortalsTab() {
   const [raw, setRaw] = useState<string | null>(null)
   const [positive, setPositive] = useState<string[]>([])
   const [negative, setNegative] = useState<string[]>([])
+  const [baselinePositive, setBaselinePositive] = useState<string[]>([])
+  const [baselineNegative, setBaselineNegative] = useState<string[]>([])
+  const [baselineLang, setBaselineLang] = useState<string[]>([])
+  const [baselineRaw, setBaselineRaw] = useState<string>('')
   const [addPos, setAddPos] = useState('')
   const [addNeg, setAddNeg] = useState('')
   const [companies, setCompanies] = useState<CompanyEntry[]>([])
@@ -777,18 +806,47 @@ export function PortalsTab() {
   const [rawText, setRawText] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const setConfigDirty = useConfigDirty(s => s.setDirty)
 
   useEffect(() => {
     ipc.readFile('user/portals.yml').then(text => {
       if (!text) return
       setRaw(text)
       setRawText(text)
-      setPositive(extractPortalKeywords(text, 'positive'))
-      setNegative(extractPortalKeywords(text, 'negative'))
+      const pos = extractPortalKeywords(text, 'positive')
+      const neg = extractPortalKeywords(text, 'negative')
+      const lang = parseLangBlocklist(text)
+      setPositive(pos)
+      setNegative(neg)
       setCompanies(parseCompanies(text))
-      setLangKeywords(parseLangBlocklist(text))
+      setLangKeywords(lang)
+      setBaselinePositive(pos)
+      setBaselineNegative(neg)
+      setBaselineLang(lang)
+      setBaselineRaw(text)
     })
   }, [])
+
+  // Track dirty per concept inside the Portals tab. Companies edits
+  // (toggle / remove / add) update `raw` immediately, so we compare raw
+  // against baselineRaw for the company-related dirty flag.
+  useEffect(() => {
+    setConfigDirty('portals', 'portals-keywords',
+      JSON.stringify(positive) !== JSON.stringify(baselinePositive)
+        || JSON.stringify(negative) !== JSON.stringify(baselineNegative))
+  }, [positive, negative, baselinePositive, baselineNegative, setConfigDirty])
+  useEffect(() => {
+    setConfigDirty('portals', 'portals-lang',
+      JSON.stringify(langKeywords) !== JSON.stringify(baselineLang))
+  }, [langKeywords, baselineLang, setConfigDirty])
+  useEffect(() => {
+    setConfigDirty('portals', 'portals-raw', (raw ?? '') !== baselineRaw)
+  }, [raw, baselineRaw, setConfigDirty])
+  useEffect(() => () => {
+    setConfigDirty('portals', 'portals-keywords', false)
+    setConfigDirty('portals', 'portals-lang', false)
+    setConfigDirty('portals', 'portals-raw', false)
+  }, [setConfigDirty])
 
   const filteredCompanies = useMemo(() => {
     const q = companySearch.toLowerCase()
@@ -871,6 +929,11 @@ export function PortalsTab() {
     await ipc.writeFile('user/portals.yml', u)
     setRaw(u)
     setRawText(u)
+    // Reset baselines — current state is now the saved state, dirty clears.
+    setBaselinePositive(positive)
+    setBaselineNegative(negative)
+    setBaselineLang(langKeywords)
+    setBaselineRaw(u)
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)

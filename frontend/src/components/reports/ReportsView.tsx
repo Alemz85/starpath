@@ -2,16 +2,51 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useDataStore } from '@/store/data'
+import { useAppStore } from '@/store/app'
+import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { ipc, type DbReportRow } from '@/lib/ipc'
-import { Search, FileText, X, ExternalLink } from 'lucide-react'
+import { Search, FileText, X, ExternalLink, Sparkles, Square } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import type { ReportFile, ScoreEntry } from '@/types'
 import { ReportSlideOver } from './ReportSlideOver'
 
+const TOP5_SPAWN_ID = 'reports-top5'
+
+// Prompt for the "Generate top 5 reports" button. Selective + deeper:
+// only 5 reports, but each one is the FULL T1 template depth (Role
+// Summary + Recommendation + Career Path Impact) regardless of the
+// listing's actual tier. The trade-off — fewer reports, more effort
+// per report, more precision in scoring — is the explicit philosophy
+// shift the user wanted.
+const TOP5_PROMPT =
+  '/career-ops pipeline — TOP 5 REPORTS mode (deep). ' +
+  '(1) Fetch each pending URL\'s JD, apply user/portals.yml title filters, dedup against data/dedup-index.tsv. ' +
+  '(2) **Run modes/pipeline.md Step 2c — Relevance gate**. Discard off-archetype / wrong-seniority / geo-locked / excluded-domain / visa-locked / poverty-wage listings into the Filtered Out section. Do NOT score discarded entries. ' +
+  '(3) For SURVIVING entries — run the FULL DIMENSIONAL SCORING per modes/scouting.md (all 10 dimensions, each reasoning cell meeting the modes/_shared.md § Reasoning column quality bar — verbatim JD quote OR named calibration adjustment OR explicit [no gate stated]; no platitudes). Write scouting.md + score-history.tsv rows for ALL survivors. ' +
+  '(4) Identify the **5 highest-scoring** entries by Overall. ' +
+  '(5) For those 5 ONLY — write the full per-listing prose report under reports/tier-N/{Company} - {Role}.md using the **FULL Tier-1 template** from modes/scouting.md (Header + A) Role summary + B) Dimensional scoring + C) Recommendation [2-3 lines] + D) Career path impact [4 structured lines]) regardless of the entry\'s actual tier. The user has chosen quality over quantity here — use the deeper template even if a listing would normally land at T2/T3. ' +
+  '(6) Remaining surviving entries stay scored in scouting.md with no prose report — the user can promote individual ones later via the Database "Generate report" action. ' +
+  '(7) Mark all scored URLs as [x] in pipeline.md. ' +
+  'Goal: 5 deep, defensible reports the user can act on, instead of 8 shallow ones.'
+
 export function ReportsView() {
-  const { scoreHistory, loaded } = useDataStore()
+  const { scoreHistory, loaded, refresh } = useDataStore()
+  const generateReportModel = useAppStore(s => s.models.generateReport)
+  const top5Spawn = useSpawnsStore(s => s.spawns[TOP5_SPAWN_ID])
+  const startSpawn = useSpawnsStore(s => s.start)
+  const killSpawn  = useSpawnsStore(s => s.kill)
+  const clearSpawn = useSpawnsStore(s => s.clear)
+  const repoPath = useAppStore(s => s.repoPath)
+
+  const top5Running = top5Spawn?.status === 'running'
+
+  const handleGenerateTop5 = () => {
+    if (top5Running) { killSpawn(TOP5_SPAWN_ID); return }
+    if (top5Spawn) clearSpawn(TOP5_SPAWN_ID)
+    startSpawn(TOP5_SPAWN_ID, 'Generate top 5 reports', 'claude', claudeArgs(TOP5_PROMPT, generateReportModel))
+  }
   // Pulls from the SQL join in db.reports() so each card already carries its
   // matching overall score. The slide-over still looks up the full
   // ScoreEntry in memory (one find per click is fine at this volume).
@@ -25,6 +60,14 @@ export function ReportsView() {
     ipc.db.reports().then(rs => { if (!cancelled) setReportRows(rs ?? []) }).catch(() => {})
     return () => { cancelled = true }
   }, [scoreHistory.length])
+
+  // When the top-5 spawn finishes, force a data refresh so the new
+  // reports show up without having to switch tabs / restart.
+  useEffect(() => {
+    if (top5Spawn?.status === 'done') {
+      void refresh()
+    }
+  }, [top5Spawn?.status, refresh])
 
   const filteredFiles = useMemo(() => {
     let rows = reportRows
@@ -139,6 +182,28 @@ export function ReportsView() {
             )
           })}
         </div>
+
+        <div className="flex-1" />
+
+        {/* Right-aligned actions. Generate Top 5 spawns the deep-template
+            top-5 run — the philosophy shift is "5 deep, defensible reports
+            beats 8 shallow ones". Live progress in the Activity tab. */}
+        <button
+          onClick={handleGenerateTop5}
+          disabled={!repoPath}
+          title={top5Running
+            ? 'Stop the run (live log on the Activity tab)'
+            : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-scoring entries. Uses Claude tokens; live log on the Activity tab.'}
+          className={cn(
+            'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-label border transition-colors',
+            top5Running
+              ? 'bg-danger/10 border-danger/40 text-danger hover:bg-danger/15'
+              : 'bg-accent/15 border-accent/35 text-accent-text hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed',
+          )}
+        >
+          {top5Running ? <Square size={11} className="fill-current" /> : <Sparkles size={12} />}
+          {top5Running ? 'Stop' : 'Generate top 5 reports'}
+        </button>
       </div>
 
       {/* Grid */}
