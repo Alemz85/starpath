@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { Check, Sparkles, X, Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Check, X, Plus } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
@@ -181,12 +181,19 @@ const formatNational = (digits: string): string => {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+const SAVE_SPAWN_ID = 'profile-incremental-update'
+
 export function ProfileEditPanel() {
   const refresh = useDataStore(s => s.refresh)
   const repoPath = useAppStore(s => s.repoPath)
+  const startSpawn = useSpawnsStore(s => s.start)
+  const clearSpawn = useSpawnsStore(s => s.clear)
 
   const [raw, setRaw] = useState<string | null>(null)
   const [form, setForm] = useState<Form>(EMPTY_FORM)
+  // Snapshot of the form at last load/save. Used to compute the diff on
+  // the next save so the LLM only sees what actually changed.
+  const [baseline, setBaseline] = useState<Form>(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
 
@@ -199,7 +206,7 @@ export function ProfileEditPanel() {
       const phone = splitPhone(extractScalar(text, 'phone'))
       const range = splitRange(extractScalar(text, 'target_range'))
       const walk  = splitWalkaway(extractScalar(text, 'minimum'))
-      setForm({
+      const loaded: Form = {
         full_name:        extractScalar(text, 'full_name'),
         email:            extractScalar(text, 'email'),
         phoneCC:          phone.cc,
@@ -215,7 +222,9 @@ export function ProfileEditPanel() {
         comp_currency:    extractScalar(text, 'currency') || 'EUR',
         comp_flexibility: extractScalar(text, 'location_flexibility'),
         languages:        parseLanguages(text),
-      })
+      }
+      setForm(loaded)
+      setBaseline(loaded)
     })
   }, [repoPath])
 
@@ -254,6 +263,24 @@ export function ProfileEditPanel() {
 
     await ipc.writeFile('user/profile.yml', u)
     setRaw(u)
+
+    // Diff baseline → form. Only changes get sent to Claude so the
+    // incremental update stays minimal (the previous "re-tailor" button
+    // ran a full rebuild every time, which the user found too aggressive).
+    const diff = diffForms(baseline, form)
+    if (diff.length > 0) {
+      const slash = buildIncrementalPrompt(diff)
+      // Sonnet — structured-edit task; Opus would be overkill for this.
+      clearSpawn(SAVE_SPAWN_ID)
+      startSpawn(
+        SAVE_SPAWN_ID,
+        `Profile sync (${diff.length} change${diff.length > 1 ? 's' : ''})`,
+        'claude',
+        claudeArgs(slash, 'sonnet'),
+      )
+    }
+
+    setBaseline(form)
     setSaving(false)
     setSavedAt(Date.now())
     setTimeout(() => setSavedAt(null), 2500)
@@ -282,17 +309,15 @@ export function ProfileEditPanel() {
             Patches <code className="text-accent/70 bg-bg-elevated px-1 rounded">user/profile.yml</code> — comments and structure are preserved.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <RetailorButton />
-          <button
-            onClick={handleSave}
-            disabled={saving || !form.full_name.trim() || !form.email.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
-          >
-            {justSaved ? <Check size={12} /> : null}
-            {saving ? 'Saving…' : justSaved ? 'Saved' : 'Save'}
-          </button>
-        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving || !form.full_name.trim() || !form.email.trim()}
+          title="Save changes. If anything changed, a Sonnet run will incrementally update _profile.md and (when relevant) portals.yml — visible in the Activity tab."
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+        >
+          {justSaved ? <Check size={12} /> : null}
+          {saving ? 'Saving…' : justSaved ? 'Saved' : 'Save'}
+        </button>
       </div>
 
       <div className="px-5 py-4 space-y-6">
@@ -529,38 +554,59 @@ function LanguagesField({ languages, onChange }: {
   )
 }
 
-// ─── Re-tailor button ────────────────────────────────────────────────────────
+// ─── Diff + LLM prompt ──────────────────────────────────────────────────────
+//
+// The previous standalone "Re-tailor" button kicked off the full setup
+// skill on every click — which rewrote portals.yml and _profile.md from
+// scratch. Per the user, that was too aggressive: incremental edits would
+// be enough most of the time. This module replaces the button with a
+// diff-aware spawn that fires on Save and only when something actually
+// changed, with a prompt that tells Claude to make minimal targeted edits.
 
-const RETAILOR_ID = 'profile-retailor'
+interface DiffEntry { label: string; before: string; after: string }
 
-function RetailorButton() {
-  const { spawns, start, kill, clear } = useSpawnsStore()
-  const spawn = spawns[RETAILOR_ID]
-  const running = spawn?.status === 'running'
-
-  const onClick = () => {
-    if (running) { kill(RETAILOR_ID); return }
-    if (spawn) clear(RETAILOR_ID)
-    // Same skill the onboarding TailoringScreen runs — `@path` inlines the
-    // SKILL.md contents as the prompt. claudeArgs appends the standard
-    // non-interactive suffix so the run completes end-to-end.
-    const slash = '@.claude/skills/career-ops-setup/SKILL.md — re-tailor portals.yml + user/_profile.md from the now-updated user/profile.yml and user/cv.md.'
-    start(RETAILOR_ID, 'Re-tailor profile context', 'claude', claudeArgs(slash))
+function diffForms(base: Form, curr: Form): DiffEntry[] {
+  const out: DiffEntry[] = []
+  const cmp = (label: string, b: string, c: string) => {
+    if ((b ?? '').trim() !== (c ?? '').trim()) out.push({ label, before: b, after: c })
   }
+  cmp('full_name', base.full_name, curr.full_name)
+  cmp('email',     base.email,     curr.email)
+  cmp('phone',     `${base.phoneCC} ${base.phoneNum}`, `${curr.phoneCC} ${curr.phoneNum}`)
+  cmp('location',  base.location,  curr.location)
+  cmp('headline',  base.headline,  curr.headline)
+  cmp('linkedin',  base.linkedin,  curr.linkedin)
+  cmp('portfolio_url', base.portfolio_url, curr.portfolio_url)
+  cmp('github',    base.github,    curr.github)
+  cmp('comp.target_min',  base.comp_min,      curr.comp_min)
+  cmp('comp.target_max',  base.comp_max,      curr.comp_max)
+  cmp('comp.walk_away',   base.comp_walkaway, curr.comp_walkaway)
+  cmp('comp.currency',    base.comp_currency, curr.comp_currency)
+  cmp('comp.flexibility', base.comp_flexibility, curr.comp_flexibility)
+  // Languages — render as comma-joined for diff readability.
+  const baseLangs = serializeLanguages(base.languages)
+  const currLangs = serializeLanguages(curr.languages)
+  if (baseLangs !== currLangs) out.push({ label: 'languages', before: baseLangs, after: currLangs })
+  return out
+}
 
-  return (
-    <button
-      onClick={onClick}
-      title="Re-derive portals.yml keywords + _profile.md narrative from the current profile.yml + cv.md (no prompts)."
-      className={cn(
-        'flex items-center gap-1.5 px-3 py-1.5 border text-label rounded-md transition-colors',
-        running
-          ? 'bg-danger/10 border-danger/40 text-danger'
-          : 'bg-bg-elevated border-border-default text-text-2 hover:text-text-1 hover:border-border-strong',
-      )}
-    >
-      <Sparkles size={12} />
-      {running ? 'Stop' : 'Re-tailor'}
-    </button>
-  )
+function buildIncrementalPrompt(diff: DiffEntry[]): string {
+  const lines = diff
+    .map(d => `- ${d.label}: ${d.before ? `"${d.before}"` : '(empty)'} → ${d.after ? `"${d.after}"` : '(empty)'}`)
+    .join('\n')
+  return [
+    'The user just edited user/profile.yml. ONLY these fields changed:',
+    '',
+    lines,
+    '',
+    'Make MINIMAL incremental edits to bring the rest of the user-layer files in sync — do NOT regenerate from scratch:',
+    '',
+    '1. user/_profile.md — narrative may need small touches (e.g., updated comp expectations, new languages mentioned in proof points). Edit ONLY the lines that need to reflect these specific changes; do not rewrite sections that are unrelated. If nothing in _profile.md is materially affected by these changes, leave the file alone.',
+    '',
+    '2. user/portals.yml — only touch this if a language change affects lang_blocklist (e.g., a language was removed and now non-English postings in that language should be filtered out, or a language was added and an existing block is now wrong). Otherwise leave portals.yml alone.',
+    '',
+    '3. Do NOT touch user/cv.md, user/article-digest.md, or any system-layer files (modes/, scripts/, batch/).',
+    '',
+    'Be surgical. The diff is intentionally small; the edit set should be too. If a field changed but no narrative update is warranted, that is the correct answer — do not invent edits.',
+  ].join('\n')
 }
