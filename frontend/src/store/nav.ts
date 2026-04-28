@@ -7,6 +7,7 @@ export type ViewId =
   | 'reports'
   | 'trends'
   | 'scan'
+  | 'config'
   | 'settings'
   | 'profile'
 

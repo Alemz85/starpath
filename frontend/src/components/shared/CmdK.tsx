@@ -7,7 +7,7 @@ import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, Map, Briefcase,
+  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase,
 } from 'lucide-react'
 
 export function CmdK() {
@@ -68,8 +68,9 @@ export function CmdK() {
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-                { view: 'scan',     label: 'Activity', icon: Activity   },
-                { view: 'settings', label: 'Settings', icon: Settings   },
+                { view: 'scan',     label: 'Activity',       icon: Activity         },
+                { view: 'config',   label: 'Configuration',  icon: SlidersHorizontal},
+                { view: 'settings', label: 'Settings',       icon: Settings         },
               ] as const).map(({ view, label, icon: Icon }) => (
                 <Command.Item
                   key={view}
