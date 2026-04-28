@@ -67,10 +67,19 @@ p, td, th, li, .selectable {
   background: #909396;
 }
 
-/* Focus ring — Galaxy violet */
+/* Focus ring — minimal accessibility indicator. The earlier 2px solid +2px
+   offset read as a "violet halo" around every focused input (CmdK search,
+   Reports search, etc). Keep the rule for keyboard-nav users but make it a
+   thin tinted ring with no offset so it doesn't compete with each
+   component's own border treatment. Inputs that sit inside an already-
+   styled wrapper get a transparent ring (the wrapper handles it). */
 :focus-visible {
-  outline: 2px solid #7C5CFF;
-  outline-offset: 2px;
+  outline: 1px solid rgba(124, 92, 255, 0.45);
+  outline-offset: 0;
+}
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
 }
 
 /* Electron titlebar drag area */
