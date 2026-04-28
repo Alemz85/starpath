@@ -215,11 +215,17 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
       </div>
     )
   }
+  // Pull the **Key:** value lines out of the head so they render as a clean
+  // grid above the hero rather than as a wrapping paragraph. URL is dropped
+  // (the slide-over header has its own URL pill) and the score-y fields are
+  // dropped (already shown in the hero / section rollups / slide-over header).
+  const { meta, rest: beforeWithoutMeta } = extractMetadata(before)
   return (
     <>
       <div className="prose-report">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{before}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{beforeWithoutMeta}</ReactMarkdown>
       </div>
+      {meta.length > 0 && <ReportMeta items={meta} />}
       <DimensionalScoring dims={dims} tier={tier} />
       {after && (
         <div className="prose-report">
@@ -227,6 +233,58 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
         </div>
       )}
     </>
+  )
+}
+
+// Header metadata: keep contextual fields (Date / Mode / Location /
+// Archetype) and drop the duplicated ones — URL has its own pill, the score
+// fields are now visually prominent in the hero + section rollups, and Tier
+// is in the slide-over header. The whitelist is case-insensitive on key.
+const META_KEEP = new Set(['date', 'mode', 'location', 'archetype'])
+
+function extractMetadata(text: string): {
+  meta: Array<{ key: string; value: string }>
+  rest: string
+} {
+  const lines = text.split('\n')
+  const kept: Array<{ key: string; value: string }> = []
+  const out: string[] = []
+  // Match "**Key:** value" anywhere in the line (the metadata block has one
+  // pair per line in current reports, but we forgive trailing whitespace).
+  const metaRe = /^\s*\*\*([^*:]+?):\*\*\s*(.+?)\s*$/
+  for (const line of lines) {
+    const m = metaRe.exec(line)
+    if (m) {
+      const key = m[1].trim()
+      const value = m[2].trim()
+      if (META_KEEP.has(key.toLowerCase())) {
+        kept.push({ key, value })
+      }
+      // Either way, the line is consumed — we don't want to re-render the
+      // dropped fields as a stray paragraph.
+      continue
+    }
+    out.push(line)
+  }
+  // Collapse the run of blank lines the removed metadata block leaves behind.
+  const rest = out.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()
+  return { meta: kept, rest }
+}
+
+function ReportMeta({ items }: { items: Array<{ key: string; value: string }> }) {
+  return (
+    <div className="my-4 grid grid-cols-2 gap-x-6 gap-y-2 px-4 py-3 rounded-lg bg-bg-elevated/50 border border-border-default">
+      {items.map(({ key, value }) => (
+        <div key={key} className="flex flex-col min-w-0">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-4">
+            {key}
+          </span>
+          <span className="text-[12.5px] text-text-1 truncate" title={value}>
+            {value}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }
 
