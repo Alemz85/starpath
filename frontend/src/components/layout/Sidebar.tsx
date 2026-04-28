@@ -14,7 +14,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Radar,
+  Activity,
   User,
   Loader2,
 } from 'lucide-react'
@@ -39,11 +39,14 @@ const PRIMARY_NAV: NavItem[] = [
 ]
 
 // Secondary tabs — supporting views (data, analytics, activity).
+// `view: 'scan'` is the internal key (legacy from when this tab actually
+// triggered scans); user-facing label is "Activity" since it now hosts
+// every running spawn — scans, filter runs, tailoring, company API probes.
 const SECONDARY_NAV: NavItem[] = [
   { view: 'database', label: 'Database', icon: Database   },
   { view: 'reports',  label: 'Reports',  icon: FileText   },
   { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-  { view: 'scan',     label: 'Scan',     icon: Radar      },
+  { view: 'scan',     label: 'Activity', icon: Activity   },
 ]
 
 const BOTTOM_ITEMS: NavItem[] = [
