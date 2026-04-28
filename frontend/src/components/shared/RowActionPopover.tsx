@@ -52,6 +52,12 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
   const url = entry.source && /^https?:\/\//i.test(entry.source) ? entry.source : null
   const livenessKey = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
   const liveness = useDataStore(s => s.liveness[livenessKey])
+  // Does a report file already exist for this entry? If so, hide the
+  // Generate-report option — re-running it would just rewrite what's there.
+  const hasReport = useDataStore(s => s.reports).some(r =>
+    r.company.trim().toLowerCase() === entry.company.trim().toLowerCase() &&
+    r.role.trim().toLowerCase() === entry.role.trim().toLowerCase()
+  )
 
   return (
     <div
@@ -84,9 +90,20 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
         </button>
       </div>
 
-      {/* Apply / Status */}
-      <div className="px-3 py-2.5 border-b border-border-default">
+      {/* Apply + URL row — primary actions live here, side by side, so
+          opening the listing's source page is one click away from Apply. */}
+      <div className="px-3 py-2.5 border-b border-border-default flex items-center gap-2">
         <ApplyAction company={entry.company} role={entry.role} scoreEntry={entry} size="sm" />
+        {url && (
+          <button
+            onClick={() => { ipc.openExternal(url); onClose() }}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[11.5px] transition-colors"
+            title="Open job posting"
+          >
+            <ExternalLink size={11} />
+            URL
+          </button>
+        )}
       </div>
 
       {/* Action list */}
@@ -96,15 +113,18 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
           label="View full report"
           onClick={() => { onViewReport(); onClose() }}
         />
-        {/* Generate Report — only meaningful when the listing is still live;
-            stale/closed entries can't be re-evaluated against a 404 URL. */}
-        {liveness === 'active' ? (
+        {/* Generate Report — only when (a) the listing is still live AND
+            (b) no report already exists. Once a report is on disk, the
+            "View full report" item above covers it; re-running would
+            just rewrite the same file. */}
+        {!hasReport && liveness === 'active' && (
           <Item
             icon={FileOutput}
             label="Generate report"
             onClick={() => { spawnReport(entry); onClose() }}
           />
-        ) : (
+        )}
+        {!hasReport && liveness !== 'active' && (
           <ItemDisabled
             icon={FileOutput}
             label="Generate report"
@@ -121,13 +141,6 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
           label="Prep interview"
           onClick={() => { spawnPerListing('Prep Interview', 'modes/interview-prep.md', entry, 'interviewPrep'); onClose() }}
         />
-        {url && (
-          <Item
-            icon={ExternalLink}
-            label="Open URL"
-            onClick={() => { ipc.openExternal(url); onClose() }}
-          />
-        )}
         <div className="my-1 border-t border-border-default" />
         <Item
           icon={X}

@@ -18,10 +18,13 @@ interface ReportSlideOverProps {
   company: string
   role: string
   scoreEntry: ScoreEntry
+  /** Hide the "View in Database" pill — used when the slide-over is opened
+   *  from inside the Database itself (where the shortcut is redundant). */
+  hideDatabaseLink?: boolean
   onClose: () => void
 }
 
-export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSlideOverProps) {
+export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, onClose }: ReportSlideOverProps) {
   const { repoPath } = useAppStore()
   const navigate = useNavStore(s => s.navigate)
   const [content, setContent] = useState<string | null>(null)
@@ -149,16 +152,18 @@ export function ReportSlideOver({ company, role, scoreEntry, onClose }: ReportSl
         {/* Action pills */}
         <div className="flex items-center gap-2 px-5 py-3 border-b border-border-default shrink-0 flex-wrap">
           <ApplyAction company={company} role={role} scoreEntry={scoreEntry} size="sm" />
-          <button
-            onClick={() => {
-              navigate('database', company)
-              handleClose()
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
-          >
-            <DatabaseIcon size={11} />
-            View in Database
-          </button>
+          {!hideDatabaseLink && (
+            <button
+              onClick={() => {
+                navigate('database', company)
+                handleClose()
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
+            >
+              <DatabaseIcon size={11} />
+              View in Database
+            </button>
+          )}
           {scoreEntry.source && /^https?:\/\//i.test(scoreEntry.source) && (
             <button
               onClick={() => ipc.openExternal(scoreEntry.source)}
