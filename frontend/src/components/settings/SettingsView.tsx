@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
+import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -153,6 +154,60 @@ function addCompany(yaml: string, name: string, url: string): string {
   const after = yaml.indexOf('\n\n', idx)
   if (after === -1) return yaml + block
   return yaml.slice(0, after) + block + yaml.slice(after)
+}
+
+// Spawn prompt for the "add company" flow. The user adds a name + careers
+// URL through the UI; this prompt instructs Claude to probe the common
+// ATS APIs (Greenhouse / Ashby / Lever / SmartRecruiters / Workday) using
+// candidate slugs derived from the name + URL, and rewrite the placeholder
+// portals.yml block with the right config when one returns valid data —
+// or keep the websearch fallback (and craft a sharp scan_query) when no
+// API matches. Concrete URLs go in the prompt so Claude doesn't have to
+// guess the API shape.
+function buildCompanyProbePrompt(name: string, careersUrl: string): string {
+  return [
+    `The user just added "${name}" to user/portals.yml under tracked_companies.`,
+    `careers_url: ${careersUrl || '(not provided)'}`,
+    '',
+    'Right now the entry has a placeholder block (scan_method: websearch with a generic scan_query). Probe the common ATS endpoints to figure out the actual hosting platform, then REPLACE that one block with the correct config. Do not touch any other entry in tracked_companies.',
+    '',
+    'Probe order (use WebFetch; treat 200 + non-empty JSON body as a positive match):',
+    '',
+    '1. **Greenhouse** — https://boards-api.greenhouse.io/v1/boards/{slug}/jobs',
+    '   Try several slugs derived from the name: lowercase no-spaces, lowercase hyphenated, lowercase no special chars. e.g. for "Red Bull": redbull, red-bull.',
+    '',
+    '2. **Ashby** — https://api.ashbyhq.com/posting-api/job-board/{slug}?includeCompensation=true',
+    '   Same slug variants as above.',
+    '',
+    '3. **Lever** — https://api.lever.co/v0/postings/{slug}?mode=json',
+    '   Same slug variants.',
+    '',
+    '4. **SmartRecruiters** — https://api.smartrecruiters.com/v1/companies/{slug}/postings',
+    '   Try CamelCase no-spaces, lowercase no-spaces, and TitleCase variants. e.g. for "Red Bull": RedBull. Some companies post under a parent brand (e.g. Glovo postings live under DeliveryHero with brand=Glovo) — note this in the entry if discovered.',
+    '',
+    '5. **Workday** — careers URL like `*.myworkdayjobs.com/*` is the strongest signal. If careers_url contains a wd subdomain (wd1, wd3, wd103, etc), construct the API as `{base}/wday/cxs/{tenant}/{site}/jobs`. e.g. https://accenture.wd103.myworkdayjobs.com/wday/cxs/accenture/AccentureCareers/jobs.',
+    '',
+    'On a positive match, REPLACE the entry block with:',
+    '```yaml',
+    `  - name: ${name}`,
+    `    careers_url: ${careersUrl || '<the canonical careers page>'}`,
+    '    api: <the URL that returned data>',
+    '    notes: "<one sentence — preferred cities, what to look for, ATS detected>"',
+    '    enabled: true',
+    '```',
+    '',
+    'On NO positive match, REPLACE the entry block with:',
+    '```yaml',
+    `  - name: ${name}`,
+    `    careers_url: ${careersUrl || '<the canonical careers page>'}`,
+    '    scan_method: websearch',
+    '    scan_query: \'site:<canonical-careers-domain> "Analyst" OR "Operations" OR "Strategy" OR "Graduate" OR "Intern" OR "Associate"\'',
+    '    notes: "<one sentence — why no API was found, e.g. proprietary portal / SAP SuccessFactors>"',
+    '    enabled: true',
+    '```',
+    '',
+    'Edit the existing placeholder block in user/portals.yml — find the line `- name: ' + name + '` and replace just that block. Do not regenerate the whole file. Do not modify other companies. When done, write a one-line summary of what was found.',
+  ].join('\n')
 }
 
 function parseLangBlocklist(yaml: string): string[] {
@@ -514,16 +569,36 @@ function PortalsTab() {
     if (raw) setRaw(removeCompany(raw, name))
   }
 
-  const handleAddCompany = () => {
+  const handleAddCompany = async () => {
     const name = newCompanyName.trim()
     const url = newCompanyUrl.trim()
     if (!name || companies.find(c => c.name === name)) return
-    const newEntry: CompanyEntry = { name, enabled: true, notes: '', careers_url: url }
+    const newEntry: CompanyEntry = { name, enabled: true, notes: '(probing APIs…)', careers_url: url }
     setCompanies(prev => [...prev, newEntry])
-    if (raw) setRaw(addCompany(raw, name, url))
+    // Append a placeholder entry to portals.yml — the spawn replaces it
+    // with the proper config when the probe finishes.
+    if (raw) {
+      const updated = addCompany(raw, name, url)
+      setRaw(updated)
+      await ipc.writeFile('user/portals.yml', updated)
+    }
     setNewCompanyName('')
     setNewCompanyUrl('')
     setShowAddCompany(false)
+
+    // Spawn Claude to probe Greenhouse / Ashby / Lever / SmartRecruiters /
+    // Workday APIs for this company and rewrite the portals.yml block with
+    // the right `api:` URL when found, or `scan_method: websearch` with a
+    // tailored scan_query when not. Shows up in the Activity tab.
+    const id = `add-company-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+    const slash = buildCompanyProbePrompt(name, url)
+    useSpawnsStore.getState().clear(id)
+    useSpawnsStore.getState().start(
+      id,
+      `Add company: ${name}`,
+      'claude',
+      claudeArgs(slash, 'sonnet'),
+    )
   }
 
   const addTag = (
