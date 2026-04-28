@@ -173,6 +173,31 @@ export function ReportsView() {
   )
 }
 
+// Score → galaxy color, matching the tier scale used by the Database table.
+// Kept inline because importing from OffersTable would pull react-table
+// machinery into the Reports bundle.
+function scoreColor(v: number): string {
+  if (v >= 8.5) return '#3D2BB5'   // T1 — deep galaxy indigo
+  if (v >= 7)   return '#7C5CFF'   // T2 — galaxy violet
+  if (v >= 5)   return '#A89CD9'   // T3 — muted lavender
+  return '#94A3B8'                  // T4 — faded slate
+}
+
+function ScoreBadge({ value }: { value: number }) {
+  const color = scoreColor(value)
+  return (
+    <span
+      className="inline-flex items-center justify-center min-w-[42px] px-2.5 py-1 rounded-pill font-mono font-bold tabular-nums text-[13px] text-white shrink-0"
+      style={{
+        background: color,
+        boxShadow: `0 0 14px ${color}59, 0 1px 2px rgba(0,0,0,0.10)`,
+      }}
+    >
+      {value.toFixed(1)}
+    </span>
+  )
+}
+
 function ReportCard({
   report,
   overall,
@@ -186,11 +211,6 @@ function ReportCard({
   isSelected: boolean
   onClick: () => void
 }) {
-  const rawKey = report.tier as TierKey
-  const tierKey: TierKey = (rawKey in TIER_COLORS) ? rawKey : 'T4'
-  const { text: tierText, border, bg } = TIER_COLORS[tierKey]
-  const label = { 'T1': 'T1', 'T2-high': 'T2+', 'T2': 'T2', 'T3': 'T3', 'T4': 'T4' }[tierKey] ?? tierKey
-
   return (
     <div className="relative">
       <button
@@ -202,19 +222,14 @@ function ReportCard({
             : 'bg-bg-panel border-border-default hover:border-border-strong hover:bg-bg-elevated',
         )}
       >
-        <div className="flex items-start gap-2 min-w-0">
-          <CompanyLogo company={report.company} size={24} className="mt-0.5 shrink-0" />
+        <div className="flex items-start gap-2.5 min-w-0">
+          <CompanyLogo company={report.company} size={26} className="mt-0.5 shrink-0" />
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between gap-1 mb-0.5">
-              <span className={cn('px-1.5 py-px text-[9.5px] font-mono font-semibold rounded border shrink-0', bg, tierText, border)}>
-                {label}
-              </span>
-              {overall != null && overall > 0 && (
-                <span className="text-micro font-mono text-text-4 shrink-0">{overall.toFixed(1)}</span>
-              )}
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-[13px] text-text-1 font-semibold leading-snug truncate min-w-0">{report.company}</div>
+              {overall != null && overall > 0 && <ScoreBadge value={overall} />}
             </div>
-            <div className="text-label text-text-1 font-medium leading-snug truncate">{report.company}</div>
-            <div className="text-label text-text-3 truncate mt-0.5 leading-snug">{report.role}</div>
+            <div className="text-[12px] text-text-3 truncate mt-1 leading-snug pr-1">{report.role}</div>
           </div>
         </div>
       </button>

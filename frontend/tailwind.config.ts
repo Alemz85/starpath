@@ -30,14 +30,16 @@ const config: Config = {
         'accent-soft':  'rgba(124,92,255,0.12)',
         'accent-text':  '#7C5CFF',
         'accent-light': '#B5A3FF',
-        // Tier palette (Meta-tuned for white surface)
-        'tier-1':      '#C99518',  // gold (deeper for contrast on white)
-        'tier-1-bg':   '#FFF8E1',
-        'tier-2':      '#6B7280',  // silver gray
-        'tier-2-bg':   '#F1F4F7',
-        'tier-3':      '#A0612C',  // bronze
-        'tier-3-bg':   '#FBF1E8',
-        'tier-4':      '#7A8590',  // medium slate, readable when row is dimmed
+        // Tier palette — galaxy violet gradient. T1 deep indigo for the
+        // strongest matches; T4 fades to slate so the worst rows recede.
+        // Score colors match this scale (see scoreColor in OffersTable).
+        'tier-1':      '#3D2BB5',  // deep galaxy indigo — strongest
+        'tier-1-bg':   '#EFEAFF',
+        'tier-2':      '#7C5CFF',  // galaxy violet (matches accent)
+        'tier-2-bg':   '#F1ECFF',
+        'tier-3':      '#A89CD9',  // muted lavender — softer
+        'tier-3-bg':   '#F4F1FA',
+        'tier-4':      '#94A3B8',  // faded slate — barely there
         // Semantic — Dolly/FDS
         'success': '#007D1E',
         'warning': '#F7B928',

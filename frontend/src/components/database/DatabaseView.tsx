@@ -8,6 +8,7 @@ import { FilterBar } from './FilterBar'
 import { OffersTable } from './OffersTable'
 import { ReportSlideOver } from '../reports/ReportSlideOver'
 import { RowActionPopover } from '@/components/shared/RowActionPopover'
+import { canonicalizeArchetype } from '@/lib/archetype'
 import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
@@ -21,11 +22,16 @@ export function DatabaseView() {
   const [showClosed, setShowClosed] = useState(false)
   const [facetExpanded] = useState(true)
 
-  // Build facet options from data
+  // Build facet options from data. Archetypes are bucketed via
+  // canonicalizeArchetype — backend modes keep verbose strings (useful for
+  // the AI agents); the database UI groups them into common roles so the
+  // chips stay readable and the filter is meaningful.
   const options = useMemo(() => ({
     companies:       [...new Set(scoreHistory.map(s => s.company))].sort(),
     locations:       [...new Set(scoreHistory.map(s => s.location).filter(Boolean))].sort(),
-    archetypes:      [...new Set(scoreHistory.map(s => s.archetype).filter(Boolean))].sort(),
+    archetypes:      [...new Set(
+                       scoreHistory.map(s => canonicalizeArchetype(s.archetype)).filter(Boolean)
+                     )].sort(),
     tiers:           ['T1', 'T2-high', 'T2', 'T3', 'T4'],
     employmentTypes: [...new Set(scoreHistory.map(s => s.employment_type).filter(Boolean))].sort(),
   }), [scoreHistory])
@@ -42,7 +48,7 @@ export function DatabaseView() {
     // Facet filters
     if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
     if (filters.locations.size)  rows = rows.filter(r => filters.locations.has(r.location))
-    if (filters.archetypes.size) rows = rows.filter(r => filters.archetypes.has(r.archetype))
+    if (filters.archetypes.size) rows = rows.filter(r => filters.archetypes.has(canonicalizeArchetype(r.archetype)))
     if (filters.tiers.size) {
       // T2+ (T2-high) rolls up under T2 in the facet — there's no separate chip.
       rows = rows.filter(r => filters.tiers.has(r.tier) || (r.tier === 'T2-high' && filters.tiers.has('T2')))
@@ -63,7 +69,11 @@ export function DatabaseView() {
     // Token filters from search bar
     if (tokenFilters.company)   rows = rows.filter(r => r.company.toLowerCase().includes(tokenFilters.company!.toLowerCase()))
     if (tokenFilters.tier)      rows = rows.filter(r => r.tier.toLowerCase() === tokenFilters.tier!.toLowerCase())
-    if (tokenFilters.archetype) rows = rows.filter(r => r.archetype.toLowerCase().includes(tokenFilters.archetype!.toLowerCase()))
+    if (tokenFilters.archetype) rows = rows.filter(r => {
+      const ta = tokenFilters.archetype!.toLowerCase()
+      return r.archetype.toLowerCase().includes(ta) ||
+             canonicalizeArchetype(r.archetype).toLowerCase().includes(ta)
+    })
     if (tokenFilters.location)  rows = rows.filter(r => r.location.toLowerCase().includes(tokenFilters.location!.toLowerCase()))
     if (tokenFilters.type)      rows = rows.filter(r => r.employment_type.toLowerCase().includes(tokenFilters.type!.toLowerCase()))
     if (tokenFilters.minScore)  rows = rows.filter(r => r.overall >= tokenFilters.minScore!)
@@ -119,6 +129,7 @@ export function DatabaseView() {
                 onRowClick={(entry, evt) => {
                   setPopoverState({ entry, anchor: { x: evt.clientX, y: evt.clientY } })
                 }}
+                onOpenReport={(entry) => setSelectedEntry(entry)}
                 selectedId={popoverState ? `${popoverState.entry.company}-${popoverState.entry.role}` : selectedEntry ? `${selectedEntry.company}-${selectedEntry.role}` : null}
               />
             ) : (
@@ -140,12 +151,15 @@ export function DatabaseView() {
         />
       )}
 
-      {/* Report slide-over (opened from popover or other surfaces) */}
+      {/* Report slide-over (opened from popover or report-indicator icon).
+          We're already on the Database tab, so the "View in Database"
+          shortcut is redundant — hide it. */}
       {selectedEntry && (
         <ReportSlideOver
           company={selectedEntry.company}
           role={selectedEntry.role}
           scoreEntry={selectedEntry}
+          hideDatabaseLink
           onClose={() => setSelectedEntry(null)}
         />
       )}

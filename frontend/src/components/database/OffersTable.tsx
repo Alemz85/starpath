@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
@@ -9,31 +9,34 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, BarChart3, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
+import { canonicalizeArchetype } from '@/lib/archetype'
 
 interface OffersTableProps {
   rows: ScoreEntry[]
   onRowClick: (entry: ScoreEntry, evt: React.MouseEvent) => void
+  onOpenReport: (entry: ScoreEntry) => void
   selectedId: string | null
 }
 
 const col = createColumnHelper<ScoreEntry>()
 
-// ─── Score dial ─────────────────────────────────────────────────────────────
-// Radial progress ring. Color shifts from danger → warning → galaxy → success
-// as the score climbs. Replaces the old horizontal bar — at a glance the table
-// reads as a constellation of stronger and weaker matches.
+// ─── Score dial — galaxy palette, matches the tier scale ────────────────────
+//
+// T1 (≥8.5) deep galaxy indigo · T2 (≥7) violet · T3 (≥5) lavender ·
+// T4 (<5) faded slate. Same palette is used by the tier badges so the dial
+// color and the row's tier read as one coherent signal.
 
 function scoreColor(v: number): string {
-  if (v >= 8)   return '#22C55E'   // success
-  if (v >= 6.5) return '#7C5CFF'   // galaxy violet
-  if (v >= 4.5) return '#F7B928'   // warning amber
-  return '#EF4444'                  // danger red
+  if (v >= 8.5) return '#3D2BB5'   // tier-1 — deep galaxy indigo
+  if (v >= 7)   return '#7C5CFF'   // tier-2 — galaxy violet
+  if (v >= 5)   return '#A89CD9'   // tier-3 — muted lavender
+  return '#94A3B8'                  // tier-4 — faded slate
 }
 
 function ScoreDial({ value }: { value: number }) {
@@ -73,33 +76,6 @@ function ScoreDial({ value }: { value: number }) {
   )
 }
 
-// ─── Tier badge — pill with tier-tinted body ────────────────────────────────
-
-const TIER_BADGE: Record<string, { bg: string; text: string; border: string; ring?: string }> = {
-  'T1':      { bg: 'bg-tier-1/15',  text: 'text-tier-1',  border: 'border-tier-1/45',
-               ring: 'shadow-[0_0_0_2px_rgba(201,149,24,0.10)]' },
-  'T2-high': { bg: 'bg-success/15', text: 'text-success', border: 'border-success/40' },
-  'T2':     { bg: 'bg-tier-2/15',   text: 'text-tier-2',  border: 'border-tier-2/35' },
-  'T3':     { bg: 'bg-tier-3/12',   text: 'text-tier-3',  border: 'border-tier-3/35' },
-  'T4':     { bg: 'bg-tier-4/10',   text: 'text-tier-4',  border: 'border-tier-4/30' },
-}
-
-function TierBadge({ tier }: { tier: string }) {
-  const cfg = TIER_BADGE[tier] ?? TIER_BADGE['T4']
-  const label = tier === 'T2-high' ? 'T2+' : tier
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center justify-center min-w-[34px] px-2 py-[3px] rounded-pill border font-mono font-bold tabular-nums',
-        'text-[10px] tracking-wide',
-        cfg.bg, cfg.text, cfg.border, cfg.ring,
-      )}
-    >
-      {label}
-    </span>
-  )
-}
-
 // ─── CF / AF stacked numeric block ──────────────────────────────────────────
 
 function CfAfBlock({ cf, af }: { cf: number; af: number }) {
@@ -135,17 +111,143 @@ function relativeTime(dateStr: string): string {
   return `${Math.floor(days / 365)}y`
 }
 
+// ─── Score breakdown popover ────────────────────────────────────────────────
+//
+// Click the BarChart3 icon button on a row → this floats over the table
+// showing the 10-dimensional breakdown for that entry. Replaces the per-row
+// tier badge — the tier is implicit in the score color.
+
+const BREAKDOWN_DIMS: Array<{ key: keyof ScoreEntry; label: string }> = [
+  { key: 'skills_match',       label: 'Skills Match'     },
+  { key: 'ease_of_entry',      label: 'Ease of Entry'    },
+  { key: 'strategic_fit',      label: 'Strategic Fit'    },
+  { key: 'current_fit',        label: 'Current Fit'      },
+  { key: 'growth_mobility',    label: 'Growth / Mobility'},
+  { key: 'optionality_exit',   label: 'Optionality'      },
+  { key: 'brand_value',        label: 'Brand Value'      },
+  { key: 'sales_trap_risk',    label: 'Sales-Trap Risk'  },
+  { key: 'aspirational_fit',   label: 'Aspirational Fit' },
+  { key: 'work_life_balance',  label: 'Work / Life'      },
+]
+
+function ScoreBreakdownPopover({
+  entry, anchor, onClose,
+}: {
+  entry: ScoreEntry
+  anchor: { x: number; y: number }
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    const t = window.setTimeout(() => document.addEventListener('mousedown', onDoc), 0)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      window.clearTimeout(t)
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+
+  const W = 280
+  const H = 380
+  const vw = typeof window !== 'undefined' ? window.innerWidth  : 1440
+  const vh = typeof window !== 'undefined' ? window.innerHeight : 900
+  const left = Math.min(Math.max(8, anchor.x - W / 2), vw - W - 8)
+  const top  = anchor.y + H + 12 > vh
+    ? Math.max(8, anchor.y - H - 12)
+    : anchor.y + 12
+
+  const tierLabel = entry.tier === 'T2-high' ? 'T2+' : entry.tier
+  const overallColor = scoreColor(entry.overall)
+
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      className="fixed z-50 rounded-lg border border-border-strong bg-bg-base shadow-lift overflow-hidden"
+      style={{ left, top, width: W, animation: 'chip-appear 160ms ease both' }}
+    >
+      <div className="px-3 py-2.5 border-b border-border-default flex items-center gap-2">
+        <span
+          className="inline-flex items-center justify-center min-w-[36px] h-[22px] px-2 rounded-pill font-mono font-bold tabular-nums text-[11px] text-white"
+          style={{ background: overallColor, boxShadow: `0 0 10px ${overallColor}55` }}
+        >
+          {entry.overall > 0 ? entry.overall.toFixed(1) : '—'}
+        </span>
+        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: overallColor }}>{tierLabel}</span>
+        <span className="ml-auto text-[10px] font-mono text-text-4 truncate">{entry.company}</span>
+      </div>
+      <div className="px-3 py-3 space-y-2">
+        {BREAKDOWN_DIMS.map(({ key, label }) => {
+          const raw = entry[key]
+          const val = typeof raw === 'number' ? raw : 0
+          const pct = Math.min(100, (val / 10) * 100)
+          const c = scoreColor(val)
+          return (
+            <div key={key as string} className="flex items-center gap-2">
+              <span className="text-[10.5px] text-text-3 w-[110px] shrink-0">{label}</span>
+              <div className="flex-1 h-1.5 bg-bg-elevated rounded-pill overflow-hidden">
+                <div
+                  className="h-full rounded-pill"
+                  style={{ width: `${pct}%`, background: c, transition: 'width 360ms ease' }}
+                />
+              </div>
+              <span className="text-[10px] font-mono tabular-nums w-[28px] text-right" style={{ color: c }}>
+                {val > 0 ? val.toFixed(1) : '—'}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── Table ──────────────────────────────────────────────────────────────────
 
-export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) {
+export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: OffersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'overall', desc: true }])
   const liveness = useDataStore(s => s.liveness)
+  const reports = useDataStore(s => s.reports)
+  const [breakdown, setBreakdown] = useState<{ entry: ScoreEntry; anchor: { x: number; y: number } } | null>(null)
+
+  // Fast lookup: which entries already have a report file on disk?
+  const reportSet = useMemo(() => {
+    const set = new Set<string>()
+    for (const r of reports) {
+      set.add(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`)
+    }
+    return set
+  }, [reports])
 
   const columns = useMemo(() => [
-    col.accessor('tier', {
-      header: 'Tier',
-      size: 56,
-      cell: info => <TierBadge tier={info.getValue()} />,
+    col.display({
+      id: 'breakdown',
+      header: '',
+      size: 28,
+      cell: info => {
+        const entry = info.row.original
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setBreakdown({ entry, anchor: { x: e.clientX, y: e.clientY } })
+            }}
+            title="Score breakdown"
+            aria-label="Open score breakdown"
+            className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-4 hover:text-accent hover:bg-accent/10 transition-colors"
+            style={{ color: entry.overall > 0 ? scoreColor(entry.overall) : undefined, opacity: entry.overall > 0 ? 0.85 : 0.5 }}
+          >
+            <BarChart3 size={13} />
+          </button>
+        )
+      },
+      enableSorting: false,
     }),
     col.accessor('company', {
       header: 'Listing',
@@ -164,6 +266,27 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
         )
       },
     }),
+    col.display({
+      id: 'report',
+      header: '',
+      size: 24,
+      cell: info => {
+        const entry = info.row.original
+        const key = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
+        if (!reportSet.has(key)) return <span className="block w-5 h-5" aria-hidden />
+        return (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenReport(entry) }}
+            title="Open report"
+            aria-label="Open report"
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-4 opacity-70 hover:opacity-100 hover:text-accent hover:bg-accent/10 transition-all"
+          >
+            <FileText size={11} />
+          </button>
+        )
+      },
+      enableSorting: false,
+    }),
     col.accessor('overall', {
       header: 'Score',
       size: 64,
@@ -178,9 +301,11 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
       header: 'Location',
       size: 120,
       cell: info => (
-        <span className="text-[11.5px] text-text-3 truncate block max-w-[108px]">
-          {info.getValue() || '—'}
-        </span>
+        <div className="flex items-center justify-center">
+          <span className="text-[11.5px] text-text-3 truncate block max-w-[108px] text-center">
+            {info.getValue() || '—'}
+          </span>
+        </div>
       ),
     }),
     col.accessor('archetype', {
@@ -188,10 +313,11 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
       size: 130,
       cell: info => {
         const v = info.getValue()
-        if (!v) return <span className="text-[11px] text-text-4">—</span>
+        const display = canonicalizeArchetype(v)
+        if (!display) return <span className="text-[11px] text-text-4">—</span>
         return (
           <span className="inline-flex items-center px-2 py-0.5 rounded-pill bg-bg-elevated border border-border-default text-[10.5px] text-text-3 truncate max-w-[118px]">
-            {v}
+            {display}
           </span>
         )
       },
@@ -229,7 +355,7 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
         )
       },
     }),
-  ], [])
+  ], [reportSet, onOpenReport])
 
   const table = useReactTable({
     data: rows,
@@ -241,7 +367,7 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
   })
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="h-full overflow-auto relative">
       <table className="w-full border-collapse text-left" style={{ minWidth: 840 }}>
         <thead className="sticky top-0 z-10">
           {table.getHeaderGroups().map(hg => (
@@ -249,6 +375,8 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
               {hg.headers.map(header => {
                 const canSort = header.column.getCanSort()
                 const sorted = header.column.getIsSorted()
+                const headerStr = header.column.columnDef.header as string
+                const isCentered = headerStr === 'Location'
                 return (
                   <th
                     key={header.id}
@@ -260,7 +388,7 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
                     )}
                     onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
                   >
-                    <div className="flex items-center gap-1">
+                    <div className={cn('flex items-center gap-1', isCentered && 'justify-center')}>
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {canSort && (
                         <span className={sorted ? 'text-accent' : 'text-text-4'}>
@@ -326,6 +454,14 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
           )}
         </tbody>
       </table>
+
+      {breakdown && (
+        <ScoreBreakdownPopover
+          entry={breakdown.entry}
+          anchor={breakdown.anchor}
+          onClose={() => setBreakdown(null)}
+        />
+      )}
     </div>
   )
 }
