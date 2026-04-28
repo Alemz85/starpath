@@ -10,7 +10,7 @@ import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { StatCard } from './StatCard'
 import {
   BarChart2, Inbox, Target, Radar, Calendar,
-  Play, Zap, FileOutput, Filter, Sparkles, FileStack, Square, ArrowRight,
+  Play, Zap, Filter, Square, ArrowRight,
   ChevronDown, Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -19,8 +19,6 @@ import type { ScoreEntry } from '@/types'
 const FULL_SCAN_ID       = 'cmd-full-scan'
 const API_SCAN_ID        = 'cmd-api-scan'
 const PIPELINE_FILTER_ID = 'cmd-pipeline-filter'
-const PIPELINE_TOP_ID    = 'cmd-pipeline-top'
-const PIPELINE_ALL_ID    = 'cmd-pipeline-all'
 
 // Three pipeline-mode prompts. All share `/career-ops pipeline` as the slash
 // command (so the skill router still loads modes/pipeline.md), but the
@@ -42,24 +40,6 @@ const FILTER_PROMPT =
   '(5) **CRITICAL**: do NOT write any per-listing prose report file under reports/. The dimensional table + tier + one-line note in scouting.md is the entire output for this path. ' +
   '(6) Mark each scored URL as [x] in pipeline.md. ' +
   'Goal: ~20-30% of pending URLs survive the gate and land in the Database with a meaningful 1-10 score. The 60-80% that get filtered out never enter scouting.md — they stay auditable in the Filtered Out section.'
-
-const TOP_REPORTS_PROMPT =
-  '/career-ops pipeline — TOP REPORTS mode. ' +
-  '(1) Fetch each pending URL\'s JD, apply user/portals.yml title filters, dedup against data/dedup-index.tsv. ' +
-  '(2) **Run modes/pipeline.md Step 2c — Relevance gate**. Discard off-archetype / wrong-seniority / geo-locked / excluded-domain / visa-locked / poverty-wage listings. Move them to "Filtered Out" in pipeline.md. Do NOT score discarded entries. ' +
-  '(3) For SURVIVING entries only — run the FULL DIMENSIONAL SCORING per modes/scouting.md (all 10 dimensions, tier T1/T2/T3/T4). Write scouting.md + score-history.tsv rows. **No per-listing prose report file** at this stage. ' +
-  '(4) After all surviving entries are scored, identify the 8 highest-scoring entries. ' +
-  '(5) For those 8 ONLY: ALSO write the full per-listing prose report under reports/tier-N/{Company} - {Role}.md per user/profile.yml current_mode. ' +
-  '(6) Remaining surviving entries stay scored in scouting.md with no prose report — user can promote later via the Database "Generate report" action. ' +
-  '(7) Mark all scored URLs as [x] in pipeline.md.'
-
-const ALL_REPORTS_PROMPT =
-  '/career-ops pipeline — ALL REPORTS mode. ' +
-  '(1) Fetch each pending URL\'s JD, apply user/portals.yml title filters, dedup. ' +
-  '(2) **Run modes/pipeline.md Step 2c — Relevance gate**. Discard off-archetype / wrong-seniority / geo-locked / excluded-domain / visa-locked / poverty-wage listings to "Filtered Out". Do NOT score discarded entries. ' +
-  '(3) For SURVIVING entries only — run the FULL evaluation per user/profile.yml current_mode (modes/scouting.md or modes/oferta.md): full dimensional scoring AND the full per-listing prose report under reports/tier-N/{Company} - {Role}.md. Write scouting.md row + score-history.tsv row + the report file. ' +
-  '(4) Process in parallel where safe. ' +
-  '(5) Mark scored URLs as [x] in pipeline.md.'
 
 const LOADING_MESSAGES = [
   'Sneaking past the careers-page bouncer…',
@@ -249,17 +229,13 @@ function ScoutingActionPanel({
   const fullScan       = spawns[FULL_SCAN_ID]
   const apiScan        = spawns[API_SCAN_ID]
   const pipelineFilter = spawns[PIPELINE_FILTER_ID]
-  const pipelineTop    = spawns[PIPELINE_TOP_ID]
-  const pipelineAll    = spawns[PIPELINE_ALL_ID]
 
-  // Refresh data store whenever any of these finishes (a Filter run grows
-  // scouting.md; Top/All grow reports/; scan grows pipeline.md). One effect
-  // per spawn so we don't miss simultaneous completions.
+  // Refresh the data store when each finishes (Filter grows scouting.md;
+  // scan grows pipeline.md). Reports generation has moved off this tab —
+  // it's now triggered from the Reports tab and refreshes there.
   useEffect(() => { if (statusDone(fullScan))       onPipelineDone() }, [fullScan?.status,       onPipelineDone])
   useEffect(() => { if (statusDone(apiScan))        onPipelineDone() }, [apiScan?.status,        onPipelineDone])
   useEffect(() => { if (statusDone(pipelineFilter)) onPipelineDone() }, [pipelineFilter?.status, onPipelineDone])
-  useEffect(() => { if (statusDone(pipelineTop))    onPipelineDone() }, [pipelineTop?.status,    onPipelineDone])
-  useEffect(() => { if (statusDone(pipelineAll))    onPipelineDone() }, [pipelineAll?.status,    onPipelineDone])
 
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
@@ -275,16 +251,6 @@ function ScoutingActionPanel({
     if (pipelineFilter?.status === 'running') { kill(PIPELINE_FILTER_ID); return }
     if (pipelineFilter) clear(PIPELINE_FILTER_ID)
     start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', claudeArgs(FILTER_PROMPT, pipelineModel))
-  }
-  const handleTopReports = () => {
-    if (pipelineTop?.status === 'running') { kill(PIPELINE_TOP_ID); return }
-    if (pipelineTop) clear(PIPELINE_TOP_ID)
-    start(PIPELINE_TOP_ID, 'Generate Top Reports', 'claude', claudeArgs(TOP_REPORTS_PROMPT, pipelineModel))
-  }
-  const handleAllReports = () => {
-    if (pipelineAll?.status === 'running') { kill(PIPELINE_ALL_ID); return }
-    if (pipelineAll) clear(PIPELINE_ALL_ID)
-    start(PIPELINE_ALL_ID, 'Generate All Reports', 'claude', claudeArgs(ALL_REPORTS_PROMPT, pipelineModel))
   }
 
   return (
@@ -338,40 +304,12 @@ function ScoutingActionPanel({
             ),
           },
           {
-            key: 'top',
-            description: 'Discard irrelevant listings, score the survivors, then generate full reports for the top 8',
-            node: (
-              <ActionButton
-                label="Top Reports"
-                icon={Sparkles}
-                tone="outline"
-                running={pipelineTop?.status === 'running'}
-                onClick={handleTopReports}
-                disabled={!repoPath}
-              />
-            ),
-          },
-          {
-            key: 'all',
-            description: 'Discard irrelevant listings, then generate full reports for every survivor',
-            node: (
-              <ActionButton
-                label="All Reports"
-                icon={FileStack}
-                tone="outline"
-                running={pipelineAll?.status === 'running'}
-                onClick={handleAllReports}
-                disabled={!repoPath}
-              />
-            ),
-          },
-          {
             key: 'sep2',
             node: <div className="w-px h-6 bg-border-default" aria-hidden />,
           },
           {
             key: 'model',
-            description: 'Model used for Filter / Top Reports / All Reports. Scan is always Sonnet.',
+            description: 'Model used for the Filter to Database run. Scan is always Sonnet. Report generation has its own model — set in Settings → Models, used by the Reports tab\'s Generate Top 5 button and the per-listing Generate Report action.',
             node: <ModelChip />,
           },
         ]}

@@ -6,6 +6,7 @@ import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { useAppStore } from '@/store/app'
+import { useConfigDirty } from '@/store/configDirty'
 import { cn } from '@/lib/utils'
 
 // ─── Reference data ──────────────────────────────────────────────────────────
@@ -230,6 +231,16 @@ export function ProfileEditPanel() {
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
     setForm(prev => ({ ...prev, [k]: v }))
+
+  // Emit dirty state into the cross-cutting Configuration store so the
+  // ConfigurationView can prompt on tab switches. We use the same
+  // diffForms helper that handleSave uses to compute the LLM patch — one
+  // source of truth for "did anything change since last save".
+  const setDirty = useConfigDirty(s => s.setDirty)
+  useEffect(() => {
+    setDirty('identity', 'identity-form', diffForms(baseline, form).length > 0)
+  }, [baseline, form, setDirty])
+  useEffect(() => () => setDirty('identity', 'identity-form', false), [setDirty])
 
   const handleSave = async () => {
     if (!raw) return
