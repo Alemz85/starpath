@@ -11,6 +11,7 @@ const electronAPI = {
     pipeline: string; tailorCv: string; draftApp: string; interviewPrep: string; generateReport: string
   }) => ipcRenderer.invoke('app:set-models', models),
   selectFolder: () => ipcRenderer.invoke('app:select-folder'),
+  selectCvPdf: () => ipcRenderer.invoke('app:select-cv-pdf'),
   validatePath: (p: string) => ipcRenderer.invoke('app:validate-path', p),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
 

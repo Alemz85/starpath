@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CheckCircle2, Loader2, Plus, X } from 'lucide-react'
+import { CheckCircle2, Loader2, Plus, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 
 interface ProfileForm {
@@ -55,6 +55,16 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
   }
   const removeCity = (c: string) =>
     setForm(f => ({ ...f, target_cities: f.target_cities.filter(x => x !== c) }))
+  const moveCity = (c: string, dir: -1 | 1) =>
+    setForm(f => {
+      const i = f.target_cities.indexOf(c)
+      if (i === -1) return f
+      const j = i + dir
+      if (j < 0 || j >= f.target_cities.length) return f
+      const next = [...f.target_cities]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return { ...f, target_cities: next }
+    })
 
   const set = (key: keyof ProfileForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm(f => ({ ...f, [key]: e.target.value }))
@@ -194,10 +204,26 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
             <span className="text-[12px] text-text-4 italic self-center">No target locations yet.</span>
           ) : (
             form.target_cities.map((c, i) => (
-              <span key={c} className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1 rounded-lg bg-info/10 border border-info/30 text-info text-[12px] font-medium">
+              <span key={c} className="inline-flex items-center gap-1 pl-2.5 pr-0.5 py-1 rounded-lg bg-info/10 border border-info/30 text-info text-[12px] font-medium">
                 <span className="font-mono text-info/60 text-[10px] mr-0.5">#{i + 1}</span>
                 {c}
-                <button onClick={() => removeCity(c)} className="opacity-50 hover:opacity-100 transition-opacity p-0.5">
+                <button
+                  onClick={() => moveCity(c, -1)}
+                  disabled={i === 0}
+                  title="Move up"
+                  className="opacity-50 hover:opacity-100 disabled:opacity-15 disabled:cursor-not-allowed transition-opacity p-0.5"
+                >
+                  <ChevronUp size={11} />
+                </button>
+                <button
+                  onClick={() => moveCity(c, 1)}
+                  disabled={i === form.target_cities.length - 1}
+                  title="Move down"
+                  className="opacity-50 hover:opacity-100 disabled:opacity-15 disabled:cursor-not-allowed transition-opacity p-0.5"
+                >
+                  <ChevronDown size={11} />
+                </button>
+                <button onClick={() => removeCity(c)} title="Remove" className="opacity-50 hover:opacity-100 transition-opacity p-0.5">
                   <X size={10} />
                 </button>
               </span>

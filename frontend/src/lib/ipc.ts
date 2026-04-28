@@ -24,6 +24,7 @@ export const ipc = {
   setTailoringComplete: (v?: boolean)           => api().setTailoringComplete(v),
   setModels:            (m: { pipeline: string; tailorCv: string; draftApp: string; interviewPrep: string; generateReport: string }) => api().setModels(m),
   selectFolder:         ()                     => api().selectFolder() as Promise<{ path: string; valid: boolean } | null>,
+  selectCvPdf:          ()                     => api().selectCvPdf()  as Promise<{ path: string } | null>,
   validatePath:         (p: string)             => api().validatePath(p) as Promise<{ path: string; valid: boolean }>,
   openExternal:         (url: string)           => api().openExternal(url),
 
