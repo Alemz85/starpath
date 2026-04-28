@@ -63,13 +63,10 @@ function getSuggestions(selected: string[]): string[] {
 
 // ─── YAML helpers ─────────────────────────────────────────────────────────────
 
-const patchField = (yaml: string, key: string, val: string): string => {
-  const re = new RegExp(`(  ${key}:\\s*)["']?[^"'\\n]*["']?`)
-  return yaml.match(re) ? yaml.replace(re, `$1"${val}"`) : yaml
-}
-
-const extractField = (yaml: string, key: string): string =>
-  yaml.match(new RegExp(`  ${key}:\\s*["']?([^"'\\n]+)["']?`))?.[1]?.trim() ?? ''
+// Identity / compensation extract+patch helpers moved to ProfileEditPanel
+// when the user-config form moved out of Settings. The remaining helpers
+// here are role-list and portals-keyword block parsers used by the tabs
+// that stayed in Settings.
 
 const extractPrimaryRoles = (yaml: string): string[] => {
   const block = yaml.match(/primary:\s*([\s\S]*?)(?=\n  \w|\n#|$)/)?.[1] ?? ''
@@ -175,11 +172,12 @@ function setLangBlocklist(yaml: string, items: string[]): string {
 
 // ─── Root component ───────────────────────────────────────────────────────────
 
-type Tab = 'general' | 'candidate' | 'roles' | 'portals'
+// 'candidate' moved to the Profile tab where it belongs — keep the type
+// here only for legacy state migration; it's no longer in the TABS list.
+type Tab = 'general' | 'roles' | 'portals'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'general',   label: 'General' },
-  { key: 'candidate', label: 'Candidate' },
   { key: 'roles',     label: 'Target Roles' },
   { key: 'portals',   label: 'Portals' },
 ]
@@ -212,10 +210,9 @@ export function SettingsView() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'general'   && <GeneralTab />}
-        {activeTab === 'candidate' && <CandidateTab />}
-        {activeTab === 'roles'     && <RolesTab />}
-        {activeTab === 'portals'   && <PortalsTab />}
+        {activeTab === 'general' && <GeneralTab />}
+        {activeTab === 'roles'   && <RolesTab />}
+        {activeTab === 'portals' && <PortalsTab />}
       </div>
     </div>
   )
@@ -321,130 +318,6 @@ function GeneralTab() {
   )
 }
 
-// ─── Candidate tab ────────────────────────────────────────────────────────────
-
-interface CandidateForm {
-  full_name: string; email: string; phone: string; location: string
-  linkedin: string; portfolio_url: string; github: string
-  headline: string
-  comp_target: string; comp_currency: string; comp_minimum: string; comp_flexibility: string
-}
-
-function CandidateTab() {
-  const [raw, setRaw] = useState<string | null>(null)
-  const [form, setForm] = useState<CandidateForm>({
-    full_name: '', email: '', phone: '', location: '', linkedin: '',
-    portfolio_url: '', github: '', headline: '',
-    comp_target: '', comp_currency: 'EUR', comp_minimum: '', comp_flexibility: '',
-  })
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  useEffect(() => {
-    ipc.readFile('user/profile.yml').then(text => {
-      if (!text) return
-      setRaw(text)
-      setForm({
-        full_name:        extractField(text, 'full_name'),
-        email:            extractField(text, 'email'),
-        phone:            extractField(text, 'phone'),
-        location:         extractField(text, 'location'),
-        linkedin:         extractField(text, 'linkedin'),
-        portfolio_url:    extractField(text, 'portfolio_url'),
-        github:           extractField(text, 'github'),
-        headline:         extractField(text, 'headline'),
-        comp_target:      extractField(text, 'target_range'),
-        comp_currency:    extractField(text, 'currency') || 'EUR',
-        comp_minimum:     extractField(text, 'minimum'),
-        comp_flexibility: extractField(text, 'location_flexibility'),
-      })
-    })
-  }, [])
-
-  const set = (key: keyof CandidateForm) =>
-    (e: React.ChangeEvent<HTMLInputElement>) =>
-      setForm(f => ({ ...f, [key]: e.target.value }))
-
-  const handleSave = async () => {
-    if (!raw) return
-    setSaving(true)
-    let u = raw
-    u = patchField(u, 'full_name',          form.full_name)
-    u = patchField(u, 'email',               form.email)
-    if (form.phone)            u = patchField(u, 'phone',               form.phone)
-    if (form.location)         u = patchField(u, 'location',            form.location)
-    if (form.linkedin)         u = patchField(u, 'linkedin',            form.linkedin)
-    if (form.portfolio_url)    u = patchField(u, 'portfolio_url',       form.portfolio_url)
-    if (form.github)           u = patchField(u, 'github',              form.github)
-    if (form.headline)         u = patchField(u, 'headline',            form.headline)
-    if (form.comp_target)      u = patchField(u, 'target_range',        form.comp_target)
-    if (form.comp_currency)    u = patchField(u, 'currency',            form.comp_currency)
-    if (form.comp_minimum)     u = patchField(u, 'minimum',             form.comp_minimum)
-    if (form.comp_flexibility) u = patchField(u, 'location_flexibility',form.comp_flexibility)
-    await ipc.writeFile('user/profile.yml', u)
-    setRaw(u)
-    setSaving(false)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
-  }
-
-  if (raw === null) return <LoadingRows />
-
-  return (
-    <div>
-      <SettingRow title="Identity" description="Used in report headers, generated CVs, and outreach drafts.">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 mt-4">
-          <Field label="Full name *"    value={form.full_name}    onChange={set('full_name')}    placeholder="Alessandro Mezzanotte" />
-          <Field label="Email *"        value={form.email}         onChange={set('email')}         placeholder="you@email.com" type="email" />
-          <Field label="Phone"          value={form.phone}         onChange={set('phone')}         placeholder="+39 xxx xxx xxxx" />
-          <Field label="Location"       value={form.location}      onChange={set('location')}      placeholder="Barcelona, Spain" />
-          <Field label="LinkedIn"       value={form.linkedin}      onChange={set('linkedin')}      placeholder="linkedin.com/in/yourname" />
-          <Field label="Portfolio URL"  value={form.portfolio_url} onChange={set('portfolio_url')} placeholder="https://yoursite.com" />
-          <Field label="GitHub"         value={form.github}        onChange={set('github')}        placeholder="github.com/yourhandle" />
-        </div>
-      </SettingRow>
-
-      <SettingRow title="Headline" description="One-line professional identity used in CV intros and evaluations. Keep it under 80 characters.">
-        <div className="mt-3">
-          <input
-            value={form.headline}
-            onChange={set('headline')}
-            placeholder="e.g. Analytics & Strategy — CEMS Graduate"
-            className="w-full px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus:outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
-          />
-          {form.headline && (
-            <p className={cn('mt-1 text-micro tabular-nums', form.headline.length > 80 ? 'text-warning' : 'text-text-4')}>
-              {form.headline.length} / 80
-            </p>
-          )}
-        </div>
-      </SettingRow>
-
-      <SettingRow title="Compensation" description="Used to score comp fit in offer evaluations. Keep values in the same currency.">
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 mt-4">
-          <Field label="Target range"         value={form.comp_target}      onChange={set('comp_target')}      placeholder="€45K–65K" />
-          <Field label="Currency"             value={form.comp_currency}    onChange={set('comp_currency')}    placeholder="EUR" />
-          <Field label="Walk-away floor"      value={form.comp_minimum}     onChange={set('comp_minimum')}     placeholder="€35K" />
-          <Field label="Location flexibility" value={form.comp_flexibility} onChange={set('comp_flexibility')} placeholder="Remote preferred, open to hybrid" />
-        </div>
-      </SettingRow>
-
-      <div className="px-6 py-4 flex items-center justify-between border-t border-border-default">
-        <p className="text-label text-text-4">
-          Patches <code className="text-accent/70 bg-bg-elevated px-1 py-0.5 rounded text-micro">user/profile.yml</code> — comments and structure are preserved.
-        </p>
-        <button
-          onClick={handleSave}
-          disabled={saving || !form.full_name.trim() || !form.email.trim()}
-          className="flex items-center gap-2 px-4 py-2 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
-        >
-          {saved ? <Check size={13} /> : null}
-          {saving ? 'Saving…' : saved ? 'Saved' : 'Save changes'}
-        </button>
-      </div>
-    </div>
-  )
-}
 
 // ─── Roles tab ────────────────────────────────────────────────────────────────
 
