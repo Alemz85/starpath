@@ -318,6 +318,20 @@ Both cells trace the score back to a verbatim JD quote and a named calibration a
 
 **For agents running in parallel:** the JD audit (see scouting.md § Pre-scoring JD audit) feeds these reasoning cells. Run the audit first; the cells write themselves from its output.
 
+#### Anti-fingerprint-reuse
+
+A specific failure mode to watch for: when an agent processes a batch of listings from the same company (e.g., 15 PwC Milano DIG variants in one parallel sub-batch), the temptation is to score the first one carefully and apply the same dimensional fingerprint to all subsequent siblings. Don't. **Identical 12-dim fingerprints across two distinct roles is the clearest possible signal that the scoring is copy-paste, not JD-grounded.**
+
+The dimensional table is meant to fingerprint the *role*, not the *company*. Two PwC Milano DIG roles in the same intake are still distinct on:
+
+- **Skills Match** — different required stacks (Customer Data Analyst leans Python+SQL+BI; AI Developer leans LLM/transformer; Hyperautomation leans Low-Code platforms; Strategy & Transformation leans process modelling). Different roles ⇒ different Skills Match coverage against `user/cv.md`.
+- **Strategic/Analytical Fit** — different responsibilities even within the same rotation. Strategy roles score this higher than dev roles.
+- **Sales-Trap Risk** — varies even within consulting. Pure delivery + utilization pressure ≠ pure analytical advisory ≠ client-facing pre-sales.
+
+If you find yourself about to write the same dim numbers for two roles, stop and re-read both JDs. They WILL differ on at least Skills Match. If after re-reading you're certain the dimensional fingerprint really is identical (e.g., two truly indistinguishable rotation-program seats), use the multi-variant collapse rule in `modes/pipeline.md` Step 2c.1 — score one master, list the rest as variants. Don't write 15 identical rows.
+
+The Notes column in `data/scouting.md` is **not optional** for these rows. Each row gets a one-line tier summary referencing this specific role's strongest signal — *"Strong Big-4 FS strategy match, Sabadell capstone is direct STAR-R candidate"* beats an empty cell every time. An empty Notes column on a clustered company is the surest tell that copy-paste happened.
+
 ### Calibration & special rules
 
 These rules tighten the rubric and the rollup math. They apply to BOTH `scouting` mode and `oferta` Block H.
@@ -347,6 +361,22 @@ Adjust the score from a "matches the persona" baseline using these factors:
 | **Internship vs full-time:** structured internship at the same brand | +1 | Internships have larger cohorts (5-20 spots) and lower stakes than full-time hires |
 | **Class size signal:** rotational programs, graduate schemes, LDPs (10-20+ spots/year) | +1 | More spots = lower per-applicant odds matter less than per-cohort selection |
 | **Language-restricted role:** the JD requires a language the candidate has natively that filters most applicants out | +1 to +2 | Italian-only or Portuguese-only filters remove ~60-80% of the EU applicant pool |
+| **Visa friction:** role's country requires a work permit the candidate doesn't have (per `_profile.md` → location.visa_status) | −1 to −3 | Adds an extra hiring step; some employers won't sponsor at the intern/grad level. See sub-table below. |
+
+**Visa-friction sub-table.** Read the candidate's `visa_status` from `user/_profile.md` § Your Location Policy or `user/profile.yml` → `candidate.work_permit`. Match the role's country against what that visa actually unlocks.
+
+| Role's country | Candidate has EU permit only | Candidate has US work auth only | Candidate has both EU + UK |
+|----------------|------------------------------|----------------------------------|----------------------------|
+| **EU member states** (Ireland, Spain, Germany, France, Italy, Netherlands, Portugal, Austria, Belgium, etc.) | 0 | −3 (visa wall) | 0 |
+| **UK** (post-Brexit) | **−1** if employer has a known sponsorship licence (Revolut, Stripe, Celonis, Big-4 all do at grad level) — −2 if unclear or no sponsorship language | −3 | 0 |
+| **Switzerland / Norway / Iceland** (EFTA, not EU) | **−1** — most employers handle the work permit but it's an extra step | −3 | −1 |
+| **US / Canada** | −3 (H1B / L-1 / TN — entry-level sponsorship is rare) | 0 / +0 | −3 |
+| **Singapore / UAE / other non-Western** | −2 to −3 | −2 | −2 |
+| **Country requires a passport the candidate doesn't have** (e.g., German civil-service-grade roles requiring DE citizenship) | hard discard via Step 2c gate, not a soft penalty | same | same |
+
+**Sponsorship-language signal.** If the JD explicitly says "we sponsor visas for graduate roles" / "open to candidates requiring sponsorship", drop the friction penalty by 1 (e.g., UK with active sponsor language → 0). If the JD explicitly says "must have unrestricted right to work in {country}" and the candidate doesn't, that's a hard discard via Step 2c, not a soft penalty here.
+
+**For the user's current profile** (`visa_status: "EU citizen — no sponsorship needed"`): EU-located roles score Ease of Entry without any visa friction. UK roles eat a −1 (most top brands sponsor, friction is small but real). Swiss / Norwegian roles eat a −1. US roles eat a −3 unless the JD explicitly opens the door. **A London role at Revolut / Celonis / Stripe / Datadog should still be highly applicable, just realistically 1 point less easy than the equivalent role in Dublin / Amsterdam / Berlin.**
 
 The "10 = perfectly designed for this profile" bar is reserved for roles where the persona description matches AND the brand isn't drawing thousands of applicants. **A top-tier brand internship that the user is an exact persona match for typically lands at 7-8, not 10.**
 
