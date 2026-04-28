@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ProfileEditPanel } from '@/components/profile/ProfileEditPanel'
 import { RolesTab, PortalsTab } from '@/components/settings/SettingsView'
@@ -52,6 +52,21 @@ export function ConfigurationView() {
     // unmount, taking its local form state with it. The store's
     // unmount-cleanup effects clear the dirty flags. So discarding is
     // genuinely "drop the edits" — no further work needed here.
+    setTab(pendingTab)
+    setPendingTab(null)
+  }
+
+  const [savingAll, setSavingAll] = useState(false)
+  const saveAndSwitch = async () => {
+    if (!pendingTab) return
+    setSavingAll(true)
+    try {
+      await useConfigDirty.getState().saveAll(tab)
+    } finally {
+      setSavingAll(false)
+    }
+    // After saveAll, each section has cleared its own dirty flag and
+    // updated its baseline. We can switch now.
     setTab(pendingTab)
     setPendingTab(null)
   }
@@ -108,6 +123,8 @@ export function ConfigurationView() {
       {pendingTab && (
         <UnsavedChangesModal
           targetTab={TABS.find(t => t.key === pendingTab)!.label}
+          saving={savingAll}
+          onSave={saveAndSwitch}
           onDiscard={discardAndSwitch}
           onCancel={() => setPendingTab(null)}
         />
@@ -117,33 +134,36 @@ export function ConfigurationView() {
 }
 
 function UnsavedChangesModal({
-  targetTab, onDiscard, onCancel,
+  targetTab, saving, onSave, onDiscard, onCancel,
 }: {
   targetTab: string
+  saving: boolean
+  onSave: () => void
   onDiscard: () => void
   onCancel: () => void
 }) {
-  // Esc cancels (stay in current tab); Enter discards (switches tabs).
-  // The destructive action is the explicit one — Esc is the safer
-  // default, matching the design of the Applying tab's discard modal.
+  // Keyboard: Esc cancels (stay in current tab), Enter saves (the
+  // primary action — matches the visual hierarchy below). The
+  // destructive Discard path is button-only on purpose, so accidental
+  // Enter doesn't drop the user's work.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel()
-      if (e.key === 'Enter')  onDiscard()
+      if (e.key === 'Enter' && !saving) onSave()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onDiscard, onCancel])
+  }, [onSave, onCancel, saving])
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
-      onClick={onCancel}
+      onClick={() => { if (!saving) onCancel() }}
       style={{ animation: 'chip-appear 160ms ease both' }}
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="w-[400px] rounded-xl bg-bg-panel border border-border-strong shadow-lift overflow-hidden"
+        className="w-[420px] rounded-xl bg-bg-panel border border-border-strong shadow-lift overflow-hidden"
       >
         <div className="px-5 pt-5 pb-3">
           <div className="flex items-start gap-3">
@@ -153,26 +173,33 @@ function UnsavedChangesModal({
             <div className="min-w-0 flex-1">
               <h3 className="text-[15px] font-semibold text-text-1 leading-tight">Unsaved changes</h3>
               <p className="text-[12.5px] text-text-3 mt-1.5 leading-relaxed">
-                You've edited fields on this tab without saving. Switching to <span className="font-medium text-text-2">{targetTab}</span> will discard those edits.
+                You have edits on this tab. Save them before switching to <span className="font-medium text-text-2">{targetTab}</span>, or discard.
               </p>
             </div>
           </div>
-          <p className="text-[12px] text-text-4 leading-relaxed mt-3.5">
-            Stay here to keep your changes — there's a Save button next to each section. Or discard and continue.
-          </p>
         </div>
         <div className="px-5 py-3 flex items-center justify-end gap-2 bg-bg-chrome border-t border-border-default">
           <button
             onClick={onCancel}
-            className="px-3 py-1.5 text-label text-text-2 rounded-md hover:bg-bg-elevated transition-colors"
+            disabled={saving}
+            className="px-3 py-1.5 text-label text-text-2 rounded-md hover:bg-bg-elevated disabled:opacity-40 transition-colors"
           >
-            Stay here
+            Cancel
           </button>
           <button
             onClick={onDiscard}
-            className="px-3 py-1.5 text-label text-danger bg-danger/10 border border-danger/30 rounded-md hover:bg-danger/15 transition-colors font-medium"
+            disabled={saving}
+            className="px-3 py-1.5 text-label text-danger bg-danger/10 border border-danger/30 rounded-md hover:bg-danger/15 disabled:opacity-40 transition-colors"
           >
-            Discard changes
+            Discard
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-label text-accent-text bg-accent/20 border border-accent/35 rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors font-medium"
+          >
+            {saving && <Loader2 size={12} className="animate-spin" />}
+            {saving ? 'Saving…' : 'Save and switch'}
           </button>
         </div>
       </div>
