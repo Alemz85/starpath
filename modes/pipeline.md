@@ -44,9 +44,37 @@ For each URL's detected company + role, look up `(normalize(company), normalize(
   - Move to "Processed" referencing the existing report (look up the entry number in `data/scouting.md` or `data/applications.md` if needed)
 - If the match is **6+ months old** → re-evaluate (CV or JD may have changed since)
 
+## Step 2c — Relevance gate (DISCARD irrelevant listings BEFORE scoring)
+
+**Why this exists:** the title-filter in `user/portals.yml` is permissive (a single positive keyword admits the URL into the pipeline). After scan typically lets ~300+ URLs through. Most of those are off-archetype on JD inspection. Scoring all of them dilutes the 1-10 scale and floods the Database with noise. This gate keeps the scored set small and meaningful — typically **~20-30% of pending URLs** should survive into `data/scouting.md`.
+
+For each non-duplicate URL, fetch the JD (Playwright/WebFetch) and run a fast pre-scoring check against the user's profile (`user/_profile.md` archetypes, `user/profile.yml` target_roles, location policy):
+
+**Discard (mark `- [!] FILTERED — {reason}` in pipeline.md, do NOT score, do NOT add to scouting.md, do NOT write a row to score-history.tsv) if ANY of:**
+
+1. **Wrong archetype.** The JD's actual day-to-day work does not map to any of the user's primary or secondary archetypes. Examples: pure quota-carrying sales (BDR/SDR/AE) when user wants Strategy/Analytics; pure customer-support; pure delivery/logistics; pure clinical/medical; pure legal counsel.
+2. **Wrong seniority.** The JD body requires **5+ years of experience**, OR titles "Senior", "Lead", "Principal", "Manager (with reports)", "Director" that slipped past title-filter. Internships, graduate programmes, and 0–3 YoE roles are in scope.
+3. **Geo-locked outside user's reachable set.** Location is US-only (no EU work-rights / no remote-EU option), or restricted to a country the user cannot legally work in, or requires a clearance the user does not hold.
+4. **Excluded domain.** Defense, weapons, oil & gas, online gambling, adult content, MLM/pyramid, predatory lending — unless the user has explicitly opted in via `_profile.md`.
+5. **Visa-locked.** "Must be a US citizen", "active TS/SCI clearance required", "Italian passport required" when user is non-Italian, etc.
+6. **Poverty-wage.** Salary is disclosed and is < 50% of the city's threshold from `_profile.md` § City-Specific Salary Bands. (Disclosed-but-low-band stays in — gets a low Salary Adj score; only *poverty wage* discards.)
+
+**Borderline cases stay in.** When in doubt — score it. Better a 5/10 in the Database than a silent drop the user can't audit. The discard reasons above are clear-cut "this should never have entered the pipeline" categories, not "this is a marginal fit".
+
+**Tracking discards.** Move discarded URLs from Pending to a new **Filtered Out** section in `data/pipeline.md`:
+
+```markdown
+## Filtered Out
+- [!] FILTERED | URL | Company | Role | reason
+```
+
+This keeps an auditable trail without polluting `scouting.md`. The user can review the Filtered Out section if they think the gate was too aggressive.
+
+**Goal target:** if 350 URLs come in, expect ~70-280 (60-80%) to be filtered out and ~70-140 (20-40%) to be scored. Adjust by examining what made it through and what didn't — the gate should be tight enough that surviving entries are *actually worth scoring* and the 1-10 scale spreads meaningfully across them.
+
 ## Step 3 — Evaluate each non-duplicate URL
 
-For each URL in priority order (after dedup):
+For each URL that **survived Step 2c** (in priority order):
 
 a. Compute the next sequential entry number: read `data/scouting.md` + `data/applications.md`, take highest number + 1
 b. **Extract JD:** Playwright (`browser_navigate` + `browser_snapshot`) → WebFetch → WebSearch
@@ -144,6 +172,11 @@ If no patterns meet the threshold, print nothing. Do not mention this step in th
 - [ ] https://boards.greenhouse.io/company/jobs/456 | Company Inc | Senior PM
 - [STALE] [ ] https://older.url/job | OldCo | Analyst  ← auto-flagged if >14 days old
 - [!] https://private.url/job — Error: login required
+
+## Filtered Out
+- [!] FILTERED | https://example.com/job | DefenseCo | Analyst | excluded domain (defense)
+- [!] FILTERED | https://example.com/job | BigBank | Senior Director | wrong seniority (10+ YoE)
+- [!] FILTERED | https://example.com/job | USStartup | Engineer | geo-locked (US-only, no remote-EU)
 
 ## Processed
 - [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | Analyst | 8.2/10 | T2 | PDF ✅
