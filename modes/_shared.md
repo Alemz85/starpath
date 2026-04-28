@@ -304,14 +304,14 @@ The override is harder to game than just lowering the cutoff — it rewards cons
 
 **Important:** Tier 1 in scouting mode means a **full markdown report only** — `scouting` never auto-generates PDFs at any tier. CV / PDF generation is a separate, manual operation via `/career-ops pdf` or part of the full `/career-ops oferta` flow. See `modes/scouting.md` § "Scouting never auto-generates PDFs" for the rule.
 
-#### T2 subclassification: T2-high vs T2-standard
+#### T2 verdict scaling
 
-Tier 2 spans CF=7.0–8.9 — a wide range with meaningfully different actionability. To distinguish:
+Tier 2 spans CF=7.0–8.9 — a wide range with meaningfully different actionability. The tier column itself stays a single value (`T2`), but the verdict line in the report scales by Current Fit:
 
-- **T2-high (CF 8.0–8.9):** Strong match; apply with targeted prep. Promotion hint: `MONITOR` in tracker.
-- **T2-standard (CF 7.0–7.9):** Decent match; apply if pipeline thin, or revisit post-graduation. No promotion hint.
+- **CF 8.0–8.9 — "apply with prep":** strong match; promotion hint `MONITOR` in the tracker.
+- **CF 7.0–7.9 — "apply if pipeline thin":** decent match; revisit post-graduation. No promotion hint.
 
-Both use the same dimensional table format. The difference is in the recommendation framing and the tracker promotion hint. See `modes/scouting.md` for the template.
+Both render the same dimensional table; only the verdict phrasing differs. There is **no T2-high sub-tier** — never write `T2-high` to the tier column of `scouting.md` or `score-history.tsv`. See `modes/scouting.md` for the template.
 
 ### Standard report block format
 

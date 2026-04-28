@@ -30,26 +30,33 @@ export function ActiveProcessesBar({ focusedId, onFocus }: Props) {
     if (firstRunning) onFocus(firstRunning.id)
   }, [ordered, focusedId, onFocus])
 
-  if (ordered.length === 0) return null
-
+  // Always rendered — when there's nothing running we show a neutral
+  // placeholder. Limits visible rows to ~4 then scrolls inside.
   return (
     <div className="shrink-0 rounded-lg border border-border-default bg-bg-panel">
-      <div className="flex items-center justify-between px-3 h-8 border-b border-border-default">
+      <div className="flex items-center justify-between px-4 h-8 border-b border-border-default">
         <span className="text-micro text-text-4 uppercase tracking-wider">
           Active processes
           <span className="ml-1.5 font-mono text-text-3">{ordered.length}</span>
         </span>
       </div>
-      <div className="max-h-[140px] overflow-y-auto p-1.5 space-y-0.5">
-        {ordered.map(rec => (
-          <ProcessRow
-            key={rec.id}
-            rec={rec}
-            focused={rec.id === focusedId}
-            onClick={() => onFocus(rec.id)}
-          />
-        ))}
-      </div>
+      {ordered.length === 0 ? (
+        <div className="px-4 py-4 text-[11.5px] text-text-4 italic">
+          Nothing running. Anything you fire from Scouting or Applying shows up here.
+        </div>
+      ) : (
+        // ~32px row * 4 = 128px + p-1.5 (12px) = 140px max before scrolling
+        <div className="max-h-[140px] overflow-y-auto p-1.5 space-y-0.5">
+          {ordered.map(rec => (
+            <ProcessRow
+              key={rec.id}
+              rec={rec}
+              focused={rec.id === focusedId}
+              onClick={() => onFocus(rec.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -61,6 +68,9 @@ function ProcessRow({
   focused: boolean
   onClick: () => void
 }) {
+  const startedHHMM = new Date(rec.startedAt).toLocaleTimeString([], {
+    hour: '2-digit', minute: '2-digit',
+  })
   return (
     <button
       onClick={onClick}
@@ -73,6 +83,10 @@ function ProcessRow({
     >
       <StatusIcon status={rec.status} />
       <span className="truncate flex-1">{rec.label}</span>
+      <span className="shrink-0 text-[10.5px] text-text-4 font-mono tabular-nums">
+        started {startedHHMM}
+      </span>
+      <span className="shrink-0 inline-flex items-center w-px h-3 bg-border-default" aria-hidden />
       <ElapsedChipInline record={rec} />
     </button>
   )

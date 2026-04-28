@@ -242,7 +242,10 @@ function toApplicationEntry(row: DbApplicationRow): ApplicationEntry {
 }
 
 function toScoutingEntry(row: DbScoutingRow): ScoutingEntry {
-  const tierMap: Record<string, ScoutingTier> = { 'T1':'T1','T2-high':'T2-high','T2':'T2','T3':'T3','T4':'T4' }
+  // T2-high collapses to T2 at the ingest boundary so the UI never sees it.
+  // Backend mode files / scouting.md still use T2-high in their scoring math —
+  // this is a display-layer normalization only.
+  const tierMap: Record<string, ScoutingTier> = { 'T1':'T1','T2-high':'T2','T2':'T2','T3':'T3','T4':'T4' }
   return {
     num:           row.num,
     date:          row.date,
@@ -279,7 +282,7 @@ function toScoreEntry(row: DbScoreHistoryRow): ScoreEntry {
     mode:              (row.mode === 'oferta' ? 'oferta' : 'scouting'),
     company:           row.company,
     role:              row.role,
-    tier:              row.tier,
+    tier:              row.tier === 'T2-high' ? 'T2' : row.tier,
     source:            row.source,
     location:          row.location,
     employment_type:   row.employment_type,
@@ -301,7 +304,7 @@ function toReportFile(row: DbReportRow): ReportFile {
     path:    row.path,
     company: row.company,
     role:    row.role,
-    tier:    row.tier,
+    tier:    row.tier === 'T2-high' ? 'T2' : row.tier,
   }
 }
 
