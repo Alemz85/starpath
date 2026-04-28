@@ -84,7 +84,7 @@ Skim the JD body for ~30 seconds and write down the four signals below in scratc
 
 If any signal is missing from the JD, write `[not stated]` rather than guessing. The reasoning cells will then say `[no gate stated]` honestly instead of inventing one.
 
-**This audit is non-negotiable for top-100 / unicorn / Big-4 brands** (Datadog, Revolut, Stripe, Celonis, PwC, EY, etc.) — those JDs almost always have explicit gates that materially change Ease of Entry and Brand Value scores. A 7/10 Ease of Entry on a unicorn brand without an audit-quoted gate is almost certainly wrong.
+**The audit's job is traceability, not harshness.** Whatever scores the calibration math produces from the audit signals are the right scores — the audit doesn't bias toward lower numbers, it just makes sure each number can be defended by pointing at specific JD lines. A 7/10 Ease of Entry with the audit's hard-gate quote and a named brand-tier adjustment in the reasoning cell is fine. The same 7/10 with reasoning that says "competitive but reachable" is the failure mode, regardless of whether 7 was the right answer or not.
 
 ### Salary Adj for City — comp cache check
 
