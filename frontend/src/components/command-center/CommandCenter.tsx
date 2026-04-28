@@ -387,9 +387,12 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
             key={i}
             className={cn(
               'whitespace-pre-wrap break-all',
-              /error/i.test(line)               ? 'text-[#FF8FA3]' :
-              /warn/i.test(line)                ? 'text-[#F7CC78]' :
-              /✓|done|found|appended/i.test(line)? 'text-[#9AE3A8]' :
+              // Order matters — check most specific patterns first.
+              line.startsWith('→ ')                       ? 'text-[#A795E8]' :  // tool-use one-liner — muted violet
+              line.startsWith('✓ Done')                   ? 'text-[#9AE3A8]' :  // final success capstone
+              /error/i.test(line)                         ? 'text-[#FF8FA3]' :
+              /warn/i.test(line)                          ? 'text-[#F7CC78]' :
+              /✓|^\s*✓|done|found|appended/i.test(line)   ? 'text-[#9AE3A8]' :
               ''
             )}
           >

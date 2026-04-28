@@ -37,6 +37,16 @@ Leer `user/portals.yml` que contiene:
 
 Para empresas con API pública o feed estructurado, usar la respuesta JSON/XML como complemento rápido de Nivel 1. Es más rápido que Playwright y reduce errores de scraping visual.
 
+**Implementación recomendada — invocar `scripts/scan.mjs`:** en lugar de hacer fetch HTTP empresa por empresa, ejecutar **una sola vez** `node scripts/scan.mjs` con la herramienta Bash. Este script ya hace el trabajo completo de Nivel 2:
+- Fetch en paralelo (CONCURRENCY=10) de Greenhouse, Ashby, Lever, Workday, SmartRecruiters, Teamtailor, BambooHR.
+- Aplica los filtros de `user/portals.yml` (title_filter, lang_filter, location).
+- Deduplica contra `data/scan-history.tsv` (URL + company+role).
+- Append directo a `data/pipeline.md` y actualiza `data/scan-history.tsv`.
+- Imprime progreso por empresa (`→ {empresa}` start, `✓ {empresa} · N jobs · K kept (Xs)` finish) — visible en tiempo real en el activity panel.
+- Zero-token: HTTP + JSON puro, sin gasto de Claude.
+
+Después de ejecutar el script, **leer su output stdout para identificar qué empresas fallaron** (líneas con `✗`). Para esas empresas específicas, hacer fallback a Nivel 1 (Playwright) sólo para esa empresa — no re-ejecutar HTTP. El script ya escribió a `pipeline.md`, así que tu trabajo en Nivel 2 termina ahí.
+
 **Soporte actual (variables entre `{}`):**
 - **Greenhouse**: `https://boards-api.greenhouse.io/v1/boards/{company}/jobs`
 - **Ashby**: `https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobBoardWithTeams`
