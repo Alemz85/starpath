@@ -270,13 +270,15 @@ SumUp	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 
 ### Reasoning column quality bar
 
-The Reasoning column in the dimensional table is the load-bearing artifact for trust. A row that says `Ease of Entry | 7/10 | competitive but designed for new grads` is worse than no row at all — it lets a generous score coast unchallenged. Every evaluation has been seen in production with this shape; every evaluation in this shape has been wrong.
+The Reasoning column in the dimensional table is the load-bearing artifact for trust. A row that says `Ease of Entry | 7/10 | competitive but designed for new grads` doesn't tell the user *why* — and on the next evaluation the same generic phrase will reappear with a different score, so the user has no way to tell whether the rubric was applied at all.
+
+**This is a depth requirement, NOT a direction requirement.** The fix is *not* to push scores down; the fix is to make whatever score the agent lands on traceable to specific JD signals the user can verify. Two agents reading the same JD might land at 5 or 7 depending on how they weigh the audit signals — that range of judgment is fine. What's not fine is a score that arrives without showing its work.
 
 **Each reasoning cell MUST cite at least one of:**
 1. **A JD-quoted requirement** verbatim or near-verbatim — e.g., `JD lists: "previous internship at top-tier IB/PE/strategy consulting/fast-growing tech"`.
-2. **A named adjustment from the calibration tables** — e.g., `Brand-competition penalty (-3, top-100 SaaS unicorn)` or `Internship cohort bonus (+1)`.
+2. **A named adjustment from the calibration tables** — e.g., `Brand-competition tier: recognized European unicorn (-2)` or `Graduate-cohort bonus (+1)`. The calibration adjustments are tools, not mandates — apply only when the JD evidence supports them.
 3. **A specific number** — disclosed comp figure, stated YoE bar, named language requirement.
-4. An explicit `[no gate stated]` or `[undisclosed]` token when none of the above applies. This is acceptable but rare — most JDs at top-100 brands have *something*.
+4. An explicit `[no gate stated]` or `[undisclosed]` token when none of the above applies. This is fine — many JDs really are silent on hard gates.
 
 Generic platitudes — "competitive but reachable", "good growth trajectory", "strong brand", "structured onboarding" — are NOT sufficient on their own. They may *follow* the evidence, but they cannot *replace* it.
 
@@ -285,7 +287,7 @@ Generic platitudes — "competitive but reachable", "good growth trajectory", "s
 | Dimension | Required evidence in reasoning |
 |-----------|-------------------------------|
 | Skills Match | Walk the JD's required-skills list. Name 1-2 the user has (cite CV section) + 1 the user lacks, OR explicitly say "all listed skills covered". |
-| Ease of Entry | Quote the JD's hardest gate (YoE, prior background, language, citizenship) OR `[no explicit gate stated]`. Then name the brand-tier adjustment from the calibration table if applicable (`-2 to -4` for top-100 / unicorn / Big-4). |
+| Ease of Entry | Quote the JD's hardest gate (YoE, prior background, language, citizenship) OR `[no explicit gate stated]`. If a brand-tier or cohort adjustment from the calibration table applies, name it; if none applies, that's fine. |
 | Strategic/Analytical Fit | Name 1-2 specific responsibilities from the JD that map to the user's archetype. |
 | Growth/Mobility | Cite the structural growth signal (graduate scheme size, rotation length, named promotion path). Generic "team is growing" is insufficient. |
 | Optionality/Exit | Name 2 concrete next-move destinations the brand + skill set unlocks. |
@@ -297,14 +299,22 @@ Generic platitudes — "competitive but reachable", "good growth trajectory", "s
 
 **Worked example — Ease of Entry, Revolut Rev-celerator Graduate Programme:**
 
+The same JD can defensibly land at different scores depending on how the agent weighs the audit signals. Both of these cells meet the depth bar:
+
 ```
-| Ease of Entry | 4/10 | JD lists hard gate: "previous working experience or internship at
-  top-tier investment banking, PE, strategy consultancy, or fast-growing tech." User has
-  AP Consulting (2mo, small boutique) — does not satisfy "top-tier" bar. Brand-competition
-  penalty (-3, recognized European fintech unicorn). Net 4/10. |
+| Ease of Entry | 5/10 | JD lists prior-background preference: "previous working experience
+  or internship at top-tier IB/PE/strategy consultancy/fast-growing tech." User has AP
+  Consulting (2mo, small boutique) — falls short of "top-tier" bar; CEMS dual-degree partly
+  substitutes. Graduate-cohort bonus (+1, ~15-20 spots). Net 5. |
 ```
 
-Note: the row contains (a) a verbatim JD quote, (b) the user-side fact that fails it, (c) the named calibration adjustment, (d) the arithmetic. ~50 tokens. This is the depth bar — not a paragraph, not a single platitude.
+```
+| Ease of Entry | 7/10 | JD lists prior-background preference (same quote). User's CEMS dual-
+  degree + Sabadell capstone read as "top-tier academic equivalent" the JD intends. Graduate-
+  cohort bonus (+1, ~15-20 spots). Net 7. |
+```
+
+Both cells trace the score back to a verbatim JD quote and a named calibration adjustment. The score difference is a real judgment call about whether CEMS substitutes for prior-IB/PE — neither is "wrong". A cell saying *"competitive but designed for new grads"* without quoting the JD or naming a calibration term is missing the audit work that justifies *any* number in this column.
 
 **For agents running in parallel:** the JD audit (see scouting.md § Pre-scoring JD audit) feeds these reasoning cells. Run the audit first; the cells write themselves from its output.
 
