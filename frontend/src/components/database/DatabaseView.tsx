@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useCallback, useState, useMemo } from 'react'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import { FacetSidebar, type FacetFilters, EMPTY_FILTERS } from '@/components/shared/FacetSidebar'
@@ -124,13 +124,12 @@ export function DatabaseView() {
           {/* Table */}
           <div className="flex-1 min-w-0 overflow-hidden">
             {loaded ? (
-              <OffersTable
+              <DatabaseTable
                 rows={filtered}
-                onRowClick={(entry, evt) => {
-                  setPopoverState({ entry, anchor: { x: evt.clientX, y: evt.clientY } })
-                }}
-                onOpenReport={(entry) => setSelectedEntry(entry)}
-                selectedId={popoverState ? `${popoverState.entry.company}-${popoverState.entry.role}` : selectedEntry ? `${selectedEntry.company}-${selectedEntry.role}` : null}
+                setPopoverState={setPopoverState}
+                setSelectedEntry={setSelectedEntry}
+                popoverState={popoverState}
+                selectedEntry={selectedEntry}
               />
             ) : (
               <div className="flex items-center justify-center h-full">
@@ -164,6 +163,49 @@ export function DatabaseView() {
         />
       )}
     </div>
+  )
+}
+
+// ─── Stable-callback wrapper ─────────────────────────────────────────────────
+//
+// OffersTable's columns useMemo depends on `onOpenReport`. If that callback
+// is recreated on every parent render (which inline arrow funcs do), the
+// columns array gets a new reference and tanstack-table treats it as a
+// structural change, recomputing every row's layout. This wrapper holds
+// stable useCallback handlers that mutate the parent state via setters
+// from props — so clicking a row doesn't make the table reflow.
+
+function DatabaseTable({
+  rows, setPopoverState, setSelectedEntry, popoverState, selectedEntry,
+}: {
+  rows: ScoreEntry[]
+  setPopoverState: React.Dispatch<React.SetStateAction<{ entry: ScoreEntry; anchor: { x: number; y: number } } | null>>
+  setSelectedEntry: React.Dispatch<React.SetStateAction<ScoreEntry | null>>
+  popoverState: { entry: ScoreEntry; anchor: { x: number; y: number } } | null
+  selectedEntry: ScoreEntry | null
+}) {
+  const onRowClick = useCallback(
+    (entry: ScoreEntry, evt: React.MouseEvent) => {
+      setPopoverState({ entry, anchor: { x: evt.clientX, y: evt.clientY } })
+    },
+    [setPopoverState],
+  )
+  const onOpenReport = useCallback(
+    (entry: ScoreEntry) => setSelectedEntry(entry),
+    [setSelectedEntry],
+  )
+  const selectedId = popoverState
+    ? `${popoverState.entry.company}-${popoverState.entry.role}`
+    : selectedEntry
+      ? `${selectedEntry.company}-${selectedEntry.role}`
+      : null
+  return (
+    <OffersTable
+      rows={rows}
+      onRowClick={onRowClick}
+      onOpenReport={onOpenReport}
+      selectedId={selectedId}
+    />
   )
 }
 
