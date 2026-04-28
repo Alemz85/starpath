@@ -26,11 +26,28 @@ const DIMENSIONS: Array<{ key: DimKey; label: string }> = [
   { key: 'avg_wlb',              label: 'Work-Life' },
 ]
 
+type TimeRange = 'all' | '1y' | '6m' | '1m'
+
+const TIME_RANGE_DAYS: Record<TimeRange, number | null> = {
+  all: null,
+  '1y': 365,
+  '6m': 182,
+  '1m': 30,
+}
+
+const TIME_RANGE_LABEL: Record<TimeRange, string> = {
+  all: 'All time',
+  '1y': '1y',
+  '6m': '6mo',
+  '1m': '1mo',
+}
+
 export function TrendsView() {
   const { loaded, scoreHistory } = useDataStore()
   const [trends, setTrends] = useState<DbTrends | null>(null)
   const [activeDims, setActiveDims] = useState<Set<DimKey>>(new Set(['avg_overall', 'avg_current_fit', 'avg_aspirational_fit']))
   const [groupBy, setGroupBy] = useState<'date' | 'archetype'>('date')
+  const [timeRange, setTimeRange] = useState<TimeRange>('all')
 
   // Pull pre-aggregated buckets from SQL. Live-reload on db:changed handled
   // by the store; we re-fetch trends whenever scoreHistory updates.
@@ -48,8 +65,19 @@ export function TrendsView() {
 
   const buckets: DbTrendBucket[] = useMemo(() => {
     if (!trends) return []
-    return groupBy === 'date' ? trends.byDate : trends.byArchetype
-  }, [trends, groupBy])
+    if (groupBy === 'archetype') return trends.byArchetype
+    // Date buckets: filter by label (YYYY-MM-DD) against the time range cutoff.
+    // For 'all', no filtering. For '1m' / '6m' / '1y', drop buckets older
+    // than today − N days. Keeps the right edge of the chart anchored to
+    // today regardless of how far back the data goes.
+    const days = TIME_RANGE_DAYS[timeRange]
+    if (days == null) return trends.byDate
+    const cutoff = new Date()
+    cutoff.setHours(0, 0, 0, 0)
+    cutoff.setDate(cutoff.getDate() - days)
+    const cutoffIso = cutoff.toISOString().slice(0, 10)
+    return trends.byDate.filter(b => b.label >= cutoffIso)
+  }, [trends, groupBy, timeRange])
 
   const stats = useMemo(() => {
     if (!trends) return null
@@ -76,6 +104,24 @@ export function TrendsView() {
           <span className="text-label text-text-4 font-mono">{stats.total} evaluations</span>
         )}
         <div className="flex-1" />
+        {/* Time-range selector — only meaningful when grouping by date. The
+            archetype view aggregates across all time anyway. */}
+        {groupBy === 'date' && (
+          <div className="titlebar-no-drag flex rounded-md overflow-hidden border border-border-default">
+            {(['all', '1y', '6m', '1m'] as const).map(r => (
+              <button
+                key={r}
+                onClick={() => setTimeRange(r)}
+                className={cn(
+                  'px-2.5 py-1 text-label transition-colors',
+                  timeRange === r ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',
+                )}
+              >
+                {TIME_RANGE_LABEL[r]}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="titlebar-no-drag flex rounded-md overflow-hidden border border-border-default">
           {(['date', 'archetype'] as const).map(g => (
             <button

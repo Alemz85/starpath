@@ -7,7 +7,7 @@ import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import {
-  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap,
+  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X,
 } from 'lucide-react'
 import { StatCard } from '@/components/command-center/StatCard'
 import { RunningInScanFooter } from '@/components/command-center/CommandCenter'
@@ -26,8 +26,13 @@ export function ApplyingView() {
   const { repoPath } = useAppStore()
   const models = useAppStore(s => s.models)
   const { applications, pipeline, loaded, refresh } = useDataStore()
+  const setApplicationStatus = useDataStore(s => s.setApplicationStatus)
   const { spawns, start, kill, clear } = useSpawnsStore()
   const navigate = useNavStore(s => s.navigate)
+  // Track which card is currently being dragged so columns can highlight as
+  // drop targets and so onDrop has the source info even if the dataTransfer
+  // payload is missing (Electron's drag events occasionally drop the data).
+  const [dragging, setDragging] = useState<{ company: string; role: string; from: AppStatus } | null>(null)
 
   const tailor = spawns[PER_APP_TAILOR_CV]
   const draft  = spawns[PER_APP_DRAFT_APP]
@@ -72,6 +77,19 @@ export function ApplyingView() {
   const handleTailorCV = (a: ApplicationEntry) => launch(PER_APP_TAILOR_CV, 'Tailor CV',         a, 'modes/pdf.md',            models.tailorCv)
   const handleDraftApp = (a: ApplicationEntry) => launch(PER_APP_DRAFT_APP, 'Draft Application', a, 'modes/apply.md',          models.draftApp)
   const handlePrepInt  = (a: ApplicationEntry) => launch(PER_APP_INTERVIEW, 'Prep Interview',    a, 'modes/interview-prep.md', models.interviewPrep)
+
+  const handleDropOnColumn = (target: AppStatus) => {
+    if (!dragging) return
+    if (dragging.from === target) { setDragging(null); return }
+    void setApplicationStatus(dragging.company, dragging.role, target)
+    setDragging(null)
+  }
+
+  const handleRemove = (app: ApplicationEntry) => {
+    const ok = window.confirm(`Remove ${app.company} — ${app.role} from the applying batch?\n\nThe row will be marked Discarded in data/applications.md and disappear from this view.`)
+    if (!ok) return
+    void setApplicationStatus(app.company, app.role, 'Discarded' as AppStatus)
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -127,9 +145,14 @@ export function ApplyingView() {
                 status={status}
                 items={grouped[status] ?? []}
                 spawns={spawns}
+                dragging={dragging}
+                onDragStart={(app) => setDragging({ company: app.company, role: app.role, from: status })}
+                onDragEnd={() => setDragging(null)}
+                onDropOnColumn={() => handleDropOnColumn(status)}
                 onTailorCV={handleTailorCV}
                 onDraftApp={handleDraftApp}
                 onPrepInt={handlePrepInt}
+                onRemove={handleRemove}
                 onViewReport={app => navigate('reports', `${app.company}|${app.role}`)}
               />
             ))}
@@ -242,49 +265,90 @@ interface ColumnProps {
   status: AppStatus
   items: ApplicationEntry[]
   spawns: Record<string, SpawnRecord>
+  dragging: { company: string; role: string; from: AppStatus } | null
+  onDragStart: (a: ApplicationEntry) => void
+  onDragEnd: () => void
+  onDropOnColumn: () => void
   onTailorCV: (a: ApplicationEntry) => void
   onDraftApp: (a: ApplicationEntry) => void
   onPrepInt:  (a: ApplicationEntry) => void
+  onRemove:   (a: ApplicationEntry) => void
   onViewReport: (a: ApplicationEntry) => void
 }
 
-function KanbanColumn({ status, items, spawns, onTailorCV, onDraftApp, onPrepInt, onViewReport }: ColumnProps) {
+function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd, onDropOnColumn, onTailorCV, onDraftApp, onPrepInt, onRemove, onViewReport }: ColumnProps) {
   const textColor = STATUS_COLORS[status]
+  const [hover, setHover] = useState(false)
+  // Drop is meaningful only when something's being dragged AND it isn't
+  // already in this column. Empty-column hover state stays even if the same
+  // card is dragged over its own column — we just won't act on it.
+  const isDropTarget = dragging != null && dragging.from !== status
   return (
-    <div className="flex flex-col w-60 shrink-0 rounded-lg bg-bg-panel border border-border-default overflow-hidden h-full">
+    <div
+      onDragOver={(e) => {
+        if (!dragging) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (!hover) setHover(true)
+      }}
+      onDragLeave={() => setHover(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setHover(false)
+        onDropOnColumn()
+      }}
+      className={cn(
+        'flex flex-col w-60 shrink-0 rounded-lg bg-bg-panel border overflow-hidden h-full transition-colors',
+        isDropTarget && hover ? 'border-accent/60 bg-accent/[0.04]' : 'border-border-default',
+      )}
+    >
       <div className="flex items-center justify-between px-3 py-2 border-b border-border-default bg-bg-chrome shrink-0">
         <span className={cn('text-micro font-medium uppercase tracking-wider', textColor)}>{status}</span>
         <span className="text-micro font-mono text-text-4">{items.length}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {items.length === 0 ? (
-          <div className="galaxy-bg rounded-md py-5 text-center">
-            <p className="text-micro text-text-4">Empty</p>
+          <div className={cn(
+            'rounded-md py-5 text-center transition-colors',
+            isDropTarget && hover ? 'border-2 border-dashed border-accent/40 bg-accent/[0.05]' : 'galaxy-bg',
+          )}>
+            <p className="text-micro text-text-4">{isDropTarget && hover ? 'Drop here' : 'Empty'}</p>
           </div>
         ) : (
-          items.map((app, i) => (
-            <ApplicationCard
-              key={i}
-              app={app}
-              spawns={spawns}
-              onTailorCV={() => onTailorCV(app)}
-              onDraftApp={() => onDraftApp(app)}
-              onPrepInt={() => onPrepInt(app)}
-              onViewReport={() => onViewReport(app)}
-            />
-          ))
+          items.map((app, i) => {
+            const isDragging = dragging?.company === app.company && dragging?.role === app.role
+            return (
+              <ApplicationCard
+                key={i}
+                app={app}
+                spawns={spawns}
+                isDragging={isDragging}
+                onDragStart={() => onDragStart(app)}
+                onDragEnd={onDragEnd}
+                onTailorCV={() => onTailorCV(app)}
+                onDraftApp={() => onDraftApp(app)}
+                onPrepInt={() => onPrepInt(app)}
+                onRemove={() => onRemove(app)}
+                onViewReport={() => onViewReport(app)}
+              />
+            )
+          })
         )}
       </div>
     </div>
   )
 }
 
-function ApplicationCard({ app, spawns, onTailorCV, onDraftApp, onPrepInt, onViewReport }: {
+function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTailorCV, onDraftApp, onPrepInt, onRemove, onViewReport }: {
   app: ApplicationEntry
   spawns: Record<string, SpawnRecord>
+  isDragging: boolean
+  onDragStart: () => void
+  onDragEnd: () => void
   onTailorCV: () => void
   onDraftApp: () => void
   onPrepInt:  () => void
+  onRemove:   () => void
   onViewReport: () => void
 }) {
   const urgency = deadlineUrgency(app.deadline)
@@ -294,8 +358,34 @@ function ApplicationCard({ app, spawns, onTailorCV, onDraftApp, onPrepInt, onVie
   const prepRunning   = spawns[PER_APP_INTERVIEW]?.status === 'running' && spawns[PER_APP_INTERVIEW]?.label.includes(app.company)
 
   return (
-    <div className="p-2.5 rounded-md bg-bg-elevated border border-border-default hover:border-border-strong transition-colors">
-      <div className="flex items-start gap-2">
+    <div
+      draggable
+      onDragStart={(e) => {
+        // Native drag needs *some* dataTransfer payload to fire drop events
+        // reliably across platforms — Electron on macOS otherwise silently
+        // ignores the drop. The actual move target comes from React state.
+        e.dataTransfer.effectAllowed = 'move'
+        try { e.dataTransfer.setData('text/plain', `${app.company}|${app.role}`) } catch { /* noop */ }
+        onDragStart()
+      }}
+      onDragEnd={onDragEnd}
+      className={cn(
+        'group relative p-2.5 rounded-md bg-bg-elevated border border-border-default hover:border-border-strong transition-colors cursor-grab active:cursor-grabbing',
+        isDragging && 'opacity-40',
+      )}
+    >
+      {/* Remove button — top-right, fades in on hover. Confirms before
+          marking the row Discarded so the card can't disappear by accident. */}
+      <button
+        onClick={(e) => { e.stopPropagation(); onRemove() }}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Remove from applying batch"
+        aria-label="Remove from applying batch"
+        className="absolute top-1 right-1 p-1 rounded text-text-4 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition-all"
+      >
+        <X size={11} />
+      </button>
+      <div className="flex items-start gap-2 pr-5">
         <CompanyLogo company={app.company} size={24} className="shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
           <div className="text-[12px] text-text-1 font-medium truncate leading-tight">{app.company}</div>
