@@ -392,6 +392,12 @@ export function RolesTab() {
   }, [roles, baselineRoles, setConfigDirty])
   useEffect(() => () => setConfigDirty('roles', 'roles-primary', false), [setConfigDirty])
 
+  const registerSaveHandler = useConfigDirty(s => s.registerSaveHandler)
+  useEffect(() => {
+    registerSaveHandler('roles-primary', handleSave)
+    return () => registerSaveHandler('roles-primary', null)
+  })
+
   const addRole = (role: string) => {
     const r = role.trim()
     if (r && !roles.includes(r)) setRoles(prev => [...prev, r])
@@ -549,6 +555,12 @@ function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
   useEffect(() => { setConfigDirty('roles', 'roles-dreams', dirty) }, [dirty, setConfigDirty])
   useEffect(() => () => setConfigDirty('roles', 'roles-dreams', false), [setConfigDirty])
 
+  const registerSaveHandler = useConfigDirty(s => s.registerSaveHandler)
+  useEffect(() => {
+    registerSaveHandler('roles-dreams', handleSave)
+    return () => registerSaveHandler('roles-dreams', null)
+  })
+
   const add = () => {
     const v = input.trim()
     if (v && !names.some(n => n.toLowerCase() === v.toLowerCase())) {
@@ -673,6 +685,12 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
   const dirty = JSON.stringify(extractPreferredCities(raw)) !== JSON.stringify(cities)
   useEffect(() => { setConfigDirty('roles', 'roles-locations', dirty) }, [dirty, setConfigDirty])
   useEffect(() => () => setConfigDirty('roles', 'roles-locations', false), [setConfigDirty])
+
+  const registerSaveHandler = useConfigDirty(s => s.registerSaveHandler)
+  useEffect(() => {
+    registerSaveHandler('roles-locations', handleSave)
+    return () => registerSaveHandler('roles-locations', null)
+  })
 
   const add = () => {
     const v = input.trim()
@@ -847,6 +865,24 @@ export function PortalsTab() {
     setConfigDirty('portals', 'portals-lang', false)
     setConfigDirty('portals', 'portals-raw', false)
   }, [setConfigDirty])
+
+  // PortalsTab has one Save button covering all three dirty sources
+  // (keywords / lang / raw). Register the same handler under each
+  // sourceId so the modal's saveAll picks it up regardless of which
+  // section was edited — saveAll dedups internally by walking the dirty
+  // set, but since handleSave persists everything, we want all three to
+  // resolve to the same one-shot save.
+  const registerSaveHandler = useConfigDirty(s => s.registerSaveHandler)
+  useEffect(() => {
+    registerSaveHandler('portals-keywords', handleSave)
+    registerSaveHandler('portals-lang',     handleSave)
+    registerSaveHandler('portals-raw',      handleSave)
+    return () => {
+      registerSaveHandler('portals-keywords', null)
+      registerSaveHandler('portals-lang',     null)
+      registerSaveHandler('portals-raw',      null)
+    }
+  })
 
   const filteredCompanies = useMemo(() => {
     const q = companySearch.toLowerCase()

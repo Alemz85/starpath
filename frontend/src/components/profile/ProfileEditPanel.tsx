@@ -237,6 +237,7 @@ export function ProfileEditPanel() {
   // diffForms helper that handleSave uses to compute the LLM patch — one
   // source of truth for "did anything change since last save".
   const setDirty = useConfigDirty(s => s.setDirty)
+  const registerSaveHandler = useConfigDirty(s => s.registerSaveHandler)
   useEffect(() => {
     setDirty('identity', 'identity-form', diffForms(baseline, form).length > 0)
   }, [baseline, form, setDirty])
@@ -297,6 +298,16 @@ export function ProfileEditPanel() {
     setTimeout(() => setSavedAt(null), 2500)
     await refresh()
   }
+
+  // Register handleSave with the configDirty store so the
+  // ConfigurationView's "Save and switch" modal button can call it. Re-
+  // registering on every render is cheap (Map.set with the same key) and
+  // ensures the store always holds the latest closure — which captures
+  // the current `form` state.
+  useEffect(() => {
+    registerSaveHandler('identity-form', handleSave)
+    return () => registerSaveHandler('identity-form', null)
+  })
 
   const justSaved = savedAt != null
 
