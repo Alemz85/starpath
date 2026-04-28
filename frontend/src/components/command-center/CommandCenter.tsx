@@ -25,14 +25,38 @@ const PIPELINE_ALL_ID    = 'cmd-pipeline-all'
 // command (so the skill router still loads modes/pipeline.md), but the
 // per-button qualifier in the body changes Claude's behaviour: just filter,
 // top-N reports, or full reports for everything.
+// Three pipeline-mode prompts that share `/career-ops pipeline` (so the skill
+// router still loads modes/pipeline.md) but trade off depth-vs-cost via the
+// per-button qualifier in the body. Cost rough order:
+//   FILTER ≈ 2k tokens / listing  (dimensional eval, no prose report)
+//   TOP    ≈ 2k for non-top + 6–8k for top 8 prose reports
+//   ALL    ≈ 6–8k tokens / listing (full prose for every passing URL)
+
 const FILTER_PROMPT =
-  '/career-ops pipeline — FILTER ONLY mode. For each pending URL in data/pipeline.md: fetch the JD, extract metadata (title, company, role, location, salary range, employment type, JD URL, archetype guess), apply user/portals.yml filters, dedup against data/scan-history.tsv and data/applications.md. If passes: append a Tier 4 observation row to data/scouting.md with the metadata in the notes column. Do NOT generate per-listing reports under reports/. Do NOT run modes/scouting.md or modes/oferta.md per URL. Mark each processed URL as [x] in pipeline.md. Update data/scan-history.tsv with scan_dates. This is the cheap inventory-only path.'
+  '/career-ops pipeline — FILTER + DIMENSIONAL SCORE mode. For each pending URL in data/pipeline.md: ' +
+  '(1) Fetch the JD via Playwright/WebFetch, apply user/portals.yml filters, dedup against data/scan-history.tsv and data/applications.md. ' +
+  '(2) For passing entries run the FULL DIMENSIONAL SCORING per modes/scouting.md — all 10 dimensions (Skills Match, Ease of Entry, Strategic Fit, Current Fit, Growth/Mobility, Optionality/Exit, Brand Value, Sales-Trap Risk, Aspirational Fit, Overall) with one short sentence of reasoning per dimension. Classify into Tier T1/T2/T3/T4 based on the resulting score. ' +
+  '(3) Write the row to data/scouting.md with the proper tier, score, CF/AF, and a one-line summary in the notes column. Append the full dimensional row to data/score-history.tsv. ' +
+  '(4) **CRITICAL**: do NOT write any per-listing prose report file under reports/. Do NOT write the long-form Fit/Gaps/Verdict narrative or the oferta Block C–F prose. The dimensional table + tier + one-line note in scouting.md is the entire output for this path. ' +
+  '(5) Mark each processed URL as [x] in pipeline.md. Update data/scan-history.tsv with scan_dates. ' +
+  'Goal: every passing listing ends up in the Database with a real score the user can sort by, while saving the heavy prose-report tokens for entries the user explicitly decides to deep-dive on later.'
 
 const TOP_REPORTS_PROMPT =
-  '/career-ops pipeline — TOP REPORTS mode. (1) Filter every pending URL: extract metadata, apply user/portals.yml filters, dedup against scan-history.tsv and applications.md. (2) For EVERY filtered entry, run the FULL evaluation per user/profile.yml current_mode (modes/scouting.md if scouting, modes/oferta.md if applying) — same depth as a normal eval. Write the proper score + tier (T1/T2-high/T2/T3/T4) into data/scouting.md and append to data/score-history.tsv. (3) After scoring, identify the 8 highest-scoring entries. (4) For those 8 ONLY: ALSO write the per-listing report markdown under reports/tier-N/{Company} - {Role}.md. (5) The remaining entries are fully scored in scouting.md but with no per-listing report file — the user can promote them later via the database "Generate Report" action. (6) Mark all processed URLs as [x] in pipeline.md.'
+  '/career-ops pipeline — TOP REPORTS mode. ' +
+  '(1) Filter every pending URL: fetch the JD, apply user/portals.yml filters, dedup against scan-history.tsv and applications.md. ' +
+  '(2) For EVERY filtered entry run the FULL DIMENSIONAL SCORING per modes/scouting.md (all 10 dimensions with brief per-dimension reasoning, tier classification T1/T2/T3/T4). Write scouting.md row + score-history.tsv row. **No per-listing prose report file** for entries at this stage — they land in the Database with a score and tier only. ' +
+  '(3) After all entries are scored, identify the 8 highest-scoring entries. ' +
+  '(4) For those 8 ONLY: ALSO write the full per-listing prose report under reports/tier-N/{Company} - {Role}.md per user/profile.yml current_mode (modes/scouting.md short-summary or full report depending on tier; modes/oferta.md A–H if current_mode is applying). ' +
+  '(5) The remaining (non-top) entries STAY scored in scouting.md but have NO prose report file — the user can promote them later via the Database "Generate report" action. ' +
+  '(6) Mark all processed URLs as [x] in pipeline.md. ' +
+  'Goal: substantial token saving vs ALL REPORTS by skipping the multi-paragraph prose for entries that don\'t make the top cut, while still giving every entry a sortable score in the Database.'
 
 const ALL_REPORTS_PROMPT =
-  '/career-ops pipeline — ALL REPORTS mode. For every pending URL in data/pipeline.md that passes user/portals.yml filters, run the full evaluation per user/profile.yml current_mode (modes/scouting.md or modes/oferta.md) and generate the per-listing report under reports/tier-N/. Process in parallel where safe. Mark URLs as [x] in pipeline.md.'
+  '/career-ops pipeline — ALL REPORTS mode. ' +
+  '(1) Filter every pending URL: fetch the JD, apply user/portals.yml filters, dedup. ' +
+  '(2) For EVERY passing entry run the FULL evaluation per user/profile.yml current_mode (modes/scouting.md if scouting, modes/oferta.md if applying): full dimensional scoring AND the full per-listing prose report under reports/tier-N/{Company} - {Role}.md. Write scouting.md row + score-history.tsv row + the report file. ' +
+  '(3) Process in parallel where safe. ' +
+  '(4) Mark URLs as [x] in pipeline.md.'
 
 const LOADING_MESSAGES = [
   'Sneaking past the careers-page bouncer…',
