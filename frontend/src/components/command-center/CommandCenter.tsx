@@ -11,7 +11,7 @@ import { StatCard } from './StatCard'
 import {
   BarChart2, Inbox, Target, Radar, Calendar,
   Play, Zap, FileOutput, Filter, Sparkles, FileStack, Square, ArrowRight,
-  ChevronDown,
+  ChevronDown, Check,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
@@ -375,8 +375,6 @@ function ScoutingActionPanel({
         ]}
       />
 
-      <ScanModelHint />
-
       {/* Activity is now exclusively on the Scan tab. When something is
           running anywhere, surface a quiet pointer so the user knows where
           to go for the live log. */}
@@ -429,40 +427,35 @@ function ModelChip() {
             : 'border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong',
         )}
       >
-        <span className="text-text-4 font-mono uppercase tracking-wider text-[9.5px]">Pipeline</span>
+        <span className="text-text-4 text-[12px]">Model:</span>
         <span className="font-semibold">{current.label}</span>
         <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
         <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[180px] rounded-lg border border-border-default bg-bg-base shadow-card overflow-hidden">
-          {options.map(o => (
-            <button
-              key={o.id}
-              onClick={() => { setModel('pipeline', o.id); setOpen(false) }}
-              className={cn(
-                'w-full flex items-center justify-between gap-3 px-3 py-2 text-[12px] text-left transition-colors',
-                o.id === pipeline
-                  ? 'bg-accent/8 text-text-1'
-                  : 'text-text-2 hover:bg-bg-elevated hover:text-text-1',
-              )}
-            >
-              <span className="font-medium">{o.label}</span>
-              <span className="text-[10.5px] text-text-4">{o.tag}</span>
-            </button>
-          ))}
+          {options.map(o => {
+            const isSelected = o.id === pipeline
+            return (
+              <button
+                key={o.id}
+                onClick={() => { setModel('pipeline', o.id); setOpen(false) }}
+                className={cn(
+                  'w-full flex items-center gap-3 px-3 py-2 text-[12px] text-left transition-colors',
+                  isSelected
+                    ? 'bg-accent/20 text-accent-text'
+                    : 'text-text-2 hover:bg-bg-elevated hover:text-text-1',
+                )}
+              >
+                <span className="font-medium">{o.label}</span>
+                <span className={cn('text-[10.5px]', isSelected ? 'text-accent-text/80' : 'text-text-4')}>{o.tag}</span>
+                <span className="ml-auto inline-flex items-center w-3 shrink-0">
+                  {isSelected && <Check size={11} />}
+                </span>
+              </button>
+            )
+          })}
         </div>
       )}
-    </div>
-  )
-}
-
-function ScanModelHint() {
-  const pipeline = useAppStore(s => s.models.pipeline)
-  return (
-    <div className="shrink-0 -mt-1 text-center text-[10.5px] text-text-4 leading-relaxed">
-      Full Scan: <span className="font-mono text-text-3">Sonnet</span> ·
-      {' '}Pipeline buttons: <span className="font-mono text-text-3 capitalize">{pipeline}</span> (change above) ·
-      {' '}Per-listing actions (Tailor CV / Draft / Prep): <span className="font-mono text-text-3">Opus</span>
     </div>
   )
 }
