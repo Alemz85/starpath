@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
 import { X, FileText, Database as DatabaseIcon, ExternalLink } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
@@ -164,15 +164,24 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               View in Database
             </button>
           )}
-          {scoreEntry.source && /^https?:\/\//i.test(scoreEntry.source) && (
-            <button
-              onClick={() => ipc.openExternal(scoreEntry.source)}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
-            >
-              <ExternalLink size={11} />
-              Open URL
-            </button>
-          )}
+          {/* URL pill — prefer scoreEntry.url; fall back to extracting
+              **URL:** from the loaded report markdown for orphan reports
+              that don't have a matching score-history row. */}
+          {(() => {
+            const url =
+              (scoreEntry.url && /^https?:\/\//i.test(scoreEntry.url) && scoreEntry.url) ||
+              (content ? (content.match(/^\*\*URL:\*\*\s*(\S+)/im)?.[1] ?? '') : '')
+            if (!url || !/^https?:\/\//i.test(url)) return null
+            return (
+              <button
+                onClick={() => ipc.openExternal(url)}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
+              >
+                <ExternalLink size={11} />
+                Open URL
+              </button>
+            )
+          })()}
           <div className="flex-1" />
           <FilesStrip company={company} role={role} size="md" />
         </div>
@@ -207,19 +216,24 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
 // older / custom report formats still render readably. ──────────────────────
 
 function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
-  const { before, dims, after } = parseDimensionalScoring(content)
-  if (!dims) {
+  // Parse once per content change, not on every render. The slide-over
+  // re-renders frequently (animation flag, parent state) and the regex /
+  // line-walk parsers were running every time, causing a visible flicker.
+  const parsed = useMemo(() => {
+    const { before, dims, after } = parseDimensionalScoring(content)
+    if (!dims) return { dims: null as ParsedDimensions | null, before: '', after: '', meta: [] as Array<{ key: string; value: string }>, beforeWithoutMeta: '' }
+    const { meta, rest: beforeWithoutMeta } = extractMetadata(before)
+    return { dims, before, after, meta, beforeWithoutMeta }
+  }, [content])
+
+  if (!parsed.dims) {
     return (
       <div className="prose-report">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
       </div>
     )
   }
-  // Pull the **Key:** value lines out of the head so they render as a clean
-  // grid above the hero rather than as a wrapping paragraph. URL is dropped
-  // (the slide-over header has its own URL pill) and the score-y fields are
-  // dropped (already shown in the hero / section rollups / slide-over header).
-  const { meta, rest: beforeWithoutMeta } = extractMetadata(before)
+  const { dims, after, meta, beforeWithoutMeta } = parsed
   return (
     <>
       <div className="prose-report">
