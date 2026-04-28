@@ -195,14 +195,266 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               <p className="text-label">{error}</p>
             </div>
           )}
-          {content && (
-            <div className="prose-report">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-            </div>
-          )}
+          {content && <ReportBody content={content} tier={tierKey} />}
         </div>
       </div>
     </>
+  )
+}
+
+// ─── Report body — promotes the dimensional-scoring table into a hero +
+// grouped sections. Falls back to plain markdown when parsing fails so
+// older / custom report formats still render readably. ──────────────────────
+
+function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
+  const { before, dims, after } = parseDimensionalScoring(content)
+  if (!dims) {
+    return (
+      <div className="prose-report">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    )
+  }
+  return (
+    <>
+      <div className="prose-report">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{before}</ReactMarkdown>
+      </div>
+      <DimensionalScoring dims={dims} tier={tier} />
+      {after && (
+        <div className="prose-report">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{after}</ReactMarkdown>
+        </div>
+      )}
+    </>
+  )
+}
+
+interface DimensionRow {
+  label: string
+  score: string
+  reasoning: string
+}
+interface ParsedDimensions {
+  overall: { score: string } | null
+  currentFit: { rollup: string; rows: DimensionRow[] }
+  aspirationalFit: { rollup: string; rows: DimensionRow[] }
+  context: { rows: DimensionRow[] }
+}
+
+// Split the markdown around the "## Dimensional scoring" section, parse the
+// table inside it, and categorise the rows. Phase walks: rows before the
+// Current Fit rollup → CF dimensions; between CF rollup and AF rollup → AF
+// dimensions; after Overall → context. Rows tagged `(context)` are routed
+// to the context group regardless of position. The arithmetic on rollup /
+// Overall rows is intentionally discarded — section grouping replaces it.
+function parseDimensionalScoring(md: string): {
+  before: string
+  dims: ParsedDimensions | null
+  after: string
+} {
+  const headingRe = /^##\s+Dimensional\s+scoring\s*$/im
+  const m = headingRe.exec(md)
+  if (!m) return { before: md, dims: null, after: '' }
+
+  const before = md.slice(0, m.index)
+  const rest = md.slice(m.index + m[0].length)
+
+  const nextHeadingRe = /\n##\s+\S/m
+  const nextMatch = nextHeadingRe.exec(rest)
+  const tableSection = nextMatch ? rest.slice(0, nextMatch.index) : rest
+  const after = nextMatch ? rest.slice(nextMatch.index + 1) : ''
+
+  const tableLines = tableSection
+    .split('\n')
+    .filter(l => l.trim().startsWith('|'))
+    .filter(l => !/^\s*\|[\s|:-]+\|\s*$/.test(l))
+
+  if (tableLines.length < 2) return { before: md, dims: null, after: '' }
+
+  const rows = tableLines.slice(1).map(parseRow).filter(Boolean) as Array<{
+    label: string
+    score: string
+    reasoning: string
+    tag: 'rollup' | 'signal' | 'context' | null
+  }>
+
+  const dims: ParsedDimensions = {
+    overall: null,
+    currentFit:      { rollup: '', rows: [] },
+    aspirationalFit: { rollup: '', rows: [] },
+    context:         { rows: [] },
+  }
+
+  type Phase = 'cf' | 'af' | 'post-overall'
+  let phase: Phase = 'cf'
+
+  for (const row of rows) {
+    const labelLower = row.label.toLowerCase()
+
+    if (labelLower === 'overall' || labelLower.startsWith('overall ')) {
+      dims.overall = { score: row.score }
+      phase = 'post-overall'
+      continue
+    }
+    if (row.tag === 'rollup' && labelLower.startsWith('current fit')) {
+      dims.currentFit.rollup = row.score
+      phase = 'af'
+      continue
+    }
+    if (row.tag === 'rollup' && labelLower.startsWith('aspirational fit')) {
+      dims.aspirationalFit.rollup = row.score
+      continue
+    }
+    if (row.tag === 'context' || phase === 'post-overall') {
+      dims.context.rows.push({ label: row.label, score: row.score, reasoning: row.reasoning })
+      continue
+    }
+
+    const dimRow: DimensionRow = { label: row.label, score: row.score, reasoning: row.reasoning }
+    if (phase === 'cf') dims.currentFit.rows.push(dimRow)
+    else                dims.aspirationalFit.rows.push(dimRow)
+  }
+
+  // Sanity: if we found no group rows at all, abort and fall back.
+  if (
+    !dims.overall &&
+    dims.currentFit.rows.length === 0 &&
+    dims.aspirationalFit.rows.length === 0 &&
+    dims.context.rows.length === 0
+  ) {
+    return { before: md, dims: null, after: '' }
+  }
+
+  return { before, dims, after }
+}
+
+function parseRow(line: string) {
+  // "| a | b | c |" → ['', ' a ', ' b ', ' c ', ''] → ['a','b','c']
+  const cells = line.split('|').slice(1, -1).map(c => c.trim())
+  if (cells.length < 2) return null
+  let [label, score, reasoning = ''] = cells
+  // Strip surrounding markdown bold (whole-cell only — keeps inline emphasis)
+  label = label.replace(/^\*\*(.+)\*\*$/, '$1').trim()
+  score = score.replace(/^\*\*(.+)\*\*$/, '$1').trim()
+  // Strip "/N" suffix (handles both 1–10 and the old 1–5 reports)
+  score = score.replace(/\s*\/\s*\d+\s*$/, '').trim()
+  // Detect and strip the trailing parenthetical tag
+  const tagMatch = label.match(/\(\s*(rollup|signal|context)\s*\)\s*$/i)
+  const tag = tagMatch ? (tagMatch[1].toLowerCase() as 'rollup' | 'signal' | 'context') : null
+  const cleanLabel = label.replace(/\s*\(\s*(rollup|signal|context)\s*\)\s*$/i, '').trim()
+  return { label: cleanLabel, score, reasoning, tag }
+}
+
+function tierHex(t: TierKey): string {
+  switch (t) {
+    case 'T1':      return '#3D2BB5'
+    case 'T2-high':
+    case 'T2':      return '#7C5CFF'
+    case 'T3':      return '#A89CD9'
+    default:        return '#94A3B8'
+  }
+}
+
+function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: TierKey }) {
+  const heroColor = tierHex(tier)
+  return (
+    <div className="my-5 space-y-6">
+      {dims.overall && (
+        <div
+          className="relative rounded-2xl px-6 py-7 text-center overflow-hidden"
+          style={{
+            background: `linear-gradient(135deg, ${heroColor}1F 0%, ${heroColor}0A 100%)`,
+            border: `1px solid ${heroColor}33`,
+          }}
+        >
+          <div className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-text-4 mb-2">
+            Overall
+          </div>
+          <div
+            className="font-mono font-bold tabular-nums leading-none"
+            style={{
+              fontSize: '52px',
+              color: heroColor,
+              textShadow: `0 0 28px ${heroColor}55`,
+            }}
+          >
+            {dims.overall.score}
+          </div>
+        </div>
+      )}
+
+      {dims.currentFit.rows.length > 0 && (
+        <DimensionGroup
+          title="Current Fit"
+          rollup={dims.currentFit.rollup}
+          rows={dims.currentFit.rows}
+        />
+      )}
+      {dims.aspirationalFit.rows.length > 0 && (
+        <DimensionGroup
+          title="Aspirational Fit"
+          rollup={dims.aspirationalFit.rollup}
+          rows={dims.aspirationalFit.rows}
+        />
+      )}
+      {dims.context.rows.length > 0 && (
+        <DimensionGroup title="Context" rows={dims.context.rows} />
+      )}
+    </div>
+  )
+}
+
+function DimensionGroup({
+  title,
+  rollup,
+  rows,
+}: {
+  title: string
+  rollup?: string
+  rows: DimensionRow[]
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3 pb-1.5 mb-2 border-b border-border-default">
+        <h3 className="text-[13.5px] font-semibold text-text-1">{title}</h3>
+        {rollup && (
+          <span className="text-[17px] font-mono font-semibold tabular-nums text-text-2 leading-none">
+            {rollup}
+          </span>
+        )}
+      </div>
+      <div className="divide-y divide-border-default/60">
+        {rows.map((row, i) => {
+          const isText = !/^\d/.test(row.score)
+          return (
+            <div key={i} className="py-2">
+              <div className="flex items-baseline gap-3">
+                <div className="flex-1 min-w-0 text-[13px] text-text-1 font-medium">
+                  {row.label}
+                </div>
+                <div
+                  className={cn(
+                    'shrink-0 font-mono tabular-nums text-right',
+                    isText
+                      ? 'text-[13px] text-text-4'
+                      : 'text-[14px] font-semibold text-text-1',
+                  )}
+                  style={{ minWidth: '2.5em' }}
+                >
+                  {row.score || '—'}
+                </div>
+              </div>
+              {row.reasoning && row.reasoning !== '—' && (
+                <div className="text-[11.5px] text-text-3 leading-snug mt-1 pr-12">
+                  {row.reasoning}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
