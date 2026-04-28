@@ -100,6 +100,7 @@ export interface DbScoreHistoryRow {
   mode: string; company: string; role: string; tier: string
   source: string; location: string; employment_type: string
   duration: string; salary_raw: string
+  url: string
 }
 
 export interface DbPipelineRow {
@@ -108,6 +109,7 @@ export interface DbPipelineRow {
 
 export interface DbReportRow {
   path: string; company: string; role: string; tier: string; mtime: number
+  url: string
   overall: number | null; current_fit: number | null; aspirational_fit: number | null
 }
 

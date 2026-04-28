@@ -139,12 +139,14 @@ export function syncScoreHistory(db: Database.Database, repoPath: string): { cha
       date, archetype, skills_match, ease_of_entry, strategic_fit, current_fit,
       growth_mobility, optionality_exit, brand_value, sales_trap_risk, aspirational_fit,
       overall, best_cities, salary_adj_city, work_life_balance, best_fit_roles,
-      mode, company, role, tier, source, location, employment_type, duration, salary_raw
+      mode, company, role, tier, source, location, employment_type, duration, salary_raw,
+      url
     ) VALUES (
       @date, @archetype, @skills_match, @ease_of_entry, @strategic_fit, @current_fit,
       @growth_mobility, @optionality_exit, @brand_value, @sales_trap_risk, @aspirational_fit,
       @overall, @best_cities, @salary_adj_city, @work_life_balance, @best_fit_roles,
-      @mode, @company, @role, @tier, @source, @location, @employment_type, @duration, @salary_raw
+      @mode, @company, @role, @tier, @source, @location, @employment_type, @duration, @salary_raw,
+      @url
     )
   `)
 
@@ -194,7 +196,7 @@ export function syncReports(db: Database.Database, repoPath: string): { changed:
     return { changed: true, rows: 0 }
   }
 
-  const seen: Array<{ path: string; mtime: number; company: string; role: string; tier: string }> = []
+  const seen: Array<{ path: string; mtime: number; company: string; role: string; tier: string; url: string }> = []
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const fp = path.join(dir, entry.name)
@@ -205,7 +207,11 @@ export function syncReports(db: Database.Database, repoPath: string): { changed:
         if (!parsed) continue
         const mt = statMtime(fp)
         if (mt == null) continue
-        seen.push({ path: rel, mtime: mt, company: parsed.company, role: parsed.role, tier: parsed.tier })
+        // Pull URL from the report's `**URL:** ...` header line. Reports are
+        // small; reading them at sync time is cheap and gives us the stable
+        // join key against score_history.url.
+        const url = extractUrl(read(fp) ?? '')
+        seen.push({ path: rel, mtime: mt, company: parsed.company, role: parsed.role, tier: parsed.tier, url })
       }
     }
   }
@@ -217,8 +223,8 @@ export function syncReports(db: Database.Database, repoPath: string): { changed:
   const existingMap = new Map(existing.map(r => [r.path, r.mtime]))
 
   const upsert = db.prepare(`
-    INSERT OR REPLACE INTO reports_index (path, company, role, tier, mtime)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT OR REPLACE INTO reports_index (path, company, role, tier, url, mtime)
+    VALUES (?, ?, ?, ?, ?, ?)
   `)
   const del = db.prepare(`DELETE FROM reports_index WHERE path = ?`)
 
@@ -226,7 +232,7 @@ export function syncReports(db: Database.Database, repoPath: string): { changed:
   const tx = db.transaction(() => {
     for (const r of seen) {
       if (existingMap.get(r.path) !== r.mtime) {
-        upsert.run(r.path, r.company, r.role, r.tier, r.mtime)
+        upsert.run(r.path, r.company, r.role, r.tier, r.url, r.mtime)
         touched++
       }
       existingMap.delete(r.path)
@@ -239,6 +245,42 @@ export function syncReports(db: Database.Database, repoPath: string): { changed:
   tx()
 
   return { changed: touched > 0, rows: seen.length }
+}
+
+// Backfill score_history.url for legacy rows that pre-date the column.
+// The match is on `(company, role)` against reports_index — for rows where
+// the score-history TSV was written before url was added but a matching
+// report markdown does have a URL header. Cheap: runs once after each sync.
+function backfillScoreHistoryUrls(db: Database.Database): void {
+  db.exec(`
+    UPDATE score_history AS s
+    SET url = (
+      SELECT r.url FROM reports_index r
+      WHERE r.url <> ''
+        AND LOWER(TRIM(r.company)) = LOWER(TRIM(s.company))
+        AND (
+          LOWER(TRIM(r.role)) = LOWER(TRIM(s.role))
+          OR LOWER(TRIM(r.role)) LIKE LOWER(TRIM(s.role)) || '%'
+          OR LOWER(TRIM(s.role)) LIKE LOWER(TRIM(r.role)) || '%'
+        )
+      LIMIT 1
+    )
+    WHERE s.url = ''
+      AND EXISTS (
+        SELECT 1 FROM reports_index r
+        WHERE r.url <> ''
+          AND LOWER(TRIM(r.company)) = LOWER(TRIM(s.company))
+      )
+  `)
+}
+
+// Pull "**URL:** https://..." out of a report's body. The colon may be
+// followed by any whitespace; the URL ends at the first whitespace.
+function extractUrl(text: string): string {
+  const m = text.match(/^\*\*URL:\*\*\s*(\S+)/im)
+  if (!m) return ''
+  const u = m[1].trim()
+  return /^https?:\/\//i.test(u) ? u : ''
 }
 
 // ─── Public entry points ──────────────────────────────────────────────────────
@@ -257,6 +299,10 @@ export function syncAll(db: Database.Database, repoPath: string, opts: { force?:
   const scores  = syncScoreHistory(db, repoPath)
   const pipe    = syncPipeline(db, repoPath)
   const reports = syncReports(db, repoPath)
+
+  // Reports may have been synced after score_history; backfill URLs from
+  // report markdown for any legacy score-history rows that lack one.
+  if (scores.changed || reports.changed) backfillScoreHistoryUrls(db)
 
   return { applications: apps, scouting: scout, scoreHistory: scores, pipeline: pipe, reports }
 }
