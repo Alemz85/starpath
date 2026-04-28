@@ -16,6 +16,15 @@
 # ─── Title filter ────────────────────────────────────────────────────────────
 # At least 1 positive must match AND 0 negatives must match (case-insensitive).
 
+search_templates:
+  roles_default: '"Analyst" OR "Operations" OR "Strategy" OR "Graduate" OR "Intern" OR "Working Student"'
+  roles_tech_sales: '"Solutions Consultant" OR "Customer Engineer" OR "Sales Engineer" OR "Pre-Sales" OR "Tech Sales" OR "Sales"'
+  roles_analytics: '"Business Analyst" OR "Data Analyst" OR "Analytics"'
+  roles_consulting: '"Technology Consulting" OR "Digital Transformation" OR "Consulting"'
+  loc_europe: 'Europe OR London OR Amsterdam OR Dublin OR Barcelona OR Madrid'
+  loc_uk_ire: 'Dublin OR London'
+  loc_dach_nordics: 'Copenhagen OR Berlin OR Munich OR Amsterdam'
+
 title_filter:
   # Job titles that indicate a match. Derive these from the archetypes
   # in your profile.yml — common variations and abbreviations included.
@@ -132,11 +141,11 @@ lang_blocklist: []
 
 search_queries:
   - name: Greenhouse — Strategy & Operations
-    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "Strategy" OR "Operations" "Analyst" OR "Associate"'
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io {{roles_default}}'
     enabled: true
 
   - name: Greenhouse — Business / Data Analyst
-    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "Business Analyst" OR "Data Analyst"'
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io {{roles_analytics}}'
     enabled: true
 
   - name: Ashby — Analytics
@@ -144,7 +153,7 @@ search_queries:
     enabled: true
 
   - name: Lever — Strategy & Ops
-    query: 'site:jobs.lever.co "Strategy" OR "Operations" "Analyst" OR "Associate"'
+    query: 'site:jobs.lever.co {{roles_default}}'
     enabled: true
 
 # ─── Tracked companies ───────────────────────────────────────────────────────
@@ -191,6 +200,6 @@ tracked_companies:
   - name: Stripe
     careers_url: https://stripe.com/jobs
     scan_method: websearch
-    scan_query: 'site:stripe.com/jobs "Analyst" OR "Operations" OR "Strategy" OR "Solutions"'
+    scan_query: 'site:stripe.com/jobs {{roles_default}} OR "Solutions"'
     notes: "Proprietary portal — no public API. Websearch fallback."
     enabled: true
