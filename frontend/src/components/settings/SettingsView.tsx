@@ -227,6 +227,18 @@ function GeneralTab() {
   const { repoPath, setRepoPath, currentMode, setMode, models, setModel, resetTailoring } = useAppStore()
   const { refresh } = useDataStore()
 
+  const MODEL_ROWS: Array<{
+    key: 'pipeline' | 'tailorCv' | 'draftApp' | 'interviewPrep' | 'generateReport'
+    label: string
+    sub: string
+  }> = [
+    { key: 'pipeline',       label: 'Pipeline buttons',       sub: 'Filter to Database · Generate Top Reports · Generate All Reports. Also editable via the Model chip on the Scouting cockpit.' },
+    { key: 'tailorCv',       label: 'Tailor CV',              sub: 'Per-listing CV regeneration on the Applying tab (modes/pdf.md).' },
+    { key: 'draftApp',       label: 'Draft Application',      sub: 'Per-listing form-fill draft on the Applying tab (modes/apply.md).' },
+    { key: 'interviewPrep',  label: 'Prep Interview',         sub: 'Per-listing interview brief generation (modes/interview-prep.md).' },
+    { key: 'generateReport', label: 'Generate Report',        sub: 'Promote a Database row to a full per-listing prose report.' },
+  ]
+
   const changeRepo = async () => {
     const result = await ipc.selectFolder()
     if (result?.valid) { setRepoPath(result.path); await refresh() }
@@ -268,21 +280,28 @@ function GeneralTab() {
 
       <SettingRow
         title="Models"
-        description="Pick which Claude model handles each kind of work. Scanning is mostly tool-use and Sonnet handles it well; dimensional scoring + prose reports + tailored CVs benefit from Opus but can run on Sonnet to save tokens. Defaults: Sonnet for scan, Opus for everything else."
+        description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough. Full Scan always uses Sonnet (cheap tool-use)."
       >
-        <div className="space-y-3 mt-3">
-          <ModelChoice
-            label="Scan"
-            sub="Full Scan portal crawl"
-            value={models.scan}
-            onChange={m => setModel('scan', m)}
-          />
-          <ModelChoice
-            label="Reports & scoring"
-            sub="Filter / Top / All Reports, Tailor CV, Draft, Prep Interview, Generate Report"
-            value={models.eval}
-            onChange={m => setModel('eval', m)}
-          />
+        <div className="mt-3 divide-y divide-border-default border border-border-default rounded-md overflow-hidden">
+          {MODEL_ROWS.map(row => (
+            <div key={row.key} className="px-4 py-3">
+              <ModelChoice
+                label={row.label}
+                sub={row.sub}
+                value={models[row.key]}
+                onChange={(m) => setModel(row.key, m)}
+              />
+            </div>
+          ))}
+          <div className="px-4 py-3 bg-bg-elevated/50">
+            <ModelChoice
+              label="Full Scan"
+              sub="Locked to Sonnet — the scanner just hits Greenhouse / Ashby / Lever APIs, so Opus would be wasted."
+              value="sonnet"
+              onChange={() => {}}
+              disabled
+            />
+          </div>
         </div>
       </SettingRow>
 
@@ -933,18 +952,19 @@ function LoadingRows() {
   )
 }
 
-function ModelChoice({ label, sub, value, onChange }: {
+function ModelChoice({ label, sub, value, onChange, disabled = false }: {
   label: string
   sub: string
   value: 'sonnet' | 'opus' | 'haiku'
   onChange: (m: 'sonnet' | 'opus' | 'haiku') => void
+  disabled?: boolean
 }) {
   const options: Array<{ id: 'sonnet' | 'opus' | 'haiku'; name: string; tag: string }> = [
     { id: 'sonnet', name: 'Sonnet', tag: 'cheaper · fast' },
     { id: 'opus',   name: 'Opus',   tag: 'thorough'      },
   ]
   return (
-    <div className="flex items-start justify-between gap-6 py-1">
+    <div className={cn('flex items-start justify-between gap-6 py-1', disabled && 'opacity-60')}>
       <div className="min-w-0">
         <div className="text-label text-text-1 font-medium">{label}</div>
         <div className="text-[11px] text-text-4 leading-snug mt-0.5">{sub}</div>
@@ -953,14 +973,16 @@ function ModelChoice({ label, sub, value, onChange }: {
         {options.map(opt => (
           <button
             key={opt.id}
-            onClick={() => onChange(opt.id)}
+            onClick={() => !disabled && onChange(opt.id)}
+            disabled={disabled}
             className={cn(
               'px-3 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap',
               value === opt.id
                 ? 'bg-accent/20 text-accent-text'
                 : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
+              disabled && 'cursor-not-allowed hover:bg-transparent hover:text-text-3',
             )}
-            title={opt.tag}
+            title={disabled ? 'Locked' : opt.tag}
           >
             {opt.name}
           </button>

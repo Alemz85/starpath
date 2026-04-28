@@ -52,7 +52,13 @@ interface AppConfig {
   windowBounds?: { x: number; y: number; width: number; height: number }
   onboardingComplete?: boolean
   tailoringComplete?: boolean
-  models?: { scan: 'sonnet' | 'opus' | 'haiku'; eval: 'sonnet' | 'opus' | 'haiku' }
+  models?: {
+    pipeline:       'sonnet' | 'opus' | 'haiku'
+    tailorCv:       'sonnet' | 'opus' | 'haiku'
+    draftApp:       'sonnet' | 'opus' | 'haiku'
+    interviewPrep:  'sonnet' | 'opus' | 'haiku'
+    generateReport: 'sonnet' | 'opus' | 'haiku'
+  }
 }
 
 function readConfig(): AppConfig {
@@ -242,10 +248,22 @@ ipcMain.handle('app:set-models', (_e, models: unknown) => {
   const m = models as Record<string, unknown>
   const validModel = (v: unknown): v is 'sonnet' | 'opus' | 'haiku' =>
     v === 'sonnet' || v === 'opus' || v === 'haiku'
-  if (!validModel(m.scan) || !validModel(m.eval)) {
-    throw new Error('models.scan and models.eval must be one of sonnet | opus | haiku')
+  const fields = ['pipeline', 'tailorCv', 'draftApp', 'interviewPrep', 'generateReport'] as const
+  for (const f of fields) {
+    if (!validModel(m[f])) {
+      throw new Error(`models.${f} must be one of sonnet | opus | haiku`)
+    }
   }
-  writeConfig({ ...readConfig(), models: { scan: m.scan, eval: m.eval } })
+  writeConfig({
+    ...readConfig(),
+    models: {
+      pipeline:       m.pipeline       as 'sonnet' | 'opus' | 'haiku',
+      tailorCv:       m.tailorCv       as 'sonnet' | 'opus' | 'haiku',
+      draftApp:       m.draftApp       as 'sonnet' | 'opus' | 'haiku',
+      interviewPrep:  m.interviewPrep  as 'sonnet' | 'opus' | 'haiku',
+      generateReport: m.generateReport as 'sonnet' | 'opus' | 'haiku',
+    },
+  })
 })
 
 ipcMain.handle('app:select-folder', async () => {
