@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, Loader2 } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 
 interface ProfileForm {
@@ -10,8 +10,6 @@ interface ProfileForm {
   phone: string
   location: string
   linkedin: string
-  target_role_1: string
-  target_role_2: string
   comp_target: string
   comp_currency: string
 }
@@ -19,7 +17,7 @@ interface ProfileForm {
 export function StepProfile({ onComplete }: { onComplete: () => void }) {
   const [form, setForm] = useState<ProfileForm>({
     full_name: '', email: '', phone: '', location: '', linkedin: '',
-    target_role_1: '', target_role_2: '', comp_target: '', comp_currency: 'EUR',
+    comp_target: '', comp_currency: 'EUR',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -49,13 +47,11 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
     if (!canSave) return
     setSaving(true)
 
-    // Read existing profile.yml or scaffold a minimal one
     let raw = await ipc.readFile('user/profile.yml')
     if (!raw || raw.trim().length < 20) {
       raw = `candidate:\n  full_name: ""\n  email: ""\n  phone: ""\n  location: ""\n  linkedin: ""\n\ncurrent_mode: scouting\n\ncomp:\n  target_range: ""\n  currency: "EUR"\n\ntargeting:\n  roles: []\n  seniority: "Mid"\n  remote: "preferred"\n`
     }
 
-    // Update candidate fields
     const patch = (yaml: string, key: string, val: string) =>
       yaml.replace(new RegExp(`(  ${key}:\\s*)["']?[^"'\\n]*["']?`), `$1"${val}"`)
 
@@ -79,61 +75,93 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
     await ipc.writeFile('user/profile.yml', updated)
     setSaving(false)
     setSaved(true)
-    setTimeout(onComplete, 500)
+    setTimeout(onComplete, 600)
   }
 
-  const Field = ({ label, field, placeholder, type = 'text' }: {
-    label: string; field: keyof ProfileForm; placeholder: string; type?: string
+  const Field = ({
+    label, field, placeholder, type = 'text', required = false, hint,
+  }: {
+    label: string
+    field: keyof ProfileForm
+    placeholder: string
+    type?: string
+    required?: boolean
+    hint?: string
   }) => (
     <div>
-      <label className="block text-label text-text-3 mb-1">{label}</label>
+      <label className="flex items-baseline gap-1.5 mb-1.5">
+        <span className="text-[12px] text-text-2 font-medium">{label}</span>
+        {required && <span className="text-[10px] text-accent font-mono">required</span>}
+        {hint && !required && <span className="text-[10.5px] text-text-4">· {hint}</span>}
+      </label>
       <input
         type={type}
         value={form[field]}
         onChange={set(field)}
         placeholder={placeholder}
-        className="w-full px-3 h-9 bg-bg-base border border-border-default focus:border-accent focus:outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+        className="w-full px-3 h-9 bg-bg-base border border-border-default focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 rounded-md text-[13px] text-text-1 placeholder:text-text-4 transition-all"
       />
     </div>
   )
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-7">
       <div>
-        <h2 className="text-section text-text-1 mb-2">Your profile</h2>
-        <p className="text-body text-text-3">
-          Basic info used across evaluations, CVs, and outreach. You can update this any time from Settings.
+        <h2 className="text-[26px] font-semibold text-text-1 leading-tight mb-3">
+          Tell us about you
+        </h2>
+        <p className="text-[14px] text-text-3 leading-relaxed">
+          The basics used across evaluations, generated CVs, and outreach drafts.
+          Only name and email are required to move on — the rest you can fill in
+          later from Settings.
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Full name *"    field="full_name"    placeholder="Alessandro Mezzanotte" />
-        <Field label="Email *"        field="email"        placeholder="you@email.com" type="email" />
-        <Field label="Phone"          field="phone"        placeholder="+39 xxx xxx xxxx" />
-        <Field label="Location"       field="location"     placeholder="Barcelona, Spain" />
-        <Field label="LinkedIn URL"   field="linkedin"     placeholder="linkedin.com/in/yourname" />
-        <div /> {/* spacer */}
-        <Field label="Comp target"    field="comp_target"  placeholder="€45K–60K" />
-        <div>
-          <label className="block text-label text-text-3 mb-1">Currency</label>
-          <input
-            type="text"
-            value={form.comp_currency}
-            onChange={set('comp_currency')}
-            placeholder="EUR"
-            className="w-full px-3 h-9 bg-bg-base border border-border-default focus:border-accent focus:outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
-          />
+      <div>
+        <p className="text-[10px] uppercase tracking-[0.12em] text-text-4 font-semibold mb-3">
+          Identity
+        </p>
+        <div className="grid grid-cols-2 gap-3.5">
+          <Field label="Full name"    field="full_name"  placeholder="Alessandro Mezzanotte"   required />
+          <Field label="Email"        field="email"      placeholder="you@email.com" type="email" required />
+          <Field label="Phone"        field="phone"      placeholder="+39 xxx xxx xxxx" hint="optional" />
+          <Field label="Location"     field="location"   placeholder="Barcelona, Spain"  hint="optional" />
+          <div className="col-span-2">
+            <Field label="LinkedIn URL" field="linkedin" placeholder="linkedin.com/in/yourname" hint="optional" />
+          </div>
         </div>
       </div>
 
-      <div className="flex justify-end pt-2">
+      <div>
+        <p className="text-[10px] uppercase tracking-[0.12em] text-text-4 font-semibold mb-3">
+          Compensation target
+        </p>
+        <div className="grid grid-cols-[1fr_120px] gap-3.5">
+          <Field label="Target range" field="comp_target" placeholder="€45K–60K" hint="rough number is fine" />
+          <div>
+            <label className="flex items-baseline gap-1.5 mb-1.5">
+              <span className="text-[12px] text-text-2 font-medium">Currency</span>
+            </label>
+            <input
+              type="text"
+              value={form.comp_currency}
+              onChange={set('comp_currency')}
+              placeholder="EUR"
+              className="w-full px-3 h-9 bg-bg-base border border-border-default focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 rounded-md text-[13px] text-text-1 placeholder:text-text-4 transition-all"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end pt-1">
         <button
           onClick={handleSave}
           disabled={!canSave || saving || saved}
-          className="flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed active:scale-95 text-white rounded-md transition-all font-medium text-body"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] text-white rounded-pill transition-all font-medium text-[14px] shadow-[0_2px_10px_rgba(124,92,255,0.25)]"
         >
-          {saved ? <CheckCircle2 size={15} /> : null}
-          {saved ? 'Saved!' : saving ? 'Saving…' : 'Save profile'}
+          {saving && <Loader2 size={14} className="animate-spin" />}
+          {saved && <CheckCircle2 size={15} />}
+          {saved ? 'Saved' : saving ? 'Saving…' : 'Save profile'}
         </button>
       </div>
     </div>

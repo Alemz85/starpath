@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { CheckCircle2, Sparkles, AlertCircle } from 'lucide-react'
+import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { ipc } from '@/lib/ipc'
+import { StarpathLogo, ClaudeLogo } from '@/components/shared/Logos'
 
 type State = 'running' | 'done' | 'error'
 const SPAWN_ID = 'tailoring-main'
@@ -59,37 +60,60 @@ export function TailoringScreen() {
     <div className="flex h-screen w-screen overflow-hidden galaxy-immersive items-center justify-center">
       <div className="titlebar-drag absolute top-0 inset-x-0 h-11" />
 
-      <div className="flex flex-col items-center gap-7 w-full max-w-md px-8">
-        {/* Animated icon */}
+      <div className="flex flex-col items-center gap-8 w-full max-w-md px-8">
+        {/* Animated brand mark — starpath logo with a pulsing aura while
+            running, swap for status icons on done/error. The Claude mark
+            sits next to it during work to signal "Claude is at the wheel". */}
         <div className="relative flex items-center justify-center">
           {state === 'running' && (
-            <motion.div
-              className="absolute inset-0 rounded-2xl border-2"
-              style={{ width: 72, height: 72, margin: 'auto', borderColor: 'rgba(124,92,255,0.55)' }}
-              animate={{ scale: [1, 1.25, 1], opacity: [0.6, 0, 0.6] }}
-              transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
-            />
+            <>
+              <motion.div
+                className="absolute rounded-full"
+                style={{
+                  width: 140, height: 140,
+                  background: 'radial-gradient(circle, rgba(124,92,255,0.32) 0%, transparent 70%)',
+                }}
+                animate={{ scale: [1, 1.18, 1], opacity: [0.55, 0.85, 0.55] }}
+                transition={{ duration: 2.6, repeat: Infinity, ease: 'easeInOut' }}
+              />
+              <motion.div
+                className="absolute rounded-full border-2"
+                style={{ width: 96, height: 96, borderColor: 'rgba(124,92,255,0.45)' }}
+                animate={{ scale: [1, 1.4, 1], opacity: [0.6, 0, 0.6] }}
+                transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            </>
           )}
           <motion.div
-            animate={state === 'running' ? { opacity: [0.7, 1, 0.7] } : { opacity: 1 }}
-            transition={{ duration: 2, repeat: state === 'running' ? Infinity : 0, ease: 'easeInOut' }}
-            className="w-[72px] h-[72px] rounded-2xl flex items-center justify-center"
-            style={{ background: 'rgba(124,92,255,0.18)', border: '1px solid rgba(124,92,255,0.35)' }}
+            animate={state === 'running' ? { rotate: [0, 4, -4, 0] } : { rotate: 0 }}
+            transition={{ duration: 3.2, repeat: state === 'running' ? Infinity : 0, ease: 'easeInOut' }}
+            className="relative z-10 w-[88px] h-[88px] flex items-center justify-center"
+            style={{ filter: 'drop-shadow(0 8px 24px rgba(124,92,255,0.45))' }}
           >
             {state === 'done' ? (
-              <CheckCircle2 size={32} className="text-success" />
+              <CheckCircle2 size={56} className="text-success" />
             ) : state === 'error' ? (
-              <AlertCircle size={32} className="text-warning" />
+              <AlertCircle size={56} className="text-warning" />
             ) : (
-              <Sparkles size={30} style={{ color: '#B5A3FF' }} />
+              <StarpathLogo size={88} />
             )}
           </motion.div>
+          {/* Claude logo orbiting at the bottom-right — only while running */}
+          {state === 'running' && (
+            <motion.div
+              className="absolute z-20 bottom-[-2px] right-[-6px] rounded-full bg-white p-1 shadow-lg"
+              animate={{ y: [0, -3, 0] }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <ClaudeLogo size={20} />
+            </motion.div>
+          )}
         </div>
 
         {/* Status text */}
         <div className="text-center space-y-2">
-          <h2 className="text-section text-white">
-            {state === 'running' && 'Claude is tailoring your workspace'}
+          <h2 className="text-[22px] font-semibold text-white tracking-tight">
+            {state === 'running' && 'Tailoring your workspace'}
             {state === 'done'    && 'Workspace ready'}
             {state === 'error'   && 'Setup complete'}
           </h2>
