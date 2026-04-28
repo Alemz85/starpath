@@ -122,10 +122,10 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
           Identity
         </p>
         <div className="grid grid-cols-2 gap-3.5">
-          <Field label="Full name"    field="full_name"  placeholder="Alessandro Mezzanotte"   required />
+          <Field label="Full name"    field="full_name"  placeholder="Jane Smith"        required />
           <Field label="Email"        field="email"      placeholder="you@email.com" type="email" required />
-          <Field label="Phone"        field="phone"      placeholder="+39 xxx xxx xxxx" hint="optional" />
-          <Field label="Location"     field="location"   placeholder="Barcelona, Spain"  hint="optional" />
+          <Field label="Phone"        field="phone"      placeholder="+1 xxx xxx xxxx"  hint="optional" />
+          <Field label="Location"     field="location"   placeholder="City, Country"    hint="optional" />
           <div className="col-span-2">
             <Field label="LinkedIn URL" field="linkedin" placeholder="linkedin.com/in/yourname" hint="optional" />
           </div>

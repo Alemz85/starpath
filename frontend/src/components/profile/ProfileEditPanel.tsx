@@ -324,7 +324,7 @@ export function ProfileEditPanel() {
         {/* Identity */}
         <Section title="Identity" hint="Used in report headers, generated CVs, and outreach drafts.">
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-            <Field label="Full name *"   value={form.full_name} onChange={v => set('full_name', v)} placeholder="Alessandro Mezzanotte" />
+            <Field label="Full name *"   value={form.full_name} onChange={v => set('full_name', v)} placeholder="Jane Smith" />
             <Field label="Email *"       value={form.email}     onChange={v => set('email', v)}     placeholder="you@email.com" type="email" />
             <PhoneField
               cc={form.phoneCC} num={form.phoneNum}
