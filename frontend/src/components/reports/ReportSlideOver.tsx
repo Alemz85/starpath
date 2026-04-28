@@ -434,25 +434,21 @@ function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: Tier
     <div className="my-5 space-y-6">
       {dims.overall && (
         <div
-          className="relative rounded-2xl px-6 py-7 text-center overflow-hidden"
+          className="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
           style={{
-            background: `linear-gradient(135deg, ${heroColor}1F 0%, ${heroColor}0A 100%)`,
-            border: `1px solid ${heroColor}33`,
+            background: `${heroColor}10`,
+            border: `1px solid ${heroColor}30`,
           }}
         >
-          <div className="text-[10.5px] font-semibold uppercase tracking-[0.18em] text-text-4 mb-2">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-3">
             Overall
-          </div>
-          <div
-            className="font-mono font-bold tabular-nums leading-none"
-            style={{
-              fontSize: '52px',
-              color: heroColor,
-              textShadow: `0 0 28px ${heroColor}55`,
-            }}
+          </span>
+          <span
+            className="font-mono font-semibold tabular-nums leading-none text-[18px]"
+            style={{ color: heroColor }}
           >
             {dims.overall.score}
-          </div>
+          </span>
         </div>
       )}
 
