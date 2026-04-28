@@ -487,6 +487,8 @@ export function RolesTab() {
 
       <DreamCompaniesSection rawYaml={raw} />
 
+      <TargetLocationsSection rawYaml={raw} />
+
       <div className="px-6 py-4 flex items-center justify-between border-t border-border-default">
         <p className="text-label text-text-4">
           Saved to <code className="text-accent/70 bg-bg-elevated px-1 py-0.5 rounded text-micro">target_roles.primary</code> in profile.yml
@@ -619,6 +621,141 @@ function patchDreamCompanies(yaml: string, names: string[]): string {
     return yaml.replace('target_roles:', `target_roles:\n  dream_companies:\n${written}`)
   }
   return yaml + `\ntarget_roles:\n  dream_companies:\n${written}`
+}
+
+// ─── Target locations section (lives under RolesTab) ─────────────────────────
+//
+// Edits the `location.preferred_cities` list in profile.yml — the cities
+// the user wants to work in, in priority order. Used by the scoring rubric
+// for the Best Cities dimension and surfaced in the Trends Top Locations
+// panel. Kept separate from Dream Companies because they're orthogonal
+// signals — a Dublin role at Stripe and a Barcelona role at Stripe are
+// the same company, different locations; the rubric scores them
+// differently. (Older versions of this app collapsed both into a single
+// concept because Claude's narrative output sometimes combined them in
+// `_profile.md` — splitting here makes the structured signal cleaner.)
+
+function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
+  const [cities, setCities] = useState<string[]>([])
+  const [input, setInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [raw, setRaw] = useState(rawYaml ?? '')
+
+  useEffect(() => {
+    setRaw(rawYaml ?? '')
+    setCities(extractPreferredCities(rawYaml ?? ''))
+  }, [rawYaml])
+
+  const add = () => {
+    const v = input.trim()
+    if (v && !cities.some(c => c.toLowerCase() === v.toLowerCase())) {
+      setCities(prev => [...prev, v])
+    }
+    setInput('')
+  }
+  const remove = (c: string) => setCities(prev => prev.filter(x => x !== c))
+  const move = (c: string, dir: -1 | 1) => {
+    setCities(prev => {
+      const i = prev.indexOf(c)
+      if (i === -1) return prev
+      const j = i + dir
+      if (j < 0 || j >= prev.length) return prev
+      const next = [...prev]
+      ;[next[i], next[j]] = [next[j], next[i]]
+      return next
+    })
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    const u = patchPreferredCities(raw, cities)
+    await ipc.writeFile('user/profile.yml', u)
+    setRaw(u)
+    setSaving(false)
+    setSavedAt(Date.now())
+    setTimeout(() => setSavedAt(null), 2500)
+  }
+
+  const dirty = JSON.stringify(extractPreferredCities(raw)) !== JSON.stringify(cities)
+
+  return (
+    <SettingRow
+      title="Target locations"
+      description="Cities you want to work in, in priority order. Drives the Best Cities scoring dimension — top of list scores 9-10, bottom of list 6-7, anything not listed scores lower."
+    >
+      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]">
+        {cities.length === 0 ? (
+          <span className="text-label text-text-4 italic self-center">No target locations yet — add the cities you'd actually relocate to.</span>
+        ) : (
+          cities.map((c, i) => (
+            <span key={c} className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-lg bg-info/10 border border-info/30 text-info text-label font-medium">
+              <span className="font-mono text-info/60 text-[10px] mr-0.5">#{i + 1}</span>
+              {c}
+              <button
+                onClick={() => move(c, -1)}
+                disabled={i === 0}
+                title="Move up"
+                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5"
+              >
+                <ChevronRight size={11} className="-rotate-90" />
+              </button>
+              <button
+                onClick={() => move(c, 1)}
+                disabled={i === cities.length - 1}
+                title="Move down"
+                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5"
+              >
+                <ChevronRight size={11} className="rotate-90" />
+              </button>
+              <button onClick={() => remove(c)} className="opacity-50 hover:opacity-100 transition-opacity p-0.5">
+                <X size={11} />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="mt-4 flex gap-2">
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
+          placeholder="Add a city (e.g. Dublin, Barcelona, Berlin) and press Enter…"
+          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving || !dirty}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+        >
+          {savedAt ? <Check size={12} /> : null}
+          {saving ? 'Saving…' : savedAt ? 'Saved' : 'Save'}
+        </button>
+      </div>
+    </SettingRow>
+  )
+}
+
+function extractPreferredCities(yaml: string): string[] {
+  // Look for `preferred_cities:` under the `location:` block. The block
+  // is a flat YAML list of strings (`- "Dublin"`).
+  const m = yaml.match(/preferred_cities:\s*\n([\s\S]*?)(?=\n\w|\n#|$)/)
+  if (!m) return []
+  return [...m[1].matchAll(/^\s*-\s+["']?([^"'\n]+)["']?/gm)]
+    .map(x => x[1].trim()).filter(Boolean)
+}
+
+function patchPreferredCities(yaml: string, cities: string[]): string {
+  const blockRe = /(  preferred_cities:\s*\n)([\s\S]*?)(?=\n\w|\n#|$)/
+  const written = cities.map(c => `    - "${c}"`).join('\n') + '\n'
+  if (yaml.match(blockRe)) {
+    return yaml.replace(blockRe, `$1${written}`)
+  }
+  // Insert under the location: block if present, else append.
+  if (yaml.match(/^location:\s*\n/m)) {
+    return yaml.replace(/(^location:\s*\n(?:  [^\n]+\n)+)/m, m0 => `${m0.trimEnd()}\n  preferred_cities:\n${written}`)
+  }
+  return yaml + `\nlocation:\n  preferred_cities:\n${written}`
 }
 
 // ─── Portals tab ──────────────────────────────────────────────────────────────
