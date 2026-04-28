@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Search,
   Settings,
+  SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
   Activity,
@@ -50,8 +51,9 @@ const SECONDARY_NAV: NavItem[] = [
 ]
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { view: 'profile',  label: 'Profile',  icon: User     },
-  { view: 'settings', label: 'Settings', icon: Settings },
+  { view: 'profile',  label: 'Profile',       icon: User              },
+  { view: 'config',   label: 'Configuration', icon: SlidersHorizontal },
+  { view: 'settings', label: 'Settings',      icon: Settings          },
 ]
 
 export function Sidebar() {

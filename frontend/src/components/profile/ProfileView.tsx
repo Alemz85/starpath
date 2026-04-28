@@ -7,7 +7,6 @@ import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry, ApplicationEntry } from '@/types'
-import { ProfileEditPanel } from './ProfileEditPanel'
 
 // ─── Profile YAML helpers ────────────────────────────────────────────────────
 
@@ -308,11 +307,10 @@ export function ProfileView() {
           ))}
         </div>
 
-        {/* ── Edit panel ── moved out of Settings → here. Identity,
-            compensation (numeric + currency dropdown), phone (country
-            code + auto-spaced number), languages, and the Re-tailor LLM
-            button all live here now. */}
-        <ProfileEditPanel />
+        {/* Edit panel was here briefly — moved to the dedicated
+            Configuration tab so this Profile remains a clean read-only
+            showcase. To edit anything (identity / comp / languages /
+            target roles / portals) navigate to Configuration. */}
 
         {/* ── Activity heatmap ── */}
         <div className="rounded-xl bg-bg-panel border border-border-default p-4">

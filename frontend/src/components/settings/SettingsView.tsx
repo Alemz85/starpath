@@ -91,6 +91,10 @@ interface CompanyEntry {
   enabled: boolean
   notes: string
   careers_url: string
+  /** Detected scan method — `api` if the entry has an `api:` URL,
+   *  `websearch` when `scan_method: websearch` is present, `unknown`
+   *  otherwise (block has neither, e.g. probe still running). */
+  scan_method: 'api' | 'websearch' | 'unknown'
 }
 
 function parseCompanies(yaml: string): CompanyEntry[] {
@@ -104,7 +108,11 @@ function parseCompanies(yaml: string): CompanyEntry[] {
       const enabled = !block.includes('enabled: false')
       const notes = block.match(/notes:\s*["']?([^"'\n]+?)["']?\s*$/m)?.[1]?.trim() ?? ''
       const careers_url = block.match(/careers_url:\s*(\S+)/)?.[1]?.trim() ?? ''
-      return { name, enabled, notes, careers_url }
+      const has_api = /\n\s+api:\s*\S/.test(block)
+      const is_ws  = /scan_method:\s*websearch/.test(block)
+      const scan_method: CompanyEntry['scan_method'] =
+        has_api ? 'api' : is_ws ? 'websearch' : 'unknown'
+      return { name, enabled, notes, careers_url, scan_method }
     })
     .filter((c): c is CompanyEntry => c !== null && c.name.length > 0)
 }
@@ -227,47 +235,20 @@ function setLangBlocklist(yaml: string, items: string[]): string {
 
 // ─── Root component ───────────────────────────────────────────────────────────
 
-// 'candidate' moved to the Profile tab where it belongs — keep the type
-// here only for legacy state migration; it's no longer in the TABS list.
-type Tab = 'general' | 'roles' | 'portals'
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'general',   label: 'General' },
-  { key: 'roles',     label: 'Target Roles' },
-  { key: 'portals',   label: 'Portals' },
-]
+// All editable user-data tabs (Candidate / Roles / Portals) moved to the
+// new Configuration tab. Settings now only hosts app-level controls
+// (repo path, mode, model selection, etc) which the GeneralTab handles.
+// RolesTab / PortalsTab are still exported from this file so Configuration
+// can import them directly.
 
 export function SettingsView() {
-  const [activeTab, setActiveTab] = useState<Tab>('general')
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Settings</h1>
       </div>
-
-      <div className="flex items-center border-b border-border-default bg-bg-chrome shrink-0 px-2">
-        {TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setActiveTab(key)}
-            className={cn(
-              'px-4 py-2.5 text-label border-b-2 transition-colors',
-              activeTab === key
-                ? 'border-accent text-text-1'
-                : 'border-transparent text-text-4 hover:text-text-2',
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'general' && <GeneralTab />}
-        {activeTab === 'roles'   && <RolesTab />}
-        {activeTab === 'portals' && <PortalsTab />}
+        <GeneralTab />
       </div>
     </div>
   )
@@ -375,8 +356,12 @@ function GeneralTab() {
 
 
 // ─── Roles tab ────────────────────────────────────────────────────────────────
+//
+// Exported so the Configuration tab (frontend/src/components/configuration/
+// ConfigurationView.tsx) can mount it. Also still rendered here as a
+// secondary entry until the Settings tab is fully trimmed.
 
-function RolesTab() {
+export function RolesTab() {
   const [raw, setRaw] = useState<string | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [addInput, setAddInput] = useState('')
@@ -500,6 +485,8 @@ function RolesTab() {
         </div>
       </SettingRow>
 
+      <DreamCompaniesSection rawYaml={raw} />
+
       <div className="px-6 py-4 flex items-center justify-between border-t border-border-default">
         <p className="text-label text-text-4">
           Saved to <code className="text-accent/70 bg-bg-elevated px-1 py-0.5 rounded text-micro">target_roles.primary</code> in profile.yml
@@ -517,9 +504,126 @@ function RolesTab() {
   )
 }
 
+// ─── Dream companies section (lives under RolesTab) ──────────────────────────
+//
+// The dream-companies block in profile.yml is structured (each entry has
+// name + functions[] + priority + note). For the Configuration UI we
+// only edit the names — anything richer can be hand-edited in the YAML.
+// Existing per-name metadata is preserved when names stay in the list.
+
+function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
+  const [names, setNames] = useState<string[]>([])
+  const [input, setInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+  const [raw, setRaw] = useState(rawYaml ?? '')
+
+  useEffect(() => {
+    setRaw(rawYaml ?? '')
+    setNames(extractDreamCompanies(rawYaml ?? ''))
+  }, [rawYaml])
+
+  const add = () => {
+    const v = input.trim()
+    if (v && !names.some(n => n.toLowerCase() === v.toLowerCase())) {
+      setNames(prev => [...prev, v])
+    }
+    setInput('')
+  }
+  const remove = (n: string) => setNames(prev => prev.filter(x => x !== n))
+
+  const handleSave = async () => {
+    setSaving(true)
+    const u = patchDreamCompanies(raw, names)
+    await ipc.writeFile('user/profile.yml', u)
+    setRaw(u)
+    setSaving(false)
+    setSavedAt(Date.now())
+    setTimeout(() => setSavedAt(null), 2500)
+  }
+
+  const dirty = JSON.stringify(extractDreamCompanies(raw)) !== JSON.stringify(names)
+
+  return (
+    <SettingRow
+      title="Dream companies"
+      description="Floors Brand Value at 10 and Aspirational Fit at 8.0 in scoring — the user wants their foot in the door regardless of function match."
+    >
+      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]">
+        {names.length === 0 ? (
+          <span className="text-label text-text-4 italic self-center">No dream companies yet — add brands you'd most want to work for.</span>
+        ) : (
+          names.map(n => (
+            <span key={n} className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg bg-tier-1/15 border border-tier-1/35 text-tier-1 text-label font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-tier-1/70 shrink-0" />
+              {n}
+              <button onClick={() => remove(n)} className="opacity-50 hover:opacity-100 transition-opacity">
+                <X size={11} />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div className="mt-4 flex gap-2">
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
+          placeholder="Add a company (e.g. Stripe, Datadog) and press Enter…"
+          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving || !dirty}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+        >
+          {savedAt ? <Check size={12} /> : null}
+          {saving ? 'Saving…' : savedAt ? 'Saved' : 'Save'}
+        </button>
+      </div>
+    </SettingRow>
+  )
+}
+
+function extractDreamCompanies(yaml: string): string[] {
+  const m = yaml.match(/dream_companies:\s*\n([\s\S]*?)(?=\n  \w|\n\w|\n#|$)/)
+  if (!m) return []
+  const block = m[1]
+  return [...block.matchAll(/^\s*-\s+name:\s*["']?([^"'\n]+)["']?/gm)]
+    .map(x => x[1].trim())
+    .filter(Boolean)
+}
+
+function patchDreamCompanies(yaml: string, names: string[]): string {
+  // Preserve full per-name metadata when a name stays in the list. The
+  // serialized block is reconstructed from these preserved chunks.
+  const blockRe = /(  dream_companies:\s*\n)([\s\S]*?)(?=\n  \w|\n\w|\n#|$)/
+  const m = yaml.match(blockRe)
+  const existing = m ? m[2] : ''
+  const preserved = new Map<string, string>()
+  for (const chunk of existing.split(/\n  - name:/).slice(1)) {
+    const head = chunk.split('\n')[0].trim().replace(/^["']|["']$/g, '')
+    if (head) preserved.set(head, chunk)
+  }
+  const written = names
+    .map(n => {
+      const had = preserved.get(n)
+      return had
+        ? `  - name:${had}`
+        : `  - name: "${n}"\n    priority: "top"`
+    })
+    .join('\n')
+    + '\n'
+  if (m) return yaml.replace(blockRe, `$1${written}`)
+  if (yaml.includes('target_roles:')) {
+    return yaml.replace('target_roles:', `target_roles:\n  dream_companies:\n${written}`)
+  }
+  return yaml + `\ntarget_roles:\n  dream_companies:\n${written}`
+}
+
 // ─── Portals tab ──────────────────────────────────────────────────────────────
 
-function PortalsTab() {
+export function PortalsTab() {
   const [raw, setRaw] = useState<string | null>(null)
   const [positive, setPositive] = useState<string[]>([])
   const [negative, setNegative] = useState<string[]>([])
@@ -573,7 +677,7 @@ function PortalsTab() {
     const name = newCompanyName.trim()
     const url = newCompanyUrl.trim()
     if (!name || companies.find(c => c.name === name)) return
-    const newEntry: CompanyEntry = { name, enabled: true, notes: '(probing APIs…)', careers_url: url }
+    const newEntry: CompanyEntry = { name, enabled: true, notes: '(probing APIs…)', careers_url: url, scan_method: 'unknown' }
     setCompanies(prev => [...prev, newEntry])
     // Append a placeholder entry to portals.yml — the spawn replaces it
     // with the proper config when the probe finishes.
@@ -708,9 +812,25 @@ function PortalsTab() {
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="text-label text-text-1 font-medium truncate">{company.name}</div>
+                    <div className="flex items-center gap-2 min-w-0">
+                      {/* Click the name → open the careers page in the
+                          system browser. Falls back to plain text if
+                          there's no careers_url on the entry. */}
+                      {company.careers_url ? (
+                        <button
+                          onClick={() => ipc.openExternal(company.careers_url)}
+                          title={`Open ${company.careers_url}`}
+                          className="text-label text-text-1 font-medium truncate hover:text-accent hover:underline underline-offset-2 transition-colors text-left"
+                        >
+                          {company.name}
+                        </button>
+                      ) : (
+                        <span className="text-label text-text-1 font-medium truncate">{company.name}</span>
+                      )}
+                      <ScanMethodBadge method={company.scan_method} />
+                    </div>
                     {company.notes && (
-                      <div className="text-micro text-text-4 truncate">{company.notes}</div>
+                      <div className="text-micro text-text-4 truncate mt-0.5">{company.notes}</div>
                     )}
                   </div>
 
@@ -834,6 +954,37 @@ function SettingRow({ title, description, children }: {
         {children}
       </div>
     </div>
+  )
+}
+
+function ScanMethodBadge({ method }: { method: 'api' | 'websearch' | 'unknown' }) {
+  if (method === 'api') {
+    return (
+      <span
+        title="Direct API scan — Greenhouse / Ashby / Lever / SmartRecruiters / Workday. Zero-token."
+        className="text-[9.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-success/35 bg-success/10 text-success shrink-0"
+      >
+        API
+      </span>
+    )
+  }
+  if (method === 'websearch') {
+    return (
+      <span
+        title="Websearch fallback — no public API. Slower, costs WebSearch calls during oferta runs."
+        className="text-[9.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-warning/35 bg-warning/10 text-warning shrink-0"
+      >
+        WEB
+      </span>
+    )
+  }
+  return (
+    <span
+      title="Probe pending — the Add Company spawn is still detecting which ATS this company uses."
+      className="text-[9.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-border-default bg-bg-elevated text-text-4 shrink-0"
+    >
+      …
+    </span>
   )
 }
 

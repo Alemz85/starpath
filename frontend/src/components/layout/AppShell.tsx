@@ -12,6 +12,7 @@ import { ReportsView } from '@/components/reports/ReportsView'
 import { TrendsView } from '@/components/trends/TrendsView'
 import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
+import { ConfigurationView } from '@/components/configuration/ConfigurationView'
 import { ProfileView } from '@/components/profile/ProfileView'
 
 export function AppShell() {
@@ -30,6 +31,7 @@ export function AppShell() {
         {view === 'reports'  && <ReportsView />}
         {view === 'trends'   && <TrendsView />}
         {view === 'scan'     && <ScanView />}
+        {view === 'config'   && <ConfigurationView />}
         {view === 'settings' && <SettingsView />}
         {view === 'profile'  && <ProfileView />}
       </main>
