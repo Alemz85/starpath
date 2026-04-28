@@ -280,28 +280,18 @@ function GeneralTab() {
 
       <SettingRow
         title="Models"
-        description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough. Full Scan always uses Sonnet (cheap tool-use)."
+        description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough."
       >
-        <div className="mt-3 divide-y divide-border-default border border-border-default rounded-md overflow-hidden">
+        <div className="mt-4 space-y-4">
           {MODEL_ROWS.map(row => (
-            <div key={row.key} className="px-4 py-3">
-              <ModelChoice
-                label={row.label}
-                sub={row.sub}
-                value={models[row.key]}
-                onChange={(m) => setModel(row.key, m)}
-              />
-            </div>
-          ))}
-          <div className="px-4 py-3 bg-bg-elevated/50">
             <ModelChoice
-              label="Full Scan"
-              sub="Locked to Sonnet — the scanner just hits Greenhouse / Ashby / Lever APIs, so Opus would be wasted."
-              value="sonnet"
-              onChange={() => {}}
-              disabled
+              key={row.key}
+              label={row.label}
+              sub={row.sub}
+              value={models[row.key]}
+              onChange={(m) => setModel(row.key, m)}
             />
-          </div>
+          ))}
         </div>
       </SettingRow>
 
