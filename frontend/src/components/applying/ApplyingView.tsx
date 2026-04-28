@@ -33,6 +33,10 @@ export function ApplyingView() {
   // drop targets and so onDrop has the source info even if the dataTransfer
   // payload is missing (Electron's drag events occasionally drop the data).
   const [dragging, setDragging] = useState<{ company: string; role: string; from: AppStatus } | null>(null)
+  // Pending discard — the styled confirm modal reads from this and the
+  // user clicks confirm/cancel from the modal itself rather than getting
+  // an OS-level window.confirm() that doesn't match the app design.
+  const [pendingDiscard, setPendingDiscard] = useState<ApplicationEntry | null>(null)
 
   const tailor = spawns[PER_APP_TAILOR_CV]
   const draft  = spawns[PER_APP_DRAFT_APP]
@@ -85,10 +89,11 @@ export function ApplyingView() {
     setDragging(null)
   }
 
-  const handleRemove = (app: ApplicationEntry) => {
-    const ok = window.confirm(`Remove ${app.company} — ${app.role} from the applying batch?\n\nThe row will be marked Discarded in data/applications.md and disappear from this view.`)
-    if (!ok) return
-    void setApplicationStatus(app.company, app.role, 'Discarded' as AppStatus)
+  const handleRemove = (app: ApplicationEntry) => setPendingDiscard(app)
+  const confirmDiscard = () => {
+    if (!pendingDiscard) return
+    void setApplicationStatus(pendingDiscard.company, pendingDiscard.role, 'Discarded' as AppStatus)
+    setPendingDiscard(null)
   }
 
   return (
@@ -163,6 +168,75 @@ export function ApplyingView() {
             Scan tab. The footer pings the user there when anything is
             running. */}
         <RunningInScanFooter />
+      </div>
+
+      {pendingDiscard && (
+        <DiscardConfirmModal
+          app={pendingDiscard}
+          onConfirm={confirmDiscard}
+          onCancel={() => setPendingDiscard(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Discard confirm modal ──────────────────────────────────────────────────
+
+function DiscardConfirmModal({ app, onConfirm, onCancel }: {
+  app: ApplicationEntry
+  onConfirm: () => void
+  onCancel: () => void
+}) {
+  // Esc cancels; Enter confirms — keyboard parity with the system dialog
+  // we replaced. Click outside to dismiss.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Enter')  onConfirm()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onConfirm, onCancel])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      onClick={onCancel}
+      style={{ animation: 'chip-appear 160ms ease both' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        className="w-[380px] rounded-xl bg-bg-panel border border-border-strong shadow-lift overflow-hidden"
+      >
+        <div className="px-5 pt-5 pb-3">
+          <div className="flex items-start gap-3">
+            <CompanyLogo company={app.company} size={36} className="shrink-0" />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-[15px] font-semibold text-text-1 leading-tight">Remove from Applying?</h3>
+              <p className="text-[12.5px] text-text-3 mt-1.5 leading-relaxed">
+                <span className="font-medium text-text-2">{app.company}</span> — {app.role}
+              </p>
+            </div>
+          </div>
+          <p className="text-[12px] text-text-4 leading-relaxed mt-3.5">
+            We'll mark this row Discarded in <code className="text-accent/80 bg-bg-elevated px-1 py-0.5 rounded text-[10.5px]">data/applications.md</code> and hide it from the kanban. The row stays in the file for audit — you can flip the status back any time.
+          </p>
+        </div>
+        <div className="px-5 py-3 flex items-center justify-end gap-2 bg-bg-chrome border-t border-border-default">
+          <button
+            onClick={onCancel}
+            className="px-3 py-1.5 text-label text-text-2 rounded-md hover:bg-bg-elevated transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 text-label text-danger bg-danger/10 border border-danger/30 rounded-md hover:bg-danger/15 transition-colors font-medium"
+          >
+            Remove
+          </button>
+        </div>
       </div>
     </div>
   )

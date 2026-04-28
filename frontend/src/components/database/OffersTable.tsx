@@ -173,7 +173,8 @@ const entryKey = (e: ScoreEntry) => `${e.company}|${e.role}`
 
 export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: OffersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'overall', desc: true }])
-  const liveness = useDataStore(s => s.liveness)
+  // (liveness was used for the row-fading rule that's now gone — kept the
+  // store unsubscribed since nothing in this table needs it anymore.)
   const reports = useDataStore(s => s.reports)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -403,16 +404,17 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
             const id = `${entry.company}-${entry.role}`
             const isSelected = id === selectedId
             const isExpanded = expanded.has(entryKey(entry))
-            const lvKey = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
-            const lv = liveness[lvKey] ?? 'closed'
-            // T4 = "don't apply" — keep visually quiet alongside stale/closed listings.
-            const dim = lv === 'stale' || lv === 'closed' || entry.tier === 'T4'
+            // The tier-color in the score dial / chevron / breakdown bars
+            // already fades on its own when the score is low (per the
+            // galaxy palette), so the row itself stays at full opacity —
+            // company name and role should always be cleanly readable. The
+            // earlier `opacity-65` on T4 / stale rows greyed everything,
+            // including the things the user is trying to scan.
             return (
               <Fragment key={row.id}>
                 <tr
                   onClick={(evt) => onRowClick(entry, evt)}
                   className={cn(
-                    dim && 'opacity-65',
                     'border-b border-border-default/30 cursor-pointer',
                     'transition-colors duration-150',
                     isSelected
