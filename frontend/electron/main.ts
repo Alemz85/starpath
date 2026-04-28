@@ -287,6 +287,23 @@ ipcMain.handle('app:validate-path', (_e, folderPath: unknown) => {
   return { path: p, valid }
 })
 
+// File picker for CV upload — used by the onboarding step that lets the
+// user upload a PDF instead of pasting CV text. We hand the absolute path
+// to the renderer; it then spawns Claude with `@<path> ...` to do the
+// actual PDF→markdown conversion.
+ipcMain.handle('app:select-cv-pdf', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Upload your CV (PDF)',
+    defaultPath: app.getPath('home'),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+    properties: ['openFile'],
+    message: 'Pick a PDF — Claude will convert it to markdown and write user/cv.md.',
+  })
+  if (result.canceled || !result.filePaths[0]) return null
+  return { path: result.filePaths[0] }
+})
+
 ipcMain.handle('app:open-external', (_e, url: unknown) => {
   const u = validateString(url, 'url')
   if (u.startsWith('http://') || u.startsWith('https://')) shell.openExternal(u)

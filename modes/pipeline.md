@@ -164,6 +164,48 @@ If no patterns meet the threshold, print nothing. Do not mention this step in th
 - Limit to **3 auto-adds max per run**, ranked by count descending.
 - The Scan → Audit button is the circuit breaker: it detects over-filtering and shows which keywords to remove if needed.
 
+### 5e — Comp-target drift watcher
+
+This sub-step looks for the pattern: *"the user keeps scoring postings in their preferred cities, but `salary_adj_city` consistently lands low — the comp range in `profile.yml` may be out of sync with what those cities actually pay."* The signal is silent until it's strong enough to be actionable.
+
+**Trigger window — only run when ALL of:**
+1. The current batch has **≥ 3 entries** whose `location` matches one of `user/profile.yml → location.preferred_cities` (case-insensitive substring match).
+2. The mean `salary_adj_city` across those entries is **≤ 5.0** (well below the "at threshold = 8" anchor).
+3. At least 2 of those entries have a disclosed comp figure (i.e., their reasoning didn't fall back to `[undisclosed]`).
+
+**On trigger — log to `data/comp-drift-log.md`** (create if absent):
+
+```markdown
+# Compensation Drift Log
+
+Silent observations about gaps between the user's `profile.yml` comp targets and what evaluated postings in their preferred cities actually pay. The pipeline writes here; the user reads it when deciding whether to revise the targets.
+
+## Observations
+| Date | Cities | N | Avg salary_adj | Disclosed range observed | Profile target |
+|------|--------|---|----------------|--------------------------|----------------|
+| 2026-05-12 | Dublin, Amsterdam | 5 | 4.6 | €38–55K | €25–45K (target) / €15K (walk-away) |
+```
+
+**On 2nd consecutive trigger window with the same city set** — surface a one-line note in the pipeline summary:
+
+```
+── Compensation drift ──────────────────────────────────────────
+Postings in Dublin, Amsterdam are scoring low on salary_adj_city
+(avg 4.6 over 9 entries across 2 runs). Their disclosed comps
+sit at €38–55K — your profile.yml target_range is €25–45K, which
+the rubric reads as "below market" and dings accordingly.
+Consider revising user/profile.yml → compensation.target_range
+in the Configuration tab.
+─────────────────────────────────────────────────────────────────
+```
+
+**Never auto-edit `profile.yml`.** Comp targets are personal — what counts as "above target" depends on the user's life situation, not market data alone. Surface, suggest, leave the decision to the user.
+
+**Skip the watcher entirely when:**
+- The batch has fewer than 3 preferred-city entries (insufficient signal).
+- The user's `target_range` is already at or above the median disclosed comp (no drift).
+- The user's `current_mode` is `applying` and they've actively decided to apply to roles below target (the `Discarded`/`SKIP` rows in `applications.md` are NOT in scope here — only fresh evaluations are).
+
 ## pipeline.md format
 
 ```markdown
