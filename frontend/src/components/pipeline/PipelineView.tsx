@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
-import { useSpawnsStore, type SpawnRecord } from '@/store/spawns'
+import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import { AlertTriangle, Plus } from 'lucide-react'
 import { ActivityPanel, pickVisible } from '@/components/command-center/CommandCenter'
@@ -55,8 +55,8 @@ export function PipelineView() {
     if (spawns[id]?.status === 'running') { kill(id); return }
     if (spawns[id]) clear(id)
     const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
-    const prompt = `/career-ops ${mode} for ${app.company} — ${app.role}`
-    start(id, `${label}: ${app.company}`, 'claude', ['-p', prompt])
+    const slash = `/career-ops ${mode} for ${app.company} — ${app.role}`
+    start(id, `${label}: ${app.company}`, 'claude', claudeArgs(slash))
   }
 
   const handleTailorCV = (a: ApplicationEntry) => launch(PER_APP_TAILOR_CV, 'Tailor CV',         a, 'modes/pdf.md')

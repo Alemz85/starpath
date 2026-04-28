@@ -158,13 +158,13 @@ function Item({
 
 function spawnPerListing(label: string, modeFile: string, entry: ScoreEntry) {
   // Lazy import to avoid circular dep with spawn store
-  import('@/store/spawns').then(({ useSpawnsStore }) => {
+  import('@/store/spawns').then(({ useSpawnsStore, claudeArgs }) => {
     const id = `popover-${modeFile.replace(/[^\w]+/g, '-')}`
     const { spawns, start, clear } = useSpawnsStore.getState()
     if (spawns[id]?.status === 'running') return
     if (spawns[id]) clear(id)
     const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
-    const prompt = `/career-ops ${mode} for ${entry.company} — ${entry.role}`
-    start(id, `${label}: ${entry.company}`, 'claude', ['-p', prompt])
+    const slash = `/career-ops ${mode} for ${entry.company} — ${entry.role}`
+    start(id, `${label}: ${entry.company}`, 'claude', claudeArgs(slash))
   })
 }

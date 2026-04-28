@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
-import { useSpawnsStore, type SpawnRecord } from '@/store/spawns'
+import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ClaudeLogo } from '@/components/shared/Logos'
 import { StatCard } from './StatCard'
 import {
@@ -140,7 +140,7 @@ function ScoutingActionPanel({
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
-    start(FULL_SCAN_ID, 'Full Scan', 'claude', ['-p', '/career-ops scan'])
+    start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan'))
   }
   const handleApiScan = () => {
     if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }
@@ -150,7 +150,7 @@ function ScoutingActionPanel({
   const handlePipeline = () => {
     if (pipeline?.status === 'running') { kill(PIPELINE_ID); return }
     if (pipeline) clear(PIPELINE_ID)
-    start(PIPELINE_ID, 'Generate Reports', 'claude', ['-p', '/career-ops pipeline'])
+    start(PIPELINE_ID, 'Generate Reports', 'claude', claudeArgs('/career-ops pipeline'))
   }
 
   return (
@@ -351,7 +351,8 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
     >
       {/* Header strip — no static "Terminal" label. When the running spawn is
           a Claude invocation the brand mark sits next to the label so the user
-          knows what's at the wheel. */}
+          knows what's at the wheel. The elapsed chip ticks every second while
+          running so a "stuck" run can never look like "instant" success. */}
       <div
         className="shrink-0 h-7 px-3 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider"
         style={{ background: '#2A2548', borderColor: 'rgba(255,255,255,0.05)' }}
@@ -361,8 +362,12 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
           {record ? `${record.label} ${statusGlyph(record)}` : 'Idle'}
         </span>
         {record?.startedAt ? (
-          <span className="text-white/40 tabular-nums">
-            {new Date(record.startedAt).toLocaleTimeString()}
+          <span className="inline-flex items-center gap-2">
+            <ElapsedChip record={record} />
+            <span className="text-white/30">·</span>
+            <span className="text-white/40 tabular-nums">
+              {new Date(record.startedAt).toLocaleTimeString()}
+            </span>
           </span>
         ) : null}
       </div>
@@ -413,6 +418,41 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
       </div>
     </div>
   )
+}
+
+function ElapsedChip({ record }: { record: SpawnRecord }) {
+  // Force a re-render every second while the spawn is running, so the
+  // elapsed text updates live. After the spawn finishes we freeze on the
+  // recorded endedAt — no more ticks.
+  const [, setTick] = useState(0)
+  const isRunning = record.status === 'running'
+  useEffect(() => {
+    if (!isRunning) return
+    const t = setInterval(() => setTick(n => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [isRunning])
+  const end = isRunning ? Date.now() : (record.endedAt ?? record.startedAt)
+  return (
+    <span
+      className={cn(
+        'tabular-nums',
+        isRunning ? 'text-accent-light' : 'text-white/40',
+      )}
+    >
+      {formatElapsed(end - record.startedAt)}
+    </span>
+  )
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const rs = s % 60
+  if (m < 60) return `${m}m ${String(rs).padStart(2, '0')}s`
+  const h = Math.floor(m / 60)
+  const rm = m % 60
+  return `${h}h ${String(rm).padStart(2, '0')}m`
 }
 
 function statusGlyph(r: SpawnRecord): string {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo } from 'react'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
-import { useSpawnsStore, type SpawnRecord } from '@/store/spawns'
+import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import {
   Briefcase, AlertTriangle, FileText, MessageSquare, GraduationCap,
 } from 'lucide-react'
@@ -74,8 +74,8 @@ export function ApplyingView() {
     // Invoke the user-invocable career-ops skill with the mode + listing
     // context. modes/pdf.md → /career-ops pdf for {company} — {role}
     const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
-    const prompt = `/career-ops ${mode} for ${app.company} — ${app.role}`
-    start(id, `${label}: ${app.company}`, 'claude', ['-p', prompt])
+    const slash = `/career-ops ${mode} for ${app.company} — ${app.role}`
+    start(id, `${label}: ${app.company}`, 'claude', claudeArgs(slash))
   }
 
   const handleTailorCV = (a: ApplicationEntry) => launch(PER_APP_TAILOR_CV, 'Tailor CV',         a, 'modes/pdf.md')
