@@ -105,8 +105,9 @@ Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y dedu
 
 6. **Nivel 3 — WebSearch queries** (paralelo si posible):
    Para cada query en `search_queries` con `enabled: true`:
-   a. Ejecutar WebSearch con el `query` definido
-   b. De cada resultado extraer: `{title, url, company}`
+   a. Reemplazar cualquier variable `{{variable}}` presente en el string del `query` (o `scan_query` en `tracked_companies`) usando el valor correspondiente definido en el bloque `search_templates` (al principio de `user/portals.yml`).
+   b. Ejecutar WebSearch con el `query` interpolado.
+   c. De cada resultado extraer: `{title, url, company}`
       - **title**: del título del resultado (antes del " @ " o " | ")
       - **url**: URL del resultado
       - **company**: después del " @ " en el título, o extraer del dominio/path

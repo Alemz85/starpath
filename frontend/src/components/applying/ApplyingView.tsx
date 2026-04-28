@@ -11,7 +11,8 @@ import {
 } from 'lucide-react'
 import { StatCard } from '@/components/command-center/StatCard'
 import { RunningInScanFooter } from '@/components/command-center/CommandCenter'
-import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { CompanyLink, toCompanySlug } from '@/components/shared/CompanyLink'
+import Link from 'next/link'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { cn, deadlineUrgency, urgencyBadge } from '@/lib/utils'
 import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
@@ -211,7 +212,7 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
       >
         <div className="px-5 pt-5 pb-3">
           <div className="flex items-start gap-3">
-            <CompanyLogo company={app.company} size={36} className="shrink-0" />
+            <CompanyLink company={app.company} size={36} className="shrink-0" />
             <div className="min-w-0 flex-1">
               <h3 className="text-[15px] font-semibold text-text-1 leading-tight">Remove from Applying?</h3>
               <p className="text-[12.5px] text-text-3 mt-1.5 leading-relaxed">
@@ -466,9 +467,11 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
         <X size={11} />
       </button>
       <div className="flex items-start gap-2 pr-5">
-        <CompanyLogo company={app.company} size={24} className="shrink-0 mt-0.5" />
+        <CompanyLink company={app.company} size={24} className="shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="text-[12px] text-text-1 font-medium truncate leading-tight">{app.company}</div>
+          <Link href={`/company/${toCompanySlug(app.company)}`} onClick={(e) => e.stopPropagation()} className="text-[12px] text-text-1 font-medium truncate leading-tight hover:underline hover:text-accent transition-colors block">
+            {app.company}
+          </Link>
           <div className="text-[11px] text-text-3 truncate leading-tight mt-0.5">{app.role}</div>
         </div>
       </div>

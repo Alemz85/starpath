@@ -107,6 +107,28 @@ release_lock() {
 
 trap release_lock EXIT
 
+# Check if batch-prompt.md is in sync with _shared.md
+check_version_drift() {
+  local shared_md="$PROJECT_DIR/modes/_shared.md"
+  if [[ ! -f "$shared_md" ]]; then
+    return 0
+  fi
+
+  local shared_version
+  shared_version=$(grep -m 1 "<!-- scoring-version:" "$shared_md" | sed 's/.*<!-- scoring-version: \([0-9-]*\) -->.*/\1/' || true)
+  
+  local batch_version
+  batch_version=$(grep -m 1 "<!-- scoring-version:" "$PROMPT_FILE" | sed 's/.*<!-- scoring-version: \([0-9-]*\) -->.*/\1/' || true)
+
+  if [[ -n "$shared_version" ]] && [[ "$shared_version" != "$batch_version" ]]; then
+    echo "ERROR: Version drift detected!"
+    echo "  modes/_shared.md: $shared_version"
+    echo "  batch/batch-prompt.md: ${batch_version:-none}"
+    echo "Please sync batch-prompt.md with the latest scoring logic before running workers."
+    exit 1
+  fi
+}
+
 # Validate prerequisites
 check_prerequisites() {
   if [[ ! -f "$INPUT_FILE" ]]; then
@@ -118,6 +140,8 @@ check_prerequisites() {
     echo "ERROR: $PROMPT_FILE not found."
     exit 1
   fi
+
+  check_version_drift
 
   if ! command -v claude &>/dev/null; then
     echo "ERROR: 'claude' CLI not found in PATH."
