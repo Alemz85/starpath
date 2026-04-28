@@ -51,7 +51,7 @@ export function StepPortals({ onComplete }: { onComplete: () => void }) {
     setSaving(true)
     let raw = await ipc.readFile('user/portals.yml')
     if (!raw || raw.trim().length < 20) {
-      raw = `title_filter:\n  positive:\n  negative:\n  seniority_boost:\n    - "Junior"\n    - "Associate"\n    - "Entry Level"\n    - "Analyst"\n    - "Intern"\n\nlang_blocklist: []\n\ntracked_companies: []\nsearch_queries: []\n`
+      raw = `search_templates:\n  roles_default: '"Analyst" OR "Operations" OR "Strategy" OR "Graduate" OR "Intern"'\n\ntitle_filter:\n  positive:\n  negative:\n  seniority_boost:\n    - "Junior"\n    - "Associate"\n    - "Entry Level"\n    - "Analyst"\n    - "Intern"\n\nlang_blocklist: []\n\ntracked_companies: []\nsearch_queries: []\n`
     }
     const buildBlock = (items: string[]) =>
       items.map(i => `    - "${i}"`).join('\n')
