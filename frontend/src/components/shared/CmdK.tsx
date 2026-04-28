@@ -7,7 +7,7 @@ import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Radar, Settings, Map, Briefcase,
+  TrendingUp, Activity, Settings, Map, Briefcase,
 } from 'lucide-react'
 
 export function CmdK() {
@@ -68,7 +68,7 @@ export function CmdK() {
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-                { view: 'scan',     label: 'Scan',     icon: Radar      },
+                { view: 'scan',     label: 'Activity', icon: Activity   },
                 { view: 'settings', label: 'Settings', icon: Settings   },
               ] as const).map(({ view, label, icon: Icon }) => (
                 <Command.Item
@@ -93,12 +93,12 @@ export function CmdK() {
                 Switch to {otherMode} mode
               </Command.Item>
               <Command.Item
-                value="run scan portals"
+                value="open activity"
                 onSelect={() => go('scan')}
                 className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
               >
-                <Radar size={14} className="text-text-3" />
-                Run portal scan
+                <Activity size={14} className="text-text-3" />
+                Open Activity
               </Command.Item>
             </Command.Group>
 
