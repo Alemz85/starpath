@@ -130,22 +130,26 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Search hint */}
-      {expanded && (
-        <div className="px-3 py-2">
-          <button
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md bg-bg-base border border-border-default text-text-3 hover:text-text-2 transition-colors text-label"
-            onClick={() => {
-              const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
-              document.dispatchEvent(event)
-            }}
-          >
-            <Search size={12} />
-            <span className="flex-1 text-left">Search...</span>
-            <kbd className="text-[10px] bg-bg-elevated border border-border-default rounded px-1">⌘K</kbd>
-          </button>
-        </div>
-      )}
+      {/* Search hint — visible at both widths so keyboard-shy users can still
+          summon CmdK by clicking the icon when the sidebar is collapsed. */}
+      <div className={cn('py-2', expanded ? 'px-3' : 'px-2 flex justify-center')}>
+        <button
+          className={cn(
+            'flex items-center rounded-md bg-bg-base border border-border-default text-text-3 hover:text-text-2 transition-colors text-label',
+            expanded ? 'w-full gap-2 px-2 py-1.5' : 'w-9 h-9 justify-center',
+          )}
+          onClick={() => {
+            const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+            document.dispatchEvent(event)
+          }}
+          title={!expanded ? 'Search (⌘K)' : undefined}
+          aria-label="Search"
+        >
+          <Search size={expanded ? 12 : 14} />
+          {expanded && <span className="flex-1 text-left">Search...</span>}
+          {expanded && <kbd className="text-[10px] bg-bg-elevated border border-border-default rounded px-1">⌘K</kbd>}
+        </button>
+      </div>
 
       {/* Nav */}
       <nav className="flex-1 p-2 overflow-y-auto">

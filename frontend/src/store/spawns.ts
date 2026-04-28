@@ -20,10 +20,28 @@ export interface SpawnRecord {
   status: SpawnStatus
   output: string[]
   startedAt: number
+  endedAt?: number
   exitCode?: number
   /** Underlying executable — used by the activity panel to brand running
    *  Claude spawns with the Claude logo. Not all spawns are AI-driven. */
   tool: 'claude' | 'node' | 'shell'
+}
+
+// Suffix appended to every `claude -p` prompt so the model knows there's no
+// human on the other end to confirm anything. Without this, Claude will often
+// emit a "should I batch all 47 URLs?" question and exit cleanly when stdin
+// is closed — which our activity panel can't distinguish from real success.
+export const NON_INTERACTIVE_SUFFIX =
+  ' — run end-to-end without asking for confirmations; batch and parallelize where possible; if you would normally pause to confirm, proceed with the default and continue working.'
+
+/**
+ * Build a prompt string + args for a non-interactive Claude spawn. Use this
+ * for every `claude -p` invocation in the app — it appends the batch suffix
+ * and adds `--dangerously-skip-permissions` so tool-permission prompts can't
+ * silently hang the run.
+ */
+export function claudeArgs(slashCommand: string): string[] {
+  return ['--dangerously-skip-permissions', '-p', slashCommand + NON_INTERACTIVE_SUFFIX]
 }
 
 interface SpawnsState {
@@ -76,7 +94,7 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
       const status: SpawnStatus = rec.status === 'killed'
         ? 'killed'
         : exitCode === 0 ? 'done' : 'error'
-      return { spawns: { ...state.spawns, [id]: { ...rec, status, exitCode } } }
+      return { spawns: { ...state.spawns, [id]: { ...rec, status, exitCode, endedAt: Date.now() } } }
     })
   },
 

@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
-import { useSpawnsStore } from '@/store/spawns'
+import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { ActionButton, ActivityPanel, pickVisible, HoverDescriptionRow } from '@/components/command-center/CommandCenter'
 import { Play, Zap, FileOutput, Radar } from 'lucide-react'
 
@@ -40,7 +40,7 @@ export function ScanView() {
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
-    start(FULL_SCAN_ID, 'Full Scan', 'claude', ['-p', '/career-ops scan'])
+    start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan'))
   }
   const handleApiScan = () => {
     if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }
@@ -50,7 +50,7 @@ export function ScanView() {
   const handlePipeline = () => {
     if (pipeline?.status === 'running') { kill(PIPELINE_ID); return }
     if (pipeline) clear(PIPELINE_ID)
-    start(PIPELINE_ID, 'Generate Reports', 'claude', ['-p', '/career-ops pipeline'])
+    start(PIPELINE_ID, 'Generate Reports', 'claude', claudeArgs('/career-ops pipeline'))
   }
 
   return (
