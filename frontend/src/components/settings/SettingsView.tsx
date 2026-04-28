@@ -224,7 +224,7 @@ export function SettingsView() {
 // ─── General tab ──────────────────────────────────────────────────────────────
 
 function GeneralTab() {
-  const { repoPath, setRepoPath, currentMode, setMode, resetTailoring } = useAppStore()
+  const { repoPath, setRepoPath, currentMode, setMode, models, setModel, resetTailoring } = useAppStore()
   const { refresh } = useDataStore()
 
   const changeRepo = async () => {
@@ -263,6 +263,26 @@ function GeneralTab() {
               {mode}
             </button>
           ))}
+        </div>
+      </SettingRow>
+
+      <SettingRow
+        title="Models"
+        description="Pick which Claude model handles each kind of work. Scanning is mostly tool-use and Sonnet handles it well; dimensional scoring + prose reports + tailored CVs benefit from Opus but can run on Sonnet to save tokens. Defaults: Sonnet for scan, Opus for everything else."
+      >
+        <div className="space-y-3 mt-3">
+          <ModelChoice
+            label="Scan"
+            sub="Full Scan portal crawl"
+            value={models.scan}
+            onChange={m => setModel('scan', m)}
+          />
+          <ModelChoice
+            label="Reports & scoring"
+            sub="Filter / Top / All Reports, Tailor CV, Draft, Prep Interview, Generate Report"
+            value={models.eval}
+            onChange={m => setModel('eval', m)}
+          />
         </div>
       </SettingRow>
 
@@ -909,6 +929,43 @@ function LoadingRows() {
       {[48, 72, 48, 60].map((w, i) => (
         <div key={i} className="shimmer h-3 rounded" style={{ width: `${w}%` }} />
       ))}
+    </div>
+  )
+}
+
+function ModelChoice({ label, sub, value, onChange }: {
+  label: string
+  sub: string
+  value: 'sonnet' | 'opus' | 'haiku'
+  onChange: (m: 'sonnet' | 'opus' | 'haiku') => void
+}) {
+  const options: Array<{ id: 'sonnet' | 'opus' | 'haiku'; name: string; tag: string }> = [
+    { id: 'sonnet', name: 'Sonnet', tag: 'cheaper · fast' },
+    { id: 'opus',   name: 'Opus',   tag: 'thorough'      },
+  ]
+  return (
+    <div className="flex items-start justify-between gap-6 py-1">
+      <div className="min-w-0">
+        <div className="text-label text-text-1 font-medium">{label}</div>
+        <div className="text-[11px] text-text-4 leading-snug mt-0.5">{sub}</div>
+      </div>
+      <div className="flex rounded-md overflow-hidden border border-border-default shrink-0">
+        {options.map(opt => (
+          <button
+            key={opt.id}
+            onClick={() => onChange(opt.id)}
+            className={cn(
+              'px-3 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap',
+              value === opt.id
+                ? 'bg-accent/20 text-accent-text'
+                : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
+            )}
+            title={opt.tag}
+          >
+            {opt.name}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
