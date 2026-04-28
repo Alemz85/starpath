@@ -72,6 +72,49 @@ This keeps an auditable trail without polluting `scouting.md`. The user can revi
 
 **Goal target:** if 350 URLs come in, expect ~70-280 (60-80%) to be filtered out and ~70-140 (20-40%) to be scored. Adjust by examining what made it through and what didn't — the gate should be tight enough that surviving entries are *actually worth scoring* and the 1-10 scale spreads meaningfully across them.
 
+### Step 2c.1 — Multi-variant collapse (after the discard gate, before scoring)
+
+The discard gate above kills *off-archetype* listings. It does NOT catch the failure mode where a single company posts the **same role under many sub-flavor titles**. PwC Italy's "Milano DIG" rotation gets posted as 22 separate URLs (Customer Data Analyst, GenAI Adoption Intern, Tech Transfer Hub, Digital Innovation, Data & AI Consultant, AI Developer Intern, Hyperautomation Low-Code, etc.). PwC Brussels' "School Internship 2026-2027" gets 15 URLs (HR / Cloud & Data / Management Consulting / EU Procurement / People & Transformation / Talent / Industrials / Managed Services / Data Consulting / Tech Strategy + 2025-2026 dupes). A single graduate intake gets scored 22× and dominates the Database. Same problem the multi-city dedup in `modes/scouting.md` solved for cities — apply it here for sub-flavors.
+
+**Trigger.** After the discard gate, group the surviving URLs by `(company, archetype, level, city or region)`. For any group with **≥ 6 URLs**, treat it as one "umbrella" and score ONE master.
+
+- `company` — case-insensitive exact match.
+- `archetype` — after `canonicalizeArchetype()` from `frontend/src/lib/archetype.ts` so "AI Developer" / "Data & AI Consultant" / "Customer Data Scientist / AI Consultant" all resolve to "Data Scientist" or similar canonical bucket.
+- `level` — Intern / Graduate / Junior / Associate from the title or JD.
+- `city or region` — same city if all rows share one (Milan), or the same internship-program region (Brussels School Internship covers all of Belgium for the candidate's purposes).
+
+**Master selection.** Within a triggering group, pick the master by:
+
+1. The variant whose role title most directly maps to a primary archetype in `_profile.md` § Target Role Matrix. (e.g., for the PwC Milano DIG cluster: "Data & AI Consultant" beats "Hyperautomation Low-Code" because Data Analyst is a primary archetype and Hyperautomation isn't.)
+2. Tie-break on the variant with the most disclosed metadata (location, comp band, deadline).
+3. Final tie-break on whichever variant the user's CV maps to most cleanly (Skills Match would be highest for that one).
+
+**Scoring the master.** Score it normally per `modes/scouting.md`. The dimensional scoring reflects THIS specific variant — not an average across the cluster. Master gets the full row in `data/scouting.md` and a row in `data/score-history.tsv`.
+
+**Variants → Notes column on the master row.** Add a one-line `## Variants` block to the master's Notes column (in `data/scouting.md`) listing the other variants:
+
+```
+## Variants
+- AI Developer Intern Milano (DIG)         — slightly stronger AI/ML stack required
+- GenAI Adoption Intern Milano (DIG)       — change-mgmt focus
+- Junior Data Engineer Milano              — pipelines + cloud focus
+- Customer Data Scientist Milano           — same archetype, customer-data emphasis
+- (... 18 more variants)                    — same umbrella, different sub-flavor
+```
+
+If a variant materially differs from the master on any dimension (different stack, different client face, different city), note that in the one-line summary. If it's just a different sub-category of the same rotation, the variant line can be terse.
+
+**Mark the absorbed variants** in `data/pipeline.md` as `- [x] VARIANT | URL | Company | Role | → master #{num}` and move them to "Processed" — same shape as DUPE. Do NOT write any other row anywhere for them.
+
+**When NOT to collapse.**
+
+- Cluster size < 6 — small batches stay individually scored. Worth the per-row signal.
+- Different cities — already handled by `modes/scouting.md` § Multi-city role deduplication. Don't double-collapse.
+- Different actual archetypes — if PwC Milano posts both an "Advisory Consultant Internship" AND a "Software Engineer Internship", those are different archetypes and both score (or one gets discarded by the gate).
+- Different levels — an Internship and a Graduate role at the same company are different levels; keep both.
+
+**Why this exists.** A pre-fix run produced 55/94 entries from PwC alone (15× School Internship Brussels, 22× Milano DIG, etc) — 59% of the Database from one company's posting hygiene. The umbrella collapse honestly represents the user's actual decision space ("apply to PwC Milano DIG: yes/no") instead of inflating it into 22 separate decisions about variants of the same rotation.
+
 ## Step 3 — Evaluate each non-duplicate URL
 
 For each URL that **survived Step 2c** (in priority order):
