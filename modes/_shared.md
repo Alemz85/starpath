@@ -205,9 +205,32 @@ These appear in every report for situational awareness. The Salary and WLB dimen
 | Dimension | Type | What it measures |
 |-----------|------|------------------|
 | **Best Cities** | 1-10 numeric | Does the role's location match the user's preferred-cities list from `_profile.md`? 10 = top preferred, 1 = unworkable / requires relocation outside acceptable EU set |
-| **Salary Adj for City** | 1-10 numeric | Is the likely compensation reasonable for that city's cost of living? Use per-city bands from `_profile.md` → City-Specific Salary Bands. 10 = comfortably above local entry-band, 1 = clearly below. Use WebSearch when salary is not stated. |
+| **Salary Adj for City** | 1-10 numeric | Is the likely compensation reasonable for that city's cost of living? See Salary Adj anchor table below. |
 | **Work-Life Balance** | 1-10 numeric | Company reputation for WLB (Glassdoor / Blind / known culture). 10 = healthy ~40h, 1 = sweatshop / known burnout culture |
 | **Best-fit Early-career Roles** | text (list) | What specific roles at this company would actually suit the user best — even if they differ from the role being evaluated. Free-form list of 1-4 alternatives. |
+
+#### Salary Adj for City — anchor table
+
+The user's `_profile.md` → City-Specific Salary Bands defines a "good = 8" threshold per city (intern €/mo or full-time €K/yr). Score against THAT threshold for the city the role is in — never against a global average.
+
+| Disclosed comp vs. city threshold | Score |
+|----------------------------------|-------|
+| ≥ +25% above threshold (clearly top of market for level/city) | **10** |
+| +10% to +25% above threshold | **9** |
+| At threshold (±5%) | **8** |
+| 0% to −10% (within bottom of band) | **7** |
+| −10% to −25% below threshold | **5** |
+| −25% to −50% below threshold | **3** |
+| > 50% below threshold OR poverty-wage | **1** |
+
+**Operational rules:**
+1. **Salary disclosed as a range** → score the **midpoint**, not "uncertain → 5". A €45–55K Dublin posting (threshold €40K = 8) → midpoint €50K = +25% → **10**.
+2. **Salary disclosed as single figure** → score directly against the threshold.
+3. **Salary undisclosed** → score **5** AND prepend `[undisclosed]` to the reasoning. This is the ONLY case where 5 is the default.
+4. **Range crosses the threshold** → still take the midpoint. "Within reach OR above" is not "uncertain".
+5. **Fall back to global table** in `_profile.md` (`€45K+ = 10`, `€35–44K = 8`, etc.) only when the city is not in the city-specific table.
+6. **Use WebSearch** to triangulate a market median (Levels.fyi, Glassdoor, Blind) ONLY when no figure is disclosed AND the role is at a known top-100 brand where bands are public.
+7. **"Top of target range"**, "competitive for the city", "premium brand" are NOT reasons to mark down. Score the number, not the framing.
 
 ### Calibration & special rules
 
