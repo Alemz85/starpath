@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (
@@ -64,7 +64,8 @@ const TABLES = [
     location          TEXT NOT NULL DEFAULT '',
     employment_type   TEXT NOT NULL DEFAULT '',
     duration          TEXT NOT NULL DEFAULT '',
-    salary_raw        TEXT NOT NULL DEFAULT ''
+    salary_raw        TEXT NOT NULL DEFAULT '',
+    url               TEXT NOT NULL DEFAULT ''
   )`,
 
   `CREATE TABLE IF NOT EXISTS pipeline (
@@ -78,6 +79,7 @@ const TABLES = [
     company TEXT NOT NULL,
     role    TEXT NOT NULL,
     tier    TEXT NOT NULL,
+    url     TEXT NOT NULL DEFAULT '',
     mtime   INTEGER NOT NULL
   )`,
 ]
@@ -93,6 +95,8 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_score_archetype   ON score_history(archetype)`,
   `CREATE INDEX IF NOT EXISTS idx_reports_tier      ON reports_index(tier)`,
   `CREATE INDEX IF NOT EXISTS idx_reports_company_role ON reports_index(company, role)`,
+  `CREATE INDEX IF NOT EXISTS idx_reports_url       ON reports_index(url)`,
+  `CREATE INDEX IF NOT EXISTS idx_score_url         ON score_history(url)`,
 ]
 
 const TABLE_NAMES = ['applications', 'scouting', 'score_history', 'pipeline', 'reports_index', '_meta']

@@ -288,6 +288,7 @@ function toScoreEntry(row: DbScoreHistoryRow): ScoreEntry {
     employment_type:   row.employment_type,
     duration:          row.duration,
     salary_raw:        row.salary_raw,
+    url:               row.url ?? '',
   }
 }
 

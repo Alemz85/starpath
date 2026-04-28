@@ -73,10 +73,7 @@ Before assigning any scores, you MUST have read:
 
 ### Salary Adj for City — comp cache check
 
-Before scoring the `Salary Adj for City` context dimension:
-1. Check `data/comp-cache.tsv` for a row matching the company + role_type + city that is less than **60 days old**
-2. If found → use cached comp data for scoring; note *(cached {date})*
-3. If missing or stale → note "comp data not cached — scoring from JD disclosure + city bands in `_profile.md`". Do NOT run a WebSearch just for scouting (save that for `oferta` Block D). Use the salary_raw from the JD (if disclosed) and the city bands from `_profile.md` § City-Specific Salary Bands to score.
+Follow the lookup flow defined in `modes/_shared.md` § Comp cache. Scouting mode is **read-only on the cache** — it consults the TSV but does NOT trigger a WebSearch on miss (that's reserved for `oferta` mode where the user is committed). On a cache miss, score from JD disclosure + city bands in `_profile.md`; mark `[undisclosed]` and score 5 if the JD itself is silent.
 
 ### Calibration hooks
 

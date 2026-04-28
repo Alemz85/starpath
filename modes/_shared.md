@@ -226,11 +226,47 @@ The user's `_profile.md` → City-Specific Salary Bands defines a "good = 8" thr
 **Operational rules:**
 1. **Salary disclosed as a range** → score the **midpoint**, not "uncertain → 5". A €45–55K Dublin posting (threshold €40K = 8) → midpoint €50K = +25% → **10**.
 2. **Salary disclosed as single figure** → score directly against the threshold.
-3. **Salary undisclosed** → score **5** AND prepend `[undisclosed]` to the reasoning. This is the ONLY case where 5 is the default.
+3. **Salary undisclosed** → consult the comp cache (next subsection). If the cache resolves it, treat the cached midpoint as disclosed. If it doesn't, score **5** AND prepend `[undisclosed]` to the reasoning. 5 is the default ONLY when the JD is silent AND the cache misses.
 4. **Range crosses the threshold** → still take the midpoint. "Within reach OR above" is not "uncertain".
 5. **Fall back to global table** in `_profile.md` (`€45K+ = 10`, `€35–44K = 8`, etc.) only when the city is not in the city-specific table.
-6. **Use WebSearch** to triangulate a market median (Levels.fyi, Glassdoor, Blind) ONLY when no figure is disclosed AND the role is at a known top-100 brand where bands are public.
-7. **"Top of target range"**, "competitive for the city", "premium brand" are NOT reasons to mark down. Score the number, not the framing.
+6. **"Top of target range"**, "competitive for the city", "premium brand" are NOT reasons to mark down. Score the number, not the framing.
+
+#### Comp cache (`data/comp-cache.tsv`)
+
+When a JD doesn't disclose salary, look up `(company, role_archetype, city)` in `data/comp-cache.tsv` BEFORE scoring 5. The cache is the system's persistent memory of comp data — populated at evaluation time, reused for ~60 days, then refreshed.
+
+**Schema (TSV with header row):**
+
+```
+company	role_archetype	city	currency	min	max	source	confidence	last_updated
+Datadog	Strategy & Ops Analyst	Dublin	EUR	45000	58000	glassdoor	high	2026-04-28
+Stripe	Solutions Engineer	Dublin	EUR	68000	85000	levels.fyi	high	2026-04-28
+SumUp	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
+```
+
+- `role_archetype` = canonical archetype string (Strategy & Ops, Data Analyst, Solutions Engineer, etc.) — not the verbose JD title. Roles within the same archetype share a band.
+- `currency` = ISO 4217 code (EUR, GBP, USD, DKK, …). Internships use the same field; values are €/mo for interns and €/yr for full-time. Distinguish by context (intern roles have small numbers; full-time has 5-figure+).
+- `source` = `glassdoor` | `levels.fyi` | `blind` | `payscale` | `jd` (when the JD itself disclosed it and we're caching for next time) | `manual` (user-edited).
+- `confidence` = `high` (multiple data points agree, ≥10 reports on source) | `medium` (single source, fewer reports) | `low` (extrapolated from adjacent role / city).
+- `last_updated` = ISO date the row was written.
+
+**Lookup flow (do this in order, stop at first hit):**
+
+1. **Exact match:** `company` + `role_archetype` + `city` AND `last_updated` is within 60 days. Use these min/max as if disclosed.
+2. **Cross-city same role:** `company` + `role_archetype` in a peer city (Berlin↔Munich, Dublin↔Amsterdam) within 60 days. Adjust ±10% by relative city threshold from `_profile.md`. Mark reasoning *(cached, cross-city adjusted)*.
+3. **Same company, peer archetype:** `company` + adjacent role_archetype (e.g. "Data Analyst" → "Business Analyst") in same city within 60 days. Mark reasoning *(cached, peer-archetype proxy)*.
+4. **Cache miss or stale (> 60 days)** — branch by mode:
+   - **`oferta` mode** (active application, user committed to this listing): run a **WebSearch** in this priority order — **Levels.fyi → Glassdoor → Blind → Payscale**. Aim for 2 sources to cross-check. Take the median of the entry-level / target-level band. Then **append a row to `data/comp-cache.tsv`** with `source` = whichever site won, `confidence` = `high` (multiple sources agree) / `medium` (single source) / `low` (had to extrapolate). This is how the cache grows organically — every oferta evaluation feeds it.
+   - **`scouting` mode** (landscape mapping, cheap): do NOT run a WebSearch. Score from the JD's disclosed figure or the city-band default. If undisclosed, score 5 with `[undisclosed]` reasoning. The cache fills via oferta runs — scouting reads from it but doesn't pay the WebSearch cost.
+5. **WebSearch returned nothing useful:** score **5** with `[undisclosed]` reasoning. Do NOT fabricate a band.
+
+**Refresh rules:**
+
+- Rows older than 60 days are stale. When a stale row is consulted, run WebSearch as in step 4 and **overwrite** the row (don't append a duplicate). Update `last_updated` to today.
+- The user can manually edit a row at any time and set `source = manual` — that pins the row and bypasses the 60-day refresh until the user touches it again.
+- The cache is gitignored-or-not at the user's discretion. The TSV format is robust to manual editing.
+
+**Tier-1 only?** No. Even mid-tier brands accumulate Glassdoor / Blind data over time. Cache populates organically — start by lookup-on-evaluation; over a few weeks the file grows to cover the user's actual target list.
 
 ### Calibration & special rules
 
@@ -433,7 +469,7 @@ Scouting entries are NEVER written with status `Scouted` to `data/applications.m
 Every scouting evaluation AND every oferta evaluation appends a row to `data/score-history.tsv`. The TSV columns are (in order):
 
 ```
-date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobility	optionality_exit	brand_value	sales_trap_risk	aspirational_fit	overall	best_cities	salary_adj_city	work_life_balance	best_fit_roles	mode	company	role	tier	source	location	employment_type	duration	salary_raw
+date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobility	optionality_exit	brand_value	sales_trap_risk	aspirational_fit	overall	best_cities	salary_adj_city	work_life_balance	best_fit_roles	mode	company	role	tier	source	location	employment_type	duration	salary_raw	url
 ```
 
 **Column definitions:**
@@ -442,15 +478,18 @@ date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobil
 - `best_fit_roles` is a free-text field; separate multiple roles with `; ` (semicolons). Never use literal tabs inside this field.
 - `mode` is `scouting` or `oferta`. This lets `positioning` distinguish the source when needed.
 - `tier` for scouting is `full` | `short-high` | `short` | `growth` | `skip`. For oferta, use `oferta`.
-- `source` is `url` | `paste` | `scan` | `pipeline` | `batch`.
+- `source` is `url` | `paste` | `scan` | `pipeline` | `batch`. (This is the workflow source — where the listing entered the system from. NOT the listing URL itself.)
 - `location` — city name as stated in the JD (e.g., `Madrid`, `Amsterdam`, `Remote-EU`, `Barcelona (hybrid)`). Use `n/d` if not stated.
 - `employment_type` — `internship` | `full-time` | `working-student` | `graduate-program` | `contract` | `n/d`.
 - `duration` — free text from the JD (e.g., `6mo`, `12mo`, `permanent`, `n/d`). Use `permanent` for standard full-time with no stated end date.
 - `salary_raw` — exact figure or range as stated in the JD (e.g., `€1,500/mo`, `€35–45K`, `competitive`). Use `n/d` if not disclosed.
+- `url` — the listing URL from the JD page (`https://...`). This is the **stable join key** used by the frontend cache to bind a score-history row to its `reports/...md` file. Always write it. Use `n/d` only when the source is a paste with no URL.
 
-**Rows written before 2026-04-26** have 21 columns (no metadata columns). Readers must handle variable column counts — check `len(columns) >= 22` before reading `location` and beyond.
+**Rows written before 2026-04-26** have 21 columns (no metadata columns). Readers must handle variable column counts — pad short rows with empty strings rather than skipping them.
 
-If the file does not exist, create it with the 25-column header row exactly as above. Append-only; never rewrite.
+**Rows written between 2026-04-26 and 2026-04-29** have 25 columns (no `url`). The frontend cache backfills `url` for these rows by reading the matching report's `**URL:**` header.
+
+If the file does not exist, create it with the 26-column header row exactly as above. Append-only; never rewrite.
 
 ## Posting Legitimacy (Block G)
 

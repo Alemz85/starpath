@@ -64,6 +64,10 @@ export interface ScoreEntry {
   employment_type: string
   duration: string
   salary_raw: string
+  /** The listing URL — added to score-history.tsv as column 26.
+   *  Empty for legacy rows; populated for evaluations from 2026-04-29 onward.
+   *  This is the stable join key between score_history and reports_index. */
+  url: string
 }
 
 // ─── Scouting tracker (data/scouting.md) ─────────────────────────────────────
@@ -177,12 +181,16 @@ export const TIER_LABELS: Record<TierKey, string> = {
   'T4': 'T4',
 }
 
+// Consistent fill + border opacity across tiers so the active-state highlight
+// reads the same regardless of which tier is selected. Earlier values varied
+// (T1 /20, T2-3 /15, T4 /10) which made T1 chips pop and T4 chips look
+// half-disabled.
 export const TIER_COLORS: Record<TierKey, { bg: string; text: string; border: string }> = {
-  'T1':     { bg: 'bg-tier-1/20',    text: 'text-tier-1',    border: 'border-tier-1/40' },
-  'T2-high':{ bg: 'bg-success/15',   text: 'text-success',   border: 'border-success/30' },
-  'T2':     { bg: 'bg-tier-2/15',    text: 'text-tier-2',    border: 'border-tier-2/30' },
-  'T3':     { bg: 'bg-tier-3/15',    text: 'text-tier-3',    border: 'border-tier-3/30' },
-  'T4':     { bg: 'bg-tier-4/10',    text: 'text-tier-4',    border: 'border-tier-4/20' },
+  'T1':     { bg: 'bg-tier-1/15',  text: 'text-tier-1',  border: 'border-tier-1/35' },
+  'T2-high':{ bg: 'bg-success/15', text: 'text-success', border: 'border-success/35' },
+  'T2':     { bg: 'bg-tier-2/15',  text: 'text-tier-2',  border: 'border-tier-2/35' },
+  'T3':     { bg: 'bg-tier-3/15',  text: 'text-tier-3',  border: 'border-tier-3/35' },
+  'T4':     { bg: 'bg-tier-4/15',  text: 'text-tier-4',  border: 'border-tier-4/35' },
 }
 
 export const STATUS_COLORS: Record<AppStatus, string> = {

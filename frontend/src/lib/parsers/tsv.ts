@@ -23,7 +23,9 @@ export function parseScoreHistory(tsv: string): ScoreEntry[] {
 
   return lines.slice(1).flatMap(line => {
     const cols = line.split('\t').map(c => c.trim())
-    if (cols.length < headers.length) return []
+    // Pad short rows with '' so a header column added later (e.g. `url`)
+    // doesn't silently skip the entire pre-existing dataset.
+    if (cols.length === 0) return []
     const row: Record<string, string> = {}
     headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
 
@@ -56,6 +58,7 @@ export function parseScoreHistory(tsv: string): ScoreEntry[] {
       employment_type: row.employment_type ?? '',
       duration:        row.duration ?? '',
       salary_raw:      row.salary_raw ?? '',
+      url:             row.url ?? '',
     } satisfies ScoreEntry]
   })
 }

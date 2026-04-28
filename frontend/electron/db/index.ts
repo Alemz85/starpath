@@ -171,19 +171,58 @@ export function queryReports(f: ReportFilters = {}) {
     where.push('(r.company LIKE @q OR r.role LIKE @q)')
     params.q = `%${f.search}%`
   }
+  // Join strategy:
+  //  1. Primary: match on `url` — the listing URL is the only stable join
+  //     key that survives filename sanitization and multi-city
+  //     disambiguation. Reports written under the current pipeline always
+  //     have a URL; the sync extracts it from the markdown body.
+  //  2. Fallback: for legacy reports that pre-date URL tracking, fall back
+  //     to (company, role) matching — exact → prefix → "same company,
+  //     highest overall" so the badge isn't blank for the historic ~35
+  //     orphan reports.
+  // Most rows hit (1); (2) only fires when reports_index.url is empty.
   const sql = `
+    WITH score_by_url AS (
+      SELECT url, overall, current_fit, aspirational_fit
+      FROM score_history
+      WHERE url <> ''
+      GROUP BY url
+    ),
+    fallback AS (
+      SELECT
+        r.path,
+        s.overall,
+        s.current_fit,
+        s.aspirational_fit,
+        ROW_NUMBER() OVER (
+          PARTITION BY r.path
+          ORDER BY
+            CASE
+              WHEN LOWER(TRIM(s.role))    = LOWER(TRIM(r.role))    THEN 0
+              WHEN LOWER(TRIM(s.role)) LIKE LOWER(TRIM(r.role)) || '%' THEN 1
+              WHEN LOWER(TRIM(r.role)) LIKE LOWER(TRIM(s.role)) || '%' THEN 1
+              ELSE 2
+            END,
+            s.overall DESC
+        ) AS rn
+      FROM reports_index r
+      LEFT JOIN score_history s
+        ON LOWER(TRIM(s.company)) = LOWER(TRIM(r.company))
+      WHERE r.url = ''
+    )
     SELECT
       r.path     AS path,
       r.company  AS company,
       r.role     AS role,
       r.tier     AS tier,
+      r.url      AS url,
       r.mtime    AS mtime,
-      s.overall  AS overall,
-      s.current_fit AS current_fit,
-      s.aspirational_fit AS aspirational_fit
+      COALESCE(u.overall,          f.overall)          AS overall,
+      COALESCE(u.current_fit,      f.current_fit)      AS current_fit,
+      COALESCE(u.aspirational_fit, f.aspirational_fit) AS aspirational_fit
     FROM reports_index r
-    LEFT JOIN score_history s
-      ON s.company = r.company AND s.role = r.role
+    LEFT JOIN score_by_url u ON r.url <> '' AND u.url = r.url
+    LEFT JOIN fallback    f ON f.path = r.path AND f.rn = 1
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
     GROUP BY r.path
     ORDER BY r.tier, r.company
