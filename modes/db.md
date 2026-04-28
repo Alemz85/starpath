@@ -19,7 +19,7 @@ All filters are optional. Combine freely.
 | Flag | Example | Effect |
 |------|---------|--------|
 | `--archetype X` | `--archetype "Value Engineering"` | Fuzzy-match archetype column |
-| `--tier X` | `--tier T1` or `--tier T2-high` | Exact tier match (full/short-high/short/growth/skip/oferta) |
+| `--tier X` | `--tier T1` or `--tier T2` | Exact tier match (T1, T2, T3, T4) |
 | `--location X` | `--location Madrid` | Fuzzy-match location column |
 | `--type X` | `--type internship` | Exact match on employment_type |
 | `--min-score X` | `--min-score 7.0` | Overall ≥ X |
@@ -39,7 +39,7 @@ Render a markdown table directly in chat. Default sort: Overall descending.
 
 | # | Date | Company | Role | Location | Type | Duration | Salary | Archetype | Overall | CF | AF | EoE | Tier | Mode |
 |---|------|---------|------|----------|------|----------|--------|-----------|---------|----|----|-----|------|------|
-| 1 | 2026-04-25 | Celonis | Intern Value Advisory | Madrid | internship | 6mo | n/d | Value Engineering | 8.9 | 8.7 | 9.5 | 6.0 | T2-high | scouting |
+| 1 | 2026-04-25 | Celonis | Intern Value Advisory | Madrid | internship | 6mo | n/d | Value Engineering | 8.9 | 8.7 | 9.5 | 6.0 | T2 | scouting |
 | 2 | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
 
 **Summary:** {N} roles shown · avg Overall {X.X} · top archetype {Y} ({N} roles)

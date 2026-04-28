@@ -146,7 +146,7 @@ If no patterns meet the threshold, print nothing. Do not mention this step in th
 - [!] https://private.url/job — Error: login required
 
 ## Processed
-- [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | Analyst | 8.2/10 | T2-high | PDF ✅
+- [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | Analyst | 8.2/10 | T2 | PDF ✅
 - [x] #144 | https://boards.greenhouse.io/xyz/jobs/012 | BigCo | SA | 5.1/10 | T3 | PDF ❌
 - [x] DUPE | https://... | OldCo | Analyst | → existing #112
 - [!] CLOSED | https://stale.url | ClosedCo | PM | stale + liveness check failed

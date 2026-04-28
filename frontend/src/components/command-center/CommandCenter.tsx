@@ -1,17 +1,19 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { useNavStore } from '@/store/nav'
 import { ClaudeLogo } from '@/components/shared/Logos'
+import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { StatCard } from './StatCard'
 import {
   BarChart2, Inbox, Target, Radar, Calendar,
   Play, Zap, FileOutput, Filter, Sparkles, FileStack, Square, ArrowRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { ScoreEntry } from '@/types'
 
 const FULL_SCAN_ID       = 'cmd-full-scan'
 const API_SCAN_ID        = 'cmd-api-scan'
@@ -27,7 +29,7 @@ const FILTER_PROMPT =
   '/career-ops pipeline — FILTER ONLY mode. For each pending URL in data/pipeline.md: fetch the JD, extract metadata (title, company, role, location, salary range, employment type, JD URL, archetype guess), apply user/portals.yml filters, dedup against data/scan-history.tsv and data/applications.md. If passes: append a Tier 4 observation row to data/scouting.md with the metadata in the notes column. Do NOT generate per-listing reports under reports/. Do NOT run modes/scouting.md or modes/oferta.md per URL. Mark each processed URL as [x] in pipeline.md. Update data/scan-history.tsv with scan_dates. This is the cheap inventory-only path.'
 
 const TOP_REPORTS_PROMPT =
-  '/career-ops pipeline — TOP REPORTS mode. First filter every pending URL (lightweight metadata extraction + add to data/scouting.md as Tier 4). Then identify the 8 entries most likely to be high-fit by title-keyword + archetype match — for those run the full evaluation per user/profile.yml current_mode (modes/scouting.md if scouting, modes/oferta.md if applying) and generate per-listing reports under reports/tier-N/{Company} - {Role}.md. For non-top entries, leave only the Tier 4 observation. Mark all processed URLs as [x] in pipeline.md.'
+  '/career-ops pipeline — TOP REPORTS mode. (1) Filter every pending URL: extract metadata, apply user/portals.yml filters, dedup against scan-history.tsv and applications.md. (2) For EVERY filtered entry, run the FULL evaluation per user/profile.yml current_mode (modes/scouting.md if scouting, modes/oferta.md if applying) — same depth as a normal eval. Write the proper score + tier (T1/T2-high/T2/T3/T4) into data/scouting.md and append to data/score-history.tsv. (3) After scoring, identify the 8 highest-scoring entries. (4) For those 8 ONLY: ALSO write the per-listing report markdown under reports/tier-N/{Company} - {Role}.md. (5) The remaining entries are fully scored in scouting.md but with no per-listing report file — the user can promote them later via the database "Generate Report" action. (6) Mark all processed URLs as [x] in pipeline.md.'
 
 const ALL_REPORTS_PROMPT =
   '/career-ops pipeline — ALL REPORTS mode. For every pending URL in data/pipeline.md that passes user/portals.yml filters, run the full evaluation per user/profile.yml current_mode (modes/scouting.md or modes/oferta.md) and generate the per-listing report under reports/tier-N/. Process in parallel where safe. Mark URLs as [x] in pipeline.md.'
@@ -121,8 +123,88 @@ export function CommandCenter() {
 
         {/* Scouting cockpit (flex-grows to fill remaining height) */}
         <ScoutingActionPanel repoPath={repoPath} onPipelineDone={refresh} />
+
+        {/* Recent top picks — gives the page substance even when no scan
+            is running. Reads from scoreHistory; clicks navigate to /reports
+            filtered to that listing. */}
+        <RecentTopPicks />
       </div>
     </div>
+  )
+}
+
+function RecentTopPicks() {
+  const scoreHistory = useDataStore(s => s.scoreHistory)
+  const navigate = useNavStore(s => s.navigate)
+
+  const topPicks = useMemo(() => {
+    return [...scoreHistory]
+      .filter(s => s.tier === 'T1' || s.tier === 'T2-high' || s.tier === 'T2')
+      .sort((a, b) => {
+        // Prefer most recent; break ties by score desc.
+        const cmp = (b.date ?? '').localeCompare(a.date ?? '')
+        return cmp !== 0 ? cmp : (b.overall - a.overall)
+      })
+      .slice(0, 8)
+  }, [scoreHistory])
+
+  if (topPicks.length === 0) return null
+
+  return (
+    <div className="shrink-0">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[10px] uppercase tracking-[0.12em] text-text-4 font-semibold">
+          Recent top picks
+        </p>
+        <button
+          onClick={() => navigate('database')}
+          className="text-[11px] text-text-3 hover:text-accent transition-colors"
+        >
+          See all in Database →
+        </button>
+      </div>
+      <div className="flex gap-2.5 overflow-x-auto pb-1 -mx-1 px-1">
+        {topPicks.map((entry, i) => (
+          <TopPickCard
+            key={`${entry.company}-${entry.role}-${i}`}
+            entry={entry}
+            onClick={() => navigate('reports', `${entry.company}|${entry.role}`)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TopPickCard({ entry, onClick }: { entry: ScoreEntry; onClick: () => void }) {
+  const tierColor =
+    entry.tier === 'T1'      ? 'text-tier-1' :
+    entry.tier === 'T2-high' ? 'text-success' :
+    entry.tier === 'T2'      ? 'text-tier-2' :
+                                'text-text-3'
+  return (
+    <button
+      onClick={onClick}
+      className="shrink-0 w-[200px] text-left p-3 rounded-lg bg-bg-panel border border-border-default hover:border-accent/40 hover:bg-accent/[0.04] transition-all"
+    >
+      <div className="flex items-start gap-2.5">
+        <CompanyLogo company={entry.company} size={26} className="shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0 leading-tight">
+          <div className="text-[12.5px] text-text-1 font-semibold truncate">{entry.company}</div>
+          <div className="text-[11px] text-text-3 truncate mt-0.5">{entry.role}</div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between mt-2.5">
+        <span className={cn('text-[10px] font-mono font-bold tracking-wide', tierColor)}>
+          {entry.tier === 'T2-high' ? 'T2+' : entry.tier}
+        </span>
+        {entry.overall > 0 && (
+          <span className="text-[11px] font-mono font-semibold text-text-2 tabular-nums">
+            {entry.overall.toFixed(1)}
+          </span>
+        )}
+      </div>
+    </button>
   )
 }
 
@@ -290,7 +372,7 @@ function RunningInScanFooter() {
   return (
     <button
       onClick={() => navigate('scan')}
-      className="shrink-0 mt-3 self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-accent/8 hover:bg-accent/14 border border-accent/30 text-accent text-[12px] transition-colors"
+      className="shrink-0 mt-3 self-center inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-accent/8 hover:bg-accent/14 border border-accent/30 text-accent text-[12px] transition-colors"
     >
       <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
       {runningCount} running — open Scan
@@ -438,7 +520,7 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
           knows what's at the wheel. The elapsed chip ticks every second while
           running so a "stuck" run can never look like "instant" success. */}
       <div
-        className="shrink-0 h-7 px-3 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider"
+        className="shrink-0 h-8 px-5 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider"
         style={{ background: '#2A2548', borderColor: 'rgba(255,255,255,0.05)' }}
       >
         <span className="text-white/55 inline-flex items-center gap-1.5">

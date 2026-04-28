@@ -5,7 +5,7 @@ import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
-import { FileText, ExternalLink, Sparkles, GraduationCap, X } from 'lucide-react'
+import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry, AppStatus } from '@/types'
 
@@ -96,6 +96,21 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
           label="View full report"
           onClick={() => { onViewReport(); onClose() }}
         />
+        {/* Generate Report — only meaningful when the listing is still live;
+            stale/closed entries can't be re-evaluated against a 404 URL. */}
+        {liveness === 'active' ? (
+          <Item
+            icon={FileOutput}
+            label="Generate report"
+            onClick={() => { spawnReport(entry); onClose() }}
+          />
+        ) : (
+          <ItemDisabled
+            icon={FileOutput}
+            label="Generate report"
+            tooltip="Listing expired — report not available"
+          />
+        )}
         <Item
           icon={Sparkles}
           label="Tailor CV"
@@ -156,6 +171,26 @@ function Item({
   )
 }
 
+function ItemDisabled({
+  icon: Icon, label, tooltip,
+}: {
+  icon: React.ElementType
+  label: string
+  tooltip: string
+}) {
+  return (
+    <div
+      title={tooltip}
+      aria-disabled="true"
+      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left text-text-4 opacity-50 cursor-not-allowed select-none"
+    >
+      <Icon size={13} className="shrink-0 opacity-70" />
+      <span className="truncate">{label}</span>
+      <span className="ml-auto text-[10px] text-text-4 italic shrink-0">expired</span>
+    </div>
+  )
+}
+
 function spawnPerListing(label: string, modeFile: string, entry: ScoreEntry) {
   // Lazy import to avoid circular dep with spawn store
   import('@/store/spawns').then(({ useSpawnsStore, claudeArgs }) => {
@@ -166,5 +201,23 @@ function spawnPerListing(label: string, modeFile: string, entry: ScoreEntry) {
     const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
     const slash = `/career-ops ${mode} for ${entry.company} — ${entry.role}`
     start(id, `${label}: ${entry.company}`, 'claude', claudeArgs(slash))
+  })
+}
+
+function spawnReport(entry: ScoreEntry) {
+  import('@/store/spawns').then(({ useSpawnsStore, claudeArgs }) => {
+    const id = 'popover-generate-report'
+    const { spawns, start, clear } = useSpawnsStore.getState()
+    if (spawns[id]?.status === 'running') return
+    if (spawns[id]) clear(id)
+    // Run the full evaluation per current_mode + write the per-listing report
+    // file. Use the source URL when available so auto-pipeline can re-fetch
+    // the JD; otherwise fall back to a company+role prompt and let Claude
+    // pull from the existing scouting.md row.
+    const url = entry.source && /^https?:\/\//i.test(entry.source) ? entry.source : null
+    const slash = url
+      ? `/career-ops ${url} — generate the per-listing report markdown under reports/tier-N/{Company} - {Role}.md per current_mode (modes/scouting.md or modes/oferta.md). Reuse the existing data/scouting.md row's score if present.`
+      : `/career-ops auto-pipeline for ${entry.company} — ${entry.role} — generate the per-listing report markdown under reports/tier-N/ per current_mode. The listing already exists in data/scouting.md.`
+    start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash))
   })
 }

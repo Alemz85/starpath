@@ -193,20 +193,43 @@ function InboxPanel({ repoPath }: { repoPath: string | null }) {
         </div>
       </div>
       {pipeline.length > 0 && (
-        <div className="px-3 py-2 max-h-24 overflow-y-auto space-y-1">
-          {pipeline.map((p, i) => (
-            <div
-              key={i}
-              className={cn(
-                'flex items-center gap-2 text-[11px] leading-snug',
-                p.isStale ? 'text-warning' : 'text-text-3',
-              )}
-            >
-              {p.isStale && <AlertTriangle size={9} className="shrink-0" />}
-              <span className="truncate font-mono">{p.url}</span>
-            </div>
-          ))}
-        </div>
+        <InboxList items={pipeline} />
+      )}
+    </div>
+  )
+}
+
+// Show only the first few pending URLs inline. Anything beyond the cap stays
+// available behind a "show all" toggle — the full list is rarely worth the
+// vertical space, and the count in the header conveys the bigger picture.
+function InboxList({ items }: { items: import('@/types').PipelineUrl[] }) {
+  const PREVIEW = 5
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? items : items.slice(0, PREVIEW)
+  const remaining = items.length - PREVIEW
+  return (
+    <div className="px-3 py-2">
+      <div className={cn('space-y-1', expanded && 'max-h-48 overflow-y-auto')}>
+        {visible.map((p, i) => (
+          <div
+            key={i}
+            className={cn(
+              'flex items-center gap-2 text-[11px] leading-snug',
+              p.isStale ? 'text-warning' : 'text-text-3',
+            )}
+          >
+            {p.isStale && <AlertTriangle size={9} className="shrink-0" />}
+            <span className="truncate font-mono">{p.url}</span>
+          </div>
+        ))}
+      </div>
+      {remaining > 0 && (
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="mt-1.5 text-[10.5px] text-text-4 hover:text-accent transition-colors"
+        >
+          {expanded ? 'Show fewer' : `+ ${remaining} more`}
+        </button>
       )}
     </div>
   )

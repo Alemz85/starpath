@@ -97,11 +97,13 @@ The full scouting report follows the format in the "Full Report Format" section 
 
 ### Tier 2 — Current Fit ≥ 7.0 (worth noting) AND Ease of Entry > 4
 
-Two sub-tiers (same template, different verdict phrasing):
-- **T2-high:** CF 8.0–8.9 → "apply with prep"
-- **T2-standard:** CF 7.0–7.9 → "apply if pipeline thin"
-
 Generate a **short summary report**. No PDF. No tailored CV. The dimensional table is still required.
+
+Verdict phrasing scales with Current Fit:
+- CF 8.0–8.9 → "apply with prep"
+- CF 7.0–7.9 → "apply if pipeline thin"
+
+Both write `Tier: T2` to scouting.md and score-history.tsv — there is no T2-high sub-tier.
 
 ```markdown
 # Scouting: {Company} — {Role}
@@ -114,7 +116,7 @@ Generate a **short summary report**. No PDF. No tailored CV. The dimensional tab
 **Current Fit:** {X.X}/10
 **Aspirational Fit:** {X.X}/10
 **Overall:** {X.X}/10
-**Tier:** T2-high (8.0-8.9) | T2-standard (7.0-7.9)  ← pick one
+**Tier:** T2
 
 ## Dimensional scoring
 
@@ -124,7 +126,7 @@ Generate a **short summary report**. No PDF. No tailored CV. The dimensional tab
 {2 bullets max: one on strongest match, one on biggest gap}
 
 ## Verdict
-{One line — "Apply with prep" (T2-high) | "Apply if pipeline thin" (T2-standard) | "Track company only"}
+{One line — "Apply with prep" (CF 8.0+) | "Apply if pipeline thin" (CF 7.0–7.9) | "Track company only"}
 ```
 
 ### Tier 3 — Current Fit < 7.0 AND Aspirational Fit ≥ 7.0 (growth target), OR Ease of Entry ≤ 4 gate (see `_shared.md`)
@@ -258,7 +260,7 @@ After writing the scouting report (or recording a T4 skip), also append a row to
 {date}	{company}	{role}	{archetype}	{tier}	{overall}	{cf}	{af}	{key_gaps}	{verdict_one_line}
 ```
 
-- `tier` — `T1` | `T2-high` | `T2` | `T3` | `T4`
+- `tier` — `T1` | `T2` | `T3` | `T4`
 - `key_gaps` — pipe-separated list of dimensions scored ≤ 5/10, max 3 (e.g. `EoE|Skills Match`). Use `—` for T1.
 - `verdict_one_line` — the 1-sentence recommendation from the report (e.g. `Apply with prep — brand + growth strong, EoE gap closeable by graduation`). For T4 skips: `T4 skip — {reason}`.
 
@@ -282,7 +284,7 @@ Column order:
 3. `company` — short company name
 4. `role` — job title
 5. `score` — overall weighted score, `X.X/10`
-6. `tier` — `T1` | `T2` | `T2-high` | `T3` | `T4` (use `T2-high` for CF 8.0–8.9; score-history uses `short-high` for the tier column)
+6. `tier` — `T1` | `T2` | `T3` | `T4`
 7. `cf_af` — `{current}/{aspirational}`, e.g. `8.3/7.5`
 8. `report` — markdown link `[num](reports/tier-{N}/{Company} - {Role}.md)` or `—` for T4 skips
 9. `deadline` — application deadline as stated in the JD (e.g. `2026-06-30`, `Rolling`, `n/d`). Use `n/d` if not stated.
