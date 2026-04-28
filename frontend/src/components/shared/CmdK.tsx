@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
 import {
-  Search, Database, FileText, GitBranch,
+  Search, Database, FileText,
   TrendingUp, Radar, Settings, Map, Briefcase,
 } from 'lucide-react'
 
@@ -66,7 +66,6 @@ export function CmdK() {
                 { view: 'scouting', label: 'Scouting', icon: Map        },
                 { view: 'applying', label: 'Applying', icon: Briefcase  },
                 { view: 'database', label: 'Database', icon: Database   },
-                { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
                 { view: 'scan',     label: 'Scan',     icon: Radar      },
