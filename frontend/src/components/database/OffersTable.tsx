@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useMemo, useRef, useState } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
@@ -134,7 +134,11 @@ const BREAKDOWN_DIMS: Array<{ key: keyof ScoreEntry; label: string }> = [
 function BreakdownRow({ entry, colSpan }: { entry: ScoreEntry; colSpan: number }) {
   return (
     <tr className="bg-bg-elevated/40 border-b border-border-default/30">
-      <td colSpan={colSpan} className="px-6 py-3">
+      {/* Indent the content past the chevron + logo so dimension labels sit
+          slightly right of the company-name column above. The 64px left
+          padding lines the breakdown up just inside where "Listing"'s text
+          begins, giving a clear parent→child visual relationship. */}
+      <td colSpan={colSpan} className="pl-16 pr-6 py-3">
         <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 max-w-[720px]">
           {BREAKDOWN_DIMS.map(({ key, label }) => {
             const raw = entry[key]
@@ -173,6 +177,15 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   const reports = useDataStore(s => s.reports)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
+  // Refs that always mirror the latest state so the column-cell closures
+  // can read fresh values without `expanded` / `toggleExpanded` being in
+  // the columns useMemo deps. Without this, every chevron toggle would
+  // rebuild the columns array, causing tanstack-table to recompute the
+  // entire table layout — that's the source of the visible flicker on
+  // expand. With the refs the columns array stays stable; the cell
+  // function is called fresh each render and reads current state.
+  const expandedRef = useRef(expanded)
+  expandedRef.current = expanded
   const toggleExpanded = (entry: ScoreEntry) => {
     const k = entryKey(entry)
     setExpanded(prev => {
@@ -182,6 +195,8 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       return next
     })
   }
+  const toggleExpandedRef = useRef(toggleExpanded)
+  toggleExpandedRef.current = toggleExpanded
 
   // Fast lookup: which entries already have a report file on disk?
   const reportSet = useMemo(() => {
@@ -199,10 +214,10 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       size: 28,
       cell: info => {
         const entry = info.row.original
-        const isOpen = expanded.has(entryKey(entry))
+        const isOpen = expandedRef.current.has(entryKey(entry))
         return (
           <button
-            onClick={(e) => { e.stopPropagation(); toggleExpanded(entry) }}
+            onClick={(e) => { e.stopPropagation(); toggleExpandedRef.current(entry) }}
             title={isOpen ? 'Hide score breakdown' : 'Show score breakdown'}
             aria-label={isOpen ? 'Hide score breakdown' : 'Show score breakdown'}
             aria-expanded={isOpen}
@@ -324,7 +339,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         )
       },
     }),
-  ], [reportSet, onOpenReport, expanded])
+  ], [reportSet, onOpenReport])
 
   const table = useReactTable({
     data: rows,
