@@ -52,6 +52,7 @@ interface AppConfig {
   windowBounds?: { x: number; y: number; width: number; height: number }
   onboardingComplete?: boolean
   tailoringComplete?: boolean
+  models?: { scan: 'sonnet' | 'opus' | 'haiku'; eval: 'sonnet' | 'opus' | 'haiku' }
 }
 
 function readConfig(): AppConfig {
@@ -234,6 +235,17 @@ ipcMain.handle('app:set-onboarding-complete', (_e, value: unknown) => {
 ipcMain.handle('app:set-tailoring-complete', (_e, value: unknown) => {
   const v = value === undefined ? true : Boolean(value)
   writeConfig({ ...readConfig(), tailoringComplete: v })
+})
+
+ipcMain.handle('app:set-models', (_e, models: unknown) => {
+  if (!models || typeof models !== 'object') throw new Error('models must be object')
+  const m = models as Record<string, unknown>
+  const validModel = (v: unknown): v is 'sonnet' | 'opus' | 'haiku' =>
+    v === 'sonnet' || v === 'opus' || v === 'haiku'
+  if (!validModel(m.scan) || !validModel(m.eval)) {
+    throw new Error('models.scan and models.eval must be one of sonnet | opus | haiku')
+  }
+  writeConfig({ ...readConfig(), models: { scan: m.scan, eval: m.eval } })
 })
 
 ipcMain.handle('app:select-folder', async () => {

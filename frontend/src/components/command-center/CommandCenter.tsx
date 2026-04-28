@@ -260,7 +260,7 @@ function ScoutingActionPanel({
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
-    start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan'))
+    start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan', 'scan'))
   }
   const handleApiScan = () => {
     if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }

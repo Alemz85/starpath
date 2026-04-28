@@ -22,6 +22,7 @@ export const ipc = {
   setRepoPath:          (p: string)             => api().setRepoPath(p),
   setOnboardingComplete:(v: boolean)            => api().setOnboardingComplete(v),
   setTailoringComplete: (v?: boolean)           => api().setTailoringComplete(v),
+  setModels:            (m: { scan: string; eval: string }) => api().setModels(m),
   selectFolder:         ()                     => api().selectFolder() as Promise<{ path: string; valid: boolean } | null>,
   validatePath:         (p: string)             => api().validatePath(p) as Promise<{ path: string; valid: boolean }>,
   openExternal:         (url: string)           => api().openExternal(url),

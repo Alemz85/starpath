@@ -1,9 +1,24 @@
 // ─── App config ───────────────────────────────────────────────────────────────
 
+export type ModelAlias = 'sonnet' | 'opus' | 'haiku'
+
+export interface ModelPrefs {
+  /** Used by Full Scan — mostly tool-use, light reasoning. Default: sonnet. */
+  scan: ModelAlias
+  /** Used by Filter to Database, Top/All Reports, per-card Tailor CV / Draft /
+   *  Prep, the Database "Generate report" popover action. Anything that does
+   *  dimensional scoring or prose generation. Default: opus. */
+  eval: ModelAlias
+}
+
+export const DEFAULT_MODEL_PREFS: ModelPrefs = { scan: 'sonnet', eval: 'opus' }
+
 export interface AppConfig {
   repoPath?: string
   windowBounds?: { x: number; y: number; width: number; height: number }
   onboardingComplete?: boolean
+  tailoringComplete?: boolean
+  models?: ModelPrefs
 }
 
 // ─── Score history (data/score-history.tsv) ───────────────────────────────────

@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
 import { getCurrentMode, setCurrentMode, hasLegacyMode } from '@/lib/parsers/yaml'
-import type { AppMode } from '@/types'
+import type { AppMode, ModelAlias, ModelPrefs } from '@/types'
+import { DEFAULT_MODEL_PREFS } from '@/types'
 
 // Returns true if the currently-pointed-at repo already has the four critical
 // user files filled in to a meaningful degree. Used to bypass the onboarding
@@ -22,6 +23,7 @@ interface AppState {
   tailoringComplete: boolean
   currentMode: AppMode
   claudeInstalled: boolean
+  models: ModelPrefs
 
   // Actions
   init: () => Promise<void>
@@ -30,6 +32,7 @@ interface AppState {
   setTailoringComplete: () => Promise<void>
   resetTailoring: () => Promise<void>
   setMode: (mode: AppMode) => Promise<void>
+  setModel: (category: keyof ModelPrefs, model: ModelAlias) => Promise<void>
   recheckClaude: () => Promise<boolean>
 }
 
@@ -39,6 +42,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tailoringComplete: true,
   currentMode: 'scouting',
   claudeInstalled: false,
+  models: DEFAULT_MODEL_PREFS,
 
   init: async () => {
     const cfg = await ipc.getConfig()
@@ -86,6 +90,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       tailoringComplete,
       currentMode:       mode,
       claudeInstalled:   claudeCheck?.installed ?? false,
+      models:            cfg?.models ?? DEFAULT_MODEL_PREFS,
     })
   },
 
@@ -133,5 +138,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       await ipc.writeFile('user/profile.yml', updated)
     }
     set({ currentMode: mode })
+  },
+
+  setModel: async (category, model) => {
+    const next: ModelPrefs = { ...get().models, [category]: model }
+    await ipc.setModels(next)
+    set({ models: next })
   },
 }))
