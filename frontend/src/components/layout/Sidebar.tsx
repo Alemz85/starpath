@@ -9,7 +9,6 @@ import {
   Briefcase,
   Database,
   FileText,
-  GitBranch,
   TrendingUp,
   Search,
   Settings,
@@ -39,10 +38,9 @@ const PRIMARY_NAV: NavItem[] = [
   { view: 'applying', label: 'Applying', icon: Briefcase,  syncMode: 'applying' },
 ]
 
-// Secondary tabs — supporting views (data, workflow, analytics, scanning).
+// Secondary tabs — supporting views (data, analytics, activity).
 const SECONDARY_NAV: NavItem[] = [
   { view: 'database', label: 'Database', icon: Database   },
-  { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
   { view: 'reports',  label: 'Reports',  icon: FileText   },
   { view: 'trends',   label: 'Trends',   icon: TrendingUp },
   { view: 'scan',     label: 'Scan',     icon: Radar      },
@@ -81,7 +79,14 @@ export function Sidebar() {
         title={!expanded ? item.label : undefined}
       >
         <span className="relative shrink-0 inline-flex">
-          <Icon size={15} />
+          {showRunning && (
+            <span
+              className="absolute inset-[-6px] rounded-full animate-pulse pointer-events-none"
+              style={{ boxShadow: '0 0 0 4px rgba(124, 92, 255, 0.20), 0 0 12px 4px rgba(124, 92, 255, 0.30)' }}
+              aria-hidden
+            />
+          )}
+          <Icon size={15} className={cn('relative', showRunning && 'text-accent')} />
           {showRunning && (
             <Loader2
               size={9}

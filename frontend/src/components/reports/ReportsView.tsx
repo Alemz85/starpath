@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDataStore } from '@/store/data'
 import { ipc, type DbReportRow } from '@/lib/ipc'
-import { Search, FileText, X } from 'lucide-react'
+import { Search, FileText, X, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
@@ -123,20 +123,24 @@ export function ReportsView() {
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
-            {filteredFiles.map(report => (
-              <ReportCard
-                key={report.path}
-                report={report}
-                overall={report.overall}
-                isSelected={selected?.path === report.path}
-                onClick={() => setSelected({
-                  path: report.path,
-                  company: report.company,
-                  role: report.role,
-                  tier: report.tier,
-                })}
-              />
-            ))}
+            {filteredFiles.map(report => {
+              const url = scoreFor(report)?.source
+              return (
+                <ReportCard
+                  key={report.path}
+                  report={report}
+                  overall={report.overall}
+                  url={url && /^https?:\/\//i.test(url) ? url : null}
+                  isSelected={selected?.path === report.path}
+                  onClick={() => setSelected({
+                    path: report.path,
+                    company: report.company,
+                    role: report.role,
+                    tier: report.tier,
+                  })}
+                />
+              )
+            })}
           </div>
         )}
       </div>
@@ -172,11 +176,13 @@ export function ReportsView() {
 function ReportCard({
   report,
   overall,
+  url,
   isSelected,
   onClick,
 }: {
   report: { path: string; company: string; role: string; tier: string }
   overall: number | null
+  url: string | null
   isSelected: boolean
   onClick: () => void
 }) {
@@ -186,30 +192,42 @@ function ReportCard({
   const label = { 'T1': 'T1', 'T2-high': 'T2+', 'T2': 'T2', 'T3': 'T3', 'T4': 'T4' }[tierKey] ?? tierKey
 
   return (
-    <button
-      onClick={onClick}
-      className={cn(
-        'text-left p-3 rounded-lg border transition-colors group',
-        isSelected
-          ? 'bg-accent/10 border-accent/40'
-          : 'bg-bg-panel border-border-default hover:border-border-strong hover:bg-bg-elevated',
-      )}
-    >
-      <div className="flex items-start gap-2 min-w-0">
-        <CompanyLogo company={report.company} size={24} className="mt-0.5 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-1 mb-0.5">
-            <span className={cn('px-1.5 py-px text-[9.5px] font-mono font-semibold rounded border shrink-0', bg, tierText, border)}>
-              {label}
-            </span>
-            {overall != null && overall > 0 && (
-              <span className="text-micro font-mono text-text-4 shrink-0">{overall.toFixed(1)}</span>
-            )}
+    <div className="relative">
+      <button
+        onClick={onClick}
+        className={cn(
+          'w-full text-left p-3 rounded-lg border transition-colors group',
+          isSelected
+            ? 'bg-accent/10 border-accent/40'
+            : 'bg-bg-panel border-border-default hover:border-border-strong hover:bg-bg-elevated',
+        )}
+      >
+        <div className="flex items-start gap-2 min-w-0">
+          <CompanyLogo company={report.company} size={24} className="mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-1 mb-0.5">
+              <span className={cn('px-1.5 py-px text-[9.5px] font-mono font-semibold rounded border shrink-0', bg, tierText, border)}>
+                {label}
+              </span>
+              {overall != null && overall > 0 && (
+                <span className="text-micro font-mono text-text-4 shrink-0">{overall.toFixed(1)}</span>
+              )}
+            </div>
+            <div className="text-label text-text-1 font-medium leading-snug truncate">{report.company}</div>
+            <div className="text-label text-text-3 truncate mt-0.5 leading-snug">{report.role}</div>
           </div>
-          <div className="text-label text-text-1 font-medium leading-snug truncate">{report.company}</div>
-          <div className="text-label text-text-3 truncate mt-0.5 leading-snug">{report.role}</div>
         </div>
-      </div>
-    </button>
+      </button>
+      {url && (
+        <button
+          onClick={(e) => { e.stopPropagation(); ipc.openExternal(url) }}
+          title="Open job posting"
+          aria-label="Open job posting"
+          className="absolute bottom-1.5 right-1.5 inline-flex items-center justify-center w-6 h-6 rounded-md text-text-4 opacity-60 hover:opacity-100 hover:text-accent hover:bg-accent/15 transition-all"
+        >
+          <ExternalLink size={11} />
+        </button>
+      )}
+    </div>
   )
 }

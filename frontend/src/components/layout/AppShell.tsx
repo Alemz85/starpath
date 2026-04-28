@@ -8,7 +8,6 @@ import { useNavStore } from '@/store/nav'
 import { CommandCenter } from '@/components/command-center/CommandCenter'
 import { ApplyingView } from '@/components/applying/ApplyingView'
 import { DatabaseView } from '@/components/database/DatabaseView'
-import { PipelineView } from '@/components/pipeline/PipelineView'
 import { ReportsView } from '@/components/reports/ReportsView'
 import { TrendsView } from '@/components/trends/TrendsView'
 import { ScanView } from '@/components/scan/ScanView'
@@ -28,7 +27,6 @@ export function AppShell() {
         {view === 'scouting' && <CommandCenter />}
         {view === 'applying' && <ApplyingView />}
         {view === 'database' && <DatabaseView />}
-        {view === 'pipeline' && <PipelineView />}
         {view === 'reports'  && <ReportsView />}
         {view === 'trends'   && <TrendsView />}
         {view === 'scan'     && <ScanView />}

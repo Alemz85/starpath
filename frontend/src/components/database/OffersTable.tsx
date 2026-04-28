@@ -9,11 +9,12 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { useDataStore } from '@/store/data'
+import { ipc } from '@/lib/ipc'
 
 interface OffersTableProps {
   rows: ScoreEntry[]
@@ -204,6 +205,27 @@ export function OffersTable({ rows, onRowClick, selectedId }: OffersTableProps) 
           <span className="text-[11px] font-mono text-text-4 tabular-nums" title={v || undefined}>
             {relativeTime(v)}
           </span>
+        )
+      },
+    }),
+    col.accessor('source', {
+      header: '',
+      size: 32,
+      enableSorting: false,
+      cell: info => {
+        const url = info.getValue()
+        if (!url || !/^https?:\/\//i.test(url)) {
+          return <span className="block w-6 h-6" aria-hidden />
+        }
+        return (
+          <button
+            onClick={(e) => { e.stopPropagation(); ipc.openExternal(url) }}
+            title="Open job posting"
+            aria-label="Open job posting"
+            className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-4 opacity-60 hover:opacity-100 hover:text-accent hover:bg-accent/10 transition-all"
+          >
+            <ExternalLink size={12} />
+          </button>
         )
       },
     }),

@@ -3,18 +3,34 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
-import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
+import { useSpawnsStore, isAnyRunning, claudeArgs, type SpawnRecord } from '@/store/spawns'
+import { useNavStore } from '@/store/nav'
 import { ClaudeLogo } from '@/components/shared/Logos'
 import { StatCard } from './StatCard'
 import {
   BarChart2, Inbox, Target, Radar, Calendar,
-  Play, Zap, FileOutput, Square,
+  Play, Zap, FileOutput, Filter, Sparkles, FileStack, Square, ArrowRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const FULL_SCAN_ID  = 'cmd-full-scan'
-const API_SCAN_ID   = 'cmd-api-scan'
-const PIPELINE_ID   = 'cmd-pipeline'
+const FULL_SCAN_ID       = 'cmd-full-scan'
+const API_SCAN_ID        = 'cmd-api-scan'
+const PIPELINE_FILTER_ID = 'cmd-pipeline-filter'
+const PIPELINE_TOP_ID    = 'cmd-pipeline-top'
+const PIPELINE_ALL_ID    = 'cmd-pipeline-all'
+
+// Three pipeline-mode prompts. All share `/career-ops pipeline` as the slash
+// command (so the skill router still loads modes/pipeline.md), but the
+// per-button qualifier in the body changes Claude's behaviour: just filter,
+// top-N reports, or full reports for everything.
+const FILTER_PROMPT =
+  '/career-ops pipeline — FILTER ONLY mode. For each pending URL in data/pipeline.md: fetch the JD, extract metadata (title, company, role, location, salary range, employment type, JD URL, archetype guess), apply user/portals.yml filters, dedup against data/scan-history.tsv and data/applications.md. If passes: append a Tier 4 observation row to data/scouting.md with the metadata in the notes column. Do NOT generate per-listing reports under reports/. Do NOT run modes/scouting.md or modes/oferta.md per URL. Mark each processed URL as [x] in pipeline.md. Update data/scan-history.tsv with scan_dates. This is the cheap inventory-only path.'
+
+const TOP_REPORTS_PROMPT =
+  '/career-ops pipeline — TOP REPORTS mode. First filter every pending URL (lightweight metadata extraction + add to data/scouting.md as Tier 4). Then identify the 8 entries most likely to be high-fit by title-keyword + archetype match — for those run the full evaluation per user/profile.yml current_mode (modes/scouting.md if scouting, modes/oferta.md if applying) and generate per-listing reports under reports/tier-N/{Company} - {Role}.md. For non-top entries, leave only the Tier 4 observation. Mark all processed URLs as [x] in pipeline.md.'
+
+const ALL_REPORTS_PROMPT =
+  '/career-ops pipeline — ALL REPORTS mode. For every pending URL in data/pipeline.md that passes user/portals.yml filters, run the full evaluation per user/profile.yml current_mode (modes/scouting.md or modes/oferta.md) and generate the per-listing report under reports/tier-N/. Process in parallel where safe. Mark URLs as [x] in pipeline.md.'
 
 const LOADING_MESSAGES = [
   'Sneaking past the careers-page bouncer…',
@@ -120,22 +136,20 @@ function ScoutingActionPanel({
   onPipelineDone: () => void
 }) {
   const { spawns, start, kill, clear } = useSpawnsStore()
-  const fullScan = spawns[FULL_SCAN_ID]
-  const apiScan  = spawns[API_SCAN_ID]
-  const pipeline = spawns[PIPELINE_ID]
+  const fullScan       = spawns[FULL_SCAN_ID]
+  const apiScan        = spawns[API_SCAN_ID]
+  const pipelineFilter = spawns[PIPELINE_FILTER_ID]
+  const pipelineTop    = spawns[PIPELINE_TOP_ID]
+  const pipelineAll    = spawns[PIPELINE_ALL_ID]
 
-  // The spawn currently shown in the activity panel: prefer the running one,
-  // else the most recently started (so the user sees the latest result).
-  const visible = pickVisible(fullScan, apiScan, pipeline)
-
-  // Refresh data store when a spawn finishes successfully.
-  useEffect(() => {
-    if (pipeline?.status === 'done') onPipelineDone()
-  }, [pipeline?.status, onPipelineDone])
-
-  useEffect(() => {
-    if (fullScan?.status === 'done' || apiScan?.status === 'done') onPipelineDone()
-  }, [fullScan?.status, apiScan?.status, onPipelineDone])
+  // Refresh data store whenever any of these finishes (a Filter run grows
+  // scouting.md; Top/All grow reports/; scan grows pipeline.md). One effect
+  // per spawn so we don't miss simultaneous completions.
+  useEffect(() => { if (statusDone(fullScan))       onPipelineDone() }, [fullScan?.status,       onPipelineDone])
+  useEffect(() => { if (statusDone(apiScan))        onPipelineDone() }, [apiScan?.status,        onPipelineDone])
+  useEffect(() => { if (statusDone(pipelineFilter)) onPipelineDone() }, [pipelineFilter?.status, onPipelineDone])
+  useEffect(() => { if (statusDone(pipelineTop))    onPipelineDone() }, [pipelineTop?.status,    onPipelineDone])
+  useEffect(() => { if (statusDone(pipelineAll))    onPipelineDone() }, [pipelineAll?.status,    onPipelineDone])
 
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
@@ -147,10 +161,20 @@ function ScoutingActionPanel({
     if (apiScan) clear(API_SCAN_ID)
     start(API_SCAN_ID, 'API Scan', 'node', ['scripts/scan.mjs'])
   }
-  const handlePipeline = () => {
-    if (pipeline?.status === 'running') { kill(PIPELINE_ID); return }
-    if (pipeline) clear(PIPELINE_ID)
-    start(PIPELINE_ID, 'Generate Reports', 'claude', claudeArgs('/career-ops pipeline'))
+  const handleFilter = () => {
+    if (pipelineFilter?.status === 'running') { kill(PIPELINE_FILTER_ID); return }
+    if (pipelineFilter) clear(PIPELINE_FILTER_ID)
+    start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', claudeArgs(FILTER_PROMPT))
+  }
+  const handleTopReports = () => {
+    if (pipelineTop?.status === 'running') { kill(PIPELINE_TOP_ID); return }
+    if (pipelineTop) clear(PIPELINE_TOP_ID)
+    start(PIPELINE_TOP_ID, 'Generate Top Reports', 'claude', claudeArgs(TOP_REPORTS_PROMPT))
+  }
+  const handleAllReports = () => {
+    if (pipelineAll?.status === 'running') { kill(PIPELINE_ALL_ID); return }
+    if (pipelineAll) clear(PIPELINE_ALL_ID)
+    start(PIPELINE_ALL_ID, 'Generate All Reports', 'claude', claudeArgs(ALL_REPORTS_PROMPT))
   }
 
   return (
@@ -190,15 +214,43 @@ function ScoutingActionPanel({
             node: <div className="w-px h-6 bg-border-default" aria-hidden />,
           },
           {
-            key: 'pipeline',
-            description: 'Process pending listings in data/pipeline.md into evaluation reports',
+            key: 'filter',
+            description: 'Filter pending URLs and add lightweight metadata to the scouting database — no full reports',
             node: (
               <ActionButton
-                label="Generate Reports"
-                icon={FileOutput}
+                label="Filter to Database"
+                icon={Filter}
                 tone="outline"
-                running={pipeline?.status === 'running'}
-                onClick={handlePipeline}
+                running={pipelineFilter?.status === 'running'}
+                onClick={handleFilter}
+                disabled={!repoPath}
+              />
+            ),
+          },
+          {
+            key: 'top',
+            description: 'Filter, then generate full reports for the top 8 most-promising pending listings',
+            node: (
+              <ActionButton
+                label="Top Reports"
+                icon={Sparkles}
+                tone="outline"
+                running={pipelineTop?.status === 'running'}
+                onClick={handleTopReports}
+                disabled={!repoPath}
+              />
+            ),
+          },
+          {
+            key: 'all',
+            description: 'Generate full reports for every pending listing that passes the filter',
+            node: (
+              <ActionButton
+                label="All Reports"
+                icon={FileStack}
+                tone="outline"
+                running={pipelineAll?.status === 'running'}
+                onClick={handleAllReports}
                 disabled={!repoPath}
               />
             ),
@@ -206,14 +258,46 @@ function ScoutingActionPanel({
         ]}
       />
 
-      {/* Activity panel (flex-grows to fill remaining vertical space) */}
-      <ActivityPanel record={visible} />
+      {/* Activity is now exclusively on the Scan tab. When something is
+          running anywhere, surface a quiet pointer so the user knows where
+          to go for the live log. */}
+      <RunningInScanFooter />
     </div>
   )
 }
 
-// Shared exports — used by ScanView too.
-export { ActionButton, ActivityPanel, LoadingMessage, pickVisible, HoverDescriptionRow }
+// Shared exports — used by ScanView, ApplyingView, ActiveProcessesBar etc.
+export {
+  ActionButton, ActivityPanel, LoadingMessage, pickVisible, HoverDescriptionRow,
+  ElapsedChip, formatElapsed, RunningInScanFooter, statusDone,
+}
+
+// Lightweight status check shared across ScoutingActionPanel's many useEffects.
+function statusDone(rec: SpawnRecord | undefined): boolean {
+  return rec?.status === 'done' || rec?.status === 'error' || rec?.status === 'killed'
+}
+
+// Footer shown on Scouting / Applying when at least one spawn is running
+// somewhere. Activity panel itself moved to the Scan tab — this just points
+// the user there.
+function RunningInScanFooter() {
+  const anyRunning = useSpawnsStore(isAnyRunning)
+  const navigate = useNavStore(s => s.navigate)
+  const runningCount = useSpawnsStore(s =>
+    Object.values(s.spawns).filter(x => x.status === 'running').length
+  )
+  if (!anyRunning) return null
+  return (
+    <button
+      onClick={() => navigate('scan')}
+      className="shrink-0 mt-3 self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-accent/8 hover:bg-accent/14 border border-accent/30 text-accent text-[12px] transition-colors"
+    >
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+      {runningCount} running — open Scan
+      <ArrowRight size={11} className="opacity-70" />
+    </button>
+  )
+}
 
 function pickVisible(
   ...records: Array<SpawnRecord | undefined>
