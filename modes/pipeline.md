@@ -46,20 +46,25 @@ For each URL's detected company + role, look up `(normalize(company), normalize(
 
 ## Step 2c — Relevance gate (DISCARD irrelevant listings BEFORE scoring)
 
-**Why this exists:** the title-filter in `user/portals.yml` is permissive (a single positive keyword admits the URL into the pipeline). After scan typically lets ~300+ URLs through. Most of those are off-archetype on JD inspection. Scoring all of them dilutes the 1-10 scale and floods the Database with noise. This gate keeps the scored set small and meaningful — typically **~20-30% of pending URLs** should survive into `data/scouting.md`.
+**Why this exists:** the title-filter in `user/portals.yml` is permissive — a single positive keyword admits the URL into the pipeline. After scan typically lets a few hundred URLs through. Many are off-archetype on JD inspection. Scoring all of them dilutes the 1-10 scale and floods the Database with noise the user has to wade through. This gate cuts the scored set down to listings that are *actually plausible* given the user's archetypes, location, comp targets, and visa.
+
+**The survivor count is a RESULT, not a TARGET.** Earlier versions of this rule had a "expect ~20-30% to survive" framing, which pressured the agent to pad the pass-list with marginal fits when the true number was lower. Don't do that. If 5 / 350 URLs are honest fits, the right answer is 5. If 250 / 350 are honest fits, the right answer is 250. Apply the gate per JD; let the count fall where it falls. (Sanity flag: if survivors < 5% of input OR > 80% of input, mention it in the run summary — that signals either an upstream pool problem or a gate calibration drift, both worth surfacing.)
 
 For each non-duplicate URL, fetch the JD (Playwright/WebFetch) and run a fast pre-scoring check against the user's profile (`user/_profile.md` archetypes, `user/profile.yml` target_roles, location policy):
 
 **Discard (mark `- [!] FILTERED — {reason}` in pipeline.md, do NOT score, do NOT add to scouting.md, do NOT write a row to score-history.tsv) if ANY of:**
 
-1. **Wrong archetype.** The JD's actual day-to-day work does not map to any of the user's primary or secondary archetypes. Examples: pure quota-carrying sales (BDR/SDR/AE) when user wants Strategy/Analytics; pure customer-support; pure delivery/logistics; pure clinical/medical; pure legal counsel.
+1. **Wrong archetype.** The JD's actual day-to-day work does not map to any of the user's primary or secondary archetypes. Be honest about this — "could plausibly contribute to" is not the bar; "this role's core responsibilities are something the user actually wants to do" is the bar. Examples to discard: pure quota-carrying sales (BDR/SDR/AE) when user wants Strategy/Analytics; pure customer-support / customer-success-rep work without analytics scope; pure delivery / logistics / supply-chain ops; pure clinical / medical / nursing; pure legal counsel; pure backend / frontend / mobile engineering; pure finance / audit / tax / payroll / accounting (unless analytics-finance-bridge is named in archetypes).
 2. **Wrong seniority.** The JD body requires **5+ years of experience**, OR titles "Senior", "Lead", "Principal", "Manager (with reports)", "Director" that slipped past title-filter. Internships, graduate programmes, and 0–3 YoE roles are in scope.
 3. **Geo-locked outside user's reachable set.** Location is US-only (no EU work-rights / no remote-EU option), or restricted to a country the user cannot legally work in, or requires a clearance the user does not hold.
-4. **Excluded domain.** Defense, weapons, oil & gas, online gambling, adult content, MLM/pyramid, predatory lending — unless the user has explicitly opted in via `_profile.md`.
-5. **Visa-locked.** "Must be a US citizen", "active TS/SCI clearance required", "Italian passport required" when user is non-Italian, etc.
+4. **Excluded domain.** Defense, weapons, oil & gas, online gambling, adult content, MLM/pyramid, predatory lending, tobacco/vaping — unless the user has explicitly opted in via `_profile.md`.
+5. **Visa-locked.** "Must be a US citizen", "active TS/SCI clearance required", "Italian passport required" when user is non-Italian, etc. (Soft visa friction — e.g., UK roles for EU citizens — is NOT a discard; it's an Ease of Entry penalty per `_shared.md` § Ease of Entry calibration.)
 6. **Poverty-wage.** Salary is disclosed and is < 50% of the city's threshold from `_profile.md` § City-Specific Salary Bands. (Disclosed-but-low-band stays in — gets a low Salary Adj score; only *poverty wage* discards.)
+7. **JD body explicitly contradicts a user red flag.** `_profile.md` § Red Flags to Watch For lists categorical mismatches the user has surfaced (commission-only / 2-3+ years required / non-tech "analytics" = Excel reporting / etc). If a JD matches a stated red flag, discard.
 
-**Borderline cases stay in.** When in doubt — score it. Better a 5/10 in the Database than a silent drop the user can't audit. The discard reasons above are clear-cut "this should never have entered the pipeline" categories, not "this is a marginal fit".
+**Borderline cases — DISCARD, don't score.** When in doubt, the listing is OUT. The bar for inclusion is *"I can write a one-sentence reason, citing JD evidence, why this role is a fit for one of the user's primary or secondary archetypes."* If you cannot articulate that sentence honestly, the listing is not a fit — move it to `## Filtered Out` and the user can audit. Padding the Database with 5/10s the user has to manually reject is worse than a tight gate the user has to occasionally widen.
+
+(This is the opposite of the previous version of this rule, which said "when in doubt, score it." That framing produced runs where ~50/350 were honest fits but ~140/350 ended up scored, including obviously off-archetype rotations the user then had to filter out manually in the GUI. The corrected framing: trust the gate, let the user widen it via Filtered Out review if it overshoots.)
 
 **Tracking discards.** Move discarded URLs from Pending to a new **Filtered Out** section in `data/pipeline.md`:
 
@@ -68,9 +73,7 @@ For each non-duplicate URL, fetch the JD (Playwright/WebFetch) and run a fast pr
 - [!] FILTERED | URL | Company | Role | reason
 ```
 
-This keeps an auditable trail without polluting `scouting.md`. The user can review the Filtered Out section if they think the gate was too aggressive.
-
-**Goal target:** if 350 URLs come in, expect ~70-280 (60-80%) to be filtered out and ~70-140 (20-40%) to be scored. Adjust by examining what made it through and what didn't — the gate should be tight enough that surviving entries are *actually worth scoring* and the 1-10 scale spreads meaningfully across them.
+This keeps an auditable trail without polluting `scouting.md`. The user can review the Filtered Out section if they think the gate was too aggressive — and if they spot a pattern (e.g., 5+ rotations they DID want that got dropped), they can update `_profile.md` archetypes and re-run.
 
 ### Step 2c.1 — Multi-variant collapse (after the discard gate, before scoring)
 

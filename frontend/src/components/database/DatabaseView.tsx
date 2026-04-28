@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useState, useMemo } from 'react'
+import { useCallback, useEffect, useState, useMemo } from 'react'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
-import { FacetSidebar, type FacetFilters, EMPTY_FILTERS } from '@/components/shared/FacetSidebar'
+import { useDatabaseFilters } from '@/store/databaseFilters'
+import { FacetSidebar } from '@/components/shared/FacetSidebar'
 import { FilterBar } from './FilterBar'
 import { OffersTable } from './OffersTable'
 import { ReportSlideOver } from '../reports/ReportSlideOver'
@@ -13,13 +14,29 @@ import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
   const { scoreHistory, liveness, loaded } = useDataStore()
-  const { databaseFilter } = useNavStore()
+  const databaseFilter = useNavStore(s => s.databaseFilter)
 
-  const [filters, setFilters] = useState<FacetFilters>(EMPTY_FILTERS)
-  const [query, setQuery] = useState(databaseFilter ? `company:${databaseFilter}` : '')
+  // Filter state lives in a Zustand store (useDatabaseFilters) so the
+  // user's chip / search / show-closed selections survive tab switches.
+  const filters       = useDatabaseFilters(s => s.filters)
+  const setFilters    = useDatabaseFilters(s => s.setFilters)
+  const query         = useDatabaseFilters(s => s.query)
+  const setQuery      = useDatabaseFilters(s => s.setQuery)
+  const showClosed    = useDatabaseFilters(s => s.showClosed)
+  const setShowClosed = useDatabaseFilters(s => s.setShowClosed)
+  const applyCommandKFilter = useDatabaseFilters(s => s.applyCommandKFilter)
+
+  // CmdK / nav-store hop: when the user navigates here with a
+  // databaseFilter (e.g., clicks a company in CmdK or "View in Database"
+  // from a slide-over), we apply that company filter once. Without the
+  // guard, the effect would keep re-applying on every render and stomp
+  // any subsequent user edits.
+  useEffect(() => {
+    if (databaseFilter) applyCommandKFilter(databaseFilter)
+  }, [databaseFilter, applyCommandKFilter])
+
   const [selectedEntry, setSelectedEntry] = useState<ScoreEntry | null>(null)
   const [popoverState, setPopoverState] = useState<{ entry: ScoreEntry; anchor: { x: number; y: number } } | null>(null)
-  const [showClosed, setShowClosed] = useState(false)
   const [facetExpanded] = useState(true)
 
   // Build facet options from data. Archetypes are bucketed via
