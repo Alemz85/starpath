@@ -199,13 +199,23 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   toggleExpandedRef.current = toggleExpanded
 
   // Fast lookup: which entries already have a report file on disk?
+  // Match on URL primarily — that's the stable join key when both the
+  // score-history row and the report markdown have one. Fall back to
+  // (company, role) for legacy reports written before URL tracking.
   const reportSet = useMemo(() => {
-    const set = new Set<string>()
+    const byUrl  = new Set<string>()
+    const byPair = new Set<string>()
     for (const r of reports) {
-      set.add(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`)
+      if (r.url) byUrl.add(r.url)
+      byPair.add(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`)
     }
-    return set
+    return { byUrl, byPair }
   }, [reports])
+
+  const hasReport = (entry: ScoreEntry): boolean => {
+    if (entry.url && reportSet.byUrl.has(entry.url)) return true
+    return reportSet.byPair.has(`${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`)
+  }
 
   const columns = useMemo(() => [
     col.display({
@@ -256,8 +266,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       size: 24,
       cell: info => {
         const entry = info.row.original
-        const key = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
-        if (!reportSet.has(key)) return <span className="block w-5 h-5" aria-hidden />
+        if (!hasReport(entry)) return <span className="block w-5 h-5" aria-hidden />
         return (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenReport(entry) }}

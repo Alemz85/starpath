@@ -128,6 +128,11 @@ export interface ReportFile {
   company: string
   role: string
   tier: string
+  /** Listing URL parsed from the report's `**URL:**` header by the cache
+   *  sync. Used as the stable join key against score-history rows whose
+   *  role string drifted (filename sanitization, multi-city
+   *  disambiguation). Empty string for legacy reports without the URL line. */
+  url: string
 }
 
 // ─── Profile config (user/profile.yml) ─────────────────────────────────────

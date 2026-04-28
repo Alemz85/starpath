@@ -192,8 +192,14 @@ function InboxPanel({ repoPath }: { repoPath: string | null }) {
   }
 
   return (
-    <div className="shrink-0 rounded-lg border border-border-default bg-bg-panel">
-      <div className="flex items-center justify-between px-3 h-9 border-b border-border-default">
+    <div className="shrink-0 rounded-lg border border-border-default bg-bg-panel overflow-hidden">
+      {/* Divider only shows when the list has content beneath. With an
+          empty inbox the bottom rule used to float below the header with
+          nothing under it — read as a stray line. */}
+      <div className={cn(
+        'flex items-center justify-between px-3 h-9',
+        pipeline.length > 0 && 'border-b border-border-default',
+      )}>
         <span className="text-micro text-text-4 uppercase flex items-center gap-1.5">
           <span>Inbox</span>
           <span className="font-mono text-text-3">{pipeline.length}</span>

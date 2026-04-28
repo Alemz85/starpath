@@ -306,6 +306,7 @@ function toReportFile(row: DbReportRow): ReportFile {
     company: row.company,
     role:    row.role,
     tier:    row.tier === 'T2-high' ? 'T2' : row.tier,
+    url:     row.url ?? '',
   }
 }
 
