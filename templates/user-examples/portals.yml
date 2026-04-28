@@ -1,0 +1,196 @@
+# Career-Ops Portal Scanner Configuration
+#
+# Copy this file to user/portals.yml and customize for your target roles.
+# The scanner (`scripts/scan.mjs`) reads this to:
+#   - Hit each tracked company's ATS API directly (Greenhouse / Ashby /
+#     Lever / SmartRecruiters / Workday) — zero Claude tokens.
+#   - Filter results by title using the positive / negative keyword lists.
+#   - Filter out non-target-language postings via lang_blocklist.
+#
+# After you fill in the basics (positive / negative / a few companies),
+# the onboarding wizard's Re-tailor step can refine the filters using
+# Claude — it reads your CV + profile.yml and generates better keyword
+# lists. You can also re-run that any time from the Configuration tab
+# in the desktop app.
+
+# ─── Title filter ────────────────────────────────────────────────────────────
+# At least 1 positive must match AND 0 negatives must match (case-insensitive).
+
+title_filter:
+  # Job titles that indicate a match. Derive these from the archetypes
+  # in your profile.yml — common variations and abbreviations included.
+  positive:
+    - "Strategy"
+    - "Operations"
+    - "Strategy & Operations"
+    - "Business Analyst"
+    - "Data Analyst"
+    - "Analytics"
+    - "Business Intelligence"
+    - "BI Analyst"
+    - "Insights Analyst"
+    - "Solutions Consultant"
+    - "Solutions Engineer"
+    - "Customer Engineer"
+    - "Account Strategist"
+    - "Marketing Analytics"
+    - "Marketing Operations"
+    - "Growth Analytics"
+    - "Performance Marketing"
+    - "Graduate"
+    - "Graduate Program"
+    - "Rotational"
+    - "Early Career"
+    - "Trainee"
+    - "Associate"
+    - "Intern"
+    - "Internship"
+    - "Junior"
+
+  # Filter out false positives — postings that match a positive keyword
+  # but are clearly wrong for your level / domain.
+  negative:
+    # Wrong seniority (drop these if you ARE targeting senior roles)
+    - "Senior "
+    - "Sr "
+    - "Sr."
+    - "Principal"
+    - "Staff "
+    - "Lead "
+    - "Head of"
+    - "Director"
+    - "VP"
+    - "Chief"
+    # Wrong technical function — drop if you ARE targeting engineering
+    - "Software Engineer"
+    - "Backend Engineer"
+    - "Frontend Engineer"
+    - "Full Stack"
+    - "DevOps"
+    - "SRE"
+    - "iOS"
+    - "Android"
+    # Domain mismatch — adjust to your target domains
+    - "Tax "
+    - "Audit"
+    - "Payroll"
+    - "Accounting"
+    - "AML"
+    - "Clinical"
+    - "Real Estate"
+    - "Graphic Designer"
+    - "UX Designer"
+    - "Copywriter"
+    # Big-4-style consulting noise — drop these if you ARE targeting M&A
+    - "M&A"
+    - "Due Diligence"
+    - "Transfer Pricing"
+    - "Forensic"
+
+  # Boost signal — these presence in a title is a strong positive even
+  # alongside other keywords. Used by the eval to prioritize entry-level
+  # variants of titles you target.
+  seniority_boost:
+    - "Junior"
+    - "Associate"
+    - "Entry Level"
+    - "Analyst"
+    - "Intern"
+
+# ─── Language barrier filter ─────────────────────────────────────────────────
+# Postings whose title contains any of these tokens are rejected as
+# non-target-language. Tokens match case-insensitively. Add only
+# high-confidence markers (avoid false positives against English).
+#
+# Default list below covers Spanish, Dutch, German, French — uncomment
+# the languages you DON'T speak fluently. The setup wizard can auto-fill
+# this based on your profile.yml `languages` field.
+
+lang_blocklist: []
+  # # Spanish (uncomment if you don't speak Spanish)
+  # - "consultoría"
+  # - "becas"
+  # - "septiembre"
+  # # Dutch (uncomment if you don't speak Dutch)
+  # - "werkstudent"
+  # - "fiscaal"
+  # - "meeloopstage"
+  # # German (uncomment if you don't speak German)
+  # - "mitarbeiter"
+  # - "(w/m/d)"
+  # - "(m/w/d)"
+  # - "Deutschkenntnisse"
+  # # French (uncomment if you don't speak French)
+  # - "Stagiaire"
+  # - "Alternance"
+  # - "Développeur"
+  # - "Ingénieur"
+
+# ─── Search queries ──────────────────────────────────────────────────────────
+# Board-wide searches for discovery across ALL companies on each platform.
+# These are used by /career-ops scan when no specific company is targeted.
+
+search_queries:
+  - name: Greenhouse — Strategy & Operations
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "Strategy" OR "Operations" "Analyst" OR "Associate"'
+    enabled: true
+
+  - name: Greenhouse — Business / Data Analyst
+    query: 'site:boards.greenhouse.io OR site:job-boards.greenhouse.io "Business Analyst" OR "Data Analyst"'
+    enabled: true
+
+  - name: Ashby — Analytics
+    query: 'site:jobs.ashbyhq.com "Analyst" OR "Analytics"'
+    enabled: true
+
+  - name: Lever — Strategy & Ops
+    query: 'site:jobs.lever.co "Strategy" OR "Operations" "Analyst" OR "Associate"'
+    enabled: true
+
+# ─── Tracked companies ───────────────────────────────────────────────────────
+# Companies whose careers pages get checked directly. Each entry has
+# either an `api:` URL (direct ATS scan, zero Claude tokens) OR
+# `scan_method: websearch` + `scan_query` (fallback for proprietary
+# portals). The desktop app auto-detects this when you Add Company —
+# it probes the common ATS endpoints and writes the right config.
+#
+# A few examples below. Add your target companies here, or use the
+# Configuration → Portals tab in the app to add them with API probing.
+
+tracked_companies:
+
+  # Example: a Greenhouse company
+  - name: Adyen
+    careers_url: https://job-boards.greenhouse.io/adyen
+    api: https://boards-api.greenhouse.io/v1/boards/adyen/jobs
+    notes: "Amsterdam / NYC / SF. Payments. Greenhouse ATS."
+    enabled: true
+
+  # Example: a Lever company
+  - name: Notion
+    careers_url: https://www.notion.so/careers
+    api: https://api.lever.co/v0/postings/notion?mode=json
+    notes: "SF / NYC. Productivity SaaS. Lever ATS."
+    enabled: true
+
+  # Example: an Ashby company
+  - name: Linear
+    careers_url: https://linear.app/careers
+    api: https://api.ashbyhq.com/posting-api/job-board/linear?includeCompensation=true
+    notes: "Remote-first. Project management. Ashby ATS."
+    enabled: true
+
+  # Example: a SmartRecruiters company
+  - name: Wise
+    careers_url: https://jobs.smartrecruiters.com/Wise
+    api: https://api.smartrecruiters.com/v1/companies/Wise/postings
+    notes: "London / Amsterdam / Tallinn. International payments."
+    enabled: true
+
+  # Example: a websearch fallback (no public API)
+  - name: Stripe
+    careers_url: https://stripe.com/jobs
+    scan_method: websearch
+    scan_query: 'site:stripe.com/jobs "Analyst" OR "Operations" OR "Strategy" OR "Solutions"'
+    notes: "Proprietary portal — no public API. Websearch fallback."
+    enabled: true

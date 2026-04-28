@@ -52,9 +52,14 @@ That's it. Don't run `npm install` here — you don't need to.
 
 ### 2 — Get the app
 
-Download `starpath-0.1.0-arm64.dmg` from the [Releases page](../../releases). Open it, drag **starpath** to Applications.
+Download from the [Releases page](../../releases):
 
-First launch: right-click → Open (the build is unsigned, so Gatekeeper warns you the first time only).
+- **`starpath-AppleSilicon-Mac.dmg`** — for M1 / M2 / M3 / M4 Macs (2020 onward)
+- **`starpath-Intel-Mac.dmg`** — for older Intel Macs
+
+Not sure which you have? Apple menu → About This Mac. "Chip: Apple M…" means Apple Silicon; "Processor: Intel…" means Intel.
+
+Open the DMG, drag **starpath** to Applications. First launch: right-click → Open (the build is unsigned, so Gatekeeper warns you the first time only).
 
 ### 3 — Point the app at the workspace
 
@@ -119,6 +124,7 @@ Other technical READMEs:
 - [`frontend/README.md`](frontend/README.md) — Electron + Next.js setup, dev/build commands, app architecture
 - [`batch/README.md`](batch/README.md) — parallel batch processing via `claude -p` workers
 - [`templates/README.md`](templates/README.md) — system-layer templates (CV HTML template, example configs)
+- [`templates/user-examples/README.md`](templates/user-examples/README.md) — blank `user/*` files for filling in manually with Claude chat (instead of the desktop app's onboarding wizard)
 
 For the data contract (what's user-layer, what's system-layer, what's safe to auto-update), see [`DATA_CONTRACT.md`](DATA_CONTRACT.md).
 
