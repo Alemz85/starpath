@@ -6,6 +6,7 @@ data/scouting.md
 data/score-history.tsv
 data/comp-cache.tsv
 data/report-summaries.tsv
+data/dedup-index.tsv
 reports/**/*.md
 reports/tier-*/*.md
 !reports/.gitkeep
