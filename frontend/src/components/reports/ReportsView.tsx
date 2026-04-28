@@ -180,6 +180,7 @@ export function ReportsView() {
                     company: report.company,
                     role: report.role,
                     tier: report.tier,
+                    url: report.url ?? '',
                   })}
                 />
               )
@@ -273,7 +274,15 @@ function ReportCard({
               <div className="text-[13px] text-text-1 font-semibold leading-snug truncate min-w-0">{report.company}</div>
               {overall != null && overall > 0 && <ScoreBadge value={overall} />}
             </div>
-            <div className="text-[12px] text-text-3 truncate mt-1 leading-snug pr-1">{report.role}</div>
+            {/* Reserve room for the absolute-positioned URL button on the
+                bottom-right (6px + 24px + a hair). Without this padding the
+                role string runs under the button. */}
+            <div className={cn(
+              'text-[12px] text-text-3 truncate mt-1 leading-snug',
+              url ? 'pr-9' : 'pr-1',
+            )}>
+              {report.role}
+            </div>
           </div>
         </div>
       </button>

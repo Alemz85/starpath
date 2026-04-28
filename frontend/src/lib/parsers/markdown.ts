@@ -132,5 +132,6 @@ export function parseReportPath(filePath: string): ReportFile | null {
     company,
     role,
     tier: tierMap[match[1]] ?? match[1],
+    url: '', // populated by the cache sync from the report's `**URL:**` header
   }
 }
