@@ -234,17 +234,20 @@ textarea:focus-visible {
   margin-bottom: 1rem;
   letter-spacing: 0;
 }
-/* h2: section headers — Meta micro labels */
+/* h2: section headers — match the DimensionGroup heading style so the
+   body reads with one type system. Section headers (## Fit/gaps, ##
+   Verdict, ## Path forward) sit at the same visual rhythm as Current Fit
+   / Aspirational Fit / Context group headers. */
 .prose-report h2 {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #7C5CFF;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1C2B33;
   margin-top: 1.5rem;
-  margin-bottom: 0.5rem;
-  padding-bottom: 0.4rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
   border-bottom: 1px solid #DEE3E9;
+  letter-spacing: 0;
+  text-transform: none;
 }
 /* h3: sub-sections */
 .prose-report h3 {
