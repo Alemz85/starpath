@@ -482,48 +482,73 @@ function DimensionGroup({
   rollup?: string
   rows: DimensionRow[]
 }) {
+  const rollupNum = rollup ? parseFloat(rollup) : NaN
+  const rollupColor = !Number.isNaN(rollupNum) ? scoreColor(rollupNum) : '#6B7280'
   return (
     <div>
-      <div className="flex items-baseline justify-between gap-3 pb-1.5 mb-2 border-b border-border-default">
-        <h3 className="text-[13.5px] font-semibold text-text-1">{title}</h3>
+      {/* Group header — same visual rhythm as the prose-report h2 (Fit/gaps,
+          Verdict, Path forward) so the slide-over reads with one type
+          system across the body. Title left, rollup score right (tinted by
+          the score-color galaxy palette to match the Overall band). */}
+      <div className="flex items-baseline justify-between gap-3 pb-2 mb-3 border-b border-border-default">
+        <h3 className="text-[14px] font-semibold text-text-1">{title}</h3>
         {rollup && (
-          <span className="text-[17px] font-mono font-semibold tabular-nums text-text-2 leading-none">
+          <span
+            className="text-[18px] font-mono font-semibold tabular-nums leading-none"
+            style={{ color: rollupColor }}
+          >
             {rollup}
           </span>
         )}
       </div>
-      <div className="divide-y divide-border-default/60">
+      <div className="divide-y divide-border-default/40">
         {rows.map((row, i) => {
-          const isText = !/^\d/.test(row.score)
+          const numScore = parseFloat(row.score)
+          const isNumeric = !Number.isNaN(numScore)
+          const cellColor = isNumeric ? scoreColor(numScore) : '#6B7280'
           return (
-            <div key={i} className="py-2">
-              <div className="flex items-baseline gap-3">
-                <div className="flex-1 min-w-0 text-[13px] text-text-1 font-medium">
+            <div
+              key={i}
+              className="grid grid-cols-[140px_1fr] gap-5 py-3.5 items-start"
+            >
+              {/* Left col: stacked Category label / large score */}
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-3 leading-tight">
                   {row.label}
                 </div>
                 <div
-                  className={cn(
-                    'shrink-0 font-mono tabular-nums text-right',
-                    isText
-                      ? 'text-[13px] text-text-4'
-                      : 'text-[14px] font-semibold text-text-1',
-                  )}
-                  style={{ minWidth: '2.5em' }}
+                  className="font-mono font-semibold tabular-nums leading-none mt-1.5"
+                  style={{
+                    fontSize: isNumeric ? '22px' : '15px',
+                    color: cellColor,
+                  }}
                 >
                   {row.score || '—'}
                 </div>
               </div>
-              {row.reasoning && row.reasoning !== '—' && (
-                <div className="text-[11.5px] text-text-3 leading-snug mt-1 pr-12">
-                  {row.reasoning}
-                </div>
-              )}
+              {/* Right col: reasoning at body-text size (was 11.5px — too
+                  small to read comfortably; now 13px with relaxed leading). */}
+              <div className="text-[13px] text-text-2 leading-[1.55] pt-0.5">
+                {row.reasoning && row.reasoning !== '—' ? row.reasoning : (
+                  <span className="text-text-4 italic">No reasoning provided.</span>
+                )}
+              </div>
             </div>
           )
         })}
       </div>
     </div>
   )
+}
+
+// Scale-tier color used for both numeric scores and rollup totals. Matches
+// the galaxy palette used by Database/Reports so the same number reads as
+// the same color everywhere it appears.
+function scoreColor(v: number): string {
+  if (v >= 8.5) return '#3D2BB5'   // tier-1 — deep galaxy indigo
+  if (v >= 7)   return '#7C5CFF'   // tier-2 — galaxy violet
+  if (v >= 5)   return '#A89CD9'   // tier-3 — muted lavender
+  return '#94A3B8'                 // tier-4 — faded slate
 }
 
 function ScoreMiniBar({ entry }: { entry: ScoreEntry }) {
