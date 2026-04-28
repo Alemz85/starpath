@@ -515,6 +515,9 @@ async function main() {
 
   const tasks = targets.map(company => async () => {
     const { type, url, brandFilter, baseUrl } = company._api;
+    const startedAt = Date.now();
+    process.stdout.write(`→ ${company.name} (${type})\n`);
+    let kept = 0;
     try {
       let jobs;
       if (type === 'workday') {
@@ -558,8 +561,13 @@ async function main() {
         seenUrls.add(job.url);
         seenCompanyRoles.add(key);
         newOffers.push({ ...job, source: `${type}-api` });
+        kept++;
       }
+      const took = ((Date.now() - startedAt) / 1000).toFixed(1);
+      process.stdout.write(`  ✓ ${company.name} · ${jobs.length} jobs · ${kept} kept (${took}s)\n`);
     } catch (err) {
+      const took = ((Date.now() - startedAt) / 1000).toFixed(1);
+      process.stdout.write(`  ✗ ${company.name} · ${err.message} (${took}s)\n`);
       errors.push({ company: company.name, error: err.message });
     }
   });
