@@ -1,0 +1,109 @@
+# Career-Ops Profile Configuration
+#
+# Copy this file to user/profile.yml and fill in your details.
+# This is the single source of truth for your structured profile data
+# across every mode in the system.
+#
+# Companion files (also under user/):
+#   cv.md            — your full CV in markdown
+#   _profile.md      — narrative, archetypes, negotiation scripts (the
+#                      candidate-context file the AI reads for every eval)
+#   portals.yml      — title filters and tracked companies for the scanner
+#   article-digest.md — optional, compact proof points from your portfolio
+#
+# All five live under user/ which is gitignored — your data never leaves
+# your machine.
+
+# Default evaluation mode for pasted JDs / URLs / auto-pipeline.
+#   scouting  — lightweight landscape mapping (Current Fit + Aspirational
+#               Fit, no PDF per listing). Use when you're mapping the
+#               market, not actively applying.
+#   applying  — full A-H oferta evaluation with tailored PDF, ready to
+#               submit. Use when you're actively applying.
+# Override per-invocation with `/career-ops scouting` or `/career-ops oferta`.
+current_mode: scouting
+
+candidate:
+  full_name: "Jane Smith"
+  email: "jane.smith@example.com"
+  phone: "+1 555 123 4567"
+  nationality: "United States"
+  work_permit: "US"
+  # Optional but recommended — used by the eval to flag language-locked roles.
+  languages: "English (native), Spanish (fluent), French (conversational)"
+
+target_roles:
+  # Primary archetypes — what the system optimizes for. The scoring
+  # rubric uses these to compute Skills Match and Strategic/Analytical Fit.
+  primary:
+    - "Strategy & Operations Analyst"
+    - "Business Analyst"
+    - "Data Analyst"
+    - "Solutions Consultant"
+    - "Marketing Analytics"
+    - "Rotational / Graduate Program (any function at tech companies)"
+    - "Internship — Analytics / Strategy / Operations"
+
+  # Dream companies — get a Brand Value floor of 10 and Aspirational
+  # Fit floor of 8.0 in scoring, regardless of function match. Use this
+  # for the 1-3 companies you'd take a foot-in-the-door role at.
+  dream_companies:
+    - name: "Google"
+      functions: ["Account Strategist", "Customer Engineer", "Solutions Consultant", "any Early Careers program"]
+      priority: "top"
+      note: "Top dream target — analytics + client-facing + multilingual roles fit best."
+    # Add more — Stripe, Datadog, etc — same shape.
+
+  # Archetype catalog — used by `positioning` mode to compute trajectory
+  # per archetype over time. Mark each as primary / secondary / aspirational.
+  archetypes:
+    - name: "Strategy & Operations"
+      level: "Intern/Entry/Junior"
+      fit: "primary"
+    - name: "Business/Data Analyst"
+      level: "Intern/Entry/Junior"
+      fit: "primary"
+    - name: "Solutions Consultant / Customer Engineer"
+      level: "Intern/Entry/Junior"
+      fit: "primary"
+    - name: "Rotational / Graduate / Leadership Development Program"
+      level: "Entry"
+      fit: "primary"
+      keywords: ["rotational", "graduate program", "graduate scheme", "early careers", "trainee", "associate program", "LDP", "EDP"]
+      note: "Catches non-obvious titles like 'Early Careers Booster', 'Associate Program' — primary fit even when destination function isn't named."
+    - name: "Marketing Analytics / Marketing Operations"
+      level: "Intern/Entry/Junior"
+      fit: "primary"
+      note: "Bridge to tech sales — growth analytics, performance marketing, marketing ops at tech companies. NOT pure creative/brand."
+    - name: "Technology Consulting"
+      level: "Intern/Analyst/Associate"
+      fit: "secondary"
+    - name: "Product Manager / Product Analyst"
+      level: "Intern/Entry/Junior"
+      fit: "aspirational"
+
+compensation:
+  # Range covers internships (lower) through entry-level full-time (higher).
+  # Update for your career stage and city.
+  target_range: "$60K-90K"
+  currency: "USD"
+  minimum: "$50K"
+  location_flexibility: "Open to relocation in [your reachable region]"
+  note: "Range covers both internships and entry-level full-time."
+
+location:
+  country: "United States"
+  city: "New York"
+  timezone: "ET"
+  visa_status: "US citizen — no sponsorship needed"
+  # Ordered by preference. The scoring `Best Cities` dimension reads from
+  # this list — top of list = highest score, bottom = workable but not
+  # preferred, missing = penalty.
+  preferred_cities:
+    - "New York"
+    - "San Francisco"
+    - "Boston"
+    - "Austin"
+    - "Seattle"
+    - "London"
+    - "Dublin"
