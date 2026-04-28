@@ -11,6 +11,7 @@ import { StatCard } from './StatCard'
 import {
   BarChart2, Inbox, Target, Radar, Calendar,
   Play, Zap, FileOutput, Filter, Sparkles, FileStack, Square, ArrowRight,
+  ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
@@ -242,6 +243,7 @@ function ScoutingActionPanel({
   onPipelineDone: () => void
 }) {
   const { spawns, start, kill, clear } = useSpawnsStore()
+  const pipelineModel = useAppStore(s => s.models.pipeline)
   const fullScan       = spawns[FULL_SCAN_ID]
   const apiScan        = spawns[API_SCAN_ID]
   const pipelineFilter = spawns[PIPELINE_FILTER_ID]
@@ -260,7 +262,7 @@ function ScoutingActionPanel({
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
-    start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan', 'scan'))
+    start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan', 'sonnet'))
   }
   const handleApiScan = () => {
     if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }
@@ -270,17 +272,17 @@ function ScoutingActionPanel({
   const handleFilter = () => {
     if (pipelineFilter?.status === 'running') { kill(PIPELINE_FILTER_ID); return }
     if (pipelineFilter) clear(PIPELINE_FILTER_ID)
-    start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', claudeArgs(FILTER_PROMPT))
+    start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', claudeArgs(FILTER_PROMPT, pipelineModel))
   }
   const handleTopReports = () => {
     if (pipelineTop?.status === 'running') { kill(PIPELINE_TOP_ID); return }
     if (pipelineTop) clear(PIPELINE_TOP_ID)
-    start(PIPELINE_TOP_ID, 'Generate Top Reports', 'claude', claudeArgs(TOP_REPORTS_PROMPT))
+    start(PIPELINE_TOP_ID, 'Generate Top Reports', 'claude', claudeArgs(TOP_REPORTS_PROMPT, pipelineModel))
   }
   const handleAllReports = () => {
     if (pipelineAll?.status === 'running') { kill(PIPELINE_ALL_ID); return }
     if (pipelineAll) clear(PIPELINE_ALL_ID)
-    start(PIPELINE_ALL_ID, 'Generate All Reports', 'claude', claudeArgs(ALL_REPORTS_PROMPT))
+    start(PIPELINE_ALL_ID, 'Generate All Reports', 'claude', claudeArgs(ALL_REPORTS_PROMPT, pipelineModel))
   }
 
   return (
@@ -361,13 +363,106 @@ function ScoutingActionPanel({
               />
             ),
           },
+          {
+            key: 'sep2',
+            node: <div className="w-px h-6 bg-border-default" aria-hidden />,
+          },
+          {
+            key: 'model',
+            description: 'Model used for Filter / Top Reports / All Reports. Scan is always Sonnet.',
+            node: <ModelChip />,
+          },
         ]}
       />
+
+      <ScanModelHint />
 
       {/* Activity is now exclusively on the Scan tab. When something is
           running anywhere, surface a quiet pointer so the user knows where
           to go for the live log. */}
       <RunningInScanFooter />
+    </div>
+  )
+}
+
+// Inline model selector — affects ONLY the three pipeline buttons
+// (Filter to Database / Generate Top Reports / Generate All Reports).
+// Full Scan is locked to Sonnet (cheap tool-use). Per-listing actions
+// (Tailor CV / Draft / Prep / popover Generate Report) are locked to
+// Opus (precision work). The user changes the one variable that
+// matters: the bulk-pipeline model.
+function ModelChip() {
+  const pipeline = useAppStore(s => s.models.pipeline)
+  const setModel = useAppStore(s => s.setModel)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const options: Array<{ id: 'sonnet' | 'opus'; label: string; tag: string }> = [
+    { id: 'opus',   label: 'Opus',   tag: 'thorough' },
+    { id: 'sonnet', label: 'Sonnet', tag: 'cheaper · fast' },
+  ]
+  const current = options.find(o => o.id === pipeline) ?? options[0]
+
+  return (
+    <div ref={ref} className="relative inline-flex">
+      <button
+        onClick={() => setOpen(o => !o)}
+        title="Model for the three pipeline buttons (Filter / Top Reports / All Reports)"
+        className={cn(
+          'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill border transition-colors text-[12px]',
+          open
+            ? 'border-accent/60 bg-accent/15 text-accent'
+            : 'border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong',
+        )}
+      >
+        <span className="text-text-4 font-mono uppercase tracking-wider text-[9.5px]">Pipeline</span>
+        <span className="font-semibold">{current.label}</span>
+        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[180px] rounded-lg border border-border-default bg-bg-base shadow-card overflow-hidden">
+          {options.map(o => (
+            <button
+              key={o.id}
+              onClick={() => { setModel('pipeline', o.id); setOpen(false) }}
+              className={cn(
+                'w-full flex items-center justify-between gap-3 px-3 py-2 text-[12px] text-left transition-colors',
+                o.id === pipeline
+                  ? 'bg-accent/8 text-text-1'
+                  : 'text-text-2 hover:bg-bg-elevated hover:text-text-1',
+              )}
+            >
+              <span className="font-medium">{o.label}</span>
+              <span className="text-[10.5px] text-text-4">{o.tag}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScanModelHint() {
+  const pipeline = useAppStore(s => s.models.pipeline)
+  return (
+    <div className="shrink-0 -mt-1 text-center text-[10.5px] text-text-4 leading-relaxed">
+      Full Scan: <span className="font-mono text-text-3">Sonnet</span> ·
+      {' '}Pipeline buttons: <span className="font-mono text-text-3 capitalize">{pipeline}</span> (change above) ·
+      {' '}Per-listing actions (Tailor CV / Draft / Prep): <span className="font-mono text-text-3">Opus</span>
     </div>
   )
 }

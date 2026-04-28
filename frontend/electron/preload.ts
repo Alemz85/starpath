@@ -7,7 +7,9 @@ const electronAPI = {
   setRepoPath: (p: string) => ipcRenderer.invoke('app:set-repo-path', p),
   setOnboardingComplete: (v: boolean) => ipcRenderer.invoke('app:set-onboarding-complete', v),
   setTailoringComplete: (v?: boolean) => ipcRenderer.invoke('app:set-tailoring-complete', v),
-  setModels: (models: { scan: string; eval: string }) => ipcRenderer.invoke('app:set-models', models),
+  setModels: (models: {
+    pipeline: string; tailorCv: string; draftApp: string; interviewPrep: string; generateReport: string
+  }) => ipcRenderer.invoke('app:set-models', models),
   selectFolder: () => ipcRenderer.invoke('app:select-folder'),
   validatePath: (p: string) => ipcRenderer.invoke('app:validate-path', p),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),

@@ -114,12 +114,12 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
         <Item
           icon={Sparkles}
           label="Tailor CV"
-          onClick={() => { spawnPerListing('Tailor CV', 'modes/pdf.md', entry); onClose() }}
+          onClick={() => { spawnPerListing('Tailor CV', 'modes/pdf.md', entry, 'tailorCv'); onClose() }}
         />
         <Item
           icon={GraduationCap}
           label="Prep interview"
-          onClick={() => { spawnPerListing('Prep Interview', 'modes/interview-prep.md', entry); onClose() }}
+          onClick={() => { spawnPerListing('Prep Interview', 'modes/interview-prep.md', entry, 'interviewPrep'); onClose() }}
         />
         {url && (
           <Item
@@ -191,33 +191,46 @@ function ItemDisabled({
   )
 }
 
-function spawnPerListing(label: string, modeFile: string, entry: ScoreEntry) {
-  // Lazy import to avoid circular dep with spawn store
-  import('@/store/spawns').then(({ useSpawnsStore, claudeArgs }) => {
-    const id = `popover-${modeFile.replace(/[^\w]+/g, '-')}`
-    const { spawns, start, clear } = useSpawnsStore.getState()
-    if (spawns[id]?.status === 'running') return
-    if (spawns[id]) clear(id)
-    const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
-    const slash = `/career-ops ${mode} for ${entry.company} — ${entry.role}`
-    start(id, `${label}: ${entry.company}`, 'claude', claudeArgs(slash))
-  })
+function spawnPerListing(
+  label: string,
+  modeFile: string,
+  entry: ScoreEntry,
+  category: 'tailorCv' | 'draftApp' | 'interviewPrep',
+) {
+  // Lazy imports avoid circular deps with the spawn + app stores. The
+  // category looks up the user's per-feature model preference at the
+  // moment of click, so a Settings change is picked up immediately.
+  Promise.all([import('@/store/spawns'), import('@/store/app')]).then(
+    ([{ useSpawnsStore, claudeArgs }, { useAppStore }]) => {
+      const id = `popover-${modeFile.replace(/[^\w]+/g, '-')}`
+      const { spawns, start, clear } = useSpawnsStore.getState()
+      if (spawns[id]?.status === 'running') return
+      if (spawns[id]) clear(id)
+      const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
+      const slash = `/career-ops ${mode} for ${entry.company} — ${entry.role}`
+      const model = useAppStore.getState().models[category]
+      start(id, `${label}: ${entry.company}`, 'claude', claudeArgs(slash, model))
+    },
+  )
 }
 
 function spawnReport(entry: ScoreEntry) {
-  import('@/store/spawns').then(({ useSpawnsStore, claudeArgs }) => {
-    const id = 'popover-generate-report'
-    const { spawns, start, clear } = useSpawnsStore.getState()
-    if (spawns[id]?.status === 'running') return
-    if (spawns[id]) clear(id)
-    // Run the full evaluation per current_mode + write the per-listing report
-    // file. Use the source URL when available so auto-pipeline can re-fetch
-    // the JD; otherwise fall back to a company+role prompt and let Claude
-    // pull from the existing scouting.md row.
-    const url = entry.source && /^https?:\/\//i.test(entry.source) ? entry.source : null
-    const slash = url
-      ? `/career-ops ${url} — generate the per-listing report markdown under reports/tier-N/{Company} - {Role}.md per current_mode (modes/scouting.md or modes/oferta.md). Reuse the existing data/scouting.md row's score if present.`
-      : `/career-ops auto-pipeline for ${entry.company} — ${entry.role} — generate the per-listing report markdown under reports/tier-N/ per current_mode. The listing already exists in data/scouting.md.`
-    start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash))
-  })
+  Promise.all([import('@/store/spawns'), import('@/store/app')]).then(
+    ([{ useSpawnsStore, claudeArgs }, { useAppStore }]) => {
+      const id = 'popover-generate-report'
+      const { spawns, start, clear } = useSpawnsStore.getState()
+      if (spawns[id]?.status === 'running') return
+      if (spawns[id]) clear(id)
+      // Run the full evaluation per current_mode + write the per-listing
+      // report file. Use the source URL when available so auto-pipeline can
+      // re-fetch the JD; otherwise fall back to a company+role prompt and
+      // let Claude pull from the existing scouting.md row.
+      const url = entry.source && /^https?:\/\//i.test(entry.source) ? entry.source : null
+      const slash = url
+        ? `/career-ops ${url} — generate the per-listing report markdown under reports/tier-N/{Company} - {Role}.md per current_mode (modes/scouting.md or modes/oferta.md). Reuse the existing data/scouting.md row's score if present.`
+        : `/career-ops auto-pipeline for ${entry.company} — ${entry.role} — generate the per-listing report markdown under reports/tier-N/ per current_mode. The listing already exists in data/scouting.md.`
+      const model = useAppStore.getState().models.generateReport
+      start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash, model))
+    },
+  )
 }

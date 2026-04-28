@@ -3,15 +3,30 @@
 export type ModelAlias = 'sonnet' | 'opus' | 'haiku'
 
 export interface ModelPrefs {
-  /** Used by Full Scan — mostly tool-use, light reasoning. Default: sonnet. */
-  scan: ModelAlias
-  /** Used by Filter to Database, Top/All Reports, per-card Tailor CV / Draft /
-   *  Prep, the Database "Generate report" popover action. Anything that does
-   *  dimensional scoring or prose generation. Default: opus. */
-  eval: ModelAlias
+  /** The 3 pipeline buttons in the Scouting cockpit (Filter to Database,
+   *  Generate Top Reports, Generate All Reports). Editable both in Settings
+   *  and inline via the cockpit Model chip — they read/write the same field. */
+  pipeline: ModelAlias
+  /** Tailor CV per-listing action (modes/pdf.md). Settings-only. */
+  tailorCv: ModelAlias
+  /** Draft Application per-listing action (modes/apply.md). Settings-only. */
+  draftApp: ModelAlias
+  /** Prep Interview per-listing action (modes/interview-prep.md). Settings-only. */
+  interviewPrep: ModelAlias
+  /** Generate Report from the database popover / slide-over. Settings-only. */
+  generateReport: ModelAlias
+  // NOTE: Full Scan is intentionally NOT in this struct — it's hardcoded to
+  // 'sonnet' at the call site (cheap tool-use; user shouldn't be paying Opus
+  // rates for a portal scan that just hits Greenhouse/Ashby APIs).
 }
 
-export const DEFAULT_MODEL_PREFS: ModelPrefs = { scan: 'sonnet', eval: 'opus' }
+export const DEFAULT_MODEL_PREFS: ModelPrefs = {
+  pipeline:       'opus',
+  tailorCv:       'opus',
+  draftApp:       'opus',
+  interviewPrep:  'opus',
+  generateReport: 'opus',
+}
 
 export interface AppConfig {
   repoPath?: string

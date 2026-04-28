@@ -24,6 +24,7 @@ const PER_APP_INTERVIEW = 'app-interview'
 
 export function ApplyingView() {
   const { repoPath } = useAppStore()
+  const models = useAppStore(s => s.models)
   const { applications, pipeline, loaded, refresh } = useDataStore()
   const { spawns, start, kill, clear } = useSpawnsStore()
   const navigate = useNavStore(s => s.navigate)
@@ -60,17 +61,17 @@ export function ApplyingView() {
   const totalOffers       = applications.filter(a => a.status === 'Offer').length
   const urgentCount       = applications.filter(a => deadlineUrgency(a.deadline) === 'urgent').length
 
-  const launch = (id: string, label: string, app: ApplicationEntry, modeFile: string) => {
+  const launch = (id: string, label: string, app: ApplicationEntry, modeFile: string, model: 'sonnet' | 'opus' | 'haiku') => {
     if (spawns[id]?.status === 'running') { kill(id); return }
     if (spawns[id]) clear(id)
     const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
     const slash = `/career-ops ${mode} for ${app.company} — ${app.role}`
-    start(id, `${label}: ${app.company}`, 'claude', claudeArgs(slash))
+    start(id, `${label}: ${app.company}`, 'claude', claudeArgs(slash, model))
   }
 
-  const handleTailorCV = (a: ApplicationEntry) => launch(PER_APP_TAILOR_CV, 'Tailor CV',         a, 'modes/pdf.md')
-  const handleDraftApp = (a: ApplicationEntry) => launch(PER_APP_DRAFT_APP, 'Draft Application', a, 'modes/apply.md')
-  const handlePrepInt  = (a: ApplicationEntry) => launch(PER_APP_INTERVIEW, 'Prep Interview',    a, 'modes/interview-prep.md')
+  const handleTailorCV = (a: ApplicationEntry) => launch(PER_APP_TAILOR_CV, 'Tailor CV',         a, 'modes/pdf.md',            models.tailorCv)
+  const handleDraftApp = (a: ApplicationEntry) => launch(PER_APP_DRAFT_APP, 'Draft Application', a, 'modes/apply.md',          models.draftApp)
+  const handlePrepInt  = (a: ApplicationEntry) => launch(PER_APP_INTERVIEW, 'Prep Interview',    a, 'modes/interview-prep.md', models.interviewPrep)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

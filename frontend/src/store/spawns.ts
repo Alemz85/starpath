@@ -42,25 +42,17 @@ export const NON_INTERACTIVE_SUFFIX =
  * (parsed downstream in appendOutput so the activity panel shows live
  * progress instead of buffering everything until exit).
  *
- * The `category` parameter selects which user model preference applies:
- *   - `scan` → cheap tool-use work (Full Scan). Default Sonnet.
- *   - `eval` → dimensional scoring + prose generation (everything else).
- *             Default Opus.
- * The user can override either via Settings → Models. If the prefs aren't
- * loaded yet (very early launch), we omit the --model flag and let `claude`
- * pick its default.
+ * `model` is explicit per call site — keeps the model decision close to the
+ * action being fired. Convention:
+ *   - Full Scan → hardcoded 'sonnet' (cheap tool-use; not user-configurable)
+ *   - Everything else (3 pipeline buttons, Tailor CV, Draft, Prep,
+ *     popover Generate Report) → read from user's ModelPrefs in the app
+ *     store. Defaults to 'opus'. The cockpit Model chip writes to
+ *     `pipeline`; Settings → Models writes to all five fields.
+ * Pass undefined to omit the flag entirely and let the Claude CLI default
+ * apply (used as a graceful fallback if a caller can't decide).
  */
-export function claudeArgs(slashCommand: string, category: 'scan' | 'eval' = 'eval'): string[] {
-  // Lazy require to avoid pulling the app store into spawns.ts at module
-  // top — keeps this file dep-light and avoids circular issues.
-  let model: string | undefined
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { useAppStore } = require('@/store/app') as typeof import('@/store/app')
-    model = useAppStore.getState().models?.[category]
-  } catch {
-    // First-render edge: store not initialised. Fall through with no --model.
-  }
+export function claudeArgs(slashCommand: string, model?: 'sonnet' | 'opus' | 'haiku'): string[] {
   return [
     '--dangerously-skip-permissions',
     '--output-format', 'stream-json',
