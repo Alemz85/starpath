@@ -69,7 +69,22 @@ In scouting, this dimensional table IS the core output. There's no separate Bloc
 Before assigning any scores, you MUST have read:
 1. `user/cv.md` — for Skills Match anchoring
 2. `user/_profile.md` — for archetype framing, dream-company list, location policy, comp targets, Score Calibration adjustments
-3. `modes/_shared.md` § Dimensional Scoring Framework — the rubric
+3. `modes/_shared.md` § Dimensional Scoring Framework — the rubric AND the **Reasoning column quality bar** subsection that defines what evidence must appear in each reasoning cell.
+
+### Pre-scoring JD audit (run BEFORE filling the dimensional table)
+
+Skim the JD body for ~30 seconds and write down the four signals below in scratch. The reasoning cells in the dimensional table will draw directly from this audit — every cell that doesn't trace back to one of these is an *opinion*, not an evaluation. Skipping the audit is the failure mode that produces "competitive but reachable" cells with no evidence.
+
+| Signal | What to extract | Example |
+|--------|-----------------|---------|
+| **Hard gates** | YoE bars, prior-background requirements, language minimums, citizenship/visa requirements, certifications. Quote the JD verbatim. | *"Previous working experience or internship at top-tier IB/PE/strategy consultancy/fast-growing tech"* |
+| **Brand tier** | Place the company on the Brand Value 1-10 scale (`_shared.md` § per-step anchors). Top-100 / unicorn / Big-4 / regional / unknown. | Revolut → Brand Value 8 → Ease of Entry penalty −3 |
+| **Comp disclosure** | Disclosed figure or range, OR `[undisclosed]`. Note the city threshold from `_profile.md` you'll score against. | `£45-55K` London, threshold £38K → midpoint = +29% above → 10 |
+| **Geo / remote / visa** | Named office cities, remote policy, work-rights gating. | "Remote / multi-hub London-Barcelona-Lisbon" |
+
+If any signal is missing from the JD, write `[not stated]` rather than guessing. The reasoning cells will then say `[no gate stated]` honestly instead of inventing one.
+
+**This audit is non-negotiable for top-100 / unicorn / Big-4 brands** (Datadog, Revolut, Stripe, Celonis, PwC, EY, etc.) — those JDs almost always have explicit gates that materially change Ease of Entry and Brand Value scores. A 7/10 Ease of Entry on a unicorn brand without an audit-quoted gate is almost certainly wrong.
 
 ### Salary Adj for City — comp cache check
 
@@ -124,6 +139,13 @@ Both write `Tier: T2` to scouting.md and score-history.tsv — there is no T2-hi
 
 ## Verdict
 {One line — "Apply with prep" (CF 8.0+) | "Apply if pipeline thin" (CF 7.0–7.9) | "Track company only"}
+
+## Path forward
+{ONE sentence with a concrete next step. Examples:
+ - "Apply now; lead with the Sabadell capstone as the FS-strategy proof point."
+ - "Apply to the Rev-celerator internship first to satisfy this role's prior-background gate, then re-evaluate next cycle."
+ - "Track only — re-evaluate if Italian language progresses past B2."
+ No multi-step plans. No bullets. One sentence.}
 ```
 
 ### Tier 3 — Current Fit < 7.0 AND Aspirational Fit ≥ 7.0 (growth target), OR Ease of Entry ≤ 4 gate (see `_shared.md`)

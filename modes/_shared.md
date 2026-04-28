@@ -268,6 +268,46 @@ SumUp	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 
 **Tier-1 only?** No. Even mid-tier brands accumulate Glassdoor / Blind data over time. Cache populates organically — start by lookup-on-evaluation; over a few weeks the file grows to cover the user's actual target list.
 
+### Reasoning column quality bar
+
+The Reasoning column in the dimensional table is the load-bearing artifact for trust. A row that says `Ease of Entry | 7/10 | competitive but designed for new grads` is worse than no row at all — it lets a generous score coast unchallenged. Every evaluation has been seen in production with this shape; every evaluation in this shape has been wrong.
+
+**Each reasoning cell MUST cite at least one of:**
+1. **A JD-quoted requirement** verbatim or near-verbatim — e.g., `JD lists: "previous internship at top-tier IB/PE/strategy consulting/fast-growing tech"`.
+2. **A named adjustment from the calibration tables** — e.g., `Brand-competition penalty (-3, top-100 SaaS unicorn)` or `Internship cohort bonus (+1)`.
+3. **A specific number** — disclosed comp figure, stated YoE bar, named language requirement.
+4. An explicit `[no gate stated]` or `[undisclosed]` token when none of the above applies. This is acceptable but rare — most JDs at top-100 brands have *something*.
+
+Generic platitudes — "competitive but reachable", "good growth trajectory", "strong brand", "structured onboarding" — are NOT sufficient on their own. They may *follow* the evidence, but they cannot *replace* it.
+
+**Per-dimension floors:**
+
+| Dimension | Required evidence in reasoning |
+|-----------|-------------------------------|
+| Skills Match | Walk the JD's required-skills list. Name 1-2 the user has (cite CV section) + 1 the user lacks, OR explicitly say "all listed skills covered". |
+| Ease of Entry | Quote the JD's hardest gate (YoE, prior background, language, citizenship) OR `[no explicit gate stated]`. Then name the brand-tier adjustment from the calibration table if applicable (`-2 to -4` for top-100 / unicorn / Big-4). |
+| Strategic/Analytical Fit | Name 1-2 specific responsibilities from the JD that map to the user's archetype. |
+| Growth/Mobility | Cite the structural growth signal (graduate scheme size, rotation length, named promotion path). Generic "team is growing" is insufficient. |
+| Optionality/Exit | Name 2 concrete next-move destinations the brand + skill set unlocks. |
+| Brand Value | Use the brand-tier table directly (10/9/8/7/6/...). Reasoning = which named tier the company sits in. |
+| Sales-Trap Risk | Cite the JD's quota/pipeline/outbound language verbatim if any. If the JD is silent, say so. |
+| Best Cities | Name the city + its position in `_profile.md`'s preferred-cities list. |
+| Salary Adj for City | Cite the disclosed figure OR `[undisclosed]`. State the city threshold from `_profile.md` being scored against. Generic "mid-range" is insufficient. |
+| Work-Life Balance | Cite Glassdoor / Blind / known reputation signal. Generic "structured onboarding" is insufficient. |
+
+**Worked example — Ease of Entry, Revolut Rev-celerator Graduate Programme:**
+
+```
+| Ease of Entry | 4/10 | JD lists hard gate: "previous working experience or internship at
+  top-tier investment banking, PE, strategy consultancy, or fast-growing tech." User has
+  AP Consulting (2mo, small boutique) — does not satisfy "top-tier" bar. Brand-competition
+  penalty (-3, recognized European fintech unicorn). Net 4/10. |
+```
+
+Note: the row contains (a) a verbatim JD quote, (b) the user-side fact that fails it, (c) the named calibration adjustment, (d) the arithmetic. ~50 tokens. This is the depth bar — not a paragraph, not a single platitude.
+
+**For agents running in parallel:** the JD audit (see scouting.md § Pre-scoring JD audit) feeds these reasoning cells. Run the audit first; the cells write themselves from its output.
+
 ### Calibration & special rules
 
 These rules tighten the rubric and the rollup math. They apply to BOTH `scouting` mode and `oferta` Block H.
