@@ -49,7 +49,7 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
     ? Math.max(8, anchor.y - estHeight - 12)
     : anchor.y + 12
 
-  const url = entry.source && /^https?:\/\//i.test(entry.source) ? entry.source : null
+  const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
   const livenessKey = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
   const liveness = useDataStore(s => s.liveness[livenessKey])
   // Does a report file already exist for this entry? If so, hide the
@@ -238,7 +238,7 @@ function spawnReport(entry: ScoreEntry) {
       // report file. Use the source URL when available so auto-pipeline can
       // re-fetch the JD; otherwise fall back to a company+role prompt and
       // let Claude pull from the existing scouting.md row.
-      const url = entry.source && /^https?:\/\//i.test(entry.source) ? entry.source : null
+      const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
       const slash = url
         ? `/career-ops ${url} — generate the per-listing report markdown under reports/tier-N/{Company} - {Role}.md per current_mode (modes/scouting.md or modes/oferta.md). Reuse the existing data/scouting.md row's score if present.`
         : `/career-ops auto-pipeline for ${entry.company} — ${entry.role} — generate the per-listing report markdown under reports/tier-N/ per current_mode. The listing already exists in data/scouting.md.`

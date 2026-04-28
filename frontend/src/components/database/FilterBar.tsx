@@ -41,10 +41,8 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
     <div className="relative">
       <div
         className={cn(
-          'flex items-center gap-2.5 px-3 py-2 rounded-lg border bg-bg-elevated transition-all duration-150',
-          focused
-            ? 'border-accent/50 shadow-[0_0_0_3px_rgba(124,92,255,0.10)]'
-            : 'border-border-default hover:border-border-strong',
+          'flex items-center gap-2.5 px-3 py-2 rounded-lg border bg-bg-elevated transition-colors duration-150',
+          focused ? 'border-border-strong' : 'border-border-default hover:border-border-strong',
         )}
       >
         <Search size={14} className={cn('shrink-0 transition-colors', focused ? 'text-accent' : 'text-text-4')} />

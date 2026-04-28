@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import {
   useReactTable,
   getCoreRowModel,
@@ -9,7 +9,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, BarChart3, FileText } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
@@ -111,11 +111,12 @@ function relativeTime(dateStr: string): string {
   return `${Math.floor(days / 365)}y`
 }
 
-// ─── Score breakdown popover ────────────────────────────────────────────────
+// ─── Inline row breakdown ───────────────────────────────────────────────────
 //
-// Click the BarChart3 icon button on a row → this floats over the table
-// showing the 10-dimensional breakdown for that entry. Replaces the per-row
-// tier badge — the tier is implicit in the score color.
+// Click the chevron on a row → that row expands inline, revealing the
+// 10-dimensional breakdown directly below. Acts like a database expand
+// caret — multiple rows can be open at once. The chevron rotates 90° to
+// signal open state.
 
 const BREAKDOWN_DIMS: Array<{ key: keyof ScoreEntry; label: string }> = [
   { key: 'skills_match',       label: 'Skills Match'     },
@@ -130,91 +131,57 @@ const BREAKDOWN_DIMS: Array<{ key: keyof ScoreEntry; label: string }> = [
   { key: 'work_life_balance',  label: 'Work / Life'      },
 ]
 
-function ScoreBreakdownPopover({
-  entry, anchor, onClose,
-}: {
-  entry: ScoreEntry
-  anchor: { x: number; y: number }
-  onClose: () => void
-}) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-    const t = window.setTimeout(() => document.addEventListener('mousedown', onDoc), 0)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      window.clearTimeout(t)
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-
-  const W = 280
-  const H = 380
-  const vw = typeof window !== 'undefined' ? window.innerWidth  : 1440
-  const vh = typeof window !== 'undefined' ? window.innerHeight : 900
-  const left = Math.min(Math.max(8, anchor.x - W / 2), vw - W - 8)
-  const top  = anchor.y + H + 12 > vh
-    ? Math.max(8, anchor.y - H - 12)
-    : anchor.y + 12
-
-  const tierLabel = entry.tier === 'T2-high' ? 'T2+' : entry.tier
-  const overallColor = scoreColor(entry.overall)
-
+function BreakdownRow({ entry, colSpan }: { entry: ScoreEntry; colSpan: number }) {
   return (
-    <div
-      ref={ref}
-      role="dialog"
-      className="fixed z-50 rounded-lg border border-border-strong bg-bg-base shadow-lift overflow-hidden"
-      style={{ left, top, width: W, animation: 'chip-appear 160ms ease both' }}
-    >
-      <div className="px-3 py-2.5 border-b border-border-default flex items-center gap-2">
-        <span
-          className="inline-flex items-center justify-center min-w-[36px] h-[22px] px-2 rounded-pill font-mono font-bold tabular-nums text-[11px] text-white"
-          style={{ background: overallColor, boxShadow: `0 0 10px ${overallColor}55` }}
-        >
-          {entry.overall > 0 ? entry.overall.toFixed(1) : '—'}
-        </span>
-        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: overallColor }}>{tierLabel}</span>
-        <span className="ml-auto text-[10px] font-mono text-text-4 truncate">{entry.company}</span>
-      </div>
-      <div className="px-3 py-3 space-y-2">
-        {BREAKDOWN_DIMS.map(({ key, label }) => {
-          const raw = entry[key]
-          const val = typeof raw === 'number' ? raw : 0
-          const pct = Math.min(100, (val / 10) * 100)
-          const c = scoreColor(val)
-          return (
-            <div key={key as string} className="flex items-center gap-2">
-              <span className="text-[10.5px] text-text-3 w-[110px] shrink-0">{label}</span>
-              <div className="flex-1 h-1.5 bg-bg-elevated rounded-pill overflow-hidden">
-                <div
-                  className="h-full rounded-pill"
-                  style={{ width: `${pct}%`, background: c, transition: 'width 360ms ease' }}
-                />
+    <tr className="bg-bg-elevated/40 border-b border-border-default/30">
+      <td colSpan={colSpan} className="px-6 py-3">
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 max-w-[720px]">
+          {BREAKDOWN_DIMS.map(({ key, label }) => {
+            const raw = entry[key]
+            const val = typeof raw === 'number' ? raw : 0
+            const pct = Math.min(100, (val / 10) * 100)
+            const c = scoreColor(val)
+            return (
+              <div key={key as string} className="flex items-center gap-2.5">
+                <span className="text-[10.5px] text-text-3 w-[110px] shrink-0">{label}</span>
+                <div className="flex-1 h-1.5 bg-bg-elevated rounded-pill overflow-hidden">
+                  <div
+                    className="h-full rounded-pill"
+                    style={{ width: `${pct}%`, background: c, transition: 'width 320ms ease' }}
+                  />
+                </div>
+                <span className="text-[10px] font-mono tabular-nums w-[28px] text-right" style={{ color: c }}>
+                  {val > 0 ? val.toFixed(1) : '—'}
+                </span>
               </div>
-              <span className="text-[10px] font-mono tabular-nums w-[28px] text-right" style={{ color: c }}>
-                {val > 0 ? val.toFixed(1) : '—'}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </div>
+            )
+          })}
+        </div>
+      </td>
+    </tr>
   )
 }
 
 // ─── Table ──────────────────────────────────────────────────────────────────
 
+// Stable per-entry key for both selection and the expanded-row Set.
+const entryKey = (e: ScoreEntry) => `${e.company}|${e.role}`
+
 export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: OffersTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: 'overall', desc: true }])
   const liveness = useDataStore(s => s.liveness)
   const reports = useDataStore(s => s.reports)
-  const [breakdown, setBreakdown] = useState<{ entry: ScoreEntry; anchor: { x: number; y: number } } | null>(null)
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  const toggleExpanded = (entry: ScoreEntry) => {
+    const k = entryKey(entry)
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(k)) next.delete(k)
+      else next.add(k)
+      return next
+    })
+  }
 
   // Fast lookup: which entries already have a report file on disk?
   const reportSet = useMemo(() => {
@@ -232,18 +199,20 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       size: 28,
       cell: info => {
         const entry = info.row.original
+        const isOpen = expanded.has(entryKey(entry))
         return (
           <button
-            onClick={(e) => {
-              e.stopPropagation()
-              setBreakdown({ entry, anchor: { x: e.clientX, y: e.clientY } })
-            }}
-            title="Score breakdown"
-            aria-label="Open score breakdown"
+            onClick={(e) => { e.stopPropagation(); toggleExpanded(entry) }}
+            title={isOpen ? 'Hide score breakdown' : 'Show score breakdown'}
+            aria-label={isOpen ? 'Hide score breakdown' : 'Show score breakdown'}
+            aria-expanded={isOpen}
             className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-4 hover:text-accent hover:bg-accent/10 transition-colors"
-            style={{ color: entry.overall > 0 ? scoreColor(entry.overall) : undefined, opacity: entry.overall > 0 ? 0.85 : 0.5 }}
           >
-            <BarChart3 size={13} />
+            <ChevronRight
+              size={14}
+              className="transition-transform duration-150"
+              style={{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            />
           </button>
         )
       },
@@ -334,7 +303,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         )
       },
     }),
-    col.accessor('source', {
+    col.accessor('url', {
       header: '',
       size: 32,
       enableSorting: false,
@@ -355,7 +324,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         )
       },
     }),
-  ], [reportSet, onOpenReport])
+  ], [reportSet, onOpenReport, expanded])
 
   const table = useReactTable({
     data: rows,
@@ -409,29 +378,34 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
             const entry = row.original
             const id = `${entry.company}-${entry.role}`
             const isSelected = id === selectedId
+            const isExpanded = expanded.has(entryKey(entry))
             const lvKey = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
             const lv = liveness[lvKey] ?? 'closed'
             // T4 = "don't apply" — keep visually quiet alongside stale/closed listings.
             const dim = lv === 'stale' || lv === 'closed' || entry.tier === 'T4'
             return (
-              <tr
-                key={row.id}
-                onClick={(evt) => onRowClick(entry, evt)}
-                className={cn(
-                  dim && 'opacity-65',
-                  'border-b border-border-default/30 cursor-pointer',
-                  'transition-colors duration-150',
-                  isSelected
-                    ? 'bg-accent/10'
-                    : 'hover:bg-accent/[0.04]',
-                )}
-              >
-                {row.getVisibleCells().map(cell => (
-                  <td key={cell.id} className="px-3 py-3 align-middle">
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </td>
-                ))}
-              </tr>
+              <Fragment key={row.id}>
+                <tr
+                  onClick={(evt) => onRowClick(entry, evt)}
+                  className={cn(
+                    dim && 'opacity-65',
+                    'border-b border-border-default/30 cursor-pointer',
+                    'transition-colors duration-150',
+                    isSelected
+                      ? 'bg-accent/10'
+                      : isExpanded
+                        ? 'bg-bg-elevated/40'
+                        : 'hover:bg-accent/[0.04]',
+                  )}
+                >
+                  {row.getVisibleCells().map(cell => (
+                    <td key={cell.id} className="px-3 py-3 align-middle">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </td>
+                  ))}
+                </tr>
+                {isExpanded && <BreakdownRow entry={entry} colSpan={row.getVisibleCells().length} />}
+              </Fragment>
             )
           })}
           {rows.length === 0 && (
@@ -454,14 +428,6 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
           )}
         </tbody>
       </table>
-
-      {breakdown && (
-        <ScoreBreakdownPopover
-          entry={breakdown.entry}
-          anchor={breakdown.anchor}
-          onClose={() => setBreakdown(null)}
-        />
-      )}
     </div>
   )
 }
