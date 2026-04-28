@@ -152,7 +152,7 @@ function addCompany(yaml: string, name: string, url: string): string {
     `  - name: ${name}`,
     `    careers_url: ${url}`,
     `    scan_method: websearch`,
-    `    scan_query: 'site:${domain} "Analyst" OR "Operations" OR "Intern"'`,
+    `    scan_query: 'site:${domain} {{roles_default}}'`,
     `    notes: ""`,
     `    enabled: true`,
   ].join('\n')
@@ -210,7 +210,7 @@ function buildCompanyProbePrompt(name: string, careersUrl: string): string {
     `  - name: ${name}`,
     `    careers_url: ${careersUrl || '<the canonical careers page>'}`,
     '    scan_method: websearch',
-    '    scan_query: \'site:<canonical-careers-domain> "Analyst" OR "Operations" OR "Strategy" OR "Graduate" OR "Intern" OR "Associate"\'',
+    '    scan_query: \'site:<canonical-careers-domain> {{roles_default}}\'',
     '    notes: "<one sentence — why no API was found, e.g. proprietary portal / SAP SuccessFactors>"',
     '    enabled: true',
     '```',
