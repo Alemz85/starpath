@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning, claudeArgs, type SpawnRecord } from '@/store/spawns'
+import { useScanFilter } from '@/store/scanFilter'
 import { useNavStore } from '@/store/nav'
+import { ipc } from '@/lib/ipc'
 import { ClaudeLogo } from '@/components/shared/Logos'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { StatCard } from './StatCard'
@@ -19,6 +21,7 @@ import type { ScoreEntry } from '@/types'
 const FULL_SCAN_ID       = 'cmd-full-scan'
 const API_SCAN_ID        = 'cmd-api-scan'
 const PIPELINE_FILTER_ID = 'cmd-pipeline-filter'
+const FILTERED_SCAN_ID   = 'cmd-filtered-scan'
 
 // Three pipeline-mode prompts. All share `/career-ops pipeline` as the slash
 // command (so the skill router still loads modes/pipeline.md), but the
@@ -315,12 +318,204 @@ function ScoutingActionPanel({
         ]}
       />
 
+      <FilteredScanRow />
+
       {/* Activity is now exclusively on the Scan tab. When something is
           running anywhere, surface a quiet pointer so the user knows where
           to go for the live log. */}
       <RunningInScanFooter />
     </div>
   )
+}
+
+// ─── Filtered Scan ──────────────────────────────────────────────────────────
+//
+// Always-visible chip strip listing every tracked_company in portals.yml.
+// Pre-selects the user's dream_companies (from profile.yml) on first
+// mount of the session, then leaves the selection alone. The Run button
+// spawns Claude with `/career-ops scan` plus an explicit allowlist of
+// company names — Claude reads the regular scan mode and constrains to
+// those companies (covers both API-method and websearch-method ones).
+
+function FilteredScanRow() {
+  const repoPath = useAppStore(s => s.repoPath)
+  const { spawns, start, kill, clear } = useSpawnsStore()
+  const filteredScan = spawns[FILTERED_SCAN_ID]
+  const selected     = useScanFilter(s => s.selected)
+  const toggle       = useScanFilter(s => s.toggle)
+  const applyDefaults = useScanFilter(s => s.applyDreamDefaults)
+  const clearAll     = useScanFilter(s => s.clear)
+
+  const [companies, setCompanies] = useState<Array<{ name: string; method: 'api' | 'websearch' | 'unknown' }>>([])
+  const [dreamCompanies, setDreamCompanies] = useState<string[]>([])
+
+  // Load on mount: portals.yml → tracked_companies (with their scan
+  // method) and profile.yml → dream_companies (just the names).
+  useEffect(() => {
+    if (!repoPath) return
+    Promise.all([
+      ipc.readFile('user/portals.yml'),
+      ipc.readFile('user/profile.yml'),
+    ]).then(([portalsRaw, profileRaw]) => {
+      if (portalsRaw) setCompanies(parseTrackedCompanies(portalsRaw))
+      if (profileRaw) setDreamCompanies(parseDreamCompanyNames(profileRaw))
+    })
+  }, [repoPath])
+
+  // First-mount only — pre-select dream companies. The store's
+  // `initialized` guard prevents this from clobbering user edits on
+  // subsequent remounts.
+  useEffect(() => {
+    if (dreamCompanies.length > 0) applyDefaults(dreamCompanies)
+  }, [dreamCompanies, applyDefaults])
+
+  const handleRun = () => {
+    if (filteredScan?.status === 'running') { kill(FILTERED_SCAN_ID); return }
+    if (filteredScan) clear(FILTERED_SCAN_ID)
+    if (selected.size === 0) return
+    const list = Array.from(selected).join(', ')
+    const slash =
+      `/career-ops scan — FILTERED RUN. Only scan these tracked_companies from user/portals.yml: ${list}. ` +
+      `Skip every other tracked_company. Skip the search_queries section entirely. ` +
+      `For each named company, follow its scan_method (api → direct API call; websearch → WebSearch with the company's scan_query). ` +
+      `Append new URLs to data/pipeline.md per the standard scan mode; respect data/scan-history.tsv for dedup.`
+    start(FILTERED_SCAN_ID, `Filtered Scan (${selected.size})`, 'claude', claudeArgs(slash, 'sonnet'))
+  }
+
+  const handleResetDefaults = () => applyDefaults(dreamCompanies, true)
+
+  if (companies.length === 0) {
+    // No tracked_companies in portals.yml yet — onboarding wizard probably
+    // hasn't completed. Hide the row entirely instead of showing an empty
+    // strip; user gets the chips back as soon as they configure portals.
+    return null
+  }
+
+  const running = filteredScan?.status === 'running'
+
+  return (
+    <div className="mt-4 px-1">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-baseline gap-2 min-w-0">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-3">Filtered scan</span>
+          <span className="text-[11px] text-text-4">·</span>
+          <span className="text-[11px] text-text-4 truncate">
+            {selected.size === 0
+              ? 'Pick companies to scan only those — others stay untouched'
+              : `${selected.size} of ${companies.length} selected`}
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {selected.size > 0 && (
+            <button
+              onClick={clearAll}
+              className="text-[11px] text-text-4 hover:text-text-2 px-2 py-1 rounded transition-colors"
+            >
+              Clear
+            </button>
+          )}
+          {dreamCompanies.length > 0 && (
+            <button
+              onClick={handleResetDefaults}
+              title="Reset selection to your dream_companies list from profile.yml"
+              className="text-[11px] text-text-4 hover:text-text-2 px-2 py-1 rounded transition-colors"
+            >
+              Reset to dreams
+            </button>
+          )}
+          <button
+            onClick={handleRun}
+            disabled={!repoPath || (!running && selected.size === 0)}
+            title={running
+              ? 'Stop the run (live log on the Activity tab)'
+              : selected.size === 0
+                ? 'Select at least one company first'
+                : `Spawn Claude to scan only the ${selected.size} selected ${selected.size === 1 ? 'company' : 'companies'}. Costs Claude tokens.`}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium border transition-colors',
+              running
+                ? 'bg-danger/10 border-danger/40 text-danger hover:bg-danger/15'
+                : 'bg-accent/15 border-accent/35 text-accent-text hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed',
+            )}
+          >
+            {running ? <Square size={11} className="fill-current" /> : <Filter size={11} />}
+            {running ? 'Stop' : 'Run filtered scan'}
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto rounded-md border border-border-default/60 bg-bg-elevated/30 p-2"
+        style={{ scrollbarWidth: 'thin' }}
+      >
+        {companies.map(c => {
+          const isSelected = selected.has(c.name)
+          const isDream = dreamCompanies.includes(c.name)
+          return (
+            <button
+              key={c.name}
+              onClick={() => toggle(c.name)}
+              title={`${c.name} · ${c.method.toUpperCase()}${isDream ? ' · dream company' : ''}`}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11.5px] border transition-colors',
+                isSelected
+                  ? 'bg-accent/20 border-accent/40 text-accent-text'
+                  : 'bg-bg-base border-border-default text-text-3 hover:text-text-1 hover:border-border-strong',
+              )}
+            >
+              {isDream && (
+                <span
+                  title="Dream company"
+                  className="w-1.5 h-1.5 rounded-full bg-tier-1 shrink-0"
+                  aria-hidden
+                />
+              )}
+              <span className="truncate max-w-[140px]">{c.name}</span>
+              <span
+                className={cn(
+                  'text-[8.5px] font-mono uppercase tracking-wider px-1 py-0.5 rounded shrink-0',
+                  c.method === 'api'       ? 'bg-success/10 text-success border border-success/30' :
+                  c.method === 'websearch' ? 'bg-warning/10 text-warning border border-warning/30' :
+                                             'bg-bg-elevated text-text-4 border border-border-default',
+                )}
+              >
+                {c.method === 'api' ? 'API' : c.method === 'websearch' ? 'WEB' : '…'}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// Lightweight portals.yml + profile.yml extractors. Mirrors the shape of
+// parseCompanies / extractDreamCompanies in SettingsView; kept inline
+// here so the cockpit doesn't pull on the Settings module just for two
+// regex helpers.
+
+function parseTrackedCompanies(yaml: string): Array<{ name: string; method: 'api' | 'websearch' | 'unknown' }> {
+  const section = yaml.split('tracked_companies:')[1] ?? ''
+  return section
+    .split('\n  - name: ')
+    .slice(1)
+    .map(block => {
+      const name = block.split('\n')[0].trim().replace(/^["']|["']$/g, '')
+      if (!name) return null
+      const has_api = /\n\s+api:\s*\S/.test(block)
+      const is_ws  = /scan_method:\s*websearch/.test(block)
+      const method: 'api' | 'websearch' | 'unknown' =
+        has_api ? 'api' : is_ws ? 'websearch' : 'unknown'
+      return { name, method }
+    })
+    .filter((c): c is { name: string; method: 'api' | 'websearch' | 'unknown' } => c !== null)
+}
+
+function parseDreamCompanyNames(yaml: string): string[] {
+  const m = yaml.match(/dream_companies:\s*\n([\s\S]*?)(?=\n  \w|\n\w|\n#|$)/)
+  if (!m) return []
+  return [...m[1].matchAll(/^\s*-\s+name:\s*["']?([^"'\n]+)["']?/gm)]
+    .map(x => x[1].trim()).filter(Boolean)
 }
 
 // Inline model selector — affects ONLY the three pipeline buttons
