@@ -16,7 +16,7 @@ export function CompanyLink({ company, size = 20, className = '', showName = fal
   const slug = toCompanySlug(company)
   return (
     <Link 
-      href={`/company/${slug}`} 
+      href={`/company?slug=${slug}`} 
       onClick={(e) => e.stopPropagation()}
       className={`inline-flex items-center gap-2 hover:opacity-80 transition-opacity ${showName ? 'font-medium text-slate-900 dark:text-slate-100 hover:underline' : ''} ${className}`}
       title={`View ${company} details`}

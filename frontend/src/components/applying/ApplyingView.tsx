@@ -469,7 +469,7 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
       <div className="flex items-start gap-2 pr-5">
         <CompanyLink company={app.company} size={24} className="shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <Link href={`/company/${toCompanySlug(app.company)}`} onClick={(e) => e.stopPropagation()} className="text-[12px] text-text-1 font-medium truncate leading-tight hover:underline hover:text-accent transition-colors block">
+          <Link href={`/company?slug=${toCompanySlug(app.company)}`} onClick={(e) => e.stopPropagation()} className="text-[12px] text-text-1 font-medium truncate leading-tight hover:underline hover:text-accent transition-colors block">
             {app.company}
           </Link>
           <div className="text-[11px] text-text-3 truncate leading-tight mt-0.5">{app.role}</div>
