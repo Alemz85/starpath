@@ -200,6 +200,16 @@ export function DatabaseView() {
           role={selectedEntry.role}
           scoreEntry={selectedEntry}
           hideDatabaseLink
+          onSwitchEntity={(targetCompany, targetRole) => {
+            // Find the latest matching score-history row for the
+            // sibling and swap selectedEntry to it. Fall back to the
+            // current entry if not found (shouldn't happen since
+            // siblings are derived from the same scoreHistory).
+            const match = [...scoreHistory]
+              .filter(r => r.company === targetCompany && r.role === targetRole)
+              .sort((a, b) => b.date.localeCompare(a.date))[0]
+            if (match) setSelectedEntry(match)
+          }}
           onClose={() => setSelectedEntry(null)}
         />
       )}
