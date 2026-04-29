@@ -136,7 +136,7 @@ Application writebacks are renderer → file: `useDataStore.promoteToApplication
 
 | Store | Role |
 |-------|------|
-| `app.ts` | `repoPath`, `isOnboarded`, `tailoringComplete`, `currentMode`, `models`, Claude install/auth status. `init()` reads `config.json` + `profile.yml`; `toggleMode()` writes `current_mode` to `user/profile.yml` line-by-line. |
+| `app.ts` | `repoPath`, `isOnboarded`, `tailoringComplete`, `phase`, `models`, Claude install/auth status. `init()` reads `config.json` + `profile.yml`; `setPhase()` writes `phase` to `user/profile.yml` line-by-line (and migrates the legacy `current_mode` key in the process). |
 | `data.ts` | All view-model data: applications, scouting, scoreHistory, pipeline, reports, liveness, scansThisMonth. |
 | `nav.ts` | Current `ViewId` + `databaseFilter`. **Intentionally minimal** — see Constraints. |
 | `spawns.ts` | Tracks every running spawn (scan, filter, tailor, prep) so the Activity tab can show them all. |
@@ -148,7 +148,7 @@ These are pure string-in/object-out functions. They feed both the renderer (lega
 
 - `markdown.ts` — `parseMarkdownTable`, `parseScouting`, `parseApplications`, `parsePipeline`, `parseReportPath`
 - `tsv.ts` — `parseScoreHistory` (full dimensional fields)
-- `yaml.ts` — regex-based parser for `profile.yml`. `getCurrentMode` / `setCurrentMode` / `hasLegacyMode` rewrite a single key while preserving comments. **Deliberately not js-yaml** — see Constraints.
+- `yaml.ts` — regex-based parser for `profile.yml`. `getPhase` / `setPhase` / `hasLegacyMode` rewrite a single key while preserving comments (also handles the legacy `current_mode` key for one-shot migration on launch). **Deliberately not js-yaml** — see Constraints.
 
 ### Core types (`frontend/src/types/index.ts`)
 
@@ -174,7 +174,7 @@ T2-high is collapsed to T2 at the renderer boundary (`toScoutingEntry`, `toScore
 | `settings` | `settings/SettingsView` | Bottom — candidate, target roles, models |
 | `profile` | `profile/ProfileView` | Bottom — stats dashboard |
 
-Clicking a Primary tab also flips `current_mode` in `user/profile.yml` via the `syncMode` field on the NavItem (see `Sidebar.tsx`). Sidebar collapses 220px ↔ 56px.
+Primary tabs reflect *workflow stage* (Scouting = inventory, Applying = active applications). They don't change scoring behavior — that's controlled by `phase` in `user/profile.yml` and toggled separately via Settings or CmdK. Sidebar collapses 220px ↔ 56px.
 
 `ReportSlideOver` (720px panel) animates open via `requestAnimationFrame` after a one-tick mount (`translate-x-6 opacity-0` → `translate-x-0 opacity-100`, 260ms). On close, animation runs first, then `onClose` after the timeout — losing the timeout on early unmount cancels the close.
 
@@ -250,7 +250,7 @@ Recipes for the common change patterns. Each one lists every file you must touch
 
 1. Create the component: `frontend/src/components/{view}/{ViewName}.tsx` (use an existing view as a starting template — most views are a single file or a small directory).
 2. Add the ID to the `ViewId` union in `frontend/src/store/nav.ts`.
-3. Add a `NavItem` to the appropriate group (`PRIMARY_NAV`, `SECONDARY_NAV`, or `BOTTOM_ITEMS`) in `frontend/src/components/layout/Sidebar.tsx`. If clicking the tab should also flip `current_mode`, set `syncMode`.
+3. Add a `NavItem` to the appropriate group (`PRIMARY_NAV`, `SECONDARY_NAV`, or `BOTTOM_ITEMS`) in `frontend/src/components/layout/Sidebar.tsx`. Tabs are pure navigation; they do NOT change scoring behavior (that's `phase`, toggled separately).
 4. Import and add the conditional render in `frontend/src/components/layout/AppShell.tsx`'s view switcher — there's one `{view === '...' && <View />}` line per view ID, and missing one means a blank canvas with no error.
 5. (Optional) Add `frontend/src/app/{view}/page.tsx` re-exporting the component, so the static export includes a deep-linkable route. Most views skip this — `useNavStore` drives in-app navigation.
 
@@ -286,7 +286,7 @@ If the file doesn't need joins or filtered queries, a simpler path is to skip th
 
 Modes are flat markdown files under `modes/*.md` consumed by the `career-ops` skill in `.claude/skills/career-ops/`.
 
-1. **Mode file** at `modes/{name}.md` — start from a similar existing mode (`oferta.md`, `scouting.md`, `pdf.md`).
+1. **Mode file** at `modes/{name}.md` — start from a similar existing mode (`scouting.md`, `interview-prep.md`, `pdf.md`).
 2. **Skill index** — check `.claude/skills/career-ops/SKILL.md` for any explicit list of modes; update the routing table in `CLAUDE.md` § "Skill Modes".
 3. **DATA_CONTRACT.md** — add the new mode to the System Layer table.
 4. **Frontend cockpit (optional)** — if the mode is invoked from a UI button, wire it via `ipc.spawn` in the relevant view (see `ApplyingView` / `ScanView` for the spawn pattern).

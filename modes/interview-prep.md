@@ -125,7 +125,7 @@ Things to say, do, and avoid based on research:
 
 ## Output
 
-Save the full report to `interview-prep/{company-slug}-{role-slug}.md` with this header:
+Save the full report to `interview-prep/{Company} - {Role}.md` (mirrors the `reports/tier-N/{Company} - {Role}.md` naming convention so the frontend slide-over and FilesStrip can pair the two files) with this header:
 
 ```markdown
 # Interview Intel: {Company} — {Role}

@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useNavStore, type ViewId } from '@/store/nav'
-import { useAppStore } from '@/store/app'
 import {
   Map,
   Briefcase,
@@ -21,22 +20,24 @@ import {
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
 import { StarpathLogo } from '@/components/shared/Logos'
-import type { AppMode } from '@/types'
 
 interface NavItem {
   view: ViewId
   label: string
   icon: React.ElementType
-  /** If set, navigating to this tab also flips currentMode. */
-  syncMode?: AppMode
 }
 
-// Primary tabs — these drive `current_mode` and are the entry points to
-// the two phases of the workflow. They sit above a subtle divider in the
-// sidebar to read as the "command" tier.
+// Primary tabs — workflow-stage entry points. Scouting = inventory of
+// every evaluation, Applying = active applications. They sit above a
+// subtle divider in the sidebar to read as the "command" tier.
+//
+// These tabs are about the user's data state, NOT about which evaluation
+// runs. There's only one evaluation mode (`modes/scouting.md`); the
+// CF/AF rollup weights are controlled by `phase` (Settings/CmdK), which
+// is independent from this navigation.
 const PRIMARY_NAV: NavItem[] = [
-  { view: 'scouting', label: 'Scouting', icon: Map,        syncMode: 'scouting' },
-  { view: 'applying', label: 'Applying', icon: Briefcase,  syncMode: 'applying' },
+  { view: 'scouting', label: 'Scouting', icon: Map        },
+  { view: 'applying', label: 'Applying', icon: Briefcase  },
 ]
 
 // Secondary tabs — supporting views (data, analytics, activity).
@@ -59,12 +60,10 @@ const BOTTOM_ITEMS: NavItem[] = [
 export function Sidebar() {
   const [expanded, setExpanded] = useState(true)
   const { view: currentView, navigate } = useNavStore()
-  const setMode = useAppStore(s => s.setMode)
   const anyRunning = useSpawnsStore(isAnyRunning)
 
   const handleNav = (item: NavItem) => {
     navigate(item.view)
-    if (item.syncMode) void setMode(item.syncMode)
   }
 
   const renderItem = (item: NavItem) => {

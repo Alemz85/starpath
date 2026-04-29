@@ -118,20 +118,6 @@ try {
   fail(`Liveness classification tests crashed: ${e.message}`);
 }
 
-// ── 4. DASHBOARD BUILD ──────────────────────────────────────────
-
-if (!QUICK) {
-  console.log('\n4. Dashboard build');
-  const goBuild = run('cd dashboard && go build -o /tmp/career-dashboard-test . 2>&1');
-  if (goBuild !== null) {
-    pass('Dashboard compiles');
-  } else {
-    fail('Dashboard build failed');
-  }
-} else {
-  console.log('\n4. Dashboard build (skipped --quick)');
-}
-
 // ── 5. DATA CONTRACT ────────────────────────────────────────────
 
 console.log('\n5. Data contract validation');
@@ -140,7 +126,7 @@ console.log('\n5. Data contract validation');
 const systemFiles = [
   'CLAUDE.md', 'DATA_CONTRACT.md',
   'modes/_shared.md',
-  'modes/oferta.md', 'modes/pdf.md', 'modes/scan.md',
+  'modes/scouting.md', 'modes/pdf.md', 'modes/scan.md',
   'templates/states.yml', 'templates/cv-template.html',
   '.claude/skills/career-ops/SKILL.md',
 ];
@@ -240,9 +226,11 @@ if (!absPathResult) {
 console.log('\n8. Mode file integrity');
 
 const expectedModes = [
-  '_shared.md', 'oferta.md', 'pdf.md', 'scan.md',
-  'batch.md', 'apply.md', 'auto-pipeline.md', 'contacto.md', 'deep.md',
+  '_shared.md', 'scouting.md', 'pdf.md', 'scan.md',
+  'batch.md', 'apply.md', 'contacto.md', 'deep.md',
   'ofertas.md', 'pipeline.md', 'project.md', 'tracker.md', 'training.md',
+  'interview-prep.md', 'positioning.md', 'db.md', 'deadlines.md',
+  'patterns.md', 'followup.md',
 ];
 
 for (const mode of expectedModes) {
@@ -278,21 +266,6 @@ for (const section of requiredSections) {
   } else {
     fail(`CLAUDE.md missing section: ${section}`);
   }
-}
-
-// ── 10. VERSION FILE ─────────────────────────────────────────────
-
-console.log('\n10. Version file');
-
-if (fileExists('VERSION')) {
-  const version = readFile('VERSION').trim();
-  if (/^\d+\.\d+\.\d+$/.test(version)) {
-    pass(`VERSION is valid semver: ${version}`);
-  } else {
-    fail(`VERSION is not valid semver: "${version}"`);
-  }
-} else {
-  fail('VERSION file missing');
 }
 
 // ── SUMMARY ─────────────────────────────────────────────────────

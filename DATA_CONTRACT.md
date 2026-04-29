@@ -14,8 +14,9 @@ These files contain your personal data, customizations, and work product. Update
 | `user/article-digest.md` | Your proof points from portfolio |
 | `interview-prep/story-bank.md` | Your accumulated STAR+R stories |
 | `user/portals.yml` | Your customized company list |
-| `data/applications.md` | Your active application tracker (oferta mode) |
-| `data/scouting.md` | Your scouting landscape tracker (scouting mode) |
+| `data/applications.md` | Your active applications tracker (entries you've decided to apply to) |
+| `data/scouting.md` | Your landscape inventory tracker (every evaluation lands here by default) |
+| `interview-prep/{Company} - {Role}.md` | Per-listing application prep files |
 | `data/pipeline.md` | Your URL inbox |
 | `data/scan-history.tsv` | Your scan history |
 | `data/score-history.tsv` | Your per-archetype scouting score log (trajectory for `positioning`) |
@@ -31,14 +32,12 @@ These files contain system logic, scripts, templates, and instructions that impr
 | File | Purpose |
 |------|---------|
 | `modes/_shared.md` | Scoring system, global rules, tools |
-| `modes/oferta.md` | Evaluation mode instructions |
-| `modes/scouting.md` | Lightweight landscape-mapping eval mode |
+| `modes/scouting.md` | The single evaluation mode |
 | `modes/positioning.md` | Holistic career positioning report mode |
 | `modes/pdf.md` | PDF generation instructions |
 | `modes/scan.md` | Portal scanner instructions |
 | `modes/batch.md` | Batch processing instructions |
-| `modes/apply.md` | Application assistant instructions |
-| `modes/auto-pipeline.md` | Auto-pipeline instructions |
+| `modes/apply.md` | Live application form helper |
 | `modes/contacto.md` | LinkedIn outreach instructions |
 | `modes/deep.md` | Research prompt instructions |
 | `modes/ofertas.md` | Comparison instructions |

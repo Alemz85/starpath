@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
-import { getCurrentMode, setCurrentMode, hasLegacyMode } from '@/lib/parsers/yaml'
-import type { AppMode, ModelAlias, ModelPrefs } from '@/types'
+import { getPhase, setPhase, hasLegacyMode } from '@/lib/parsers/yaml'
+import type { Phase, ModelAlias, ModelPrefs } from '@/types'
 import { DEFAULT_MODEL_PREFS } from '@/types'
 
 // Returns true if the currently-pointed-at repo already has the four critical
@@ -21,7 +21,7 @@ interface AppState {
   repoPath: string | null
   isOnboarded: boolean
   tailoringComplete: boolean
-  currentMode: AppMode
+  phase: Phase
   claudeInstalled: boolean
   models: ModelPrefs
 
@@ -31,7 +31,7 @@ interface AppState {
   setOnboardingComplete: () => Promise<void>
   setTailoringComplete: () => Promise<void>
   resetTailoring: () => Promise<void>
-  setMode: (mode: AppMode) => Promise<void>
+  setPhase: (phase: Phase) => Promise<void>
   setModel: (category: keyof ModelPrefs, model: ModelAlias) => Promise<void>
   recheckClaude: () => Promise<boolean>
 }
@@ -40,7 +40,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   repoPath: null,
   isOnboarded: false,
   tailoringComplete: true,
-  currentMode: 'scouting',
+  phase: 'exploring',
   claudeInstalled: false,
   models: DEFAULT_MODEL_PREFS,
 
@@ -48,16 +48,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const cfg = await ipc.getConfig()
     const claudeCheck = await ipc.checkClaude()
 
-    let mode: AppMode = 'scouting'
+    let phase: Phase = 'exploring'
     if (cfg?.repoPath) {
       const profileRaw = await ipc.readFile('user/profile.yml')
       if (profileRaw) {
-        mode = getCurrentMode(profileRaw)
-        // One-shot migration: if profile.yml still has the legacy `job-seeking`
-        // value, rewrite it to `applying` on first launch. After this, no more
-        // backward-compat handling is needed in code.
+        phase = getPhase(profileRaw)
+        // One-shot migration: rewrite the file to use the canonical `phase`
+        // key when it still has the legacy `current_mode` key. After this,
+        // no more backward-compat handling is needed in code.
         if (hasLegacyMode(profileRaw)) {
-          await ipc.writeFile('user/profile.yml', setCurrentMode(profileRaw, 'applying'))
+          await ipc.writeFile('user/profile.yml', setPhase(profileRaw, phase))
         }
       }
     }
@@ -85,12 +85,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     set({
-      repoPath:          cfg?.repoPath ?? null,
+      repoPath:        cfg?.repoPath ?? null,
       isOnboarded,
       tailoringComplete,
-      currentMode:       mode,
-      claudeInstalled:   claudeCheck?.installed ?? false,
-      models:            cfg?.models ?? DEFAULT_MODEL_PREFS,
+      phase,
+      claudeInstalled: claudeCheck?.installed ?? false,
+      models:          cfg?.models ?? DEFAULT_MODEL_PREFS,
     })
   },
 
@@ -130,14 +130,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     return installed
   },
 
-  setMode: async (mode: AppMode) => {
-    if (get().currentMode === mode) return
+  setPhase: async (phase: Phase) => {
+    if (get().phase === phase) return
     const raw = await ipc.readFile('user/profile.yml')
     if (raw) {
-      const updated = setCurrentMode(raw, mode)
+      const updated = setPhase(raw, phase)
       await ipc.writeFile('user/profile.yml', updated)
     }
-    set({ currentMode: mode })
+    set({ phase })
   },
 
   setModel: async (category, model) => {

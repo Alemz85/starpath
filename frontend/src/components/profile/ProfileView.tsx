@@ -189,7 +189,11 @@ export function ProfileView() {
       headline:  extract(profileRaw, 'headline'),
       comp:      extract(profileRaw, 'target_range'),
       currency:  extract(profileRaw, 'currency') || 'USD',
-      mode:      extract(profileRaw, 'current_mode') || 'scouting',
+      // `phase` is the canonical key; `current_mode` is read for legacy
+      // profile.yml files until the launch routine rewrites them.
+      phase:     (extract(profileRaw, 'phase') || extract(profileRaw, 'current_mode') || 'exploring')
+                   .replace(/^scouting$/, 'exploring')
+                   .replace(/^job-seeking$/, 'applying'),
       roles:     extractRoles(profileRaw),
       powers:    extractList(profileRaw, 'superpowers'),
     }
@@ -242,8 +246,8 @@ export function ProfileView() {
               </div>
               <div className={cn(
                 'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-bg-panel',
-                profile?.mode === 'scouting' ? 'bg-info' : 'bg-success',
-              )} title={profile?.mode === 'scouting' ? 'Scouting' : 'Job Seeking'} />
+                profile?.phase === 'exploring' ? 'bg-info' : 'bg-success',
+              )} title={profile?.phase === 'exploring' ? 'Exploring' : 'Applying'} />
             </div>
 
             <div className="flex-1 min-w-0 pt-0.5">
@@ -253,11 +257,11 @@ export function ProfileView() {
                 </h1>
                 <span className={cn(
                   'text-[10px] font-mono font-medium px-2 py-0.5 rounded-full border',
-                  profile?.mode === 'scouting'
+                  profile?.phase === 'exploring'
                     ? 'text-info border-info/30 bg-info/10'
                     : 'text-success border-success/30 bg-success/10',
                 )}>
-                  {profile?.mode === 'scouting' ? '● Scouting' : '● Job Seeking'}
+                  {profile?.phase === 'exploring' ? '● Exploring' : '● Applying'}
                 </span>
               </div>
               {profile?.headline && (

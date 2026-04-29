@@ -138,8 +138,8 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
         />
         <Item
           icon={GraduationCap}
-          label="Prep interview"
-          onClick={() => { spawnPerListing('Prep Interview', 'modes/interview-prep.md', entry, 'interviewPrep'); onClose() }}
+          label="Prep application"
+          onClick={() => { spawnPerListing('Prep Application', 'modes/interview-prep.md', entry, 'interviewPrep'); onClose() }}
         />
         <div className="my-1 border-t border-border-default" />
         <Item
@@ -234,14 +234,14 @@ function spawnReport(entry: ScoreEntry) {
       const { spawns, start, clear } = useSpawnsStore.getState()
       if (spawns[id]?.status === 'running') return
       if (spawns[id]) clear(id)
-      // Run the full evaluation per current_mode + write the per-listing
-      // report file. Use the source URL when available so auto-pipeline can
-      // re-fetch the JD; otherwise fall back to a company+role prompt and
-      // let Claude pull from the existing scouting.md row.
+      // Run the unified evaluation mode (`modes/scouting.md`) and write
+      // the per-listing report file. Use the source URL when available so
+      // the mode can re-fetch the JD; otherwise fall back to a
+      // company+role prompt pulled from the existing data/scouting.md row.
       const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
       const slash = url
-        ? `/career-ops ${url} — generate the per-listing report markdown under reports/tier-N/{Company} - {Role}.md per current_mode (modes/scouting.md or modes/oferta.md). Reuse the existing data/scouting.md row's score if present.`
-        : `/career-ops auto-pipeline for ${entry.company} — ${entry.role} — generate the per-listing report markdown under reports/tier-N/ per current_mode. The listing already exists in data/scouting.md.`
+        ? `/career-ops scouting ${url} — write the per-listing report under reports/tier-N/{Company} - {Role}.md following the Tier-1 deep template in modes/scouting.md § "Full Report Format". Reuse the existing data/scouting.md row's score if present.`
+        : `/career-ops scouting for ${entry.company} — ${entry.role} — write the per-listing report under reports/tier-N/ following the Tier-1 deep template in modes/scouting.md. The listing already exists in data/scouting.md; reuse its score.`
       const model = useAppStore.getState().models.generateReport
       start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash, model))
     },
