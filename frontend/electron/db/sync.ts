@@ -3,7 +3,40 @@ import path from 'path'
 import type Database from 'better-sqlite3'
 import { parseScouting, parseApplications, parsePipeline, parseReportPath } from '../../src/lib/parsers/markdown'
 import { parseScoreHistory } from '../../src/lib/parsers/tsv'
+import { entityId, parseCities } from '../../src/lib/entityId'
 import { getMeta, setMeta } from './schema'
+
+// Build a (company, role) -> latest-location lookup from the
+// score_history table. Used by syncApplications/syncScouting to
+// compute entity_id + cities for each row at insert time. Returns the
+// LATEST location for each (company, role) so re-evaluations promoting
+// the entity to a different city (rare, but possible if the JD's
+// location field changes) are reflected.
+function buildLocationLookup(db: Database.Database): Map<string, string> {
+  const rows = db.prepare(`
+    SELECT company, role, location, MAX(date) AS d
+    FROM score_history
+    WHERE location <> ''
+    GROUP BY company, role
+  `).all() as Array<{ company: string; role: string; location: string }>
+  const m = new Map<string, string>()
+  for (const r of rows) m.set(`${r.company}::${r.role}`, r.location)
+  return m
+}
+
+// Compute the entity fields for a (company, role) row given the
+// location lookup. Returns ('', '[]') when no location can be resolved
+// — the row will still index by entity_id, just with city-key 'unknown'.
+function computeEntityFields(
+  company: string,
+  role: string,
+  locLookup: Map<string, string>,
+): { entity_id: string; cities: string } {
+  const loc = locLookup.get(`${company}::${role}`) ?? ''
+  const parsed = parseCities(loc)
+  const id = entityId(company, role, parsed)
+  return { entity_id: id, cities: JSON.stringify(parsed.cities) }
+}
 
 // Sources of truth on disk. Frontend must never sync from elsewhere.
 const FILES = {
@@ -51,15 +84,17 @@ export function syncApplications(db: Database.Database, repoPath: string): { cha
   if (text == null) return { changed: false, rows: 0 }
 
   const rows = parseApplications(text)
+  const locLookup = buildLocationLookup(db)
   const insert = db.prepare(`
-    INSERT INTO applications (num, date, company, role, score_raw, score_num, status, pdf, deadline, report, notes, tier)
-    VALUES (@num, @date, @company, @role, @score_raw, @score_num, @status, @pdf, @deadline, @report, @notes, @tier)
+    INSERT INTO applications (num, date, company, role, score_raw, score_num, status, pdf, deadline, report, notes, tier, entity_id, cities)
+    VALUES (@num, @date, @company, @role, @score_raw, @score_num, @status, @pdf, @deadline, @report, @notes, @tier, @entity_id, @cities)
   `)
 
   const tx = db.transaction((entries: typeof rows) => {
     db.exec('DELETE FROM applications')
     for (const r of entries) {
       const score_num = parseScoreNum(r.score)
+      const entity = computeEntityFields(r.company, r.role, locLookup)
       insert.run({
         num: r.num,
         date: r.date,
@@ -73,6 +108,8 @@ export function syncApplications(db: Database.Database, repoPath: string): { cha
         report: r.report,
         notes: r.notes,
         tier: deriveTier(score_num, r.status),
+        entity_id: entity.entity_id,
+        cities: entity.cities,
       })
     }
   })
@@ -93,14 +130,16 @@ export function syncScouting(db: Database.Database, repoPath: string): { changed
   if (text == null) return { changed: false, rows: 0 }
 
   const rows = parseScouting(text)
+  const locLookup = buildLocationLookup(db)
   const insert = db.prepare(`
-    INSERT INTO scouting (num, date, company, role, score_raw, score_num, tier, cfaf, report, deadline, promotion_hint, notes)
-    VALUES (@num, @date, @company, @role, @score_raw, @score_num, @tier, @cfaf, @report, @deadline, @promotion_hint, @notes)
+    INSERT INTO scouting (num, date, company, role, score_raw, score_num, tier, cfaf, report, deadline, promotion_hint, notes, entity_id, cities)
+    VALUES (@num, @date, @company, @role, @score_raw, @score_num, @tier, @cfaf, @report, @deadline, @promotion_hint, @notes, @entity_id, @cities)
   `)
 
   const tx = db.transaction((entries: typeof rows) => {
     db.exec('DELETE FROM scouting')
     for (const r of entries) {
+      const entity = computeEntityFields(r.company, r.role, locLookup)
       insert.run({
         num: r.num,
         date: r.date,
@@ -114,6 +153,8 @@ export function syncScouting(db: Database.Database, repoPath: string): { changed
         deadline: r.deadline,
         promotion_hint: r.promotionHint,
         notes: r.notes,
+        entity_id: entity.entity_id,
+        cities: entity.cities,
       })
     }
   })
@@ -294,9 +335,13 @@ export function syncAll(db: Database.Database, repoPath: string, opts: { force?:
     db.exec('DELETE FROM reports_index')
   }
 
+  // score_history must sync FIRST: applications/scouting derive their
+  // entity_id and cities columns from the latest matching location in
+  // score_history. Reports + pipeline are independent and can run in
+  // any order after.
+  const scores  = syncScoreHistory(db, repoPath)
   const apps    = syncApplications(db, repoPath)
   const scout   = syncScouting(db, repoPath)
-  const scores  = syncScoreHistory(db, repoPath)
   const pipe    = syncPipeline(db, repoPath)
   const reports = syncReports(db, repoPath)
 

@@ -223,6 +223,14 @@ import type {
 
 const KNOWN_STATUSES: AppStatus[] = ['Evaluated','Applied','Responded','Interview','Offer','Rejected','Discarded','SKIP']
 
+function parseCitiesJson(raw: string | undefined): string[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter(s => typeof s === 'string') : []
+  } catch { return [] }
+}
+
 function toApplicationEntry(row: DbApplicationRow): ApplicationEntry {
   const status = (KNOWN_STATUSES as string[]).includes(row.status)
     ? row.status as AppStatus
@@ -238,6 +246,8 @@ function toApplicationEntry(row: DbApplicationRow): ApplicationEntry {
     deadline: row.deadline,
     report:   row.report,
     notes:    row.notes,
+    entityId: row.entity_id ?? '',
+    cities:   parseCitiesJson(row.cities),
   }
 }
 
@@ -258,6 +268,8 @@ function toScoutingEntry(row: DbScoutingRow): ScoutingEntry {
     deadline:      row.deadline,
     promotionHint: row.promotion_hint,
     notes:         row.notes,
+    entityId:      row.entity_id ?? '',
+    cities:        parseCitiesJson(row.cities),
   }
 }
 

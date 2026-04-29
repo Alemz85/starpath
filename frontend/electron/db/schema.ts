@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (
@@ -20,7 +20,13 @@ const TABLES = [
     deadline    TEXT NOT NULL DEFAULT '',
     report      TEXT NOT NULL DEFAULT '',
     notes       TEXT NOT NULL DEFAULT '',
-    tier        TEXT NOT NULL DEFAULT ''
+    tier        TEXT NOT NULL DEFAULT '',
+    -- entity_id and cities are derived at sync time from
+    -- (company, role, location) via lib/entityId.ts. cities is a
+    -- JSON-encoded string array; the empty array '[]' means
+    -- single-city (use the row's location field).
+    entity_id   TEXT NOT NULL DEFAULT '',
+    cities      TEXT NOT NULL DEFAULT '[]'
   )`,
 
   `CREATE TABLE IF NOT EXISTS scouting (
@@ -35,7 +41,9 @@ const TABLES = [
     report         TEXT NOT NULL DEFAULT '',
     deadline       TEXT NOT NULL DEFAULT '',
     promotion_hint TEXT NOT NULL DEFAULT '',
-    notes          TEXT NOT NULL DEFAULT ''
+    notes          TEXT NOT NULL DEFAULT '',
+    entity_id      TEXT NOT NULL DEFAULT '',
+    cities         TEXT NOT NULL DEFAULT '[]'
   )`,
 
   `CREATE TABLE IF NOT EXISTS score_history (
@@ -88,7 +96,9 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_apps_company_role ON applications(company, role)`,
   `CREATE INDEX IF NOT EXISTS idx_apps_status       ON applications(status)`,
   `CREATE INDEX IF NOT EXISTS idx_apps_tier         ON applications(tier)`,
+  `CREATE INDEX IF NOT EXISTS idx_apps_entity       ON applications(entity_id)`,
   `CREATE INDEX IF NOT EXISTS idx_scouting_tier     ON scouting(tier)`,
+  `CREATE INDEX IF NOT EXISTS idx_scouting_entity   ON scouting(entity_id)`,
   `CREATE INDEX IF NOT EXISTS idx_score_company_role ON score_history(company, role)`,
   `CREATE INDEX IF NOT EXISTS idx_score_date        ON score_history(date)`,
   `CREATE INDEX IF NOT EXISTS idx_score_tier        ON score_history(tier)`,

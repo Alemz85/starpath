@@ -44,6 +44,13 @@ export function parseScouting(md: string): ScoutingEntry[] {
       deadline:      row['Deadline'] ?? '',
       promotionHint: row['Promotion Hint'] ?? '',
       notes:         row['Notes'] ?? '',
+      // entityId + cities are populated by the SQLite sync layer (which
+      // can join against score_history.location). The markdown parser
+      // doesn't have that context, so it leaves them empty — anything
+      // reading parseScouting() output directly (rare; tests + the
+      // Apply button writeback) should fall back to recomputing.
+      entityId:      '',
+      cities:        [],
     }]
   })
 }
@@ -80,6 +87,8 @@ export function parseApplications(md: string): ApplicationEntry[] {
       deadline: row['Deadline'] ?? '',
       report:   row['Report'] ?? '',
       notes:    row['Notes'] ?? '',
+      entityId: '',
+      cities:   [],
     }]
   })
 }
