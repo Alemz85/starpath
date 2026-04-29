@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`positioning` is a **standalone, manually invoked command** that produces a cross-cutting view of the user's career landscape. It does NOT evaluate a single listing. Instead, it reads *everything the system has accumulated* — scan data, scouting reports, `oferta` reports, tracker entries, score history — and answers the question: **"Given everything I've seen, where do I stand, and what path should I prioritize?"**
+`positioning` is a **standalone, manually invoked command** that produces a cross-cutting view of the user's career landscape. It does NOT evaluate a single listing. Instead, it reads *everything the system has accumulated* — scan data, evaluation reports, tracker entries, score history — and answers the question: **"Given everything I've seen, where do I stand, and what path should I prioritize?"**
 
 Think of it as the difference between looking at one X-ray (scouting) vs looking at the whole medical file (positioning).
 
@@ -20,16 +20,15 @@ Read ALL of these if they exist. Skip any that are missing with a note.
 
 | Source | Purpose |
 |--------|---------|
-| `data/applications.md` | Active applications tracker (oferta-mode entries) |
-| `data/scouting.md` | Scouting landscape tracker (scouting-mode entries with Tier column) |
-| `data/score-history.tsv` | Per-archetype, per-dimension score trajectory over time. **Primary quantitative source.** Includes both scouting and oferta rows (distinguished by the `mode` column). |
+| `data/applications.md` | Active applications tracker — entries the user has decided to apply to |
+| `data/scouting.md` | Landscape inventory tracker — every evaluation lands here by default (Tier column) |
+| `data/score-history.tsv` | Per-archetype, per-dimension score trajectory over time. **Primary quantitative source.** Unified across all evaluations. |
 | `data/report-summaries.tsv` | **Compact summary cache** (one row per evaluation). Read this FIRST for the quantitative analysis pass — it is far faster than opening full reports. Schema: `date\|company\|role\|archetype\|tier\|overall\|cf\|af\|key_gaps\|verdict_one_line`. Only open full `.md` reports when drilling into a specific company or archetype (max 5 full reads per positioning run). |
-| `reports/tier-*/scout-*.md` | Scouting reports — open only for qualitative color (see rule below). |
-| `reports/tier-*/[0-9]*.md` | Full oferta reports — open only for qualitative color. |
+| `reports/tier-*/{Company} - {Role}.md` | Full evaluation reports — open only for qualitative color (see rule below). |
 | `data/scan-history.tsv` | Portal scan history — demand signals by company/city |
 | `data/landscape-companies.csv` | If it exists (landscape mapping data) |
 | `data/landscape-cities.csv` | If it exists |
-| `modes/_shared.md` | The Dimensional Scoring Framework definition (shared by scouting and oferta). Read this so you understand what each TSV column means. |
+| `modes/_shared.md` | The Dimensional Scoring Framework definition. Read this so you understand what each TSV column means. |
 | `user/_profile.md` | Archetypes, narrative, comp targets, location policy |
 | `user/profile.yml` | Identity, dream companies, target roles |
 | `user/cv.md` | Current skill baseline |
@@ -49,7 +48,7 @@ date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobil
 **Note:** Rows written before 2026-04-26 have only 21 columns (no metadata columns). Check `len(columns) >= 22` before reading `location` and beyond — treat missing as `n/d`.
 
 Key facts for parsing:
-- One row per evaluation. Both `scouting` and `oferta` modes write here — the `mode` column tells you which.
+- One row per evaluation. The `mode` column always says `scouting` for new rows; legacy rows from before the mode consolidation may say `oferta` — treat them the same.
 - Numeric columns are decimals. Treat blanks as missing data, not zero.
 - `current_fit`, `aspirational_fit`, `overall` are **pre-computed rollups**, not for you to recompute. Use them directly.
 - The 6 rollup scoring dimensions (`skills_match`, `ease_of_entry`, `strategic_fit`, `growth_mobility`, `optionality_exit`, `brand_value`) are the rich signal — averages and trends across these are what positioning is uniquely able to surface. `sales_trap_risk` is logged and displayed but is NOT part of the AF rollup — treat it as a decision-support signal in the positioning analysis.
@@ -63,13 +62,12 @@ Key facts for parsing:
 
 Count:
 - Total tracker entries and their status distribution
-- Total scouting reports by tier (full / short / growth / skip)
-- Total `oferta` reports
+- Total reports by tier (T1 / T2 / T3 / T4)
 - Score-history.tsv row count and date range
 - Previous positioning reports (for diff)
 
 If the corpus is too thin to be useful, tell the user:
-> "Not enough data for a meaningful positioning report yet. You have {N} scouting evaluations and {M} tracker entries. Come back after {recommended threshold} — or run `/career-ops scan` a few times first."
+> "Not enough data for a meaningful positioning report yet. You have {N} evaluations and {M} tracker entries. Come back after {recommended threshold} — or run `/career-ops scan` a few times first."
 
 **Minimum thresholds:**
 - At least 15 rows in `score-history.tsv` (or 10 tracker entries if score-history is empty) to produce the "where you stand today" section
@@ -99,7 +97,7 @@ For each archetype with ≥ 3 evaluations, show how the rollups *decompose* acro
 - Highlight the lowest-scoring dimension per row in plain text below the table: "Value Engineering: Skills Match (avg 2.4) is the bottleneck — Ease and Strategic both above 4."
 - For Sales-Trap Risk, phrase findings positively: "Sales-Trap Risk avg 4.3 → low pigeonhole risk across this archetype" (NOT "high sales-trap risk").
 
-**C) Most common gaps** (from scouting reports — sample 3-5 per archetype):
+**C) Most common gaps** (from evaluation reports — sample 3-5 per archetype):
 
 Parse the "Key gaps" / "Gap analysis" sections from recent reports AND the lowest-scoring dimensions from Step 2B. Tally frequency. Output the top 5-8 gaps that show up across the corpus. Group semantically (e.g., "SQL proficiency", "3+ YoE in data role", "Cloud certification") rather than listing near-duplicates. Cross-reference: a gap that recurs in the qualitative text AND drags down the same dimension quantitatively is a high-conviction finding.
 
@@ -258,7 +256,7 @@ Write the full report to `reports/positioning/positioning-{YY-MM}.md`. Structure
 ```markdown
 # Career Positioning Report — {YY-MM}
 
-**Evaluations analyzed:** {N} scouting + {M} oferta + {K} tracker entries
+**Evaluations analyzed:** {N} + {K} tracker entries
 **Score-history rows:** {N_tsv} ({date_from} → {date_to})
 **Primary archetypes considered:** {list}
 
@@ -299,7 +297,7 @@ Write the full report to `reports/positioning/positioning-{YY-MM}.md`. Structure
 ---
 
 ## Appendix: Data sources
-- score-history.tsv ({N} rows, {from}-{to}, {N_scouting} scouting rows + {N_oferta} oferta rows)
+- score-history.tsv ({N} rows, {from}-{to})
 - Tracker ({M} entries)
 - Reports sampled: {list of report filenames used for qualitative signals}
 - Previous positioning reports: {list or "none"}
@@ -311,7 +309,7 @@ After writing the full report, show the user a condensed version in chat:
 
 ```
 Career Positioning Report — {date}
-({N} scouting + {M} oferta evaluations spanning {date_from}-{date_to})
+({N} evaluations spanning {date_from}-{date_to})
 
 Where you stand:
 - {archetype 1}: CF X.X / AF X.X {↑→↓}  · bottleneck: {dimension}

@@ -8,7 +8,7 @@ Invoke with: `/career-ops db [filters]`
 
 ## Inputs
 
-- `data/score-history.tsv` — primary source. All scouting and oferta rows.
+- `data/score-history.tsv` — primary source. All evaluation rows.
 - `data/report-summaries.tsv` — fallback for `verdict_one_line` if not in score-history
 - Optional filter args parsed from the user's command (see below)
 
@@ -25,7 +25,6 @@ All filters are optional. Combine freely.
 | `--min-score X` | `--min-score 7.0` | Overall ≥ X |
 | `--company X` | `--company Google` | Fuzzy-match company column |
 | `--since YYYY-MM-DD` | `--since 2026-04-01` | date ≥ given date |
-| `--mode X` | `--mode scouting` | `scouting` or `oferta` |
 | `--include-closed` | | Include rows with overall = 0 or blank (default: excluded) |
 
 If no filters are given, show all non-closed rows.
@@ -37,10 +36,10 @@ Render a markdown table directly in chat. Default sort: Overall descending.
 ```markdown
 ## Offer Database — {N} roles ({filters summary or "all"})
 
-| # | Date | Company | Role | Location | Type | Duration | Salary | Archetype | Overall | CF | AF | EoE | Tier | Mode |
-|---|------|---------|------|----------|------|----------|--------|-----------|---------|----|----|-----|------|------|
-| 1 | 2026-04-25 | Celonis | Intern Value Advisory | Madrid | internship | 6mo | n/d | Value Engineering | 8.9 | 8.7 | 9.5 | 6.0 | T2 | scouting |
-| 2 | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
+| # | Date | Company | Role | Location | Type | Duration | Salary | Archetype | Overall | CF | AF | EoE | Tier |
+|---|------|---------|------|----------|------|----------|--------|-----------|---------|----|----|-----|------|
+| 1 | 2026-04-25 | Celonis | Intern Value Advisory | Madrid | internship | 6mo | n/d | Value Engineering | 8.9 | 8.7 | 9.5 | 6.0 | T2 |
+| 2 | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
 
 **Summary:** {N} roles shown · avg Overall {X.X} · top archetype {Y} ({N} roles)
 ```
@@ -50,8 +49,7 @@ Render a markdown table directly in chat. Default sort: Overall descending.
 - `Overall`, `CF`, `AF` — from score-history rollup columns
 - `EoE` — Ease of Entry score (most useful dimension for self-assessment)
 - `Location`, `Type`, `Duration`, `Salary` — from the new metadata columns (may be `n/d` for rows written before 2026-04-26)
-- `Tier` — score-history `tier` column value (full/short-high/short/growth/skip/oferta)
-- `Mode` — scouting or oferta
+- `Tier` — score-history `tier` column value (`full` | `short` | `growth` | `skip`)
 
 **If the metadata columns are `n/d` for most rows** (pre-2026-04-26 data): note at top: *"Metadata columns (Location, Type, Duration, Salary) are n/d for rows evaluated before 2026-04-26 — new evaluations will fill these automatically."*
 
@@ -63,7 +61,7 @@ Render a markdown table directly in chat. Default sort: Overall descending.
 /career-ops db --archetype "Value Engineering" --min-score 7.0
 /career-ops db --company Google
 /career-ops db --location Amsterdam --type internship
-/career-ops db --since 2026-04-01 --mode scouting
+/career-ops db --since 2026-04-01
 ```
 
 ## Rules

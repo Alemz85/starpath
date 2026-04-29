@@ -84,7 +84,7 @@ if (existsSync(digestPath)) {
 // 5. Check story bank health
 const storyBankPath = join(projectRoot, 'interview-prep', 'story-bank.md');
 if (!existsSync(storyBankPath)) {
-  warnings.push('interview-prep/story-bank.md not found. Run /career-ops oferta on a few roles to build up STAR+R stories.');
+  warnings.push('interview-prep/story-bank.md not found. Run /career-ops interview-prep on a few roles to build up STAR+R stories.');
 } else {
   const storyContent = readFileSync(storyBankPath, 'utf-8');
   const storyCount = (storyContent.match(/^### /gm) || []).length;

@@ -146,4 +146,4 @@ writeFileSync(SCOUTING_FILE, scoutingLines.join('\n'));
 
 console.log(`\n✅ Promoted scouting #${targetNum} → applications #${newAppNum}`);
 console.log(`   Scouting entry tagged PROMOTED-${newAppNum} (preserved for trajectory history)`);
-console.log(`\nNext: run \`/career-ops oferta\` against the URL to generate the full A-H evaluation.`);
+console.log(`\nNext: open the entry in starpath and click "Tailor CV" / "Prep Application" / "Draft Application" as needed.`);

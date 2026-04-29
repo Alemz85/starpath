@@ -61,9 +61,9 @@ Run `/career-ops scouting` or check the JD to fill in missing deadlines.
 - Only show buckets that have at least one entry. Skip empty buckets silently.
 - After the table: one-line action summary. Example: "2 URGENT entries need decisions in the next week — Revolut (T1, 4 days) and Celonis (Applied, 6 days)."
 
-## Deadline Extraction (for evaluation modes)
+## Deadline Extraction (for the evaluation mode)
 
-When `scouting` or `oferta` evaluates a listing, it must extract the application deadline from the JD and write it to the TSV's `deadline` column. Rules:
+When `scouting` evaluates a listing, it must extract the application deadline from the JD and write it to the TSV's `deadline` column. Rules:
 
 - **Explicit date in JD** → use `YYYY-MM-DD` format (e.g., `2026-06-30`)
 - **"Rolling" / "ongoing" / "open until filled"** → write `Rolling`
