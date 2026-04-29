@@ -68,6 +68,19 @@ export interface ScoreEntry {
    *  Empty for legacy rows; populated for evaluations from 2026-04-29 onward.
    *  This is the stable join key between score_history and reports_index. */
   url: string
+  /** Sibling entities sharing the same (company, role-canonical) but a
+   *  different city — populated by the Database grouping pass when the
+   *  row is being rendered as a group's primary. Each sibling is a
+   *  fully-populated ScoreEntry (the latest evaluation for that entity).
+   *  Includes both active and historical siblings; the renderer
+   *  classifies them by joining against the liveness map. Undefined
+   *  for rows not in a sibling group. */
+  siblings?: ScoreEntry[]
+  /** Liveness state of THIS row — derived once during the grouping
+   *  pass (using the same default-to-active rule as the liveness
+   *  filter) so the historical-row greying in OffersTable doesn't
+   *  need to re-derive on every render. */
+  livenessState?: 'active' | 'stale' | 'closed'
 }
 
 // ─── Scouting tracker (data/scouting.md) ─────────────────────────────────────
