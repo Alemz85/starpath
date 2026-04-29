@@ -258,7 +258,7 @@ export function SettingsView() {
 // ─── General tab ──────────────────────────────────────────────────────────────
 
 function GeneralTab() {
-  const { repoPath, setRepoPath, currentMode, setMode, models, setModel, resetTailoring } = useAppStore()
+  const { repoPath, setRepoPath, phase, setPhase, models, setModel, resetTailoring } = useAppStore()
   const { refresh } = useDataStore()
 
   const MODEL_ROWS: Array<{
@@ -269,7 +269,7 @@ function GeneralTab() {
     { key: 'pipeline',       label: 'Filter to Database',     sub: 'Score-only run that filters pending URLs and writes scoring rows to data/scouting.md. Also editable via the Model chip on the Scouting cockpit.' },
     { key: 'tailorCv',       label: 'Tailor CV',              sub: 'Per-listing CV regeneration on the Applying tab (modes/pdf.md).' },
     { key: 'draftApp',       label: 'Draft Application',      sub: 'Per-listing form-fill draft on the Applying tab (modes/apply.md).' },
-    { key: 'interviewPrep',  label: 'Prep Interview',         sub: 'Per-listing interview brief generation (modes/interview-prep.md).' },
+    { key: 'interviewPrep',  label: 'Prep Application',       sub: 'Per-listing interview / application brief generation (modes/interview-prep.md).' },
     { key: 'generateReport', label: 'Generate Report',        sub: 'Full per-listing prose reports — used by both the Reports tab Generate Top 5 button and the per-listing Generate Report action in the Database popover.' },
   ]
 
@@ -295,18 +295,18 @@ function GeneralTab() {
         </div>
       </SettingRow>
 
-      <SettingRow title="Mode" description="Controls how pasted JDs are evaluated by default. Also reflects which top tab (Scouting / Applying) is active. Override per-invocation with /career-ops scouting or /career-ops oferta.">
+      <SettingRow title="Phase" description="Controls the CF/AF rollup weights. `exploring` weights reachability higher (70/30); `applying` weights ambition higher (60/40). The cockpit's Scouting / Applying tabs are about workflow stage, not phase.">
         <div className="flex rounded-md overflow-hidden border border-border-default w-fit mt-3">
-          {(['scouting', 'applying'] as const).map(mode => (
+          {(['exploring', 'applying'] as const).map(p => (
             <button
-              key={mode}
-              onClick={() => setMode(mode)}
+              key={p}
+              onClick={() => setPhase(p)}
               className={cn(
                 'px-4 py-2 text-label transition-colors capitalize',
-                currentMode === mode ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',
+                phase === p ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',
               )}
             >
-              {mode}
+              {p}
             </button>
           ))}
         </div>
@@ -1207,7 +1207,7 @@ function ScanMethodBadge({ method }: { method: 'api' | 'websearch' | 'unknown' }
   if (method === 'websearch') {
     return (
       <span
-        title="Websearch fallback — no public API. Slower, costs WebSearch calls during oferta runs."
+        title="Websearch fallback — no public API. Slower, costs WebSearch calls during evaluation runs."
         className="text-[9.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-warning/35 bg-warning/10 text-warning shrink-0"
       >
         WEB

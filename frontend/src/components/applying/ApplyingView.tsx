@@ -80,7 +80,7 @@ export function ApplyingView() {
 
   const handleTailorCV = (a: ApplicationEntry) => launch(PER_APP_TAILOR_CV, 'Tailor CV',         a, 'modes/pdf.md',            models.tailorCv)
   const handleDraftApp = (a: ApplicationEntry) => launch(PER_APP_DRAFT_APP, 'Draft Application', a, 'modes/apply.md',          models.draftApp)
-  const handlePrepInt  = (a: ApplicationEntry) => launch(PER_APP_INTERVIEW, 'Prep Interview',    a, 'modes/interview-prep.md', models.interviewPrep)
+  const handlePrepInt  = (a: ApplicationEntry) => launch(PER_APP_INTERVIEW, 'Prep Application', a, 'modes/interview-prep.md', models.interviewPrep)
 
   const handleDropOnColumn = (target: AppStatus) => {
     if (!dragging) return

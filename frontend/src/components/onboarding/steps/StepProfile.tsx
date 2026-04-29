@@ -77,7 +77,7 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
 
     let raw = await ipc.readFile('user/profile.yml')
     if (!raw || raw.trim().length < 20) {
-      raw = `candidate:\n  full_name: ""\n  email: ""\n  phone: ""\n  location: ""\n  linkedin: ""\n\ncurrent_mode: scouting\n\ncomp:\n  target_range: ""\n  currency: "EUR"\n\ntargeting:\n  roles: []\n  seniority: "Mid"\n  remote: "preferred"\n`
+      raw = `candidate:\n  full_name: ""\n  email: ""\n  phone: ""\n  location: ""\n  linkedin: ""\n\nphase: exploring\n\ncomp:\n  target_range: ""\n  currency: "EUR"\n\ntargeting:\n  roles: []\n  seniority: "Mid"\n  remote: "preferred"\n`
     }
 
     const patch = (yaml: string, key: string, val: string) =>

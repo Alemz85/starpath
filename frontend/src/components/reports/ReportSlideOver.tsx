@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { X, FileText, Database as DatabaseIcon, ExternalLink } from 'lucide-react'
+import { X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
@@ -13,6 +13,8 @@ import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
+
+type Tab = 'scouting' | 'application'
 
 interface ReportSlideOverProps {
   company: string
@@ -27,10 +29,14 @@ interface ReportSlideOverProps {
 export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, onClose }: ReportSlideOverProps) {
   const { repoPath } = useAppStore()
   const navigate = useNavStore(s => s.navigate)
-  const [content, setContent] = useState<string | null>(null)
+  const [scoutingContent, setScoutingContent] = useState<string | null>(null)
+  const [applicationContent, setApplicationContent] = useState<string | null>(null)
+  const [scoutingMissing, setScoutingMissing] = useState(false)
+  const [applicationMissing, setApplicationMissing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<Tab>('scouting')
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setOpen(true))
@@ -42,10 +48,13 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     setTimeout(onClose, 260)
   }, [onClose])
 
-  const loadReport = useCallback(async () => {
+  const loadFiles = useCallback(async () => {
     setLoading(true)
     setError(null)
-    setContent(null)
+    setScoutingContent(null)
+    setApplicationContent(null)
+    setScoutingMissing(false)
+    setApplicationMissing(false)
 
     if (!repoPath) {
       setError('No repo path set.')
@@ -53,41 +62,53 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       return
     }
 
-    // Try to find the report by scanning known tier directories
-    const tierDirs = ['tier-1', 'tier-2', 'tier-3', 'tier-4']
-    let found: string | null = null
-
-    for (const dir of tierDirs) {
-      const path = `reports/${dir}/${company} - ${role}.md`
-      const exists = await ipc.fileExists(path)
-      if (exists) { found = path; break }
+    // 1. Scouting report — search known tier dirs, fall back to flat
+    //    reports/. The report file is the same `{Company} - {Role}.md`
+    //    naming, so we pair the two files by (company, role).
+    let scoutingPath: string | null = null
+    for (const dir of ['tier-1', 'tier-2', 'tier-3', 'tier-4']) {
+      const p = `reports/${dir}/${company} - ${role}.md`
+      if (await ipc.fileExists(p)) { scoutingPath = p; break }
     }
-
-    // Fallback: flat reports/
-    if (!found) {
+    if (!scoutingPath) {
       const flat = `reports/${company} - ${role}.md`
-      const exists = await ipc.fileExists(flat)
-      if (exists) found = flat
+      if (await ipc.fileExists(flat)) scoutingPath = flat
     }
 
-    if (!found) {
-      setError('Report not found for this entry.')
-      setLoading(false)
-      return
-    }
+    // 2. Application prep — written by modes/interview-prep.md and the
+    //    "Prep Application" button. Mirrors the report naming so the pair
+    //    joins on (company, role).
+    const prepPath = `interview-prep/${company} - ${role}.md`
+    const prepExists = await ipc.fileExists(prepPath)
 
-    const text = await ipc.readFile(found)
-    if (text) {
-      setContent(text)
+    // Read whichever exist; tabs render from the populated state.
+    if (scoutingPath) {
+      const text = await ipc.readFile(scoutingPath)
+      if (text) setScoutingContent(text)
+      else setScoutingMissing(true)
     } else {
-      setError('Could not read report file.')
+      setScoutingMissing(true)
     }
+    if (prepExists) {
+      const text = await ipc.readFile(prepPath)
+      if (text) setApplicationContent(text)
+      else setApplicationMissing(true)
+    } else {
+      setApplicationMissing(true)
+    }
+
+    // Default to the scouting tab when the file exists; otherwise show the
+    // application tab if THAT exists. If neither exists, surface an error.
+    if (scoutingPath) setActiveTab('scouting')
+    else if (prepExists) setActiveTab('application')
+    else setError('No report or application prep found for this entry.')
+
     setLoading(false)
   }, [company, role, repoPath])
 
   useEffect(() => {
-    loadReport()
-  }, [loadReport])
+    loadFiles()
+  }, [loadFiles])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
@@ -165,12 +186,12 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
             </button>
           )}
           {/* URL pill — prefer scoreEntry.url; fall back to extracting
-              **URL:** from the loaded report markdown for orphan reports
-              that don't have a matching score-history row. */}
+              **URL:** from the loaded scouting report markdown for orphan
+              reports that don't have a matching score-history row. */}
           {(() => {
             const url =
               (scoreEntry.url && /^https?:\/\//i.test(scoreEntry.url) && scoreEntry.url) ||
-              (content ? (content.match(/^\*\*URL:\*\*\s*(\S+)/im)?.[1] ?? '') : '')
+              (scoutingContent ? (scoutingContent.match(/^\*\*URL:\*\*\s*(\S+)/im)?.[1] ?? '') : '')
             if (!url || !/^https?:\/\//i.test(url)) return null
             return (
               <button
@@ -186,8 +207,30 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           <FilesStrip company={company} role={role} size="md" />
         </div>
 
-        {/* Score mini-bar — only when we have real score data */}
-        {scoreEntry.overall > 0 && <ScoreMiniBar entry={scoreEntry} />}
+        {/* Tabs — Scouting / Application prep. Greyed out when the
+            corresponding file isn't on disk. Each one lazy-renders its
+            own content so the parser only runs for the visible tab. */}
+        <div className="flex border-b border-border-default shrink-0">
+          <TabButton
+            icon={FileText}
+            label="Scouting report"
+            active={activeTab === 'scouting'}
+            disabled={!scoutingContent}
+            onClick={() => setActiveTab('scouting')}
+          />
+          <TabButton
+            icon={BookOpen}
+            label="Application prep"
+            active={activeTab === 'application'}
+            disabled={!applicationContent}
+            onClick={() => setActiveTab('application')}
+          />
+        </div>
+
+        {/* Score mini-bar — only when the scouting tab is active and we
+            have real score data. The application-prep tab doesn't carry
+            a score on its own; it inherits from the scouting evaluation. */}
+        {activeTab === 'scouting' && scoreEntry.overall > 0 && <ScoreMiniBar entry={scoreEntry} />}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -204,10 +247,57 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               <p className="text-label">{error}</p>
             </div>
           )}
-          {content && <ReportBody content={content} tier={tierKey} />}
+          {!loading && !error && activeTab === 'scouting' && (
+            scoutingContent
+              ? <ReportBody content={scoutingContent} tier={tierKey} />
+              : <EmptyTab message="No scouting report yet — click Generate report from the Database popover to create one." />
+          )}
+          {!loading && !error && activeTab === 'application' && (
+            applicationContent
+              ? <div className="prose-report"><ReactMarkdown remarkPlugins={[remarkGfm]}>{applicationContent}</ReactMarkdown></div>
+              : <EmptyTab message="No application prep yet — click Prep application from the Database popover to research interview intel + STAR mapping for this role." />
+          )}
         </div>
       </div>
     </>
+  )
+}
+
+function TabButton({
+  icon: Icon, label, active, disabled, onClick,
+}: {
+  icon: React.ElementType
+  label: string
+  active: boolean
+  disabled: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={disabled ? `${label} — not generated yet` : label}
+      className={cn(
+        'flex items-center gap-1.5 px-4 py-2 text-label transition-colors border-b-2 -mb-px',
+        active
+          ? 'text-text-1 border-accent'
+          : disabled
+            ? 'text-text-4 border-transparent opacity-50 cursor-not-allowed'
+            : 'text-text-3 border-transparent hover:text-text-1 hover:border-border-default',
+      )}
+    >
+      <Icon size={12} />
+      {label}
+    </button>
+  )
+}
+
+function EmptyTab({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-40 gap-3 text-text-4 text-center px-6">
+      <FileText size={32} className="opacity-30" />
+      <p className="text-label leading-relaxed">{message}</p>
+    </div>
   )
 }
 

@@ -30,15 +30,14 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 │           └── scripts/with_server.py
 │
 ├── modes/                        # Mode prompts loaded by the career-ops skill (flat, no subdirs)
-│   ├── _shared.md                # Shared scoring / archetype scaffolding
-│   ├── auto-pipeline.md          # Routes pasted JDs to scouting or oferta
-│   ├── scouting.md               # Lightweight landscape eval (Current+Aspirational Fit)
-│   ├── oferta.md / ofertas.md    # Full A–H eval (single / compare)
-│   ├── apply.md / pdf.md         # Live application + ATS PDF generation
+│   ├── _shared.md                # Shared scoring framework + archetype scaffolding
+│   ├── scouting.md               # The single evaluation mode — header + dim table + role summary + gaps + comp + recommendation + career path
+│   ├── ofertas.md                # Compare multiple offers (different from `scouting` — read-only analysis across N existing evals)
+│   ├── apply.md / pdf.md         # Live application form helper + ATS PDF generation
 │   ├── pipeline.md / batch.md    # URL inbox + parallel batch workers
 │   ├── scan.md                   # Zero-token portal scanner driver
 │   ├── deep.md / contacto.md     # Company research + LinkedIn outreach
-│   ├── interview-prep.md         # Per-company STAR+R prep
+│   ├── interview-prep.md         # Per-listing application prep (interview intel + STAR mapping)
 │   ├── tracker.md / db.md / deadlines.md / patterns.md / followup.md
 │   ├── positioning.md            # Holistic career positioning report
 │   └── project.md / training.md  # Portfolio project + course/cert evaluation
@@ -57,19 +56,19 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 │
 ├── user/                         # User-layer (NEVER auto-overwritten)
 │   ├── cv.md                     # Canonical CV (markdown)
-│   ├── profile.yml               # Identity, comp targets, current_mode, archetypes
+│   ├── profile.yml               # Identity, comp targets, phase (scoring weights), archetypes
 │   ├── _profile.md               # Free-form personalization (narrative, deal-breakers)
 │   └── portals.yml               # Job portals + keyword filters
 │
 ├── data/                         # Generated state (user-owned)
-│   ├── applications.md           # Active tracker (oferta mode)
-│   ├── scouting.md               # Scouting tracker (scouting mode)
+│   ├── applications.md           # Active applications tracker (entries the user has decided to apply to)
+│   ├── scouting.md               # Landscape inventory tracker (every evaluation lands here by default)
 │   ├── pipeline.md               # Pending URL inbox
 │   ├── scan-history.tsv / score-history.tsv / report-summaries.tsv
 │   ├── comp-cache.tsv / dedup-index.tsv / filter-audit-state.json
 │   └── companies/
 │
-├── reports/                      # Per-evaluation A–H reports (user-owned)
+├── reports/                      # Per-evaluation reports (user-owned)
 │   ├── tier-1/  tier-2/  tier-3/  tier-4/   # Sorted by score
 │   └── positioning/                          # Career positioning reports
 │

@@ -11,7 +11,7 @@ export interface ModelPrefs {
   tailorCv: ModelAlias
   /** Draft Application per-listing action (modes/apply.md). Settings-only. */
   draftApp: ModelAlias
-  /** Prep Interview per-listing action (modes/interview-prep.md). Settings-only. */
+  /** Prep Application per-listing action (modes/interview-prep.md). Settings-only. */
   interviewPrep: ModelAlias
   /** Generate Report from the database popover / slide-over. Settings-only. */
   generateReport: ModelAlias
@@ -137,10 +137,14 @@ export interface ReportFile {
 
 // ─── Profile config (user/profile.yml) ─────────────────────────────────────
 
-export type AppMode = 'scouting' | 'applying'
+/** Phase drives the CF/AF rollup weights used by the scoring framework
+ *  (`exploring` = 70/30, `applying` = 60/40). It does NOT route to a
+ *  different evaluation mode — there's only one. The frontend's
+ *  Scouting / Applying tabs are about workflow stage, not phase. */
+export type Phase = 'exploring' | 'applying'
 
 export interface ProfileConfig {
-  current_mode: AppMode
+  phase: Phase
   candidate: {
     full_name: string
     email: string

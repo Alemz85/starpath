@@ -17,11 +17,11 @@ interface FilesStripProps {
 // Solid icon = file present (clickable, opens with the system viewer).
 // Faded outline icon = not generated yet (visual only).
 //
-// Canonical paths (relative to repoPath):
+// Canonical paths (relative to repoPath, both mirror the
+// reports/tier-N/{Company} - {Role}.md naming so a single (company, role)
+// pair joins all three):
 //   CV:   output/{Company} - {Role}.pdf
-//   Prep: interview-prep/{Company} - {Role}.md   (best-guess; if the user's
-//         interview-prep mode writes elsewhere this will silently render
-//         faded — safe fallback)
+//   Prep: interview-prep/{Company} - {Role}.md
 //
 // Add Draft (and any future artifacts) here in one place; every consumer
 // surface picks them up automatically.
@@ -56,8 +56,8 @@ export function FilesStrip({ company, role, size = 'md', className }: FilesStrip
 
   return (
     <div className={cn('inline-flex items-center gap-1', className)}>
-      <FileIcon icon={FileText} label="Tailored CV"   exists={cvExists}   onClick={() => open(cvPath)}   size={size} />
-      <FileIcon icon={BookOpen} label="Interview prep" exists={prepExists} onClick={() => open(prepPath)} size={size} />
+      <FileIcon icon={FileText} label="Tailored CV"      exists={cvExists}   onClick={() => open(cvPath)}   size={size} />
+      <FileIcon icon={BookOpen} label="Application prep" exists={prepExists} onClick={() => open(prepPath)} size={size} />
     </div>
   )
 }

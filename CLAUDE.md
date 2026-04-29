@@ -29,16 +29,17 @@ Two layers. Read `DATA_CONTRACT.md` for the full list.
 
 | File | Function |
 |------|----------|
-| `data/applications.md` | Active application tracker (`oferta` mode) |
-| `data/scouting.md` | Scouting landscape tracker (`scouting` mode) |
+| `data/applications.md` | Active applications tracker — entries the user has decided to apply to |
+| `data/scouting.md` | Landscape inventory tracker — every evaluation lands here by default |
 | `data/pipeline.md` | Inbox of pending URLs |
 | `data/scan-history.tsv` | Scanner dedup history |
 | `data/score-history.tsv` | Per-archetype score log written by every evaluation (feeds `positioning`) |
 | `user/portals.yml` | Query and company config for `scan` |
 | `user/article-digest.md` | Compact proof points from portfolio (optional) |
 | `interview-prep/story-bank.md` | Accumulated STAR+R stories across evaluations |
+| `interview-prep/{Company} - {Role}.md` | Per-listing application prep (interview intel + STAR mapping) |
 | `templates/cv-template.html` | HTML template for CVs |
-| `reports/tier-{1..4}/{Company} - {Role}.md` | Evaluation reports (Blocks A-F + G legitimacy + H dimensional) |
+| `reports/tier-{1..4}/{Company} - {Role}.md` | Evaluation reports — header + dimensional table + Role summary + Gaps + Comp + Recommendation + Career path impact |
 
 Key scripts (all under `scripts/`): `scan.mjs` (zero-token portal scanner — Greenhouse/Ashby/Lever APIs), `generate-pdf.mjs` (Playwright HTML→PDF), `merge-tracker.mjs` / `merge-scouting.mjs` (TSV → markdown merge), `promote-to-applications.mjs` (T1 scouting → applications), `verify-pipeline.mjs` / `dedup-tracker.mjs` / `normalize-statuses.mjs` (health), `check-liveness.mjs` (posting liveness), `analyze-patterns.mjs` / `followup-cadence.mjs` (analysis).
 
@@ -76,16 +77,16 @@ This system is designed to be customized by you (AI Agent). Common requests:
 
 ## Skill Modes
 
+There is **one evaluation mode** (`scouting`). Per-listing follow-up actions (Tailor CV, Prep Application, Draft Application) are separate skills the user triggers when they want them. Phase (`user/profile.yml → phase`) controls only the CF/AF rollup weights.
+
 | If the user... | Mode |
 |----------------|------|
-| Pastes JD or URL | auto-pipeline — routes to `scouting` or `oferta` based on `user/profile.yml → current_mode` |
-| Is mapping the market (default today) | `scouting` — lightweight Current Fit + Aspirational Fit eval, no per-listing PDF |
+| Pastes JD or URL, or asks to evaluate a listing | `scouting` — produces a scored report (Header + Dimensional table + Role summary + Gaps + Comp + Recommendation + Career path impact) |
 | Wants a holistic career review across all data | `positioning` |
-| Asks to evaluate offer for active application | `oferta` |
 | Asks to compare offers | `ofertas` |
 | Wants LinkedIn outreach | `contacto` |
 | Asks for company research | `deep` |
-| Preps for interview at specific company | `interview-prep` |
+| Preps for interview / drafts application content for a specific role | `interview-prep` (writes `interview-prep/{Company} - {Role}.md`) |
 | Wants to generate CV/PDF | `pdf` |
 | Evaluates a course/cert | `training` |
 | Evaluates portfolio project | `project` |
@@ -99,7 +100,7 @@ This system is designed to be customized by you (AI Agent). Common requests:
 | Asks about deadlines, closing dates, what's urgent | `deadlines` |
 | Wants to browse/filter all evaluated offers as a table | `db` |
 
-**Mode switching:** `user/profile.yml → current_mode` is `scouting` (default for landscape mapping) or `applying` (full oferta + tailored PDF). Explicit sub-commands (`/career-ops oferta`, `/career-ops scouting`) always override `current_mode`. When the user says "I'm actively applying now" or "I'm done exploring", flip the field.
+**Phase:** `user/profile.yml → phase` is `exploring` (CF/AF weights = 70/30, default for landscape mapping) or `applying` (60/40, weights ambition higher when choosing between live offers). Phase does NOT change the report shape — only the rollup weights. Toggle via Settings or CmdK.
 
 ## CV Source of Truth
 
@@ -138,11 +139,11 @@ This system is designed to be customized by you (AI Agent). Common requests:
 - JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md)
 - Batch in `batch/` (gitignored except scripts and prompt)
 - Report naming: `{Company} - {Role}.md` (human-readable, no sequential numbering in filenames)
-- **Frontend (Electron app):** the desktop app under `frontend/` is branded **starpath** (the project itself stays `career-ops`; the GUI app is just one consumer). Its top-level cockpit is two primary tabs that drive `user/profile.yml → current_mode`:
-  - **Scouting** (`current_mode: scouting`) — landscape mapping. Scan + Generate Reports buttons; activity panel streams live spawn output.
-  - **Applying** (`current_mode: applying`) — active-application work. Per-listing actions: Tailor CV (`modes/pdf.md`), Draft (`modes/apply.md`), Prep Interview (`modes/interview-prep.md`).
+- **Frontend (Electron app):** the desktop app under `frontend/` is branded **starpath** (the project itself stays `career-ops`; the GUI app is just one consumer). Its top-level cockpit is two primary tabs that reflect *workflow stage*, NOT mode:
+  - **Scouting** — landscape inventory view. Scan + Generate Reports buttons; activity panel streams live spawn output. Reads from `data/scouting.md`.
+  - **Applying** — active applications view. Per-listing actions: Tailor CV (`modes/pdf.md`), Draft Application (`modes/apply.md`), Prep Application (`modes/interview-prep.md`). Reads from `data/applications.md`.
 
-  Below those, secondary tabs (Database, Pipeline, Reports, Trends, Scan) are read-only data lenses + the workflow Kanban. **Database** is the universal lens with a `liveness` filter (active <14d / stale 14–90d / closed >90d) derived from `data/scan-history.tsv`. **Pipeline** is the application-status Kanban + Inbox. Cross-linking spine: every entity is keyed by `company + role`; clicking a Database row opens an action popover (View report · Apply · Tailor CV · Prep · Open URL · Mark not interested), and the Reports slide-over header pills mirror the same actions.
+  Below those, secondary tabs (Database, Pipeline, Reports, Trends, Scan) are read-only data lenses + the workflow Kanban. **Database** is the universal lens with a `liveness` filter (active <14d / stale 14–90d / closed >90d) derived from `data/scan-history.tsv`. **Pipeline** is the application-status Kanban + Inbox. Cross-linking spine: every entity is keyed by `company + role`; clicking a Database row opens an action popover (View report · Apply · Tailor CV · Prep Application · Open URL · Mark not interested), and the Reports slide-over has two tabs (Scouting report / Application prep) — greyed out when the corresponding file isn't on disk.
 
   **Apply / Status writebacks.** The Apply button (in the popover and slide-over) and the inline status dropdown both write directly to `data/applications.md` from the renderer — appending a new row on first Apply, then rewriting the matching row's `Status` cell on each status change. The chokidar watcher resyncs the SQLite cache automatically.
 
@@ -169,7 +170,7 @@ For scouting (separate flow), see `modes/scouting.md` § "Tracker Entry" — sco
 
 1. **NEVER edit applications.md to ADD new entries** — write TSV in `batch/tracker-additions/` and `scripts/merge-tracker.mjs` handles the merge.
 2. **YES you can edit applications.md to UPDATE status/notes of existing entries.**
-3. All reports MUST include `**URL:**` in the header (between Score and PDF) and `**Legitimacy:** {tier}` (Block G in `modes/oferta.md`).
+3. All reports MUST include `**URL:**` in the header (between Score and PDF).
 4. All statuses MUST be canonical (see `templates/states.yml`).
 5. Health check: `node scripts/verify-pipeline.mjs` · normalize: `node scripts/normalize-statuses.mjs` · dedup: `node scripts/dedup-tracker.mjs`
 
@@ -179,7 +180,7 @@ For scouting (separate flow), see `modes/scouting.md` § "Tracker Entry" — sco
 
 | State | When to use |
 |-------|-------------|
-| `Evaluated` | Full A-H report completed, pending decision |
+| `Evaluated` | Evaluation report completed, pending decision |
 | `Applied` | Application sent |
 | `Responded` | Company responded |
 | `Interview` | In interview process |
