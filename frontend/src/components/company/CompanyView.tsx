@@ -70,6 +70,12 @@ export function CompanyView({ slug }: { slug: string }) {
           company={selectedEntry.company}
           role={selectedEntry.role}
           scoreEntry={selectedEntry}
+          onSwitchEntity={(targetCompany, targetRole) => {
+            const match = [...scoreHistory]
+              .filter(r => r.company === targetCompany && r.role === targetRole)
+              .sort((a, b) => b.date.localeCompare(a.date))[0]
+            if (match) setSelectedEntry(match)
+          }}
           onClose={() => setSelectedEntry(null)}
         />
       )}

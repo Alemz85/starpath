@@ -260,6 +260,26 @@ export function ReportsView() {
           company={selected.company}
           role={selected.role}
           scoreEntry={selectedScore}
+          onSwitchEntity={(targetCompany, targetRole) => {
+            const match = [...scoreHistory]
+              .filter(r => r.company === targetCompany && r.role === targetRole)
+              .sort((a, b) => b.date.localeCompare(a.date))[0]
+            if (!match) return
+            // Map back to a ReportFile-shaped Selected: derive tier dir
+            // from the score's tier string (T1→tier-1, T2/T2-high→tier-2,
+            // T3→tier-3, T4→tier-4) and synthesize a path. The actual
+            // file lookup happens inside the slide-over via fileExists.
+            const tierDir = match.tier === 'T1' ? 'tier-1'
+              : (match.tier === 'T2' || match.tier === 'T2-high') ? 'tier-2'
+              : match.tier === 'T3' ? 'tier-3' : 'tier-4'
+            setSelected({
+              path:    `reports/${tierDir}/${match.company} - ${match.role}.md`,
+              company: match.company,
+              role:    match.role,
+              tier:    tierDir,
+              url:     match.url ?? '',
+            })
+          }}
           onClose={() => setSelected(null)}
         />
       )}

@@ -14,9 +14,16 @@ import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
-import { parseCities } from '@/lib/entityId'
+import { parseCities, entityId } from '@/lib/entityId'
 
 type Tab = 'scouting' | 'application' | 'history'
+
+interface SiblingInfo {
+  company: string
+  role: string
+  city: string                // primary city of the sibling
+  score: number
+}
 
 interface HistoryEntry {
   date: string         // full YYYY-MM-DD (for snapshot filename)
@@ -32,10 +39,16 @@ interface ReportSlideOverProps {
   /** Hide the "View in Database" pill — used when the slide-over is opened
    *  from inside the Database itself (where the shortcut is redundant). */
   hideDatabaseLink?: boolean
+  /** Click handler for sibling navigation — when this entity has
+   *  same-role siblings in other cities (multi-URL multi-city like
+   *  PwC Data & AI Consultant Roma + Milano), the parent owns the
+   *  state of which entity is open and swaps the displayed scoreEntry
+   *  when a sibling chip is clicked. Omit to hide sibling navigation. */
+  onSwitchEntity?: (company: string, role: string) => void
   onClose: () => void
 }
 
-export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, onClose }: ReportSlideOverProps) {
+export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, onSwitchEntity, onClose }: ReportSlideOverProps) {
   const { repoPath } = useAppStore()
   const navigate = useNavStore(s => s.navigate)
   const scoreHistory = useDataStore(s => s.scoreHistory)
@@ -78,6 +91,41 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   // intersecting preferred_cities) is a v2 enhancement — for now we
   // just list them in order.
   const cityInfo = useMemo(() => parseCities(scoreEntry.location), [scoreEntry.location])
+
+  // Siblings — entities sharing the same (company, role-canonical) but
+  // different city. The Database has them as separate rows because
+  // they're posted under different URLs (multi-URL multi-city, e.g.,
+  // PwC Data & AI Consultant - INTERNSHIP across Roma + Milano). The
+  // header band exposes them as ↗ chips so you can hop between same-
+  // role evaluations without leaving the slide-over.
+  const siblings: SiblingInfo[] = useMemo(() => {
+    if (!onSwitchEntity) return []
+    const myParsed = parseCities(scoreEntry.location)
+    const myId = entityId(company, role, myParsed)
+    const myRoleKey = myId.split('::').slice(0, 2).join('::')
+
+    // Group score-history rows by entity_id and keep the LATEST per
+    // entity (so re-evaluated siblings still appear once with their
+    // most recent score).
+    const byEntity = new Map<string, SiblingInfo & { date: string }>()
+    for (const r of scoreHistory) {
+      const parsed = parseCities(r.location)
+      const id = entityId(r.company, r.role, parsed)
+      if (id === myId) continue                   // self
+      if (!id.startsWith(myRoleKey + '::')) continue   // different role
+      const prev = byEntity.get(id)
+      if (!prev || r.date > prev.date) {
+        byEntity.set(id, {
+          company:  r.company,
+          role:     r.role,
+          city:     parsed.isMulti ? `Multi (${parsed.cities.length})` : (parsed.primary ?? '?'),
+          score:    r.overall,
+          date:     r.date,
+        })
+      }
+    }
+    return [...byEntity.values()].map(({ date, ...rest }) => rest)
+  }, [scoreHistory, company, role, scoreEntry.location, onSwitchEntity])
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setOpen(true))
@@ -287,6 +335,31 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               <span key={c} className="text-text-2">
                 {c}{i < cityInfo.cities.length - 1 ? <span className="text-text-4 mx-1">·</span> : null}
               </span>
+            ))}
+          </div>
+        )}
+
+        {/* Sibling band — visible when other entities share the same
+            company + role-canonical but different city (multi-URL
+            multi-city, separate Database rows). Click a chip to swap
+            the slide-over to that entity. */}
+        {siblings.length > 0 && (
+          <div className="px-5 py-2 border-b border-border-default shrink-0 text-[11.5px] text-text-3 flex items-center gap-2 flex-wrap">
+            <span className="font-mono uppercase tracking-[0.08em] text-[10px] text-text-4">Same role in</span>
+            <span className="text-text-4">·</span>
+            <span className="text-text-2">
+              {cityInfo.primary ?? scoreEntry.location ?? '?'} (this)
+            </span>
+            {siblings.map(s => (
+              <button
+                key={`${s.company}|${s.role}`}
+                onClick={() => onSwitchEntity?.(s.company, s.role)}
+                title={`${s.role} · ${s.city} · ${s.score > 0 ? s.score.toFixed(1) : '—'}/10`}
+                className="inline-flex items-center gap-1 text-accent-text hover:underline transition-colors"
+              >
+                <span className="text-text-4">·</span>
+                <span>{s.city} <span className="text-text-4">↗</span></span>
+              </button>
             ))}
           </div>
         )}
