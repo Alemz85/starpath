@@ -531,7 +531,11 @@ function TabButton({
       disabled={disabled}
       title={disabled ? `${label} — not generated yet` : label}
       className={cn(
-        'flex items-center gap-1.5 px-4 py-2 text-label transition-colors border-b-2 -mb-px',
+        // flex-1 + basis-0 splits the tab strip into equal thirds so
+        // each tab fills its share of the slide-over width regardless
+        // of label length. justify-center centers the icon+label
+        // pair within the cell.
+        'flex-1 basis-0 flex items-center justify-center gap-1.5 px-4 py-2 text-label transition-colors border-b-2 -mb-px',
         active
           ? 'text-text-1 border-accent'
           : disabled
