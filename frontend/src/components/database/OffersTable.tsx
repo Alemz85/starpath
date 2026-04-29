@@ -132,13 +132,34 @@ const BREAKDOWN_DIMS: Array<{ key: keyof ScoreEntry; label: string }> = [
   { key: 'work_life_balance',  label: 'Work / Life'      },
 ]
 
-function BreakdownRow({ entry, colSpan }: { entry: ScoreEntry; colSpan: number }) {
+function BreakdownRow({
+  entry, colSpan, onSelectSibling,
+}: {
+  entry: ScoreEntry
+  colSpan: number
+  onSelectSibling: (sibling: ScoreEntry, evt: React.MouseEvent) => void
+}) {
+  // Parent representation: dim bars for the parent (this row) + a
+  // Cities sub-list when sibling entities exist in the same group
+  // (PwC Roma + Milano shape). Each sibling sub-row is clickable —
+  // opens its own slide-over rather than the parent's.
+  const siblings = entry.siblings ?? []
+  // Show the parent in the city list too so the user sees explicitly
+  // "the row above is this one". Sort: active first (best to worst),
+  // historical last (in their own greyed visual treatment).
+  const allCities = [entry, ...siblings]
+  const cityRows = [...allCities].sort((a, b) => {
+    const liveA = a.livenessState ?? 'active'
+    const liveB = b.livenessState ?? 'active'
+    const isHistA = liveA !== 'active' ? 1 : 0
+    const isHistB = liveB !== 'active' ? 1 : 0
+    if (isHistA !== isHistB) return isHistA - isHistB
+    return b.overall - a.overall
+  })
+  const showCityList = siblings.length > 0
+
   return (
     <tr className="bg-bg-elevated/40 border-b border-border-default/30">
-      {/* Indent the content past the chevron + logo so dimension labels sit
-          slightly right of the company-name column above. The 64px left
-          padding lines the breakdown up just inside where "Listing"'s text
-          begins, giving a clear parent→child visual relationship. */}
       <td colSpan={colSpan} className="pl-16 pr-6 py-3">
         <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 max-w-[720px]">
           {BREAKDOWN_DIMS.map(({ key, label }) => {
@@ -162,6 +183,49 @@ function BreakdownRow({ entry, colSpan }: { entry: ScoreEntry; colSpan: number }
             )
           })}
         </div>
+
+        {showCityList && (
+          <div className="mt-4 pt-3 border-t border-border-default/40 max-w-[720px]">
+            <div className="text-[10px] font-mono uppercase tracking-[0.08em] text-text-4 mb-2">
+              Cities ({allCities.length})
+            </div>
+            <div className="space-y-1">
+              {cityRows.map(s => {
+                const isPrimary = s === entry
+                const isHistorical = (s.livenessState ?? 'active') !== 'active'
+                return (
+                  <button
+                    key={`${s.company}|${s.role}`}
+                    onClick={(evt) => onSelectSibling(s, evt)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-2 py-1.5 rounded text-left transition-colors',
+                      'hover:bg-bg-elevated',
+                      isHistorical && 'opacity-55',
+                    )}
+                  >
+                    <span className={cn(
+                      'text-[11px] flex-1 min-w-0 truncate',
+                      isPrimary ? 'text-text-1 font-medium' : 'text-text-2',
+                    )}>
+                      {s.location || s.role}
+                      {isPrimary && <span className="ml-2 text-[9.5px] font-mono uppercase tracking-[0.08em] text-accent">primary</span>}
+                    </span>
+                    <span className="text-[10px] font-mono text-text-3">{s.tier === 'T2-high' ? 'T2+' : (s.tier || '—')}</span>
+                    <span className="text-[10px] font-mono tabular-nums text-text-2 w-[34px] text-right" style={{ color: scoreColor(s.overall) }}>
+                      {s.overall > 0 ? s.overall.toFixed(1) : '—'}
+                    </span>
+                    <span className={cn(
+                      'text-[9.5px] font-mono uppercase tracking-[0.08em] w-[44px] text-right',
+                      isHistorical ? 'text-text-4' : 'text-success',
+                    )}>
+                      {s.livenessState ?? 'active'}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </td>
     </tr>
   )
@@ -223,23 +287,30 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     col.display({
       id: 'breakdown',
       header: '',
-      size: 28,
+      size: 36,
       cell: info => {
         const entry = info.row.original
         const isOpen = expandedRef.current.has(entryKey(entry))
+        const sibCount = entry.siblings?.length ?? 0
+        const titleSuffix = sibCount > 0 ? ` · ${sibCount} more in this group` : ''
         return (
           <button
             onClick={(e) => { e.stopPropagation(); toggleExpandedRef.current(entry) }}
-            title={isOpen ? 'Hide score breakdown' : 'Show score breakdown'}
-            aria-label={isOpen ? 'Hide score breakdown' : 'Show score breakdown'}
+            title={(isOpen ? 'Hide score breakdown' : 'Show score breakdown') + titleSuffix}
+            aria-label={(isOpen ? 'Hide score breakdown' : 'Show score breakdown') + titleSuffix}
             aria-expanded={isOpen}
-            className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-4 hover:text-accent hover:bg-accent/10 transition-colors"
+            className="inline-flex items-center gap-1 justify-center px-1 h-6 rounded-md text-text-4 hover:text-accent hover:bg-accent/10 transition-colors"
           >
             <ChevronRight
               size={14}
-              className="transition-transform duration-150"
+              className="transition-transform duration-150 shrink-0"
               style={{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
             />
+            {sibCount > 0 && (
+              <span className="text-[9px] font-mono font-semibold text-accent tabular-nums leading-none">
+                +{sibCount}
+              </span>
+            )}
           </button>
         )
       },
@@ -452,7 +523,13 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                     </td>
                   ))}
                 </tr>
-                {isExpanded && <BreakdownRow entry={entry} colSpan={row.getVisibleCells().length} />}
+                {isExpanded && (
+                  <BreakdownRow
+                    entry={entry}
+                    colSpan={row.getVisibleCells().length}
+                    onSelectSibling={onRowClick}
+                  />
+                )}
               </Fragment>
             )
           })}

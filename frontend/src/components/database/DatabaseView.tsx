@@ -10,7 +10,7 @@ import { OffersTable } from './OffersTable'
 import { ReportSlideOver } from '../reports/ReportSlideOver'
 import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import { canonicalizeArchetype } from '@/lib/archetype'
-import { parseCities } from '@/lib/entityId'
+import { parseCities, entityId } from '@/lib/entityId'
 import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
@@ -65,16 +65,34 @@ export function DatabaseView() {
   // Parse token query
   const { tokenFilters, freeText } = useMemo(() => parseTokenQuery(query), [query])
 
-  // Apply all filters
+  // Liveness lookup helper, applied identically by the filter, the
+  // group's primary picker, and the historical-greying renderer.
+  const livenessOf = useCallback((e: ScoreEntry): 'active' | 'stale' | 'closed' => {
+    const key = `${e.company.trim().toLowerCase()}|${e.role.trim().toLowerCase()}`
+    return liveness[key] ?? 'active'
+  }, [liveness])
+
+  // Apply all filters and group siblings into parent rows. The output
+  // is one row per (company, role-canonical) group; each row carries
+  // a `siblings` array for the OffersTable's expansion to render. A
+  // group with only one entity falls through as a flat row (siblings
+  // empty), looking exactly like the pre-grouping table.
   const filtered = useMemo(() => {
-    let rows = scoreHistory
+    // 1. Dedupe scoreHistory → one entity per (company, role, city).
+    //    Latest evaluation wins (max date).
+    const entities = new Map<string, ScoreEntry>()
+    for (const r of scoreHistory) {
+      const id = entityId(r.company, r.role, parseCities(r.location))
+      const prev = entities.get(id)
+      if (!prev || r.date.localeCompare(prev.date) > 0) entities.set(id, r)
+    }
+    let rows: ScoreEntry[] = [...entities.values()]
 
+    // 2. Apply entity-level filters (everything except liveness, which
+    //    is applied at the GROUP level below so a group is visible if
+    //    ANY of its siblings matches the liveness chip set).
     if (!showClosed) rows = rows.filter(r => r.overall > 0)
-
-    // Facet filters
     if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
-    // Location filter expands multi-city rows: an entity listed in
-    // Hong Kong + EU matches when EITHER city is selected.
     if (filters.locations.size) {
       rows = rows.filter(r => {
         const cities = parseCities(r.location).cities
@@ -84,23 +102,12 @@ export function DatabaseView() {
     }
     if (filters.archetypes.size) rows = rows.filter(r => filters.archetypes.has(canonicalizeArchetype(r.archetype)))
     if (filters.tiers.size) {
-      // T2+ (T2-high) rolls up under T2 in the facet — there's no separate chip.
       rows = rows.filter(r => filters.tiers.has(r.tier) || (r.tier === 'T2-high' && filters.tiers.has('T2')))
     }
     if (filters.employmentTypes.size) rows = rows.filter(r => filters.employmentTypes.has(r.employment_type))
     if (filters.scoreMin > 0 || filters.scoreMax < 10) {
       rows = rows.filter(r => r.overall >= filters.scoreMin && r.overall <= filters.scoreMax)
     }
-    // Liveness facet — entries with no liveness signal default to 'closed'
-    // (no recent scan-history match), so the default 'active'-only filter
-    // hides them too. Toggle 'closed' chip on to see them.
-    rows = rows.filter(r => {
-      const key = `${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`
-      const lv = liveness[key] ?? 'closed'
-      return filters.liveness.has(lv)
-    })
-
-    // Token filters from search bar
     if (tokenFilters.company)   rows = rows.filter(r => r.company.toLowerCase().includes(tokenFilters.company!.toLowerCase()))
     if (tokenFilters.tier)      rows = rows.filter(r => r.tier.toLowerCase() === tokenFilters.tier!.toLowerCase())
     if (tokenFilters.archetype) rows = rows.filter(r => {
@@ -118,8 +125,6 @@ export function DatabaseView() {
     }
     if (tokenFilters.type)      rows = rows.filter(r => r.employment_type.toLowerCase().includes(tokenFilters.type!.toLowerCase()))
     if (tokenFilters.minScore)  rows = rows.filter(r => r.overall >= tokenFilters.minScore!)
-
-    // Free text fuzzy match on company + role
     if (freeText) {
       const q = freeText.toLowerCase()
       rows = rows.filter(r =>
@@ -127,9 +132,45 @@ export function DatabaseView() {
       )
     }
 
-    // Default sort: overall descending
-    return [...rows].sort((a, b) => b.overall - a.overall)
-  }, [scoreHistory, liveness, filters, tokenFilters, freeText, showClosed])
+    // 3. Group surviving entities by roleKey (entity_id minus the
+    //    `::city` suffix) so PwC Data & AI Consultant - Roma + Milano
+    //    fall into the same bucket.
+    const groups = new Map<string, ScoreEntry[]>()
+    for (const e of rows) {
+      const id = entityId(e.company, e.role, parseCities(e.location))
+      const roleKey = id.split('::').slice(0, 2).join('::')
+      if (!groups.has(roleKey)) groups.set(roleKey, [])
+      groups.get(roleKey)!.push(e)
+    }
+
+    // 4. For each group: filter by liveness (group visible if any
+    //    sibling's liveness state is in filters.liveness), pick the
+    //    primary, attach the siblings list.
+    const grouped: ScoreEntry[] = []
+    for (const members of groups.values()) {
+      const visible = members.some(m => filters.liveness.has(livenessOf(m)))
+      if (!visible) continue
+
+      // Primary = best active sibling (highest overall). If no active
+      // siblings, fall back to most recent historical. This matches
+      // the user's "show parent as if it were the best one" intent
+      // and keeps the parent row stable across re-renders.
+      const active = members.filter(m => livenessOf(m) === 'active')
+      const primary = active.length > 0
+        ? [...active].sort((a, b) => b.overall - a.overall)[0]
+        : [...members].sort((a, b) => b.date.localeCompare(a.date))[0]
+
+      const others = members.filter(m => m !== primary)
+      grouped.push({
+        ...primary,
+        siblings: others.length > 0 ? others : undefined,
+        livenessState: livenessOf(primary),
+      })
+    }
+
+    // 5. Sort by overall desc — same as the pre-grouping table.
+    return grouped.sort((a, b) => b.overall - a.overall)
+  }, [scoreHistory, liveness, livenessOf, filters, tokenFilters, freeText, showClosed])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
