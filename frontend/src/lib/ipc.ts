@@ -82,6 +82,13 @@ export interface DbApplicationRow {
   score_raw: string; score_num: number | null
   status: string; pdf: number; deadline: string; report: string; notes: string
   tier: string
+  /** Computed at sync time from (company, role, latest location). Stable
+   *  across re-evaluations and re-posts. Empty when no location resolved. */
+  entity_id: string
+  /** JSON-encoded string[] — full city list for multi-city listings,
+   *  empty array '[]' for single-city. The Database city filter checks
+   *  this in addition to the row's primary location. */
+  cities: string
 }
 
 export interface DbScoutingRow {
@@ -89,6 +96,8 @@ export interface DbScoutingRow {
   score_raw: string; score_num: number | null
   tier: string; cfaf: string; report: string
   deadline: string; promotion_hint: string; notes: string
+  entity_id: string
+  cities: string
 }
 
 export interface DbScoreHistoryRow {

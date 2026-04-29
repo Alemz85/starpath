@@ -86,6 +86,14 @@ export interface ScoutingEntry {
   deadline: string
   promotionHint: string
   notes: string
+  /** Stable identity slug — `slug(company)::roleCanonical::cityKey`.
+   *  Computed at sync time via lib/entityId.ts. Equal across all rows
+   *  belonging to the same persistent entity. */
+  entityId: string
+  /** Full city list for multi-city listings (one URL, multiple cities
+   *  named in the JD). Empty array for single-city — read the row's
+   *  primary city from score_history.location instead. */
+  cities: string[]
 }
 
 // ─── Applications tracker (data/applications.md) ──────────────────────────────
@@ -111,6 +119,10 @@ export interface ApplicationEntry {
   deadline: string
   report: string
   notes: string
+  /** See ScoutingEntry.entityId — same identity scheme. */
+  entityId: string
+  /** See ScoutingEntry.cities. */
+  cities: string[]
 }
 
 // ─── Pipeline (data/pipeline.md) ──────────────────────────────────────────────
