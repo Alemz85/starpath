@@ -41,8 +41,8 @@ Modo interactivo para cuando el candidato está rellenando un formulario de apli
 1. Extraer nombre de empresa y título del rol de la página
 2. Buscar en `reports/` por nombre de empresa (Grep case-insensitive)
 3. Si hay match → cargar el report completo
-4. Si hay Section G → cargar los draft answers previos como base
-5. Si NO hay match → avisar y ofrecer ejecutar auto-pipeline rápido
+4. Si hay un `interview-prep/{Company} - {Role}.md` → cargarlo también (contexto STAR + draft answers previos)
+5. Si NO hay match → avisar y ofrecer ejecutar `/career-ops scouting` para evaluar primero
 6. **Leer `interview-prep/story-bank.md`** si existe — las historias STAR+R del banco son la fuente preferida para respuestas de formulario. Usar historias existentes antes de generar respuestas desde cero.
 
 ## Paso 3 — Detectar cambios en el rol
@@ -63,7 +63,7 @@ Identificar TODAS las preguntas visibles:
 - Upload fields (resume, cover letter PDF)
 
 Clasificar cada pregunta:
-- **Ya respondida en Section G** → adaptar la respuesta existente
+- **Ya cubierta por una historia del story-bank o por el interview-prep file** → adaptar el material existente
 - **Nueva pregunta** → generar respuesta desde el report + cv.md
 
 ## Paso 5 — Generar respuestas
@@ -71,18 +71,17 @@ Clasificar cada pregunta:
 Para cada pregunta, generar la respuesta siguiendo:
 
 1. **Story bank primero**: Para preguntas de tipo "Tell me about a time..." o "Give an example...", buscar en `interview-prep/story-bank.md` una historia STAR+R que encaje. Referenciar el título de la historia y adaptar el opening al contexto de la pregunta.
-2. **Contexto del report**: Usar proof points del bloque B, historias STAR del bloque F
-3. **Section G previa**: Si existe una respuesta draft, usarla como base y refinar
-3. **Tono "I'm choosing you"**: Mismo framework del auto-pipeline
-4. **Especificidad**: Referenciar algo concreto del JD visible en pantalla
-5. **career-ops proof point**: Incluir en "Additional info" si hay campo para ello
+2. **Contexto del report**: Usar la sección "Gaps and opportunities" para anticipar follow-ups y los proof points implícitos en la dimensional table.
+3. **Interview-prep file previo**: Si existe `interview-prep/{Company} - {Role}.md`, reusar las respuestas/intel ya generadas y refinar.
+4. **Tono "I'm choosing you"**: posture confiada, específica, sin fluff. (Ver "Tone for Form Answers" abajo.)
+5. **Especificidad**: Referenciar algo concreto del JD visible en pantalla.
 
 **Formato de output:**
 
 ```
 ## Respuestas para [Empresa] — [Rol]
 
-Basado en: Report #NNN | Score: X.X/5 | Arquetipo: [tipo]
+Basado en: Report #NNN | Score: X.X/10 | Arquetipo: [tipo]
 
 ---
 
@@ -104,8 +103,8 @@ Notas:
 ## Paso 6 — Post-apply (opcional)
 
 Si el candidato confirma que envió la aplicación:
-1. Actualizar estado en `applications.md` de "Evaluada" a "Aplicado"
-2. Actualizar Section G del report con las respuestas finales
+1. Actualizar estado en `applications.md` de "Evaluated" a "Applied"
+2. Actualizar `interview-prep/{Company} - {Role}.md` con las respuestas finales (append a una sección `## Final form answers`)
 3. Sugerir siguiente paso: `/career-ops contacto` para LinkedIn outreach
 
 ## Scroll handling

@@ -132,9 +132,7 @@ For each URL that **survived Step 2c** (in priority order):
 a. Compute the next sequential entry number: read `data/scouting.md` + `data/applications.md`, take highest number + 1
 b. **Extract JD:** Playwright (`browser_navigate` + `browser_snapshot`) → WebFetch → WebSearch
 c. If not accessible → mark `- [!]` with a note and continue
-d. **Run auto-pipeline** based on `user/profile.yml → current_mode`:
-   - `scouting` → `modes/scouting.md`
-   - `applying` → `modes/oferta.md`
+d. **Run evaluation** per `modes/scouting.md` — score the listing, write the per-listing report under `reports/tier-N/{Company} - {Role}.md`, append the row to `data/score-history.tsv` and the scouting tracker. CF/AF rollup weights come from `user/profile.yml → phase` (70/30 when `exploring`, 60/40 when `applying`); see `_shared.md` § Overall.
 e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | Score/10 | Tier | PDF ✅/❌`
 
 **If 3+ pending URLs:** launch agents in parallel (`Agent tool` with `run_in_background`) to maximize speed. Keep company grouping intact — evaluate the same-company batch together before dispatching the next company.
@@ -257,7 +255,7 @@ in the Configuration tab.
 **Skip the watcher entirely when:**
 - The batch has fewer than 3 preferred-city entries (insufficient signal).
 - The user's `target_range` is already at or above the median disclosed comp (no drift).
-- The user's `current_mode` is `applying` and they've actively decided to apply to roles below target (the `Discarded`/`SKIP` rows in `applications.md` are NOT in scope here — only fresh evaluations are).
+- The user's `phase` is `applying` and they've actively decided to apply to roles below target (the `Discarded`/`SKIP` rows in `applications.md` are NOT in scope here — only fresh evaluations are).
 
 ## pipeline.md format
 

@@ -26,33 +26,17 @@
 
 ## Scoring System
 
-The full `oferta` evaluation uses 8 blocks total: 6 evaluation blocks (A-F), Block G (Posting Legitimacy, qualitative), and Block H (Dimensional Scoring, shared with `scouting` mode — see the dedicated section below). The 1-10 **global Score** in the report header is computed from the A-F evaluation, NOT from Block G or Block H. Block G is a separate qualitative assessment. Block H produces its own rollups (Current Fit, Aspirational Fit, Overall) which sit alongside the global Score in the header.
+There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). It uses the **Dimensional Scoring Framework** below and produces an **Overall** score on a 1-10 scale by rolling up Current Fit and Aspirational Fit with phase-aware weights.
 
-The global Score (A-F) reflects:
-
-| Dimension | What it measures |
-|-----------|-----------------|
-| Match con CV | Skills, experience, proof points alignment |
-| North Star alignment | How well the role fits the user's target archetypes (from _profile.md) |
-| Comp | Salary vs market (10=top quartile, 1=well below) |
-| Cultural signals | Company culture, growth, stability, remote policy |
-| Red flags | Blockers, warnings (negative adjustments) |
-| **Global** | Weighted average of above |
-
-**Score interpretation (global Score and Block H Overall both follow this scale):**
+**Score interpretation (Overall):**
 - 9.0+ → Strong match, recommend applying immediately (Tier 1)
-- 8.0–8.9 → Good match, worth applying with prep (Tier 2-high)
-- 7.0–7.9 → Decent match, apply only if pipeline thin (Tier 2-standard)
-- Below 7.0 → Recommend against applying (see Ethical Use in CLAUDE.md)
+- 8.0–8.9 → Good match, worth applying with prep (Tier 2)
+- 7.0–7.9 → Decent match, apply only if pipeline thin (Tier 2)
+- Below 7.0 → Recommend against applying (see Ethical Use in CLAUDE.md). Tier 3 if AF ≥ 7.0 (growth target); Tier 4 otherwise (skip).
 
-`scouting` mode skips A-G entirely and uses only the Dimensional Scoring Framework (the Block H content) as its core output — see `modes/scouting.md` for the lightweight tier behavior.
+## Dimensional Scoring Framework
 
-## Dimensional Scoring Framework (Scouting + Oferta)
-
-Both `scouting` mode and `oferta` mode (Block H) use the same set of underlying dimensions. They share definitions so that:
-- Reports are directly comparable across modes
-- `data/score-history.tsv` can hold rows from either mode and `positioning` can read both
-- The user only has to learn one rubric
+The framework defines 6 numeric scoring dimensions, Sales-Trap Risk (decision-support, not in rollup), and 4 context dimensions. It's the single rubric the system uses end-to-end — `data/score-history.tsv` is unified across all evaluations and `positioning` mode reads it directly.
 
 There are **6 numeric scoring dimensions** that roll up into two summary scores (Current Fit, Aspirational Fit), plus **Sales-Trap Risk** (scored but not in the rollups — a decision-support signal) and **4 context dimensions** that inform the report but do NOT roll up into the summaries.
 
@@ -184,9 +168,11 @@ Overall = Current Fit × {CF_weight} + Aspirational Fit × {AF_weight}
         + context modifiers (see below)
 ```
 
-**Phase-aware weights** (set in `user/_profile.md` → Scoring Weights):
-- **scouting mode → 70/30** (CF=0.70, AF=0.30): landscape mapping; reachability is the primary question
-- **applying mode → 60/40** (CF=0.60, AF=0.40): choosing between live offers; ambition weighs more
+**Phase-aware weights** (set in `user/profile.yml → phase`; can also be overridden in `user/_profile.md` → Scoring Weights):
+- **`exploring` → 70/30** (CF=0.70, AF=0.30): landscape mapping; reachability is the primary question
+- **`applying` → 60/40** (CF=0.60, AF=0.40): choosing between live offers; ambition weighs more
+
+`phase` does NOT change the report shape, the tier rules, or the data layout — it only flips these weights.
 
 **Context modifiers** (applied after the weighted rollup):
 - Salary Adj for City ≤ 4 → **−0.4** to Overall (poverty-wage or well below local market)
@@ -255,9 +241,9 @@ SumUp	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 1. **Exact match:** `company` + `role_archetype` + `city` AND `last_updated` is within 60 days. Use these min/max as if disclosed.
 2. **Cross-city same role:** `company` + `role_archetype` in a peer city (Berlin↔Munich, Dublin↔Amsterdam) within 60 days. Adjust ±10% by relative city threshold from `_profile.md`. Mark reasoning *(cached, cross-city adjusted)*.
 3. **Same company, peer archetype:** `company` + adjacent role_archetype (e.g. "Data Analyst" → "Business Analyst") in same city within 60 days. Mark reasoning *(cached, peer-archetype proxy)*.
-4. **Cache miss or stale (> 60 days)** — branch by mode:
-   - **`oferta` mode** (active application, user committed to this listing): run a **WebSearch** in this priority order — **Levels.fyi → Glassdoor → Blind → Payscale**. Aim for 2 sources to cross-check. Take the median of the entry-level / target-level band. Then **append a row to `data/comp-cache.tsv`** with `source` = whichever site won, `confidence` = `high` (multiple sources agree) / `medium` (single source) / `low` (had to extrapolate). This is how the cache grows organically — every oferta evaluation feeds it.
-   - **`scouting` mode** (landscape mapping, cheap): do NOT run a WebSearch. Score from the JD's disclosed figure or the city-band default. If undisclosed, score 5 with `[undisclosed]` reasoning. The cache fills via oferta runs — scouting reads from it but doesn't pay the WebSearch cost.
+4. **Cache miss or stale (> 60 days)** — branch by `phase`:
+   - **`applying` phase** (user committed to this listing): run a **WebSearch** in this priority order — **Levels.fyi → Glassdoor → Blind → Payscale**. Aim for 2 sources to cross-check. Take the median of the entry-level / target-level band. Then **append a row to `data/comp-cache.tsv`** with `source` = whichever site won, `confidence` = `high` (multiple sources agree) / `medium` (single source) / `low` (had to extrapolate). This is how the cache grows organically — every committed evaluation feeds it.
+   - **`exploring` phase** (landscape mapping, cheap): do NOT run a WebSearch. Score from the JD's disclosed figure or the city-band default. If undisclosed, score 5 with `[undisclosed]` reasoning. The cache fills via `applying`-phase runs — `exploring` reads from it but doesn't pay the WebSearch cost.
 5. **WebSearch returned nothing useful:** score **5** with `[undisclosed]` reasoning. Do NOT fabricate a band.
 
 **Refresh rules:**
@@ -334,7 +320,7 @@ The Notes column in `data/scouting.md` is **not optional** for these rows. Each 
 
 ### Calibration & special rules
 
-These rules tighten the rubric and the rollup math. They apply to BOTH `scouting` mode and `oferta` Block H.
+These rules tighten the rubric and the rollup math.
 
 #### Skills Match sharpening — skills only, not experience
 
@@ -384,7 +370,7 @@ The "10 = perfectly designed for this profile" bar is reserved for roles where t
 
 Unlike Skills Match (which moves only when the candidate gains new skills) or Brand Value (which is a property of the company), **Ease of Entry shifts as the candidate's overall profile grows**. The same role evaluated 6 months apart may have very different Ease of Entry scores: as the candidate finishes their degree, completes capstone projects, gains internship experience, builds portfolio pieces, etc., what was a "stretch" becomes "standard early-career".
 
-This is why every scouting and oferta evaluation logs Ease of Entry to `data/score-history.tsv` with a date and archetype. The `positioning` mode reads per-dimension trajectories and can surface: *"Ease of Entry for Value Engineering archetype: April 2026 = 6.0 → August 2026 = 8.0 — you became more competitive for these roles, here's what changed."*
+This is why every evaluation logs Ease of Entry to `data/score-history.tsv` with a date and archetype. The `positioning` mode reads per-dimension trajectories and can surface: *"Ease of Entry for Value Engineering archetype: April 2026 = 6.0 → August 2026 = 8.0 — you became more competitive for these roles, here's what changed."*
 
 **Ease of Entry is the most important trajectory canary** — when it trends upward across an archetype, the candidate is closing the gap to "applyable today". When it stays flat despite effort, the gap-closing strategy isn't working.
 
@@ -441,7 +427,7 @@ A role qualifies for **Tier 1** (full scouting report) under either of two condi
 
 The override is harder to game than just lowering the cutoff — it rewards consistency across the dimensional fingerprint, not a high average that hides a bad dimension.
 
-**Important:** Tier 1 in scouting mode means a **full markdown report only** — `scouting` never auto-generates PDFs at any tier. CV / PDF generation is a separate, manual operation via `/career-ops pdf` or part of the full `/career-ops oferta` flow. See `modes/scouting.md` § "Scouting never auto-generates PDFs" for the rule.
+**Important:** Tier 1 means a **full markdown report only** — evaluation never auto-generates PDFs at any tier. CV / PDF generation is a separate, manual operation via `/career-ops pdf` (or the Database popover's "Tailor CV" button).
 
 #### T2 verdict scaling
 
@@ -454,7 +440,7 @@ Both render the same dimensional table; only the verdict phrasing differs. There
 
 ### Standard report block format
 
-Both `scouting` reports and `oferta` Block H render the dimensions as a single table:
+Reports render the dimensions as a single table:
 
 ```markdown
 | Dimension | Score | Reasoning |
@@ -475,7 +461,7 @@ Both `scouting` reports and `oferta` Block H render the dimensions as a single t
 | Best-fit Early-career Roles (context) | — | Comma-separated list of 1-4 alternative roles at this company |
 ```
 
-Note: the Overall line weight shown (0.70/0.30) is for scouting mode. In applying mode use 0.60/0.40. Always show the actual weights used.
+Note: the Overall line weight shown (0.70/0.30) is for `phase: exploring`. In `phase: applying` use 0.60/0.40. Always show the actual weights used.
 
 ### Comparative Rank Block
 
@@ -529,24 +515,24 @@ Then read `/tmp/rank-slice.tsv` (header + primary-archetype rows) instead of the
 
 If no outlier dimensions (all within ±1.5 of avg): write `**Dimension outliers:** profile close to archetype average` instead.
 
-This block appears in **both scouting and oferta reports**. It is purely informational — it does not affect tier assignment or the Overall score.
+This block appears in every Tier 1 report. It is purely informational — it does not affect tier assignment or the Overall score.
 
-### Per-entry trackers are split by mode
+### Per-entry trackers are split by workflow stage
 
-**`scouting` and `oferta` write to different per-entry trackers.** This keeps landscape-mapping inventory (scouting) out of the active-application flow (oferta).
+The system uses two per-entry trackers — they capture different stages of the user's workflow, NOT different evaluation modes:
 
-| Mode | Per-entry tracker | Merge script | TSV drop folder | Columns |
-|------|-------------------|--------------|-----------------|---------|
-| `scouting` | `data/scouting.md` | `scripts/merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Score \| Tier \| CF/AF \| Report \| Deadline \| Promotion Hint \| Notes` |
-| `oferta` | `data/applications.md` | `scripts/merge-tracker.mjs` | `batch/tracker-additions/` | `# \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes` |
+| File | Holds | Merge script | TSV drop folder | Columns |
+|------|-------|--------------|-----------------|---------|
+| `data/scouting.md` | Landscape-mapping inventory — every evaluation lands here by default | `scripts/merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Score \| Tier \| CF/AF \| Report \| Deadline \| Promotion Hint \| Notes` |
+| `data/applications.md` | Active applications — entries promoted from scouting when the user decides to apply | `scripts/merge-tracker.mjs` | `batch/tracker-additions/` | `# \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes` |
 
-Scouting entries are NEVER written with status `Scouted` to `data/applications.md` — that column doesn't apply to them. Tier 1 scouting hits flagged `READY` can be promoted to `data/applications.md` via `node scripts/promote-to-applications.mjs <num>`, at which point they enter the application flow with status `Evaluated`.
+Tier 1 hits in scouting flagged `READY` can be promoted to `data/applications.md` via `node scripts/promote-to-applications.mjs <num>` (or by clicking Apply in the Database UI), at which point they enter the active flow with status `Evaluated`.
 
-`data/score-history.tsv` (below) stays **unified** across both modes — it's the trajectory log, not a per-entry tracker.
+`data/score-history.tsv` (below) stays **unified** — it's the trajectory log, not a per-entry tracker.
 
 ### Logging to `data/score-history.tsv`
 
-Every scouting evaluation AND every oferta evaluation appends a row to `data/score-history.tsv`. The TSV columns are (in order):
+Every evaluation appends a row to `data/score-history.tsv`. The TSV columns are (in order):
 
 ```
 date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobility	optionality_exit	brand_value	sales_trap_risk	aspirational_fit	overall	best_cities	salary_adj_city	work_life_balance	best_fit_roles	mode	company	role	tier	source	location	employment_type	duration	salary_raw	url
@@ -556,8 +542,8 @@ date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobil
 - All numeric dimensions are decimals on the 1-10 scale (e.g., `8.0`, `7.33`).
 - `current_fit`, `aspirational_fit`, `overall` are the computed rollups (bake them in at write time — do not let the reader recompute later).
 - `best_fit_roles` is a free-text field; separate multiple roles with `; ` (semicolons). Never use literal tabs inside this field.
-- `mode` is `scouting` or `oferta`. This lets `positioning` distinguish the source when needed.
-- `tier` for scouting is `full` | `short-high` | `short` | `growth` | `skip`. For oferta, use `oferta`.
+- `mode` is always `scouting` for new rows (legacy `oferta` rows from before the mode consolidation may exist; treat them the same).
+- `tier` is `full` | `short` | `growth` | `skip`.
 - `source` is `url` | `paste` | `scan` | `pipeline` | `batch`. (This is the workflow source — where the listing entered the system from. NOT the listing URL itself.)
 - `location` — city name as stated in the JD (e.g., `Madrid`, `Amsterdam`, `Remote-EU`, `Barcelona (hybrid)`). Use `n/d` if not stated.
 - `employment_type` — `internship` | `full-time` | `working-student` | `graduate-program` | `contract` | `n/d`.
@@ -570,34 +556,6 @@ date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobil
 **Rows written between 2026-04-26 and 2026-04-29** have 25 columns (no `url`). The frontend cache backfills `url` for these rows by reading the matching report's `**URL:**` header.
 
 If the file does not exist, create it with the 26-column header row exactly as above. Append-only; never rewrite.
-
-## Posting Legitimacy (Block G)
-
-Block G assesses whether a posting is likely a real, active opening. It does NOT affect the 1-10 global score -- it is a separate qualitative assessment.
-
-**Three tiers:**
-- **High Confidence** -- Real, active opening (most signals positive)
-- **Proceed with Caution** -- Mixed signals, worth noting (some concerns)
-- **Suspicious** -- Multiple ghost indicators, user should investigate first
-
-**Key signals (weighted by reliability):**
-
-| Signal | Source | Reliability | Notes |
-|--------|--------|-------------|-------|
-| Posting age | Page snapshot | High | Under 30d=good, 30-60d=mixed, 60d+=concerning (adjusted for role type) |
-| Apply button active | Page snapshot | High | Direct observable fact |
-| Tech specificity in JD | JD text | Medium | Generic JDs correlate with ghost postings but also with poor writing |
-| Requirements realism | JD text | Medium | Contradictions are a strong signal, vagueness is weaker |
-| Recent layoff news | WebSearch | Medium | Must consider department, timing, and company size |
-| Reposting pattern | scan-history.tsv | Medium | Same role reposted 2+ times in 90 days is concerning |
-| Salary transparency | JD text | Low | Jurisdiction-dependent, many legitimate reasons to omit |
-| Role-company fit | Qualitative | Low | Subjective, use only as supporting signal |
-
-**Ethical framing (MANDATORY):**
-- This helps users prioritize time on real opportunities
-- NEVER present findings as accusations of dishonesty
-- Present signals and let the user decide
-- Always note legitimate explanations for concerning signals
 
 ## Archetype Detection
 
