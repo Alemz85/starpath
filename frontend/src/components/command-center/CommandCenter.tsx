@@ -393,97 +393,140 @@ function FilteredScanRow() {
 
   const running = filteredScan?.status === 'running'
 
-  return (
-    <div className="mt-4 px-1">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="flex items-baseline gap-2 min-w-0">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-3">Filtered scan</span>
-          <span className="text-[11px] text-text-4">·</span>
-          <span className="text-[11px] text-text-4 truncate">
-            {selected.size === 0
-              ? 'Pick companies to scan only those — others stay untouched'
-              : `${selected.size} of ${companies.length} selected`}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {selected.size > 0 && (
-            <button
-              onClick={clearAll}
-              className="text-[11px] text-text-4 hover:text-text-2 px-2 py-1 rounded transition-colors"
-            >
-              Clear
-            </button>
-          )}
-          {dreamCompanies.length > 0 && (
-            <button
-              onClick={handleResetDefaults}
-              title="Reset selection to your dream_companies list from profile.yml"
-              className="text-[11px] text-text-4 hover:text-text-2 px-2 py-1 rounded transition-colors"
-            >
-              Reset to dreams
-            </button>
-          )}
-          <button
-            onClick={handleRun}
-            disabled={!repoPath || (!running && selected.size === 0)}
-            title={running
-              ? 'Stop the run (live log on the Activity tab)'
-              : selected.size === 0
-                ? 'Select at least one company first'
-                : `Spawn Claude to scan only the ${selected.size} selected ${selected.size === 1 ? 'company' : 'companies'}. Costs Claude tokens.`}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium border transition-colors',
-              running
-                ? 'bg-danger/10 border-danger/40 text-danger hover:bg-danger/15'
-                : 'bg-accent/15 border-accent/35 text-accent-text hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed',
-            )}
-          >
-            {running ? <Square size={11} className="fill-current" /> : <Filter size={11} />}
-            {running ? 'Stop' : 'Run filtered scan'}
-          </button>
-        </div>
-      </div>
+  // Dream companies first (alphabetical within group), then everyone else
+  // (alphabetical). Sorting at render time avoids reflow when the user
+  // toggles selection — only the sort key (dream / non-dream) is fixed
+  // while the user works through the list.
+  const sortedCompanies = (() => {
+    const dreamSet = new Set(dreamCompanies)
+    return [...companies].sort((a, b) => {
+      const aDream = dreamSet.has(a.name)
+      const bDream = dreamSet.has(b.name)
+      if (aDream !== bDream) return aDream ? -1 : 1
+      return a.name.localeCompare(b.name)
+    })
+  })()
 
-      <div
-        className="flex flex-wrap gap-1.5 max-h-[120px] overflow-y-auto rounded-md border border-border-default/60 bg-bg-elevated/30 p-2"
-        style={{ scrollbarWidth: 'thin' }}
-      >
-        {companies.map(c => {
-          const isSelected = selected.has(c.name)
-          const isDream = dreamCompanies.includes(c.name)
-          return (
+  return (
+    // mt-auto pushes the section to the bottom of the cockpit's flex
+    // column, leaving the action buttons above and the section here as
+    // the visual anchor of the empty space below them.
+    <div className="mt-auto pt-6">
+      <div className="rounded-xl border border-border-default overflow-hidden bg-bg-panel/80">
+        {/* Header strip — icon-mark left, status middle, actions right.
+            Soft galaxy gradient so it reads as a distinct surface from
+            the action-button row above. */}
+        <div
+          className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border-default/60"
+          style={{
+            background: 'linear-gradient(135deg, rgba(124,92,255,0.10) 0%, rgba(124,92,255,0.02) 100%)',
+          }}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
+              <Filter size={14} className="text-accent" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-text-1 leading-tight">Filtered Scan</div>
+              <div className="text-[11.5px] text-text-3 truncate mt-0.5">
+                {selected.size === 0
+                  ? 'Pick companies to scan only those — others stay untouched.'
+                  : (
+                    <>
+                      <span className="text-text-1 font-medium">{selected.size}</span>
+                      <span> of {companies.length} selected</span>
+                      {dreamCompanies.length > 0 && (
+                        <span className="text-text-4"> · {selected.size === dreamCompanies.length && [...selected].every(n => dreamCompanies.includes(n)) ? 'matches your dream list' : `${[...selected].filter(n => dreamCompanies.includes(n)).length} dream`}</span>
+                      )}
+                    </>
+                  )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {selected.size > 0 && (
+              <button
+                onClick={clearAll}
+                className="text-[11.5px] text-text-4 hover:text-text-2 px-2 py-1.5 rounded transition-colors"
+              >
+                Clear
+              </button>
+            )}
+            {dreamCompanies.length > 0 && (
+              <button
+                onClick={handleResetDefaults}
+                title="Reset selection to your dream_companies list from profile.yml"
+                className="text-[11.5px] text-text-4 hover:text-text-2 px-2 py-1.5 rounded transition-colors"
+              >
+                Reset to dreams
+              </button>
+            )}
             <button
-              key={c.name}
-              onClick={() => toggle(c.name)}
-              title={`${c.name} · ${c.method.toUpperCase()}${isDream ? ' · dream company' : ''}`}
+              onClick={handleRun}
+              disabled={!repoPath || (!running && selected.size === 0)}
+              title={running
+                ? 'Stop the run (live log on the Activity tab)'
+                : selected.size === 0
+                  ? 'Select at least one company first'
+                  : `Spawn Claude to scan only the ${selected.size} selected ${selected.size === 1 ? 'company' : 'companies'}. Costs Claude tokens.`}
               className={cn(
-                'inline-flex items-center gap-1.5 px-2 py-1 rounded text-[11.5px] border transition-colors',
-                isSelected
-                  ? 'bg-accent/20 border-accent/40 text-accent-text'
-                  : 'bg-bg-base border-border-default text-text-3 hover:text-text-1 hover:border-border-strong',
+                'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-[12.5px] font-medium border transition-colors shadow-sm',
+                running
+                  ? 'bg-danger/15 border-danger/40 text-danger hover:bg-danger/20'
+                  : 'bg-accent border-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed',
               )}
             >
-              {isDream && (
-                <span
-                  title="Dream company"
-                  className="w-1.5 h-1.5 rounded-full bg-tier-1 shrink-0"
-                  aria-hidden
-                />
-              )}
-              <span className="truncate max-w-[140px]">{c.name}</span>
-              <span
+              {running ? <Square size={12} className="fill-current" /> : <Filter size={12} />}
+              {running ? 'Stop' : 'Run filtered scan'}
+            </button>
+          </div>
+        </div>
+
+        {/* Chip canvas — bigger now, fits ~5-6 rows before scroll. */}
+        <div
+          className="flex flex-wrap gap-2 max-h-[240px] overflow-y-auto px-4 py-4"
+          style={{ scrollbarWidth: 'thin' }}
+        >
+          {sortedCompanies.map(c => {
+            const isSelected = selected.has(c.name)
+            const isDream = dreamCompanies.includes(c.name)
+            return (
+              <button
+                key={c.name}
+                onClick={() => toggle(c.name)}
+                title={`${c.name} · ${c.method.toUpperCase()}${isDream ? ' · dream company' : ''}`}
                 className={cn(
-                  'text-[8.5px] font-mono uppercase tracking-wider px-1 py-0.5 rounded shrink-0',
-                  c.method === 'api'       ? 'bg-success/10 text-success border border-success/30' :
-                  c.method === 'websearch' ? 'bg-warning/10 text-warning border border-warning/30' :
-                                             'bg-bg-elevated text-text-4 border border-border-default',
+                  'inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-md text-[12px] border transition-all',
+                  isSelected
+                    ? 'bg-accent/20 border-accent/50 text-accent-text shadow-sm'
+                    : 'bg-bg-elevated/60 border-border-default text-text-2 hover:text-text-1 hover:border-border-strong hover:bg-bg-elevated',
                 )}
               >
-                {c.method === 'api' ? 'API' : c.method === 'websearch' ? 'WEB' : '…'}
-              </span>
-            </button>
-          )
-        })}
+                {isDream && (
+                  <span
+                    title="Dream company"
+                    className={cn(
+                      'w-1.5 h-1.5 rounded-full shrink-0',
+                      isSelected ? 'bg-tier-1' : 'bg-tier-1/70',
+                    )}
+                    aria-hidden
+                  />
+                )}
+                <span className="truncate max-w-[160px] font-medium">{c.name}</span>
+                <span
+                  className={cn(
+                    'text-[9px] font-mono uppercase tracking-[0.06em] px-1.5 py-0.5 rounded shrink-0',
+                    c.method === 'api'       ? 'bg-success/15 text-success border border-success/30' :
+                    c.method === 'websearch' ? 'bg-warning/15 text-warning border border-warning/30' :
+                                               'bg-bg-base text-text-4 border border-border-default',
+                  )}
+                >
+                  {c.method === 'api' ? 'API' : c.method === 'websearch' ? 'WEB' : '…'}
+                </span>
+              </button>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
