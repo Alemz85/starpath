@@ -13,6 +13,7 @@ import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, Fi
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { parseCities } from '@/lib/entityId'
 import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
@@ -296,13 +297,32 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     col.accessor('location', {
       header: 'Location',
       size: 120,
-      cell: info => (
-        <div className="flex items-center justify-center">
-          <span className="text-[11.5px] text-text-3 truncate block max-w-[108px] text-center">
-            {info.getValue() || '—'}
-          </span>
-        </div>
-      ),
+      cell: info => {
+        const raw = info.getValue() || ''
+        // Single-URL multi-city listings (e.g., Rev-celerator across 4
+        // cities) collapse to a compact "City · +N" pill — the row is
+        // ONE entity, not N siblings, so it gets one cell. Hover shows
+        // the full list. Single-city rows render the city verbatim.
+        const parsed = parseCities(raw)
+        if (parsed.isMulti && parsed.cities.length > 1) {
+          const primary = parsed.primary ?? parsed.cities[0]
+          const others  = parsed.cities.length - 1
+          return (
+            <div className="flex items-center justify-center" title={parsed.cities.join(' · ')}>
+              <span className="text-[11.5px] text-text-3 truncate block max-w-[108px] text-center">
+                {primary} · +{others}
+              </span>
+            </div>
+          )
+        }
+        return (
+          <div className="flex items-center justify-center">
+            <span className="text-[11.5px] text-text-3 truncate block max-w-[108px] text-center">
+              {raw || '—'}
+            </span>
+          </div>
+        )
+      },
     }),
     col.accessor('archetype', {
       header: 'Archetype',

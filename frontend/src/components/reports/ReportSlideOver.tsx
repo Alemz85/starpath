@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen } from 'lucide-react'
+import { X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen, Clock, ChevronLeft } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
+import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
@@ -13,8 +14,16 @@ import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
+import { parseCities } from '@/lib/entityId'
 
-type Tab = 'scouting' | 'application'
+type Tab = 'scouting' | 'application' | 'history'
+
+interface HistoryEntry {
+  date: string         // full YYYY-MM-DD (for snapshot filename)
+  monthLabel: string   // YYYY-MM (for display)
+  overall: number
+  tier: string
+}
 
 interface ReportSlideOverProps {
   company: string
@@ -29,6 +38,7 @@ interface ReportSlideOverProps {
 export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, onClose }: ReportSlideOverProps) {
   const { repoPath } = useAppStore()
   const navigate = useNavStore(s => s.navigate)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
   const [scoutingContent, setScoutingContent] = useState<string | null>(null)
   const [applicationContent, setApplicationContent] = useState<string | null>(null)
   const [scoutingMissing, setScoutingMissing] = useState(false)
@@ -37,6 +47,37 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<Tab>('scouting')
+  // When set, the History tab body renders this snapshot's prose
+  // instead of the row table. Click a row to drill in; click the
+  // breadcrumb to return to the table.
+  const [snapshot, setSnapshot] = useState<{ date: string; content: string } | null>(null)
+  const [snapshotLoading, setSnapshotLoading] = useState(false)
+
+  // History rows for THIS entity — every score_history row matching
+  // (company, role), newest first. The current evaluation is the head;
+  // older rows are accumulated re-evaluations whose snapshots live
+  // under reports/tier-N/.history/. Tab is enabled only when ≥2 rows
+  // exist (no point in a 1-row "history").
+  const history: HistoryEntry[] = useMemo(() => {
+    return scoreHistory
+      .filter(r => r.company === company && r.role === role)
+      .map(r => ({
+        date: r.date,
+        monthLabel: r.date.slice(0, 7),
+        overall: r.overall,
+        tier: r.tier === 'T2-high' ? 'T2' : r.tier,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date))
+  }, [scoreHistory, company, role])
+
+  const historyAvailable = history.length >= 2
+
+  // Multi-city detection from the row's location string. When the JD
+  // names ≥2 cities for a single posting (e.g. Rev-celerator), the
+  // header band lists them all. The "current best" pick (first city
+  // intersecting preferred_cities) is a v2 enhancement — for now we
+  // just list them in order.
+  const cityInfo = useMemo(() => parseCities(scoreEntry.location), [scoreEntry.location])
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setOpen(true))
@@ -115,6 +156,32 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [handleClose])
+
+  // Switch tabs → drop any open snapshot view so we don't leak the
+  // historical prose into the next tab's body.
+  useEffect(() => { setSnapshot(null) }, [activeTab])
+
+  const openSnapshot = useCallback(async (date: string) => {
+    if (!repoPath) return
+    setSnapshotLoading(true)
+    setSnapshot(null)
+    // Snapshot files live under reports/tier-N/.history/ with the
+    // date appended to the entity's filename. Search every tier dir
+    // for this date — the entity may have moved tiers between evals.
+    let path: string | null = null
+    for (const dir of ['tier-1', 'tier-2', 'tier-3', 'tier-4']) {
+      const candidate = `reports/${dir}/.history/${company} - ${role}.${date}.md`
+      if (await ipc.fileExists(candidate)) { path = candidate; break }
+    }
+    if (!path) {
+      setSnapshot({ date, content: `(No snapshot file found at reports/tier-N/.history/${company} - ${role}.${date}.md — re-evaluations after this date should produce one.)` })
+      setSnapshotLoading(false)
+      return
+    }
+    const text = await ipc.readFile(path)
+    setSnapshot({ date, content: text ?? '(File exists but could not be read.)' })
+    setSnapshotLoading(false)
+  }, [company, role, repoPath])
 
   const tierKey = (scoreEntry.tier as TierKey) in TIER_COLORS ? (scoreEntry.tier as TierKey) : 'T4'
   const { text: tierText } = TIER_COLORS[tierKey]
@@ -207,9 +274,27 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           <FilesStrip company={company} role={role} size="md" />
         </div>
 
-        {/* Tabs — Scouting / Application prep. Greyed out when the
-            corresponding file isn't on disk. Each one lazy-renders its
-            own content so the parser only runs for the visible tab. */}
+        {/* Multi-city band — visible only when this entity is a single
+            posting that lists multiple cities (e.g., Rev-celerator
+            across Berlin / Paris / London / Lisbon). The Database city
+            filter expands this entity into each listed city; this band
+            tells you which ones it actually appears in. */}
+        {cityInfo.isMulti && cityInfo.cities.length > 1 && (
+          <div className="px-5 py-2 border-b border-border-default shrink-0 text-[11.5px] text-text-3 flex items-center gap-2 flex-wrap">
+            <span className="font-mono uppercase tracking-[0.08em] text-[10px] text-text-4">Cities</span>
+            <span className="text-text-4">·</span>
+            {cityInfo.cities.map((c, i) => (
+              <span key={c} className="text-text-2">
+                {c}{i < cityInfo.cities.length - 1 ? <span className="text-text-4 mx-1">·</span> : null}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Tabs — Scouting / Application prep / History. Greyed out
+            when the corresponding file isn't on disk OR (history) when
+            no prior evaluations exist. Each tab lazy-renders its body
+            so parsers only run for the visible one. */}
         <div className="flex border-b border-border-default shrink-0">
           <TabButton
             icon={FileText}
@@ -224,6 +309,13 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
             active={activeTab === 'application'}
             disabled={!applicationContent}
             onClick={() => setActiveTab('application')}
+          />
+          <TabButton
+            icon={Clock}
+            label={`History${historyAvailable ? ` (${history.length})` : ''}`}
+            active={activeTab === 'history'}
+            disabled={!historyAvailable}
+            onClick={() => setActiveTab('history')}
           />
         </div>
 
@@ -257,9 +349,97 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               ? <div className="prose-report"><ReactMarkdown remarkPlugins={[remarkGfm]}>{applicationContent}</ReactMarkdown></div>
               : <EmptyTab message="No application prep yet — click Prep application from the Database popover to research interview intel + STAR mapping for this role." />
           )}
+          {!loading && !error && activeTab === 'history' && (
+            snapshot ? (
+              <HistorySnapshotView
+                date={snapshot.date}
+                content={snapshot.content}
+                loading={snapshotLoading}
+                onBack={() => setSnapshot(null)}
+              />
+            ) : (
+              <HistoryTable rows={history} onPick={openSnapshot} />
+            )
+          )}
         </div>
       </div>
     </>
+  )
+}
+
+function HistoryTable({ rows, onPick }: { rows: HistoryEntry[]; onPick: (date: string) => void }) {
+  return (
+    <div className="text-[12.5px]">
+      <div className="text-text-4 mb-3">
+        Past evaluations for this entity. Click a row to view the snapshot.
+      </div>
+      <div className="rounded-md border border-border-default overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="bg-bg-elevated/50 text-[11px] uppercase tracking-[0.06em] text-text-4">
+              <th className="text-left px-3 py-2 font-medium">Month</th>
+              <th className="text-right px-3 py-2 font-medium">Score</th>
+              <th className="text-right px-3 py-2 font-medium">Tier</th>
+              <th className="text-right px-3 py-2 font-medium" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr
+                key={`${r.date}-${i}`}
+                className={cn(
+                  'border-t border-border-default cursor-pointer transition-colors',
+                  'hover:bg-bg-elevated/40',
+                )}
+                onClick={() => onPick(r.date)}
+              >
+                <td className="px-3 py-2 font-mono text-text-2">{r.monthLabel}</td>
+                <td className="px-3 py-2 text-right font-mono tabular-nums text-text-1">
+                  {r.overall > 0 ? r.overall.toFixed(1) : '—'}
+                </td>
+                <td className="px-3 py-2 text-right font-mono text-text-3">{r.tier || '—'}</td>
+                <td className="px-3 py-2 text-right text-text-4 text-[11px]">view ↗</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function HistorySnapshotView({
+  date, content, loading, onBack,
+}: {
+  date: string
+  content: string
+  loading: boolean
+  onBack: () => void
+}) {
+  return (
+    <div>
+      <button
+        onClick={onBack}
+        className="mb-4 inline-flex items-center gap-1 text-[11.5px] text-text-3 hover:text-text-1 transition-colors"
+      >
+        <ChevronLeft size={12} />
+        Back to history
+      </button>
+      <div className="mb-3 text-[10px] uppercase tracking-[0.12em] text-text-4">
+        Snapshot from {date}
+      </div>
+      {loading ? (
+        <div className="space-y-3">
+          {[80, 60, 90, 50, 70].map((w, i) => (
+            <div key={i} className="shimmer h-3 rounded" style={{ width: `${w}%` }} />
+          ))}
+        </div>
+      ) : (
+        <div className="prose-report">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
+      )}
+    </div>
   )
 }
 

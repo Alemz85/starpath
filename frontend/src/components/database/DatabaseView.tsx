@@ -10,6 +10,7 @@ import { OffersTable } from './OffersTable'
 import { ReportSlideOver } from '../reports/ReportSlideOver'
 import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import { canonicalizeArchetype } from '@/lib/archetype'
+import { parseCities } from '@/lib/entityId'
 import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
@@ -43,9 +44,17 @@ export function DatabaseView() {
   // canonicalizeArchetype — backend modes keep verbose strings (useful for
   // the AI agents); the database UI groups them into common roles so the
   // chips stay readable and the filter is meaningful.
+  // Multi-city entities (one URL listing multiple cities, e.g. Rev-celerator
+  // listing Berlin/Paris/London/Lisbon) need to surface under EVERY listed
+  // city in the location facet — filtering by any one of them must still
+  // include the entity. parseCities is the single source of truth for that
+  // expansion, used here for the facet options and again below for the
+  // filter predicate.
   const options = useMemo(() => ({
     companies:       [...new Set(scoreHistory.map(s => s.company))].sort(),
-    locations:       [...new Set(scoreHistory.map(s => s.location).filter(Boolean))].sort(),
+    locations:       [...new Set(
+                       scoreHistory.flatMap(s => parseCities(s.location).cities)
+                     )].sort(),
     archetypes:      [...new Set(
                        scoreHistory.map(s => canonicalizeArchetype(s.archetype)).filter(Boolean)
                      )].sort(),
@@ -64,7 +73,15 @@ export function DatabaseView() {
 
     // Facet filters
     if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
-    if (filters.locations.size)  rows = rows.filter(r => filters.locations.has(r.location))
+    // Location filter expands multi-city rows: an entity listed in
+    // Hong Kong + EU matches when EITHER city is selected.
+    if (filters.locations.size) {
+      rows = rows.filter(r => {
+        const cities = parseCities(r.location).cities
+        if (cities.length === 0) return filters.locations.has(r.location)
+        return cities.some(c => filters.locations.has(c))
+      })
+    }
     if (filters.archetypes.size) rows = rows.filter(r => filters.archetypes.has(canonicalizeArchetype(r.archetype)))
     if (filters.tiers.size) {
       // T2+ (T2-high) rolls up under T2 in the facet — there's no separate chip.
@@ -91,7 +108,14 @@ export function DatabaseView() {
       return r.archetype.toLowerCase().includes(ta) ||
              canonicalizeArchetype(r.archetype).toLowerCase().includes(ta)
     })
-    if (tokenFilters.location)  rows = rows.filter(r => r.location.toLowerCase().includes(tokenFilters.location!.toLowerCase()))
+    if (tokenFilters.location) {
+      const needle = tokenFilters.location!.toLowerCase()
+      rows = rows.filter(r => {
+        if (r.location.toLowerCase().includes(needle)) return true
+        const cities = parseCities(r.location).cities
+        return cities.some(c => c.toLowerCase().includes(needle))
+      })
+    }
     if (tokenFilters.type)      rows = rows.filter(r => r.employment_type.toLowerCase().includes(tokenFilters.type!.toLowerCase()))
     if (tokenFilters.minScore)  rows = rows.filter(r => r.overall >= tokenFilters.minScore!)
 
