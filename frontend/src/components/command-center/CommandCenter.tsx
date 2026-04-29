@@ -512,17 +512,8 @@ function FilteredScanRow() {
                     aria-hidden
                   />
                 )}
+                <CompanyLogo company={c.name} size={14} className="shrink-0" />
                 <span className="truncate max-w-[160px] font-medium">{c.name}</span>
-                <span
-                  className={cn(
-                    'text-[9px] font-mono uppercase tracking-[0.06em] px-1.5 py-0.5 rounded shrink-0',
-                    c.method === 'api'       ? 'bg-success/15 text-success border border-success/30' :
-                    c.method === 'websearch' ? 'bg-warning/15 text-warning border border-warning/30' :
-                                               'bg-bg-base text-text-4 border border-border-default',
-                  )}
-                >
-                  {c.method === 'api' ? 'API' : c.method === 'websearch' ? 'WEB' : '…'}
-                </span>
               </button>
             )
           })}
