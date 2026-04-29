@@ -33,7 +33,9 @@ Do NOT proceed with stale dedup data.
 
 **Lookup:**
 
-Look up `(normalize(company), normalize(role))` in `data/dedup-index.tsv` (normalize = lowercase + alphanum-only for company, lowercase + collapsed whitespace + trimmed for role). Apply fuzzy role matching against the `role_normalized` column (ignore minor title variations like trailing dates, parenthetical suffixes, or "(all genders)"). If a match exists **and `last_seen_date` is less than 6 months old**, **skip** — do not generate a duplicate report. Reference the existing entry and move on. If the existing entry is **6+ months old**, re-evaluate — the candidate's CV or the JD may have changed.
+Compute the listing's entity_id (see `frontend/src/lib/entityId.ts`) and look it up in `data/dedup-index.tsv` (which stores `entity_id` plus the legacy `(company_normalized, role_normalized)` columns for fuzzy fallback). For the full set of states that a hit can land in (DUPE / REPOST / CROSS-PORTAL ALIAS / 6+ months STALE), see `modes/pipeline.md` § Step 2b — the same logic applies to single-listing scouting evaluations.
+
+In short: when an entity_id match hits with `last_seen_date < 6 months`, do not generate a duplicate report. The pipeline mode determines whether to refresh the URL (REPOST), record an alias, or skip silently. **6+ months old hits surface in `## Needs re-evaluation` and require explicit user opt-in** — auto-rescoring would burn tokens on entities the user may no longer care about.
 
 ## The Scoring Model
 
