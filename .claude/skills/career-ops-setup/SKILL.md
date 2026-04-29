@@ -132,6 +132,50 @@ Edit `user/portals.yml` using the Edit tool. Update ONLY:
 
 ---
 
+## Step 6b — Sync languages from CV to user/profile.yml
+
+The CV's "Languages" section is the canonical list of the candidate's spoken languages. The desktop app's Configuration → Identity tab also has a structured Languages chip section, which reads/writes `candidate.languages` in profile.yml. To keep them in sync, parse the CV here and write the structured form back.
+
+**Parse `user/cv.md`** for a Languages section. Typical shapes:
+
+```markdown
+## Languages
+
+- Italian (Native)
+- English (C1)
+- Portuguese (Intermediate)
+- Spanish (Intermediate)
+- Chinese (Basic)
+```
+
+Or sometimes a single line: `Languages: Italian (native), English (C1), Spanish (intermediate)`.
+
+**Map each entry to the structured form** the GUI expects: `Name (level)` where level is one of `native | fluent | professional | conversational | basic`. Common CV shorthands map as follows:
+
+| CV form | Maps to |
+|---------|---------|
+| Native / Mother tongue / L1 | `native` |
+| C2 / Proficient / Bilingual | `fluent` |
+| C1 / Advanced / Fluent | `fluent` |
+| B2 / Upper-intermediate / Professional | `professional` |
+| B1 / Intermediate / Conversational | `conversational` |
+| A2 / A1 / Basic / Elementary | `basic` |
+
+**Write to `user/profile.yml` → `candidate.languages`** as a comma-joined string:
+
+```yaml
+candidate:
+  languages: "Italian (native), English (fluent), Portuguese (conversational), Spanish (conversational), Chinese (basic)"
+```
+
+If `candidate.languages` already exists in profile.yml, **overwrite** it with the CV-derived list — the CV is canonical for languages. The user can manually edit the chips later in Configuration → Identity to add languages they don't have on the CV (e.g., a language they're learning that isn't yet listed); those manual edits will get overwritten on the next setup run, which is the right behavior because the CV is the source of truth.
+
+If the CV has no Languages section, leave `candidate.languages` untouched (don't blank-out an existing structured list with no CV data to replace it).
+
+If `candidate.languages` doesn't yet exist as a key in profile.yml (older profiles or fresh-templated ones), insert it under the `candidate:` block right after `work_permit:`.
+
+---
+
 ## Step 7 — Create/update user/_profile.md
 
 **If `user/_profile.md` already exists and is longer than 500 characters**, it was hand-crafted — do NOT overwrite it. Instead, only update the `## Summary` section to reflect the current CV and profile. Leave all other sections intact.
@@ -181,6 +225,7 @@ After all writes complete, print:
 ```
 === career-ops workspace tailored ===
 ✓ portals.yml: [N] positive, [N] negative keywords
+✓ profile.yml: [N] languages synced from CV
 ✓ _profile.md: candidate context written
 ```
 
