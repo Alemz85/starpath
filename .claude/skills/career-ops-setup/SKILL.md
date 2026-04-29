@@ -124,6 +124,7 @@ Edit `user/portals.yml` using the Edit tool. Update ONLY:
 - `lang_blocklist` — update if needed
 
 **Preserve completely:**
+- `search_templates`
 - `seniority_boost`
 - `tracked_companies` (all company entries, api fields, careers_url, etc.)
 - `search_queries`
