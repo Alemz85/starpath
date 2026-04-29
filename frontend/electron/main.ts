@@ -367,8 +367,10 @@ ipcMain.handle('fs:list-recursive', (_e, dirPath: unknown, ext: unknown) => {
   const ex = validateString(ext, 'ext')
   const repoPath = getRepoPath()
   if (!repoPath) return []
-  const full = path.join(repoPath, dp)
-  if (!fs.existsSync(full)) return []
+  // Resolve through the same path-traversal guard as the other fs:* handlers —
+  // a renderer passing '../..' must not be able to walk above repoPath.
+  const full = resolveRepoPath(dp)
+  if (!full || !fs.existsSync(full)) return []
   const results: string[] = []
   function walk(dir: string) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

@@ -69,7 +69,6 @@ const scripts = [
   { name: 'scripts/normalize-statuses.mjs', expectExit: 0 },
   { name: 'scripts/dedup-tracker.mjs', expectExit: 0 },
   { name: 'scripts/merge-tracker.mjs', expectExit: 0 },
-  { name: 'scripts/update-system.mjs check', expectExit: 0 },
 ];
 
 for (const { name, allowFail } of scripts) {
@@ -268,7 +267,7 @@ console.log('\n9. CLAUDE.md integrity');
 
 const claude = readFile('CLAUDE.md');
 const requiredSections = [
-  'Data Contract', 'Update Check', 'Ethical Use',
+  'Data Contract', 'Ethical Use',
   'Offer Verification', 'Canonical States', 'TSV Format',
   'First Run', 'Onboarding',
 ];

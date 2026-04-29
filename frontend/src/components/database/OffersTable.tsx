@@ -12,8 +12,7 @@ import {
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
-import { CompanyLink, toCompanySlug } from '@/components/shared/CompanyLink'
-import Link from 'next/link'
+import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
@@ -253,11 +252,11 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const role = info.row.original.role
         return (
           <div className="flex items-center gap-3 min-w-0">
-            <CompanyLink company={company} size={28} className="shrink-0" />
+            <CompanyLogo company={company} size={28} className="shrink-0" />
             <div className="min-w-0 flex-1 leading-tight">
-              <Link href={`/company?slug=${toCompanySlug(company)}`} onClick={(e) => e.stopPropagation()} className="text-[13px] text-text-1 font-semibold truncate hover:underline hover:text-accent transition-colors block">
+              <div className="text-[13px] text-text-1 font-semibold truncate block">
                 {company}
-              </Link>
+              </div>
               <div className="text-[11.5px] text-text-3 truncate mt-0.5">{role}</div>
             </div>
           </div>

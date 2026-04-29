@@ -17,19 +17,13 @@ Two layers. Read `DATA_CONTRACT.md` for the full list.
 
 **THE RULE:** When the user asks to customize anything (archetypes, narrative, negotiation scripts, proof points, location policy, comp targets), ALWAYS write to `user/_profile.md` or `user/profile.yml`. NEVER edit `modes/_shared.md` for user-specific content. This ensures system updates don't overwrite their customizations.
 
-## Update Check
+## Frontend Design System (MANDATORY)
 
-On the first message of each session, run silently:
+**Before creating a new UI component, modifying styling, picking colors, or adjusting layout in `frontend/`, read `DESIGN-meta.md`.** It is the single source of truth for the design language — palette, typography, spacing, component patterns, motion, and do's-and-don'ts.
 
-```bash
-node scripts/update-system.mjs check
-```
-
-Parse the JSON output:
-- `{"status": "update-available", "local": ..., "remote": ..., "changelog": ...}` → tell the user: *"career-ops update available (v{local} → v{remote}). Your data (CV, profile, tracker, reports) will NOT be touched. Want me to update?"* If yes → `node scripts/update-system.mjs apply`. If no → `node scripts/update-system.mjs dismiss`.
-- `{"status": "up-to-date" | "dismissed" | "offline"}` → say nothing.
-
-The user can also say "check for updates" at any time. Rollback: `node scripts/update-system.mjs rollback`.
+- Use the existing tokens — Tailwind classes from `frontend/tailwind.config.ts` and CSS variables / utility classes from `frontend/src/app/globals.css`.
+- **Don't introduce new colors, shadows, radii, or type sizes** unless `DESIGN-meta.md` is being updated in the same change.
+- If a design decision isn't covered by `DESIGN-meta.md` (a new pattern, a missing token, an edge case), raise it with the user before implementing rather than improvising — the design system stays single-sourced when every gap goes through the doc.
 
 ## Main Files
 

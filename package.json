@@ -10,9 +10,6 @@
     "merge": "node scripts/merge-tracker.mjs",
     "pdf": "node scripts/generate-pdf.mjs",
     "sync-check": "node scripts/cv-sync-check.mjs",
-    "update:check": "node scripts/update-system.mjs check",
-    "update": "node scripts/update-system.mjs apply",
-    "rollback": "node scripts/update-system.mjs rollback",
     "liveness": "node scripts/check-liveness.mjs",
     "scan": "node scripts/scan.mjs"
   },

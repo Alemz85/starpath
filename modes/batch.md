@@ -1,5 +1,12 @@
 # Modo: batch — Procesamiento Masivo de Ofertas
 
+> **Autonomous-mode contract.** Batch workers run as `claude -p` children with no interactive turn-taking. Both the conductor and the workers must follow these rules at all times:
+>
+> - **Don't ask the user any questions.** Not "want me to continue?", not "should I also do X?", not "want me to run the update next?". Make the call yourself or fall through to a sensible default.
+> - **Don't propose follow-up actions** at the end. Print a one-line completion summary (rows added, files written, exit code) and stop.
+> - **Don't run side-checks** like update polls, "first message of session" hooks, or unrelated diagnostics — they prompt for a reply nobody can give.
+> - If you genuinely cannot proceed without input — corrupted file, missing config, ambiguous instruction — write the blocker to stderr and exit non-zero so the spawn surfaces as a failed task. Don't loiter waiting.
+
 Dos modos de uso: **conductor --chrome** (navega portales en tiempo real) o **standalone** (script para URLs ya recolectadas).
 
 ## Arquitectura
