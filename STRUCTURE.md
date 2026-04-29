@@ -29,7 +29,7 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 │           ├── examples/ (3 py)
 │           └── scripts/with_server.py
 │
-├── modes/                        # Mode prompts loaded by the career-ops skill
+├── modes/                        # Mode prompts loaded by the career-ops skill (flat, no subdirs)
 │   ├── _shared.md                # Shared scoring / archetype scaffolding
 │   ├── auto-pipeline.md          # Routes pasted JDs to scouting or oferta
 │   ├── scouting.md               # Lightweight landscape eval (Current+Aspirational Fit)
@@ -41,10 +41,9 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 │   ├── interview-prep.md         # Per-company STAR+R prep
 │   ├── tracker.md / db.md / deadlines.md / patterns.md / followup.md
 │   ├── positioning.md            # Holistic career positioning report
-│   ├── project.md / training.md  # Portfolio project + course/cert evaluation
-│   └── (modes/de, /fr, /ja exist as language variants — collapsed)
+│   └── project.md / training.md  # Portfolio project + course/cert evaluation
 │
-├── *.mjs (root scripts)          # CLI entrypoints invoked by modes
+├── scripts/                      # CLI entrypoints invoked by modes via `node scripts/<name>.mjs`
 │   ├── scan.mjs                  # Greenhouse/Ashby/Lever portal scanner (zero-LLM)
 │   ├── check-liveness.mjs / liveness-core.mjs
 │   ├── generate-pdf.mjs          # Playwright HTML→PDF
@@ -54,8 +53,7 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 │   ├── normalize-statuses.mjs / verify-pipeline.mjs / doctor.mjs
 │   ├── analyze-patterns.mjs / followup-cadence.mjs
 │   ├── cv-sync-check.mjs
-│   ├── update-system.mjs         # Self-updater (check/apply/dismiss/rollback)
-│   └── test-all.mjs              # 63+ CI checks
+│   └── test-all.mjs              # 60+ CI checks
 │
 ├── user/                         # User-layer (NEVER auto-overwritten)
 │   ├── cv.md                     # Canonical CV (markdown)
@@ -93,22 +91,28 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 ├── output/                       # Generated PDFs (gitignored)
 ├── fonts/                        # DM Sans / Space Grotesk woff2 (CV typography)
 │
-└── frontend/                     # Next.js 14 (App Router) + Electron desktop shell
+└── frontend/                     # Next.js 14 (App Router) + Electron desktop shell — branded "starpath"
+    ├── ARCHITECTURE.md           # Cache + IPC deep-dive (read alongside CONTEXT.md)
     ├── package.json / tsconfig*.json / next.config.mjs / tailwind.config.ts
     ├── postcss.config.mjs / build-icon.mjs / README.md
-    ├── electron/                 # main.ts + preload.ts (IPC bridge)
-    ├── dist-electron/            # Compiled main/preload
+    ├── electron/
+    │   ├── main.ts               # IPC handlers, window, CSP, spawn, logo cache
+    │   ├── preload.ts            # contextBridge surface (typed via ElectronAPI)
+    │   └── db/                   # SQLite cache: schema.ts, sync.ts, index.ts
+    ├── dist-electron/            # Compiled output: electron/* + src/lib/parsers/*
     ├── assets/                   # Icons, dmg background
     └── src/
-        ├── app/                  # Next.js routes: page.tsx (command center) +
-        │                         # database/, pipeline/, reports/, scan/,
-        │                         # settings/, trends/  (each = page.tsx)
-        ├── components/           # command-center, database, layout, onboarding,
-        │                         # pipeline, profile, reports, scan, settings,
-        │                         # shared, trends, ui
+        ├── app/                  # Next.js App Router. layout.tsx mounts AppShell;
+        │                         # page.tsx + applying/, database/, reports/, scan/,
+        │                         # company/, settings/, trends/ each have a thin
+        │                         # page.tsx for static-export deep links
+        ├── components/           # applying, command-center, company, configuration,
+        │                         # database, layout, onboarding, profile, reports,
+        │                         # scan, settings, shared, trends, ui
         ├── lib/                  # ipc.ts, utils.ts, parsers/{markdown,tsv,yaml}.ts
-        ├── store/                # Zustand: app.ts, data.ts, nav.ts
-        └── types/index.ts
+        ├── store/                # Zustand: app, data, nav, spawns, configDirty,
+        │                         # databaseFilters, scanFilter
+        └── types/index.ts        # All shared types + TIER_COLORS / STATUS_COLORS / TIER_LABELS
 ```
 
 ## Claude Code architecture surface
@@ -116,5 +120,5 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 - **Skills** (`.claude/skills/*/SKILL.md`) — frontmatter-triggered capabilities. Career-ops is one; impeccable/frontend-design/electron-pro/web-design-guidelines/webapp-testing are general-purpose.
 - **Modes** (`modes/*.md`) — invoked by the career-ops skill via the OpenCode/Claude Code `/career-ops <mode>` slash commands; each mode is a self-contained prompt.
 - **Settings** (`.claude/settings.local.json`) — local permissions/hooks/env per project.
-- **Mode languages** — `modes/de/`, `modes/fr/`, `modes/ja/` mirror the English modes for DACH/Francophone/Japan markets.
-- **Update channel** — `update-system.mjs` pulls system-layer updates without touching `user/`, `data/`, `reports/`, `output/`, `interview-prep/`.
+- **Mode languages** — there are **no language-variant directories on disk today**. `modes/` is flat (English-authored prompts only). Multi-language output is handled inside the modes themselves — `modes/_shared.md` instructs Claude to "Generate content in the language of the JD (EN default)", so a German JD produces a German report from the same English prompt. `DATA_CONTRACT.md` reserves `modes/de/*` as a system-layer slot for future per-market translations, but no routing logic exists in either backend modes or the frontend that would pick a variant directory; if you add `modes/de/` etc., you'll also need to introduce that routing layer (likely in the career-ops skill front-matter or a new mode loader) — confirm the approach with the user before creating parallel files.
+- **Update channel** — none. The upstream-update channel was severed (this fork has diverged too far from `santifer/career-ops` to safely pull system-layer updates). System-layer files are now maintained by hand.

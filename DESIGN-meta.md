@@ -6,12 +6,12 @@ The Meta Store is a product-forward retail experience built to sell hardware —
 
 The "Dolly" design system (Meta's internal name for the store layer) sits atop the broader FDS (Facebook Design System) foundation, inheriting its gray scale and semantic tokens while overlaying its own product-focused palette. The result is a system that feels distinctly Meta — the custom Optimistic typeface brings warmth and approachability to what could otherwise be cold tech retail — yet flexible enough to showcase wildly different product lines (from VR headsets to fashion eyewear) without feeling disjointed. The surface strategy is binary: pure white for browsing and information, rich dark for immersive product moments.
 
-The store's visual hierarchy is ruthlessly simple. Photography does the heavy lifting, supported by short, punchy headlines in Optimistic Medium and body text that stays brief and scannable. Calls to action are pill-shaped, unmistakable, and always Meta Blue. There is no visual noise, no decoration for decoration's sake — every element either sells or navigates.
+The store's visual hierarchy is ruthlessly simple. Photography does the heavy lifting, supported by short, punchy headlines in Optimistic Medium and body text that stays brief and scannable. Calls to action are pill-shaped, unmistakable, and always Galaxy Violet. There is no visual noise, no decoration for decoration's sake — every element either sells or navigates.
 
 **Key Characteristics:**
 - Photography-first retail design where products are the visual heroes, not UI
-- Binary surface strategy: pure white for information, deep dark for immersive product moments
-- Pill-shaped CTAs in saturated blue create unmistakable action points
+- Binary surface strategy: pure white for information, deep galaxy navy for immersive product moments
+- Pill-shaped CTAs in saturated galaxy violet create unmistakable action points
 - Optimistic VF typeface with OpenType ss01/ss02 features brings geometric warmth
 - Generous whitespace frames products like gallery exhibits
 - 8px spacing grid with disciplined vertical rhythm
@@ -21,77 +21,72 @@ The store's visual hierarchy is ruthlessly simple. Photography does the heavy li
 
 ### Primary
 
-- **Meta Blue** (`#0064E0`): Primary CTA background, interactive links, action-driving elements throughout the store
-- **Meta Blue Hover** (`#0143B5`): Darkened blue for hover states on primary buttons
-- **Meta Blue Pressed** (`#004BB9`): Deepest blue for active/pressed button states
-- **Meta Blue Light** (`#47A5FA`): Lighter blue variant used on dark backgrounds for CTAs
-- **Facebook Blue** (`#1877F2`): Legacy accent inherited from FDS, used for deemphasized button text and badges
+- **Galaxy Violet** (`#7C5CFF`): Primary CTA background, interactive links, action-driving elements throughout the app (`--accent`, Tailwind token `accent`)
+- **Galaxy Violet Hover** (`#5B3FE8`): Darkened violet for hover states on primary buttons (`--accent-hover`, token `accent-hover`)
+- **Galaxy Violet Pressed** (`#4A2FC8`): Deepest violet for active/pressed button states (`--accent-press`, token `accent-press`)
+- **Galaxy Violet Light** (`#B5A3FF`): Lighter violet variant used on dark backgrounds for CTAs and hover halos (`--accent-light`, token `accent-light`)
+- **Galaxy Violet Soft** (`rgba(124,92,255,0.12)`): Translucent violet wash for active-nav fill, hover tints, focus rings (token `accent-soft`)
 
-### Secondary & Accent
+### Secondary & Accent — Tier and Status
 
-- **Ray-Ban Red** (`#D6311F`): Product-specific accent for Ray-Ban Meta smart glasses sections
-- **Oculus Purple** (`#A121CE`): Quest/Oculus product accent for VR content
-- **Work Purple** (`#6441D2`): Accent for Meta for Work/enterprise content
-- **Portal Blue** (`#1B365D`): Deep navy accent for Portal product line
-- **Portal Hero Blue** (`#C8E4E8`): Soft teal-blue for Portal hero backgrounds
-- **Portal Light Blue** (`#ADD4E0`): Secondary Portal surface tint
+The product-line accents are replaced by the **tier scale** (evaluation strength) and **status scale** (application lifecycle). Both ladder off the galaxy violet primary so the system reads as one palette.
+
+**Tier scale** — galaxy violet gradient. T1 deep indigo for the strongest matches; T4 fades to slate so the worst rows recede:
+
+- **Tier 1 / Deep Galaxy Indigo** (`#3D2BB5`): Strongest evaluation match. Token `tier-1`. Surface: `tier-1-bg #EFEAFF`.
+- **Tier 2 / Galaxy Violet** (`#7C5CFF`): Strong match (matches the primary accent). Token `tier-2`. Surface: `tier-2-bg #F1ECFF`.
+- **Tier 3 / Muted Lavender** (`#A89CD9`): Softer match. Token `tier-3`. Surface: `tier-3-bg #F4F1FA`.
+- **Tier 4 / Faded Slate** (`#94A3B8`): Weak/skip — barely there. Token `tier-4`.
+
+**Status scale** — semantic colors mapped to the application lifecycle (see `STATUS_COLORS` in `frontend/src/types/index.ts`):
+
+- **Evaluated** → Galaxy Violet (`#7C5CFF`, info/accent shared token)
+- **Applied / Responded** → Galaxy Violet (`#7C5CFF`)
+- **Interview** → Warning amber (`#F7B928`)
+- **Offer** → Success green (`#007D1E`)
+- **Rejected** → Error red (`#C80A28`)
+- **Discarded / SKIP** → Muted text (`#8595A4`)
 
 ### Surface & Background
 
-- **White** (`#FFFFFF`): Primary page canvas, nav bar background, card surfaces
-- **Soft Gray** (`#F1F4F7`): Secondary background for content sections (--dolly-bg-grey)
-- **Warm Gray** (`#F7F8FA`): Flat card background, subtle surface differentiation
-- **Web Wash** (`#F0F2F5`): Deemphasized background areas, attachment footers
-- **Linen** (`#F2F0E6`): Warm off-white for lifestyle-adjacent sections
-- **Baby Blue** (`#E8F3FF`): Highlight background, subtle blue tint for informational areas
-- **Near Black** (`#1C1E21`): Dark section backgrounds, immersive product showcase areas
-- **Oculus Light** (`#181A1B`): Slightly warm dark surface for Quest product sections
-- **Oculus Dark** (`#000000`): Pure black for maximum contrast product displays
+- **White** (`#FFFFFF`): Primary page canvas, nav bar background, card surfaces (token `bg-base`)
+- **Soft Gray** (`#F1F4F7`): Secondary background for content sections (`--dolly-bg-grey`, token `bg-panel`)
+- **Warm Gray** (`#F7F8FA`): Flat card background, subtle surface differentiation (token `bg-elevated`)
+- **Web Wash** (`#F0F2F5`): Deemphasized background areas, sidebar/topbar chrome (token `bg-chrome`)
+- **Galaxy Deep** (`#0A0820`): Immersive splash background — onboarding, brand reveal (`--galaxy-deep`, token `galaxy-deep`)
+- **Galaxy Matte** (`#1F1B36`): Activity panel body — matte/pastel dark surface (`--galaxy-matte`, token `galaxy-matte`)
+- **Galaxy Matte 2** (`#2A2548`): Activity panel header — slightly lighter matte (`--galaxy-matte-2`, token `galaxy-matte-2`)
 - **Overlay** (`rgba(0, 0, 0, 0.6)`): Modal/lightbox backdrop
 
 ### Neutrals & Text
 
-- **Primary Text** (`#050505`): Main body and heading text on light surfaces
-- **Dark Charcoal** (`#1C2B33`): Dolly system primary text, slightly warmer than pure black (--dolly-text-primary)
-- **Icon Secondary** (`#465A69`): Secondary icon fills, subdued UI elements
-- **Secondary Text** (`#65676B`): Supporting copy, labels, timestamps (--secondary-text)
-- **Slate Gray** (`#5D6C7B`): Meta Store secondary text, product descriptions (--dolly-text-secondary)
-- **Section Header** (`#4B4C4F`): Mid-gray for section titles
-- **Button Text Gray** (`#444950`): FDS button text default (--fds-button-text)
-- **Disabled Text** (`#BCC0C4`): Inactive button labels, placeholder text
-- **CTA Disabled Text** (`#8595A4`): Muted blue-gray for disabled interactive labels
-- **Divider** (`#CED0D4`): Content separators, input borders
-- **Divider Gray** (`#DEE3E9`): Lighter divider for Dolly sections
-- **CTA Gray Border** (`#CBD2D9`): Outline button borders
-- **Dark Gray Border** (`#909396`): Stronger outline for emphasis
+- **Primary Text** (`#050505`): Main headings, max-contrast labels (token `text-1`)
+- **Dark Charcoal** (`#1C2B33`): Body and default heading text (`--dolly-text-primary`, token `text-2`)
+- **Slate Gray** (`#5D6C7B`): Supporting copy, secondary labels, placeholder hints (`--dolly-text-secondary`, token `text-3`)
+- **Muted Slate** (`#8595A4`): Disabled labels, tertiary metadata, retired statuses (token `text-4`)
+- **Divider Gray** (`#DEE3E9`): Default content separators, card borders (`--divider-gray`, token `border-default`)
+- **Strong Divider** (`#CED0D4`): Stronger outline — input borders, scrollbar thumbs (token `border-strong`)
+- **Hover Slate** (`#909396`): Stronger outline on hover for scrollbars and outline elements
 
 ### Semantic & Accent
 
-- **Success Green** (`#31A24C`): Badge success background, positive indicators
-- **Store Success** (`#007D1E`): Darker success green for Dolly store confirmations
-- **Error Red** (`#E41E3F`): Critical badge background, notification badges
-- **Store Error** (`#C80A28`): Darker error red for Dolly store error states
-- **Warning Amber** (`#F7B928`): Attention badges, caution indicators
-- **Positive BG** (`rgba(36, 228, 0, 0.15)`): Subtle success background tint
-- **Error BG** (`rgba(255, 123, 145, 0.15)`): Subtle error background tint
-- **Warning BG** (`rgba(255, 226, 0, 0.15)`): Subtle warning background tint
-- **Info BG** (`rgba(0, 145, 255, 0.15)`): Subtle informational blue tint
-
-### Base Color Spectrum (FDS)
-
-- **Cherry** (`#F3425F`): Expressive accent
-- **Grape** (`#9360F7`): Purple accent
-- **Lime** (`#45BD62`): Green accent
-- **Seafoam** (`#54C7EC`): Cyan accent
-- **Teal** (`#2ABBA7`): Teal accent
-- **Tomato** (`#FB724B`): Orange accent
-- **Pink** (`#FF66BF`): Pink accent
+- **Success Green** (`#007D1E`): Offer status, positive indicators, success badges (token `success`)
+- **Warning Amber** (`#F7B928`): Interview status, attention badges (token `warning`)
+- **Error Red** (`#C80A28`): Rejected status, critical badges, destructive actions (token `danger`)
+- **Info Violet** (`#7C5CFF`): Evaluated status, informational hints — aliased to the primary accent so info reads as part of the brand (token `info`)
+- **Positive BG** (`rgba(0, 125, 30, 0.12)`): Subtle success background tint
+- **Error BG** (`rgba(200, 10, 40, 0.12)`): Subtle error background tint
+- **Warning BG** (`rgba(247, 185, 40, 0.15)`): Subtle warning background tint
+- **Info BG** (`rgba(124, 92, 255, 0.12)`): Subtle informational violet tint (matches `accent-soft`)
 
 ### Gradient System
 
-- **Dark Overlay Gradient**: `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` — applied over dark product photography for text legibility
-- **Blue Infinity Gradient**: The Meta symbol uses a blue-to-teal gradient on brand materials, though the store uses flat blue
-- **Shadow Alpha Scale**: 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60, 0.80 — both black and white alpha ramps for layered transparency
+- **Brand Wordmark Gradient** (`linear-gradient(135deg, #5B3FE8 0%, #7C5CFF 50%, #A121CE 100%)`): Used by `.galaxy-text` to clip-fill the "starpath" wordmark — three-stop violet running into a magenta highlight.
+- **Galaxy Ambient Wash** (`.galaxy-bg`): Layered radial gradients — `radial-gradient(ellipse at 78% 18%, rgba(124, 92, 255, 0.06)…)` + `radial-gradient(ellipse at 22% 88%, rgba(124, 92, 255, 0.07)…)` + `radial-gradient(ellipse at 50% 50%, rgba(161, 33, 206, 0.025)…)` over `#FFFFFF`. Used on hero/empty-state cards.
+- **Galaxy Immersive Wash** (`.galaxy-immersive`): Same recipe at higher opacity over `#0A0820` — onboarding splash, brand reveal moments.
+- **Galaxy Border** (`.galaxy-border`): `linear-gradient(135deg, rgba(124,92,255,0.4), rgba(91,63,232,0.4), rgba(161,33,206,0.4))` border-box on top of a white padding-box — used for empty-state cards that want the brand glow without a fill change.
+- **Dark Overlay Gradient**: `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` — applied over dark photography for text legibility.
+- **Shadow Alpha Scale**: 0.04, 0.06, 0.08, 0.10, 0.15, 0.20, 0.30 — softer than Meta's because the palette is lower-contrast; black alpha ramps for layered transparency.
 
 ## 3. Typography Rules
 
@@ -131,42 +126,46 @@ Optimistic VF is the cornerstone of Meta's typographic identity — a humanist s
 ### Buttons
 
 **Primary (Pill)**
-- Background: Meta Blue (`#0064E0`)
+- Background: Galaxy Violet (`#7C5CFF`)
 - Text: White (`#FFFFFF`)
 - Border: none
 - Border radius: fully rounded pill (100px)
 - Padding: 10px 22px
-- Font: Optimistic VF, 14px, regular, -0.14px tracking
-- Hover: darkens to `#0143B5`, scale(1.1) transform
-- Pressed: `#004BB9`, scale(0.9), opacity 0.5
-- Focus: 3px ring in accent color, outline auto 2px
-- Transition: background 200ms ease, transform 150ms ease
+- Font: Optimistic VF, 14px, 500 (Medium), -0.14px tracking
+- Shadow: `0 1px 2px rgba(76, 47, 200, 0.15)` resting
+- Hover: darkens to `#5B3FE8`, shadow lifts to `0 4px 12px rgba(124, 92, 255, 0.35)`
+- Pressed: `#4A2FC8`, scale(0.98)
+- Disabled: `#DEE3E9` background, `#8595A4` text, no shadow, cursor not-allowed
+- Focus: 1px violet ring `rgba(124, 92, 255, 0.45)` (no offset)
+- Transition: background 200ms ease, transform 150ms ease, box-shadow 200ms ease
 
 **Secondary (Outlined Pill)**
 - Background: transparent
-- Text: Dark Charcoal (`#1C2B33`) at 50% opacity
+- Text: Dark Charcoal (`#1C2B33`)
 - Border: 2px solid `rgba(10, 19, 23, 0.12)`
 - Border radius: fully rounded pill (100px)
 - Padding: 10px 22px
-- Hover: background shifts to `rgba(70, 90, 105, 0.7)`, text to white
+- Hover: background shifts to `rgba(70, 90, 105, 0.08)`
 
 **Ghost/Link Button**
-- Background: transparent / `rgba(255, 255, 255, 0)`
-- Text: Link Blue (`#385898`)
+- Background: transparent
+- Text: Galaxy Violet (`#7C5CFF`)
 - Border radius: 24px
 - Padding: 4px 12px
 
 **Disabled**
-- Background: `#DEE3E9` (--dolly-cta-disabled)
-- Text: `#8595A4` (--dolly-cta-disabled-text)
+- Background: `#DEE3E9` (Divider Gray)
+- Text: `#8595A4` (Muted Slate)
 - Cursor: not-allowed, no hover effects
 
 ### Cards & Containers
 
-- Background: White (`#FFFFFF`) or Flat Gray (`#F7F8FA`)
-- Corner radius: 20px (--card-corner-radius) for standard cards, 24px for product feature cards
-- Padding: 10px horizontal, 20px vertical (--card-padding)
-- Shadow: `0 12px 28px 0 rgba(0,0,0,0.2), 0 2px 4px 0 rgba(0,0,0,0.1)` (elevated cards)
+- Background: White (`#FFFFFF`) or Warm Gray (`#F7F8FA`)
+- Corner radius: 20px (`--card-corner-radius`) for standard cards, 24px for product feature cards
+- Padding: 10px horizontal, 20px vertical
+- Shadow: `0 12px 28px 0 rgba(0,0,0,0.08), 0 2px 4px 0 rgba(0,0,0,0.04)` (`shadow-card` token)
+- Lift shadow: `0 16px 32px 0 rgba(0,0,0,0.10), 0 2px 6px 0 rgba(0,0,0,0.05)` (`shadow-lift` token)
+- Subtle shadow: `0 2px 4px 0 rgba(0,0,0,0.06)` (`shadow-subtle` token)
 - Hover: subtle lift via translateY(-2px) and shadow intensification
 - Transition: transform 300ms ease, box-shadow 300ms ease
 - Product cards use full-bleed imagery with text overlay on dark gradient
@@ -174,25 +173,26 @@ Optimistic VF is the cornerstone of Meta's typographic identity — a humanist s
 ### Inputs & Forms
 
 - Background: White (`#FFFFFF`)
-- Border: 1px solid `#CED0D4` (--input-border-color)
+- Border: 1px solid `#CED0D4` (`border-strong`)
 - Border radius: 8px
 - Font: Optimistic VF, 16px
-- Focus: border color shifts to accent blue `hsl(214, 89%, 52%)`, 3px outer ring
-- Error: border and label color `hsl(350, 87%, 55%)`
-- Placeholder: `#65676B` (--secondary-text)
+- Focus: border color shifts to Galaxy Violet `#7C5CFF`, 1px outer ring `rgba(124, 92, 255, 0.45)`
+- Error: border and label color `#C80A28`
+- Placeholder: `#5D6C7B` (`text-3`)
 - Transition: border-color 200ms ease, box-shadow 200ms ease
 
 ### Navigation
 
-- Background: White (`#FFFFFF`), sticky at top
-- Frosted glass effect: `rgba(241, 244, 247, 0.8)` with backdrop-filter blur
-- Logo: Meta wordmark SVG, left-aligned
-- Links: Optimistic VF, 16px/500, Dark Charcoal (`#1C2B33`)
-- Hover: underline decoration
-- CTA: Blue pill button, right-aligned
+- Background: White (`#FFFFFF`) or Web Wash (`#F0F2F5` for sidebar chrome), sticky at top
+- Frosted glass effect: `rgba(241, 244, 247, 0.8)` with backdrop-filter blur (`.frosted` utility)
+- Logo: `<StarpathLogo />` SVG paired with the galaxy-violet wordmark, left-aligned
+- Links: Optimistic VF, 13px (`text-body`), Dark Charcoal (`#1C2B33`)
+- Active item: `bg-accent/15` (galaxy-violet wash) + `border-l-2 border-accent` rail
+- Hover: `text-text-2` + `bg-bg-elevated`
+- CTA: Galaxy Violet pill button, right-aligned
 - Mobile: hamburger collapse, full-screen overlay nav
 - Height: approximately 56px desktop, 48px mobile
-- Border-bottom: subtle `rgba(0,0,0,0.1)` separator
+- Border-bottom: subtle `#DEE3E9` separator (`border-default`)
 
 ### Image Treatment
 
@@ -203,11 +203,15 @@ Optimistic VF is the cornerstone of Meta's typographic identity — a humanist s
 - Lazy loading: native loading="lazy" on below-fold images
 - WebP format with JPEG fallback
 
-### Product-Specific Sections
+### Tier and Status Sections
 
-- **Quest sections**: Dark backgrounds (`#181A1B` or `#000000`), white/light text, purple accents (`#A121CE`)
-- **Ray-Ban sections**: Warm lifestyle photography, red accents (`#D6311F`), linen tones (`#F2F0E6`)
-- **Portal sections**: Teal-blue palette (`#C8E4E8`, `#ADD4E0`), navy accents (`#1B365D`)
+The Meta Store's product-line sections (Quest dark, Ray-Ban warm-lifestyle, Portal teal-blue) are replaced by **tier and status sections** in the career-ops UI:
+
+- **Tier 1 sections** (top recommendations): white surface, deep indigo accents (`#3D2BB5`), `tier-1-bg #EFEAFF` chip washes, galaxy-violet CTAs.
+- **Tier 2 / Tier 2-high sections**: standard white surface, galaxy-violet accents (`#7C5CFF`).
+- **Tier 3 / Tier 4 sections**: white surface, muted lavender / faded slate accents — visually recede so the eye lands on higher-tier rows.
+- **Galaxy immersive moments** (onboarding splash, brand reveal): `.galaxy-immersive` background (`#0A0820` base with violet + magenta radial washes), white text, galaxy-violet CTAs.
+- **Activity panel**: `galaxy-matte #1F1B36` body with `galaxy-matte-2 #2A2548` header — for live spawn/log streaming where the streaming text needs a calm dark surface.
 
 ## 5. Layout Principles
 
@@ -249,7 +253,8 @@ Whitespace is the store's primary luxury signifier. Sections breathe with 64-80p
 | Value | Context |
 |-------|---------|
 | 8px | Inputs, small UI elements, glimmer placeholders |
-| 20px | Cards (--card-corner-radius) |
+| 12px | Mid containers, code blocks, table radius |
+| 20px | Cards (`--card-corner-radius`) |
 | 24px | Feature cards, product highlight areas, ghost buttons |
 | 100px | Pill buttons, tags, badges (fully rounded) |
 
@@ -258,18 +263,20 @@ Whitespace is the store's primary luxury signifier. Sections breathe with 64-80p
 | Level | Treatment | Use |
 |-------|-----------|-----|
 | Flat | No shadow, background differentiation only | Default cards, sections |
-| Level 1 | `0 2px 4px 0 rgba(0,0,0,0.1)` | Subtle lift for interactive cards |
-| Level 2 | `0 12px 28px 0 rgba(0,0,0,0.2), 0 2px 4px 0 rgba(0,0,0,0.1)` | Elevated cards, dropdowns |
+| Level 1 | `0 2px 4px 0 rgba(0,0,0,0.06)` (`shadow-subtle`) | Subtle lift for interactive cards |
+| Level 2 | `0 12px 28px 0 rgba(0,0,0,0.08), 0 2px 4px 0 rgba(0,0,0,0.04)` (`shadow-card`) | Elevated cards, dropdowns |
+| Lift | `0 16px 32px 0 rgba(0,0,0,0.10), 0 2px 6px 0 rgba(0,0,0,0.05)` (`shadow-lift`) | Raised feature cards on hover |
 | Overlay | `rgba(0,0,0,0.6)` full-screen | Modal/lightbox backdrop |
 | Inset | `rgba(255,255,255,0.5)` inset | Inner glow on glass-effect surfaces |
 
-The Meta Store favors a primarily flat elevation model. Most surface differentiation comes from background color shifts (white → soft gray → dark) rather than shadows. When shadows appear, they are soft, diffused, and use the dual-shadow pattern (a large blurred shadow for ambient light + a small sharp shadow for direct light). This creates a physically plausible depth feel without heavy visual weight.
+The Meta Store favors a primarily flat elevation model. Most surface differentiation comes from background color shifts (white → soft gray → galaxy navy) rather than shadows. When shadows appear, they are soft, diffused, and use the dual-shadow pattern (a large blurred shadow for ambient light + a small sharp shadow for direct light). This creates a physically plausible depth feel without heavy visual weight. Note the alphas are softer than Meta's reference values — the lower-contrast galaxy palette doesn't tolerate Meta's 0.20 ambient shadow.
 
 ### Decorative Depth
 
-- **Frosted glass nav**: `rgba(241, 244, 247, 0.8)` background with backdrop-filter blur, creating a translucent navigation bar
+- **Frosted glass nav**: `rgba(241, 244, 247, 0.8)` background with backdrop-filter blur, creating a translucent navigation bar (`.frosted`)
+- **Active-nav running halo**: `0 0 0 4px rgba(124, 92, 255, 0.20), 0 0 12px 4px rgba(124, 92, 255, 0.30)` — emitted around the Activity sidebar icon when a spawn is running, paired with an `animate-pulse` class
 - **Dark section gradient**: `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` overlay on product photography for text legibility
-- **Glimmer loading states**: Pulsating opacity animation (0.25 → 1.0) on `#979A9F` base color with 8px radius, 1000ms steps timing — used for skeleton screens during product image loading
+- **Glimmer loading states**: Shimmer animation over `#F1F4F7` → `#E4E8EC` → `#F1F4F7` gradient, 1500ms infinite — used for skeleton screens (`.shimmer` utility)
 
 ## 7. Do's and Don'ts
 
@@ -277,27 +284,29 @@ The Meta Store favors a primarily flat elevation model. Most surface differentia
 
 - Use pill-shaped (100px radius) buttons for all primary and secondary CTAs
 - Let product photography dominate — make images the visual hero of every section
-- Alternate between light and dark surface sections to create visual rhythm
+- Alternate between light (white / soft gray) and dark (galaxy navy) surface sections to create visual rhythm
 - Use Optimistic VF with ss01 and ss02 features for all display text
 - Keep body copy brief and scannable — this is retail, not editorial
 - Use the dual-shadow pattern (ambient + direct) when elevation is needed
-- Apply Meta Blue (`#0064E0`) exclusively for actionable elements
+- Apply Galaxy Violet (`#7C5CFF`) exclusively for actionable elements
 - Use generous whitespace (64-80px section padding) to convey premium feel
 - Apply gradient overlays on dark photography when placing text over images
-- Use the semantic color tokens (success, error, warning) consistently for status communication
+- Use the semantic color tokens (success `#007D1E`, warning `#F7B928`, danger `#C80A28`, info `#7C5CFF`) consistently for status communication
+- Use the tier scale (`tier-1` → `tier-4`) for evaluation strength — never reach for an arbitrary new color when a tier already exists
 
 ### Don't
 
-- Don't use sharp corners (< 8px radius) — the Meta Store is all smooth curves
-- Don't mix product-specific accents (Ray-Ban Red with Quest Purple in the same section)
+- Don't use sharp corners (< 8px radius) — the system is all smooth curves
+- Don't mix tier accents within the same section (a Tier 1 card and a Tier 4 card shouldn't both be highlighted; let the lower tier recede)
 - Don't add decorative borders or ornamental dividers — dividers are functional only
 - Don't place important text directly on photography without a gradient scrim
 - Don't use weight 300 for anything smaller than 28px — it becomes too thin
-- Don't use Facebook Blue (`#1877F2`) as a primary CTA color — use Meta Blue (`#0064E0`) instead
+- Don't introduce a second blue/violet for CTAs — Galaxy Violet (`#7C5CFF`) is the only primary action color. If you need an alternate emphasis, drop to the secondary outlined pill rather than picking a new hue.
 - Don't crowd product images — maintain generous padding around all photography
 - Don't use more than 2 levels of text hierarchy in a single card
-- Don't add drop shadows to cards in dark sections — rely on border and color separation
+- Don't add drop shadows to cards in galaxy/dark sections — rely on `border-default` and color separation
 - Don't use long paragraphs — limit to 2-3 lines of body copy per block
+- Don't reach for a magenta or pink accent on top of the gradient wordmark — `#A121CE` exists only inside `.galaxy-text` and `.galaxy-bg/.galaxy-immersive` washes; don't promote it to a standalone token
 
 ## 8. Responsive Behavior
 
@@ -339,28 +348,33 @@ The Meta Store favors a primarily flat elevation model. Most surface differentia
 
 ### Quick Color Reference
 
-- Primary CTA: Meta Blue (`#0064E0`)
+- Primary CTA / accent: Galaxy Violet (`#7C5CFF`)
 - Background: White (`#FFFFFF`)
-- Heading text: Dark Charcoal (`#1C2B33`)
-- Body text: Slate Gray (`#5D6C7B`)
-- Border/divider: Divider Gray (`#DEE3E9`)
-- Secondary surface: Soft Gray (`#F1F4F7`)
-- Dark sections: Near Black (`#1C1E21`)
+- Heading text: Primary Text (`#050505`)
+- Body text: Dark Charcoal (`#1C2B33`)
+- Secondary text: Slate Gray (`#5D6C7B`)
+- Muted/disabled text: Muted Slate (`#8595A4`)
+- Border/divider: Divider Gray (`#DEE3E9`); strong: Strong Divider (`#CED0D4`)
+- Secondary surface: Soft Gray (`#F1F4F7`); elevated: Warm Gray (`#F7F8FA`); chrome: Web Wash (`#F0F2F5`)
+- Dark immersive sections: Galaxy Deep (`#0A0820`); matte panels: Galaxy Matte (`#1F1B36`)
+- Tier scale: T1 `#3D2BB5` → T2 `#7C5CFF` → T3 `#A89CD9` → T4 `#94A3B8`
+- Status: success `#007D1E`, warning `#F7B928`, danger `#C80A28`, info `#7C5CFF`
 
 ### Example Component Prompts
 
-- "Create a product hero section with a full-width cinematic image, `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` text overlay, Optimistic-style 64px/500 white headline, and a Meta Blue (`#0064E0`) pill button (100px radius, 10px 22px padding)"
+- "Create a product hero section with a full-width cinematic image, `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` text overlay, Optimistic-style 64px/500 white headline, and a Galaxy Violet (`#7C5CFF`) pill button (100px radius, 10px 22px padding, hover `#5B3FE8`)"
 - "Design a 3-column product card grid with 20px rounded corners, white backgrounds, edge-to-edge product images at top, 18px/400 body text in Slate Gray (`#5D6C7B`), and 24px grid gap"
-- "Build a sticky navigation bar with white background, `rgba(241, 244, 247, 0.8)` frosted glass effect, 16px/500 dark text links, and a right-aligned Meta Blue pill CTA"
-- "Create a dark product showcase section with `#1C1E21` background, white 48px/500 headline, `#5D6C7B` body text, and a secondary outlined pill button with `rgba(10, 19, 23, 0.12)` border"
-- "Design a feature comparison grid with Soft Gray (`#F1F4F7`) background, 24px rounded cards, Meta Blue checkmark icons, and 14px/700 bold labels"
+- "Build a sticky navigation bar with white background, `rgba(241, 244, 247, 0.8)` frosted glass effect (`.frosted` utility), 13px/500 dark text links, an active-state `bg-accent/15` + `border-l-2 border-accent` rail, and a right-aligned Galaxy Violet pill CTA"
+- "Create a galaxy-immersive section with `#0A0820` background plus violet-and-magenta radial washes (the `.galaxy-immersive` recipe), white 48px/500 headline, `#5D6C7B` body text, and a secondary outlined pill button with `rgba(10, 19, 23, 0.12)` border"
+- "Design a tier comparison grid with Soft Gray (`#F1F4F7`) background, 24px rounded cards, tier-coloured chips (`tier-1 #3D2BB5`, `tier-2 #7C5CFF`, `tier-3 #A89CD9`, `tier-4 #94A3B8`), and 14px/700 bold labels"
 
 ### Iteration Guide
 
 When refining existing screens generated with this design system:
 1. Focus on ONE component at a time
 2. Reference specific color names and hex codes from this document
-3. Use natural language descriptions, not CSS values — "pill-shaped Meta Blue button" not "border-radius: 100px; background: #0064E0"
+3. Use natural language descriptions, not CSS values — "pill-shaped Galaxy Violet button" not "border-radius: 100px; background: #7C5CFF"
 4. Describe the desired "feel" alongside specific measurements — "generous whitespace like a gallery" means 64-80px section padding
-5. For dark sections, specify which product context (Quest dark `#181A1B`, pure black `#000000`, or standard dark `#1C1E21`)
+5. For dark sections, specify which immersive context (Galaxy Deep `#0A0820` for splash/onboarding, Galaxy Matte `#1F1B36` for activity panel body, Galaxy Matte 2 `#2A2548` for activity panel header)
 6. Always specify the Optimistic VF weight explicitly (300, 400, 500, or 700) — each creates a dramatically different feel
+7. When picking a tier color, name the tier — "Tier 1 indigo" reads better than "deep violet" because it carries the semantic
