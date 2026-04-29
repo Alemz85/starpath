@@ -44,12 +44,29 @@ Do NOT proceed with stale dedup data — silent misses are exactly what this ind
 
 **Step 2b — Lookup:**
 
-For each URL's detected company + role, look up `(normalize(company), normalize(role))` in `data/dedup-index.tsv` (normalize = lowercase + alphanum-only for company, lowercase + collapsed whitespace + trimmed for role). Apply fuzzy role matching (ignore minor title variations like trailing dates, parenthetical market tags, "(all genders)" suffixes) against the `role_normalized` column.
+For each URL's detected company + role + city, compute the entity_id (see `frontend/src/lib/entityId.ts` — same canonicalization as the SQLite cache). Look up `(normalize(company), normalize(role))` in `data/dedup-index.tsv` (normalize = lowercase + alphanum-only for company, lowercase + collapsed whitespace + trimmed for role) AND the entity_id against the cache's entity_id index. Match on either is a hit.
 
-- If a match exists **and `last_seen_date` is less than 6 months old** → skip:
-  - Mark as `- [x] DUPE | URL | Company | Role | → existing #{num}`
-  - Move to "Processed" referencing the existing report (look up the entry number in `data/scouting.md` or `data/applications.md` if needed)
-- If the match is **6+ months old** → re-evaluate (CV or JD may have changed since)
+When the lookup hits, the existing entity may be in one of three states. The pipeline's job is to recognize which:
+
+- **DUPE** — the URL is the SAME (or trivially-different alias) as the entity's currently-stored URL. Don't even update the entity. Skip silently:
+  - Mark as `- [x] DUPE | URL | Company | Role | → entity {entity_id}`
+  - Move to "Processed". No write anywhere else.
+
+- **REPOST** — different URL, but the entity's currently-stored URL is closed/stale (per `data/scan-history.tsv` liveness signal) and the new URL is live. The listing has come back up. Update the entity's stored URL to the new one and flip its liveness back to `active`. **Don't rescore.** The dimensional table from the prior eval still applies — only the URL and liveness changed:
+  - Mark as `- [x] REPOST | URL | Company | Role | → entity {entity_id} (URL refreshed)`
+  - Append a one-line note to `data/scouting.md`'s Notes column on the entity's row: `Reposted YYYY-MM-DD (URL refreshed)`. Do NOT append a new row — the entity already exists.
+  - Update `data/scan-history.tsv` to reflect the new URL.
+
+- **CROSS-PORTAL ALIAS** — different URL, but the entity's currently-stored URL is still live (both URLs are active simultaneously). Some companies post the same role on multiple ATS platforms. Log the alternate URL in the entity's metadata, no rescore:
+  - Mark as `- [x] ALIAS | URL | Company | Role | → entity {entity_id}`
+  - Append the alt URL to the entity's `## Alternate URLs` block in scouting.md Notes (or append a one-liner if no such block exists).
+
+If `last_seen_date` is **6+ months old**, do NOT auto-rescore. Surface the entity in a "needs re-evaluation" queue (a section at the top of `data/pipeline.md` named `## Needs re-evaluation`). The user opts in by manually re-running the evaluation — re-eval costs tokens and the candidate's CV may also have changed, so let them choose:
+
+- Mark as `- [!] STALE | URL | Company | Role | → entity {entity_id} (last eval YYYY-MM-DD)`
+- Move to `## Needs re-evaluation` instead of `## Processed`.
+
+When the user accepts a re-eval and runs it: the new evaluation's report file is written to the canonical path and the prior file is moved to `reports/tier-N/.history/{Company} - {Role}.{prior-eval-date}.md`. The score-history.tsv row for the new eval is appended (it's append-only). The slide-over's History tab will show both rows.
 
 ## Step 2c — Relevance gate (DISCARD irrelevant listings BEFORE scoring)
 
