@@ -168,11 +168,13 @@ Aspirational Fit = (Growth/Mobility + Optionality/Exit + Brand Value) / 3
 Fixed weighting (CF dominates — reachability is the primary question for an entry-level user). The math, including the bottom-range penalty on rollups and the context modifiers below, is computed by `scripts/score-listing.mjs` — the agent passes judgment dim scores in, the script returns CF / AF / Overall / tier / modifiers-applied with full math.
 
 **Context modifiers** (applied after the weighted rollup):
-- Salary Adj for City ≤ 4 → **−0.4** (poverty-wage or well below market)
-- Salary Adj for City ≥ 9 → **+0.2** (notably above market)
-- Work-Life Balance ≤ 4 → **−0.2** (poor WLB reputation)
+- Salary Adj for City ≤ 4 → **−0.4** (poverty-wage or well below market) — **skipped for interns**
+- Salary Adj for City ≥ 9 → **+0.2** (notably above market) — **skipped for interns**
+- Work-Life Balance ≤ 4 → **−0.2** (poor WLB reputation) — applies to interns too
 
-Modifiers stack. When any fire, show them explicitly in the Overall line of the report (the script returns them in `overall_modifiers`):
+**Intern carve-out:** when `is_intern: true`, the Salary Adj modifiers do NOT fire. Stipends aren't salaries — they're by design close to break-even after rent, so penalizing Overall by −0.4 on nearly every intern role would be near-universal noise that doesn't differentiate good intern roles from bad ones. The Salary Adj score is still surfaced in the report (the user can still see how much the stipend covers); only its effect on Overall is suppressed for interns. WLB modifier still applies — sweatshop signals matter regardless of role type.
+
+Modifiers stack. When any fire, show them explicitly in the Overall line of the report (the script returns them in `overall_modifiers`, including a `Salary Adj modifier skipped (intern role)` entry when the intern carve-out suppresses one):
 ```
 **Overall** | **X.X/10** | CF × 0.70 + AF × 0.30 − 0.4 (Salary Adj=3) − 0.2 (WLB=4) |
 ```

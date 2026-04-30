@@ -108,18 +108,30 @@ export function rollupAspirationalFit({ growth_mobility, optionality_exit, brand
  * Compute Overall = CF × 0.70 + AF × 0.30 + context modifiers.
  *
  * Context modifiers (from _shared.md § Context modifiers):
- *   Salary Adj ≤ 4   → -0.4
- *   Salary Adj ≥ 9   → +0.2
- *   Work-Life Bal ≤ 4 → -0.2
+ *   Salary Adj ≤ 4   → -0.4    (skipped for interns — stipends aren't salaries)
+ *   Salary Adj ≥ 9   → +0.2    (skipped for interns)
+ *   Work-Life Bal ≤ 4 → -0.2   (still applies to interns — sweatshop signal matters)
+ *
+ * Why the intern carve-out: intern stipends are by-design close to break-even
+ * after rent. Penalizing Overall by -0.4 for nearly every intern role would
+ * be near-universal noise that doesn't differentiate good intern roles from
+ * bad ones. The Salary Adj score itself is still surfaced in the report;
+ * only its effect on Overall is suppressed for interns.
  *
  * Returns { overall, modifiersApplied } so callers can show the math.
  */
-export function rollupOverall(cf, af, { salary_adj_for_city, work_life_balance }) {
+export function rollupOverall(cf, af, { salary_adj_for_city, work_life_balance, is_intern }) {
   const base = cf * 0.70 + af * 0.30
   const modifiers = []
   let delta = 0
-  if (salary_adj_for_city <= 4) { delta -= 0.4; modifiers.push({ source: 'Salary Adj ≤ 4', value: -0.4 }) }
-  if (salary_adj_for_city >= 9) { delta += 0.2; modifiers.push({ source: 'Salary Adj ≥ 9', value: +0.2 }) }
+  if (!is_intern) {
+    if (salary_adj_for_city <= 4) { delta -= 0.4; modifiers.push({ source: 'Salary Adj ≤ 4', value: -0.4 }) }
+    if (salary_adj_for_city >= 9) { delta += 0.2; modifiers.push({ source: 'Salary Adj ≥ 9', value: +0.2 }) }
+  } else if (salary_adj_for_city <= 4 || salary_adj_for_city >= 9) {
+    // Surface the skip explicitly so the math line in the report shows
+    // why no Salary modifier appears even when the score would otherwise trigger one.
+    modifiers.push({ source: `Salary Adj modifier skipped (intern role)`, value: 0 })
+  }
   if (work_life_balance    <= 4) { delta -= 0.2; modifiers.push({ source: 'WLB ≤ 4',         value: -0.2 }) }
   const overall = Number((base + delta).toFixed(2))
   return { overall, modifiersApplied: modifiers }

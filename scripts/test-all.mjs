@@ -352,6 +352,54 @@ const FIXTURES = [
     },
   },
   {
+    name: 'Intern carve-out — Salary Adj ≤ 4 does NOT trigger -0.4 on Overall',
+    input: {
+      company: 'BargainCo', role_archetype: 'Marketing Intern',
+      city: 'Madrid', country: 'ES',
+      comp: { base: 9600 },  // €800/mo × 12 — would normally trigger -0.4 modifier
+      tax_override: { rate: 0.0, source: 'fixture' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      is_intern: true,
+      soft_benefits_modifier: 0,
+      judgment_scores: {
+        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
+        growth_mobility: 7, optionality_exit: 7, brand_value: 7,
+        sales_trap_risk: 7, work_life_balance: 7, best_cities: 9,
+      },
+    },
+    expect: {
+      // €800 - €1,000 (half-baseline) = -€200 → band 2 (-€400 to -€151), would normally trigger -0.4
+      'salary_adj_for_city.score': 2,
+      // CF=7, AF=7 → base 7.0; intern carve-out suppresses the -0.4 → Overall stays 7.0
+      'current_fit': 7,
+      'aspirational_fit': 7,
+      'overall': 7,
+    },
+  },
+  {
+    name: 'Non-intern at same low Salary Adj — DOES trigger -0.4 modifier',
+    input: {
+      company: 'BargainCo', role_archetype: 'Marketing Analyst',
+      city: 'Madrid', country: 'ES',
+      comp: { base: 18000 },  // €1,500/mo full-time
+      tax_override: { rate: 0.15, source: 'fixture' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      // is_intern: false (default)
+      soft_benefits_modifier: 0,
+      judgment_scores: {
+        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
+        growth_mobility: 7, optionality_exit: 7, brand_value: 7,
+        sales_trap_risk: 7, work_life_balance: 7, best_cities: 9,
+      },
+    },
+    expect: {
+      // €18,000 × 0.85 / 12 = €1,275 - €2,000 = -€725 → band 1 (poverty wage)
+      'salary_adj_for_city.score': 1,
+      // CF=7, AF=7 → base 7.0; full-time SHOULD trigger -0.4 → Overall = 6.6
+      'overall': 6.6,
+    },
+  },
+  {
     name: 'Tier 1 fingerprint override — all 6 dims ≥ 8 rolls up to T1',
     input: {
       company: 'Acme', role_archetype: 'Strategy Analyst',

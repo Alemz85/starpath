@@ -189,6 +189,7 @@ export async function scoreListing(input) {
   const { overall, modifiersApplied } = rollupOverall(cf, af, {
     salary_adj_for_city: finalSalaryAdjScore,
     work_life_balance:   j.work_life_balance,
+    is_intern:           input.is_intern === true,
   })
   const sixDims = {
     skills_match:     calibrated.skills_match,
