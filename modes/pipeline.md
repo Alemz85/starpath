@@ -83,7 +83,7 @@ For each non-duplicate URL, fetch the JD (Playwright/WebFetch) and run a fast pr
 3. **Geo-locked outside user's reachable set.** Location is US-only (no EU work-rights / no remote-EU option), or restricted to a country the user cannot legally work in, or requires a clearance the user does not hold.
 4. **Excluded domain.** Defense, weapons, oil & gas, online gambling, adult content, MLM/pyramid, predatory lending, tobacco/vaping — unless the user has explicitly opted in via `_profile.md`.
 5. **Visa-locked.** "Must be a US citizen", "active TS/SCI clearance required", "Italian passport required" when user is non-Italian, etc. (Soft visa friction — e.g., UK roles for EU citizens — is NOT a discard; it's an Ease of Entry penalty per `_shared.md` § Ease of Entry calibration.)
-6. **Poverty-wage.** Salary is disclosed and is < 50% of the city's threshold from `_profile.md` § City-Specific Salary Bands. (Disclosed-but-low-band stays in — gets a low Salary Adj score; only *poverty wage* discards.)
+6. **Poverty-wage.** Salary is disclosed and would score **1** on the savings-power rubric in `_shared.md` § Salary Adj for City — i.e., monthly net minus city baseline is below −€400 (you'd burn capital just living there). (A salary that scores 3–5 stays in — gets a low Salary Adj but doesn't disqualify; only score-1 poverty wages discard.)
 7. **JD body explicitly contradicts a user red flag.** `_profile.md` § Red Flags to Watch For lists categorical mismatches the user has surfaced (commission-only / 2-3+ years required / non-tech "analytics" = Excel reporting / etc). If a JD matches a stated red flag, discard.
 
 **Borderline cases — DISCARD, don't score.** When in doubt, the listing is OUT. The bar for inclusion is *"I can write a one-sentence reason, citing JD evidence, why this role is a fit for one of the user's primary or secondary archetypes."* If you cannot articulate that sentence honestly, the listing is not a fit — move it to `## Filtered Out` and the user can audit. Padding the Database with 5/10s the user has to manually reject is worse than a tight gate the user has to occasionally widen.
@@ -149,7 +149,7 @@ For each URL that **survived Step 2c** (in priority order):
 a. Compute the next sequential entry number: read `data/scouting.md` + `data/applications.md`, take highest number + 1
 b. **Extract JD:** Playwright (`browser_navigate` + `browser_snapshot`) → WebFetch → WebSearch
 c. If not accessible → mark `- [!]` with a note and continue
-d. **Run evaluation** per `modes/scouting.md` — score the listing, write the per-listing report under `reports/tier-N/{Company} - {Role}.md`, append the row to `data/score-history.tsv` and the scouting tracker. CF/AF rollup weights come from `user/profile.yml → phase` (70/30 when `exploring`, 60/40 when `applying`); see `_shared.md` § Overall.
+d. **Run evaluation** per `modes/scouting.md` — score the listing, write the per-listing report under `reports/tier-N/{Company} - {Role}.md`, append the row to `data/score-history.tsv` and the scouting tracker. CF/AF rollup weights are fixed at 70/30 (see `_shared.md` § Overall).
 e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | Score/10 | Tier | PDF ✅/❌`
 
 **If 3+ pending URLs:** launch agents in parallel (`Agent tool` with `run_in_background`) to maximize speed. Keep company grouping intact — evaluate the same-company batch together before dispatching the next company.
@@ -272,7 +272,7 @@ in the Configuration tab.
 **Skip the watcher entirely when:**
 - The batch has fewer than 3 preferred-city entries (insufficient signal).
 - The user's `target_range` is already at or above the median disclosed comp (no drift).
-- The user's `phase` is `applying` and they've actively decided to apply to roles below target (the `Discarded`/`SKIP` rows in `applications.md` are NOT in scope here — only fresh evaluations are).
+- The user has actively decided to apply to roles below target (the `Discarded`/`SKIP` rows in `applications.md` are NOT in scope here — only fresh evaluations are).
 
 ## pipeline.md format
 

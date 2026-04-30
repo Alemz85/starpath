@@ -162,14 +162,7 @@ export interface ReportFile {
 
 // ─── Profile config (user/profile.yml) ─────────────────────────────────────
 
-/** Phase drives the CF/AF rollup weights used by the scoring framework
- *  (`exploring` = 70/30, `applying` = 60/40). It does NOT route to a
- *  different evaluation mode — there's only one. The frontend's
- *  Scouting / Applying tabs are about workflow stage, not phase. */
-export type Phase = 'exploring' | 'applying'
-
 export interface ProfileConfig {
-  phase: Phase
   candidate: {
     full_name: string
     email: string
@@ -219,12 +212,19 @@ export const TIER_LABELS: Record<TierKey, string> = {
 // reads the same regardless of which tier is selected. Earlier values varied
 // (T1 /20, T2-3 /15, T4 /10) which made T1 chips pop and T4 chips look
 // half-disabled.
+//
+// T2-high uses accent-hover (`#5B3FE8`) — the gradient stop between T1
+// and T2 in the wordmark gradient. Earlier this slot was `bg-success`,
+// which collided with the offer-status semantic (DESIGN-meta § Status
+// scale reserves success green for offer-received). The galaxy gradient
+// keeps the tier ladder visually monotonic: T1 indigo → T2-high → T2 →
+// T3 → T4.
 export const TIER_COLORS: Record<TierKey, { bg: string; text: string; border: string }> = {
-  'T1':     { bg: 'bg-tier-1/15',  text: 'text-tier-1',  border: 'border-tier-1/35' },
-  'T2-high':{ bg: 'bg-success/15', text: 'text-success', border: 'border-success/35' },
-  'T2':     { bg: 'bg-tier-2/15',  text: 'text-tier-2',  border: 'border-tier-2/35' },
-  'T3':     { bg: 'bg-tier-3/15',  text: 'text-tier-3',  border: 'border-tier-3/35' },
-  'T4':     { bg: 'bg-tier-4/15',  text: 'text-tier-4',  border: 'border-tier-4/35' },
+  'T1':     { bg: 'bg-tier-1/15',       text: 'text-tier-1',       border: 'border-tier-1/35' },
+  'T2-high':{ bg: 'bg-accent-hover/15', text: 'text-accent-hover', border: 'border-accent-hover/35' },
+  'T2':     { bg: 'bg-tier-2/15',       text: 'text-tier-2',       border: 'border-tier-2/35' },
+  'T3':     { bg: 'bg-tier-3/15',       text: 'text-tier-3',       border: 'border-tier-3/35' },
+  'T4':     { bg: 'bg-tier-4/15',       text: 'text-tier-4',       border: 'border-tier-4/35' },
 }
 
 export const STATUS_COLORS: Record<AppStatus, string> = {

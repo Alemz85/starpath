@@ -268,6 +268,206 @@ for (const section of requiredSections) {
   }
 }
 
+// ── 10. Scoring fixtures ────────────────────────────────────────
+// These pin known-good inputs so any future change to score-bands.mjs
+// or score-listing.mjs that breaks the math gets caught here.
+
+console.log('\n10. Scoring fixtures');
+
+const { scoreListing } = await import(pathToFileURL(join(SCRIPTS_DIR, 'score-listing.mjs')).href);
+
+const FIXTURES = [
+  {
+    name: 'Google Dublin L4 SWE — high comp, big equity, expensive city',
+    input: {
+      company: 'Google', role_archetype: 'Software Engineer',
+      city: 'Dublin', country: 'IE',
+      comp: { base: 105000, bonusPct: 0.15, equityAnnualEur: 34500 },
+      tax_override: { rate: 0.32, source: 'fixture' },
+      col_override: { baseline_eur: 3050, source: 'fixture' },
+      soft_benefits_modifier: 0.5,
+      judgment_scores: {
+        skills_match: 8, ease_of_entry: 5, strategic_fit: 8,
+        growth_mobility: 9, optionality_exit: 10, brand_value: 10,
+        sales_trap_risk: 9, work_life_balance: 7, best_cities: 8,
+      },
+    },
+    expect: {
+      'salary_adj_for_city.score': 10,
+      'salary_adj_for_city.computed.totalComp': 155250,
+      'current_fit': 7,
+      'aspirational_fit': 9.67,
+      // 7×0.7 + 9.67×0.3 = 7.801; +0.2 modifier (Salary≥9) = 8.0 (rounded)
+      'overall': 8,
+      'tier': 'T2',
+    },
+  },
+  {
+    name: 'Barcelona €30K base only — negative savings',
+    input: {
+      company: 'Generic', role_archetype: 'Business Analyst',
+      city: 'Barcelona', country: 'ES',
+      comp: { base: 30000 },
+      tax_override: { rate: 0.22, source: 'fixture' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      soft_benefits_modifier: 0,
+      judgment_scores: {
+        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
+        growth_mobility: 6, optionality_exit: 6, brand_value: 5,
+        sales_trap_risk: 7, work_life_balance: 7, best_cities: 10,
+      },
+    },
+    expect: {
+      'salary_adj_for_city.score': 3,
+      'salary_adj_for_city.computed.savings': -50,
+      'current_fit': 7,
+      // 6+6+5 / 3 = 5.667
+      'aspirational_fit': 5.67,
+      // 7×0.7 + 5.67×0.3 = 6.601; -0.4 modifier (Salary≤4) = 6.2
+      'overall': 6.2,
+      'tier': 'T2',
+    },
+  },
+  {
+    name: 'Barcelona €1,200/mo intern — half baseline',
+    input: {
+      company: 'StartupX', role_archetype: 'Data Analyst Intern',
+      city: 'Barcelona', country: 'ES',
+      comp: { base: 14400 },  // €1,200/mo × 12
+      tax_override: { rate: 0.0, source: 'fixture (intern stipend, post-tax)' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      is_intern: true,
+      soft_benefits_modifier: 0,
+      judgment_scores: {
+        skills_match: 8, ease_of_entry: 8, strategic_fit: 6,
+        growth_mobility: 7, optionality_exit: 5, brand_value: 4,
+        sales_trap_risk: 8, work_life_balance: 7, best_cities: 10,
+      },
+    },
+    expect: {
+      // €1,200/mo - €1,000 (half of 2000 baseline for intern) = €200 → band 4
+      'salary_adj_for_city.score': 4,
+      'salary_adj_for_city.computed.savings': 200,
+      'tier': 'T2',
+    },
+  },
+  {
+    name: 'Tier 1 fingerprint override — all 6 dims ≥ 8 rolls up to T1',
+    input: {
+      company: 'Acme', role_archetype: 'Strategy Analyst',
+      city: 'Madrid', country: 'ES',
+      comp: { base: 45000, bonusPct: 0.10 },
+      tax_override: { rate: 0.27, source: 'fixture' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      soft_benefits_modifier: 0.3,
+      judgment_scores: {
+        skills_match: 8, ease_of_entry: 8, strategic_fit: 8,
+        growth_mobility: 8, optionality_exit: 8, brand_value: 8,
+        sales_trap_risk: 9, work_life_balance: 8, best_cities: 9,
+      },
+    },
+    expect: {
+      'current_fit': 8,
+      'aspirational_fit': 8,
+      'tier': 'T1',
+      'tier_reason': 'uniform fingerprint: all 6 dims ≥ 8 AND CF/AF ≥ 8.0',
+    },
+  },
+  {
+    name: 'Google calibration stack — CEMS +0.6 + Google +1.0 on Brand',
+    input: {
+      company: 'Google', role_archetype: 'Account Strategist',
+      city: 'Dublin', country: 'IE',
+      comp: { base: 60000, bonusPct: 0.10 },
+      tax_override: { rate: 0.30, source: 'fixture' },
+      col_override: { baseline_eur: 3000, source: 'fixture' },
+      soft_benefits_modifier: 0.5,
+      calibration: {
+        cems_adjacent_companies: ['Google', 'McKinsey', 'BCG', 'EY', 'Accenture', 'Spotify', 'Wise'],
+        dream_companies: [],  // intentionally empty so we test pure +0.6 + +1.0 stacking, not the dream override
+        has_structured_onboarding: false,
+      },
+      judgment_scores: {
+        skills_match: 7, ease_of_entry: 5, strategic_fit: 7,
+        growth_mobility: 7, optionality_exit: 9, brand_value: 8,
+        sales_trap_risk: 6, work_life_balance: 8, best_cities: 8,
+      },
+    },
+    expect: {
+      // Brand: raw 8 + 0.6 (CEMS) + 1.0 (Google) = 9.6
+      'calibrated_dims.brand_value.final': 9.6,
+    },
+  },
+  {
+    name: 'Dream-company override — Brand floored to 10 + AF floor to 8',
+    input: {
+      company: 'Google', role_archetype: 'AI Solutions Consultant',
+      city: 'Dublin', country: 'IE',
+      comp: { base: 55000 },
+      tax_override: { rate: 0.30, source: 'fixture' },
+      col_override: { baseline_eur: 3000, source: 'fixture' },
+      soft_benefits_modifier: 0,
+      calibration: {
+        dream_companies: ['Google'],
+        has_structured_onboarding: false,
+      },
+      judgment_scores: {
+        skills_match: 6, ease_of_entry: 5, strategic_fit: 6,
+        growth_mobility: 6, optionality_exit: 7, brand_value: 5,  // raw 5 to verify dream-company floor to 10
+        sales_trap_risk: 6, work_life_balance: 7, best_cities: 8,
+      },
+    },
+    expect: {
+      'calibrated_dims.brand_value.final': 10,
+      // AF = (6 + 7 + 10) / 3 = 7.67 → dream floor lifts to 8.0
+      'aspirational_fit': 8,
+    },
+  },
+  {
+    name: 'Structured onboarding calibration — Growth raw 7 → final 8',
+    input: {
+      company: 'Acme', role_archetype: 'Data Analyst',
+      city: 'Berlin', country: 'DE',
+      comp: { base: 45000 },
+      tax_override: { rate: 0.36, source: 'fixture' },
+      col_override: { baseline_eur: 2200, source: 'fixture' },
+      soft_benefits_modifier: 0,
+      calibration: {
+        has_structured_onboarding: true,
+        has_sink_or_swim_signal: false,
+      },
+      judgment_scores: {
+        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
+        growth_mobility: 7, optionality_exit: 7, brand_value: 6,
+        sales_trap_risk: 7, work_life_balance: 7, best_cities: 8,
+      },
+    },
+    expect: {
+      'calibrated_dims.growth_mobility.final': 8,  // raw 7 + 1.0 onboarding
+    },
+  },
+];
+
+function getDeep(obj, path) {
+  return path.split('.').reduce((o, k) => o?.[k], obj);
+}
+
+for (const fx of FIXTURES) {
+  try {
+    const result = await scoreListing(fx.input);
+    let ok = true;
+    const mismatches = [];
+    for (const [path, expected] of Object.entries(fx.expect)) {
+      const actual = getDeep(result, path);
+      if (actual !== expected) { ok = false; mismatches.push(`${path}: got ${actual}, want ${expected}`); }
+    }
+    if (ok) pass(fx.name);
+    else    fail(`${fx.name} — ${mismatches.join('; ')}`);
+  } catch (e) {
+    fail(`${fx.name} — threw: ${e.message}`);
+  }
+}
+
 // ── SUMMARY ─────────────────────────────────────────────────────
 
 console.log('\n' + '='.repeat(50));

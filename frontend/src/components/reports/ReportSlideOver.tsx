@@ -1,14 +1,19 @@
 'use client'
 
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen, Clock, ChevronLeft } from 'lucide-react'
+import {
+  X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen, Clock, ChevronLeft,
+  Target, Sparkles, Compass, ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp,
+  AlertTriangle,
+} from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
 import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
-import { cn } from '@/lib/utils'
+import { cn, formatRelative } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
 import type { ScoreEntry } from '@/types'
+import { tierHex, scoreColor, NEUTRAL_SCORE_COLOR } from '@/lib/tier'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
@@ -233,6 +238,8 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
 
   const tierKey = (scoreEntry.tier as TierKey) in TIER_COLORS ? (scoreEntry.tier as TierKey) : 'T4'
   const { text: tierText } = TIER_COLORS[tierKey]
+  const tierColor = tierHex(tierKey)
+  const evaluatedRel = scoreEntry.date ? formatRelative(scoreEntry.date) : null
 
   return (
     <>
@@ -245,36 +252,70 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         onClick={handleClose}
       />
 
-      {/* Panel */}
+      {/* Panel — galaxy-tinted shadow ties the slide-over into the
+          rest of the redesigned chrome (cosmos surface, shadow-cosmos
+          on hero cards). */}
       <div className={cn(
-        'fixed right-0 top-0 bottom-0 z-40 w-[720px] max-w-full bg-bg-panel border-l border-border-strong flex flex-col shadow-2xl',
+        'fixed right-0 top-0 bottom-0 z-40 w-[720px] max-w-full bg-bg-panel border-l border-border-strong flex flex-col shadow-cosmos-lift',
         'transition-[transform,opacity] duration-[260ms] ease-out',
         open ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
       )}>
-        {/* Header */}
-        <div className="titlebar-drag h-11 shrink-0 border-b border-border-default" />
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-border-default shrink-0">
-          <CompanyLogo company={company} size={40} className="shrink-0" />
+        {/* Drag bar */}
+        <div className="titlebar-drag h-11 shrink-0" />
+
+        {/* Tier-tinted hero band — gradient from the tier color out to
+            transparent so the report visually identifies as a T1/T2/T3
+            evaluation at a glance. Sits behind the header, providing
+            atmospheric color without taking layout space. */}
+        <div
+          className="relative h-2 shrink-0"
+          aria-hidden
+          style={{
+            background: `linear-gradient(90deg, ${tierColor} 0%, ${tierColor}66 60%, transparent 100%)`,
+          }}
+        />
+
+        {/* Header — restructured as an editorial hero. CompanyLogo at
+            48px (up from 40), company name at text-page (22px), role
+            title at text-section (16px) — actual hierarchy instead of
+            three lines of similarly-sized text. The tier+score+location
+            meta row sits below as supporting context. */}
+        <div className="flex items-start gap-4 px-6 pt-5 pb-4 border-b border-border-default shrink-0">
+          <CompanyLogo company={company} size={48} className="shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <h2 className="text-[15px] font-semibold text-text-1 leading-tight truncate">{company}</h2>
-            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-              <span className={cn('text-micro font-mono font-semibold', tierText)}>
+            <div className="text-micro text-text-4 uppercase tracking-[0.08em] mb-0.5">Evaluation</div>
+            <h2 className="text-page text-text-1 leading-tight tracking-[-0.01em] truncate" title={company}>
+              {company}
+            </h2>
+            <p className="text-section text-text-2 leading-snug mt-0.5 line-clamp-2" title={role}>
+              {role}
+            </p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap text-label">
+              <span
+                className={cn('inline-flex items-center px-1.5 py-0.5 rounded font-mono font-semibold tabular-nums text-[10.5px]', tierText)}
+                style={{ background: `${tierColor}14`, border: `1px solid ${tierColor}33` }}
+              >
                 {tierKey === 'T2-high' ? 'T2+' : tierKey}
               </span>
               {scoreEntry.overall > 0 && (
-                <>
-                  <span className="text-micro text-text-4">·</span>
-                  <span className="text-micro text-text-4 font-mono">{scoreEntry.overall.toFixed(1)} / 10</span>
-                </>
+                <span className="font-mono tabular-nums text-text-3">
+                  <span className="text-text-1 font-semibold">{scoreEntry.overall.toFixed(1)}</span>
+                  <span className="text-text-4"> / 10</span>
+                </span>
               )}
               {scoreEntry.location && (
                 <>
-                  <span className="text-micro text-text-4">·</span>
-                  <span className="text-micro text-text-4">{scoreEntry.location}</span>
+                  <span className="text-text-4">·</span>
+                  <span className="text-text-3 truncate max-w-[200px]" title={scoreEntry.location}>{scoreEntry.location}</span>
+                </>
+              )}
+              {evaluatedRel && (
+                <>
+                  <span className="text-text-4">·</span>
+                  <span className="text-text-3">evaluated {evaluatedRel}</span>
                 </>
               )}
             </div>
-            <p className="text-label text-text-3 truncate mt-1">{role}</p>
           </div>
           <button
             onClick={handleClose}
@@ -419,7 +460,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           )}
           {!loading && !error && activeTab === 'application' && (
             applicationContent
-              ? <div className="prose-report"><ReactMarkdown remarkPlugins={[remarkGfm]}>{applicationContent}</ReactMarkdown></div>
+              ? <div className="prose-report"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{applicationContent}</ReactMarkdown></div>
               : <EmptyTab message="No application prep yet — click Prep application from the Database popover to research interview intel + STAR mapping for this role." />
           )}
           {!loading && !error && activeTab === 'history' && (
@@ -509,7 +550,7 @@ function HistorySnapshotView({
         </div>
       ) : (
         <div className="prose-report">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{content}</ReactMarkdown>
         </div>
       )}
     </div>
@@ -576,7 +617,7 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
   if (!parsed.dims) {
     return (
       <div className="prose-report">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{content}</ReactMarkdown>
       </div>
     )
   }
@@ -584,24 +625,73 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
   return (
     <>
       <div className="prose-report">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{beforeWithoutMeta}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{beforeWithoutMeta}</ReactMarkdown>
       </div>
       {meta.length > 0 && <ReportMeta items={meta} />}
       <DimensionalScoring dims={dims} tier={tier} />
       {after && (
         <div className="prose-report">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{after}</ReactMarkdown>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{after}</ReactMarkdown>
         </div>
       )}
     </>
   )
 }
 
+// Custom markdown component overrides — applied to every ReactMarkdown
+// instance in the slide-over so reports render with consistent rhythm.
+//   - h2: strip "A) " / "B) " / etc. admin prefixes that leak from the
+//     scouting.md template ("## A) Role summary"), and prepend a small
+//     lucide icon tinted to the accent so section breaks carry visual
+//     identity beyond a hairline border.
+const MD_COMPONENTS = {
+  h2: ({ children, ...rest }: { children?: React.ReactNode }) => {
+    const text = flattenChildrenText(children)
+    const stripped = text.replace(/^[A-E]\)\s+/, '').trim()
+    const Icon = sectionIcon(stripped)
+    return (
+      <h2 className="flex items-center gap-2" {...rest}>
+        {Icon && (
+          <Icon
+            size={15}
+            className="shrink-0 text-accent"
+            aria-hidden
+          />
+        )}
+        <span>{stripped}</span>
+      </h2>
+    )
+  },
+}
+
+function flattenChildrenText(node: React.ReactNode): string {
+  if (node == null || node === false || node === true) return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(flattenChildrenText).join('')
+  if (typeof node === 'object' && 'props' in node) {
+    return flattenChildrenText((node as { props?: { children?: React.ReactNode } }).props?.children)
+  }
+  return ''
+}
+
+function sectionIcon(label: string): React.ElementType | null {
+  const l = label.toLowerCase()
+  if (l.includes('role summary') || l === 'summary')          return ClipboardList
+  if (l.includes('gap'))                                       return Lightbulb
+  if (l.includes('comp') && !l.includes('recommend'))          return Coins
+  if (l.includes('recommendation') || l.includes('verdict'))   return CheckCircle2
+  if (l.includes('career path') || l.includes('path forward')) return TrendingUp
+  if (l === 'fit / gaps' || l.includes('fit'))                 return Target
+  return null
+}
+
 // Header metadata: keep contextual fields (Date / Mode / Location /
-// Archetype) and drop the duplicated ones — URL has its own pill, the score
-// fields are now visually prominent in the hero + section rollups, and Tier
-// is in the slide-over header. The whitelist is case-insensitive on key.
-const META_KEEP = new Set(['date', 'mode', 'location', 'archetype'])
+// Archetype / Verification) and drop the duplicated ones — URL has its
+// own pill, the score fields are now visually prominent in the hero +
+// section rollups, and Tier is in the slide-over header. Verification
+// is kept because batch-mode reports need a visible "unconfirmed"
+// caveat — see ReportMeta below for the warning treatment.
+const META_KEEP = new Set(['date', 'mode', 'location', 'archetype', 'verification'])
 
 function extractMetadata(text: string): {
   meta: Array<{ key: string; value: string }>
@@ -634,17 +724,32 @@ function extractMetadata(text: string): {
 
 function ReportMeta({ items }: { items: Array<{ key: string; value: string }> }) {
   return (
-    <div className="my-4 grid grid-cols-2 gap-x-6 gap-y-2 px-4 py-3 rounded-lg bg-bg-elevated/50 border border-border-default">
-      {items.map(({ key, value }) => (
-        <div key={key} className="flex flex-col min-w-0">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-4">
-            {key}
-          </span>
-          <span className="text-[12.5px] text-text-1 truncate" title={value}>
-            {value}
-          </span>
-        </div>
-      ))}
+    <div className="my-4 grid grid-cols-2 gap-x-6 gap-y-2.5 px-4 py-3 rounded-lg bg-bg-elevated/50 border border-border-default">
+      {items.map(({ key, value }) => {
+        // Verification gets a warning treatment when the value indicates
+        // an unconfirmed batch-mode report (Playwright wasn't available,
+        // so the JD body came via WebFetch). Users can still see the
+        // full caveat via the title tooltip on the truncated text.
+        const isVerification = key.toLowerCase() === 'verification'
+        const isUnconfirmed = isVerification && /unconfirmed/i.test(value)
+        return (
+          <div key={key} className="flex flex-col min-w-0">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-4 flex items-center gap-1">
+              {isUnconfirmed && <AlertTriangle size={10} className="text-warning" aria-hidden />}
+              {key}
+            </span>
+            <span
+              className={cn(
+                'text-[12.5px] truncate',
+                isUnconfirmed ? 'text-warning' : 'text-text-1',
+              )}
+              title={value}
+            >
+              {value}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -765,33 +870,36 @@ function parseRow(line: string) {
   return { label: cleanLabel, score, reasoning, tag }
 }
 
-function tierHex(t: TierKey): string {
-  switch (t) {
-    case 'T1':      return '#3D2BB5'
-    case 'T2-high':
-    case 'T2':      return '#7C5CFF'
-    case 'T3':      return '#A89CD9'
-    default:        return '#94A3B8'
-  }
-}
-
 function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: TierKey }) {
   const heroColor = tierHex(tier)
   return (
-    <div className="my-5 space-y-6">
+    <div className="my-5 space-y-7">
       {dims.overall && (
+        // Overall band — full-width hero. The most important number in
+        // the report gets actual presence: 48px tier-colored score with
+        // an "Overall fit" eyebrow. Subtle galaxy-tinted backdrop wash
+        // behind it so it reads as a plate, not a thin pill.
         <div
-          className="flex items-center justify-between gap-3 px-3 py-2 rounded-md"
+          className="relative flex items-center justify-between gap-4 px-5 py-4 rounded-xl overflow-hidden"
           style={{
-            background: `${heroColor}10`,
-            border: `1px solid ${heroColor}30`,
+            background: `linear-gradient(135deg, ${heroColor}14 0%, ${heroColor}06 100%)`,
+            border: `1px solid ${heroColor}33`,
           }}
         >
-          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-3">
-            Overall
-          </span>
+          <div>
+            <div className="text-micro text-text-4 uppercase tracking-[0.12em] mb-1">
+              Overall fit
+            </div>
+            <div className="text-[12px] text-text-3">
+              {tier === 'T1'      ? 'Apply now — top-tier match' :
+               tier === 'T2-high' ? 'Apply with prep' :
+               tier === 'T2'      ? 'Apply if pipeline thin' :
+               tier === 'T3'      ? 'Growth target — gap & build' :
+                                    'Below threshold'}
+            </div>
+          </div>
           <span
-            className="font-mono font-semibold tabular-nums leading-none text-[18px]"
+            className="font-mono font-semibold tabular-nums leading-none text-[44px]"
             style={{ color: heroColor }}
           >
             {dims.overall.score}
@@ -802,6 +910,7 @@ function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: Tier
       {dims.currentFit.rows.length > 0 && (
         <DimensionGroup
           title="Current Fit"
+          icon={Target}
           rollup={dims.currentFit.rollup}
           rows={dims.currentFit.rows}
         />
@@ -809,12 +918,13 @@ function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: Tier
       {dims.aspirationalFit.rows.length > 0 && (
         <DimensionGroup
           title="Aspirational Fit"
+          icon={Sparkles}
           rollup={dims.aspirationalFit.rollup}
           rows={dims.aspirationalFit.rows}
         />
       )}
       {dims.context.rows.length > 0 && (
-        <DimensionGroup title="Context" rows={dims.context.rows} />
+        <DimensionGroup title="Context" icon={Compass} rows={dims.context.rows} />
       )}
     </div>
   )
@@ -822,26 +932,39 @@ function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: Tier
 
 function DimensionGroup({
   title,
+  icon: Icon,
   rollup,
   rows,
 }: {
   title: string
+  icon?: React.ElementType
   rollup?: string
   rows: DimensionRow[]
 }) {
   const rollupNum = rollup ? parseFloat(rollup) : NaN
-  const rollupColor = !Number.isNaN(rollupNum) ? scoreColor(rollupNum) : '#6B7280'
+  const rollupColor = !Number.isNaN(rollupNum) ? scoreColor(rollupNum) : NEUTRAL_SCORE_COLOR
   return (
     <div>
-      {/* Group header — same visual rhythm as the prose-report h2 (Fit/gaps,
-          Verdict, Path forward) so the slide-over reads with one type
-          system across the body. Title left, rollup score right (tinted by
-          the score-color galaxy palette to match the Overall band). */}
-      <div className="flex items-baseline justify-between gap-3 pb-2 mb-3 border-b border-border-default">
-        <h3 className="text-[14px] font-semibold text-text-1">{title}</h3>
+      {/* Group header — same visual rhythm as the prose-report h2 so the
+          slide-over reads with one type system. Optional lucide icon
+          tints to the rollup color so the header carries semantic
+          identification at a glance (Target = Current Fit, Sparkles =
+          Aspirational, Compass = Context). */}
+      <div className="flex items-baseline justify-between gap-3 pb-2.5 mb-3.5 border-b border-border-default">
+        <h3 className="flex items-center gap-2 text-[16px] font-semibold text-text-1 leading-none tracking-[-0.005em]">
+          {Icon && (
+            <Icon
+              size={14}
+              className="shrink-0"
+              style={{ color: rollupColor }}
+              aria-hidden
+            />
+          )}
+          <span>{title}</span>
+        </h3>
         {rollup && (
           <span
-            className="text-[18px] font-mono font-semibold tabular-nums leading-none"
+            className="text-[20px] font-mono font-semibold tabular-nums leading-none"
             style={{ color: rollupColor }}
           >
             {rollup}
@@ -852,7 +975,7 @@ function DimensionGroup({
         {rows.map((row, i) => {
           const numScore = parseFloat(row.score)
           const isNumeric = !Number.isNaN(numScore)
-          const cellColor = isNumeric ? scoreColor(numScore) : '#6B7280'
+          const cellColor = isNumeric ? scoreColor(numScore) : NEUTRAL_SCORE_COLOR
           return (
             <div
               key={i}
@@ -888,15 +1011,8 @@ function DimensionGroup({
   )
 }
 
-// Scale-tier color used for both numeric scores and rollup totals. Matches
-// the galaxy palette used by Database/Reports so the same number reads as
-// the same color everywhere it appears.
-function scoreColor(v: number): string {
-  if (v >= 8.5) return '#3D2BB5'   // tier-1 — deep galaxy indigo
-  if (v >= 7)   return '#7C5CFF'   // tier-2 — galaxy violet
-  if (v >= 5)   return '#A89CD9'   // tier-3 — muted lavender
-  return '#94A3B8'                 // tier-4 — faded slate
-}
+// Score color is imported from `lib/tier.ts` — same galaxy banding used
+// by Database/Reports/Trends so a number reads the same everywhere.
 
 function ScoreMiniBar({ entry }: { entry: ScoreEntry }) {
   const dims: Array<{ key: keyof ScoreEntry; label: string }> = [
@@ -914,10 +1030,14 @@ function ScoreMiniBar({ entry }: { entry: ScoreEntry }) {
         const raw = entry[key]
         const val = typeof raw === 'number' ? raw : 0
         const pct = Math.min(100, (val / 10) * 100)
+        // Tier-aligned banding (matches lib/tier.ts scoreColor): the
+        // score bar communicates evaluation strength, not lifecycle —
+        // so it uses the galaxy tier scale, not success/warning/danger
+        // (those are reserved for offer/interview/rejected status).
         const color =
-          val >= 8 ? 'bg-success' :
-          val >= 6 ? 'bg-accent' :
-          val >= 4 ? 'bg-warning' : 'bg-danger'
+          val >= 8.5 ? 'bg-tier-1' :
+          val >= 7   ? 'bg-tier-2' :
+          val >= 5   ? 'bg-tier-3' : 'bg-tier-4'
         return (
           <div key={key} className="flex flex-col gap-1 items-center min-w-[56px]">
             <span className="text-micro text-text-4 uppercase whitespace-nowrap">{label}</span>

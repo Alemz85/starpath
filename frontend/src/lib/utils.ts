@@ -12,6 +12,22 @@ export function formatDate(iso: string): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
+// Locale-aware relative time. Uses Intl.RelativeTimeFormat with
+// numeric: 'auto' so today/yesterday render as words rather than
+// "0 days ago" / "1 day ago".
+const RTF = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
+export function formatRelative(iso: string): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  const days = Math.floor((+new Date() - +d) / (1000 * 60 * 60 * 24))
+  if (Math.abs(days) < 7)   return RTF.format(-days, 'day')
+  if (Math.abs(days) < 30)  return RTF.format(-Math.round(days / 7),  'week')
+  if (Math.abs(days) < 365) return RTF.format(-Math.round(days / 30), 'month')
+  return RTF.format(-Math.round(days / 365), 'year')
+}
+
 export function deadlineUrgency(deadline: string): 'urgent' | 'month' | 'upcoming' | 'missed' | 'none' {
   if (!deadline || deadline === 'n/d' || deadline === '—' || deadline === '') return 'none'
   if (deadline.toLowerCase() === 'rolling') return 'upcoming'

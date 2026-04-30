@@ -78,7 +78,7 @@ export function StepRepo({ onComplete }: { onComplete: () => void }) {
         <button
           onClick={handleSelect}
           disabled={busy || done}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent-hover active:scale-[0.98] disabled:opacity-50 text-white rounded-pill transition-all font-medium text-[14px] shadow-[0_2px_10px_rgba(124,92,255,0.25)]"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent-hover active:scale-[0.98] disabled:opacity-50 text-white rounded-pill transition-all font-medium text-[14px] shadow-pill hover:shadow-pill-hover"
         >
           {status === 'loading'
             ? <Loader2 size={15} className="animate-spin" />

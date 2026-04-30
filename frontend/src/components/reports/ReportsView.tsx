@@ -11,6 +11,7 @@ import { TIER_COLORS, type TierKey } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import type { ReportFile, ScoreEntry } from '@/types'
 import { ReportSlideOver } from './ReportSlideOver'
+import { scoreColor } from '@/lib/tier'
 
 const TOP5_SPAWN_ID = 'reports-top5'
 
@@ -300,16 +301,6 @@ export function ReportsView() {
       )}
     </div>
   )
-}
-
-// Score → galaxy color, matching the tier scale used by the Database table.
-// Kept inline because importing from OffersTable would pull react-table
-// machinery into the Reports bundle.
-function scoreColor(v: number): string {
-  if (v >= 8.5) return '#3D2BB5'   // T1 — deep galaxy indigo
-  if (v >= 7)   return '#7C5CFF'   // T2 — galaxy violet
-  if (v >= 5)   return '#A89CD9'   // T3 — muted lavender
-  return '#94A3B8'                  // T4 — faded slate
 }
 
 function ScoreBadge({ value }: { value: number }) {

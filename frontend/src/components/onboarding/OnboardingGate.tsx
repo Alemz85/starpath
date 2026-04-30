@@ -11,6 +11,8 @@ import { StepCV } from './steps/StepCV'
 import { StepProfile } from './steps/StepProfile'
 import { StepPortals } from './steps/StepPortals'
 import { StarpathLogo } from '@/components/shared/Logos'
+import { OrbitingSystem, type OrbiterConfig } from '@/components/ui/orbiting'
+import { CelestialSphere } from '@/components/ui/celestial-sphere'
 import confetti from 'canvas-confetti'
 
 export type OnboardingStep = 'repo' | 'claude' | 'cv' | 'profile' | 'portals'
@@ -22,6 +24,30 @@ const STEPS: { key: OnboardingStep; label: string; description: string }[] = [
   { key: 'profile', label: 'Set up your profile', description: 'Name, targets, comp, and location' },
   { key: 'portals', label: 'Configure portals',   description: 'Keywords and companies to scan' },
 ]
+
+// Six stars orbiting the StarpathLogo on the finale overlay. Sizes
+// alternate so the orbit reads as varied not metronomic; phase shifts
+// distribute them evenly around the ring.
+const FINALE_STARS: OrbiterConfig[] = [
+  { id: 's0', size: 14, phase: 0,                       glow: '#7C5CFF', label: '', content: <StarDot bright /> },
+  { id: 's1', size: 10, phase: (1 * Math.PI * 2) / 6,   glow: '#B5A3FF', label: '', content: <StarDot /> },
+  { id: 's2', size: 14, phase: (2 * Math.PI * 2) / 6,   glow: '#5B3FE8', label: '', content: <StarDot bright /> },
+  { id: 's3', size: 10, phase: (3 * Math.PI * 2) / 6,   glow: '#B5A3FF', label: '', content: <StarDot /> },
+  { id: 's4', size: 12, phase: (4 * Math.PI * 2) / 6,   glow: '#7C5CFF', label: '', content: <StarDot /> },
+  { id: 's5', size: 10, phase: (5 * Math.PI * 2) / 6,   glow: '#A121CE', label: '', content: <StarDot /> },
+]
+
+function StarDot({ bright = false }: { bright?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'block rounded-full',
+        bright ? 'w-2 h-2 bg-white' : 'w-1.5 h-1.5 bg-accent-light',
+      )}
+    />
+  )
+}
 
 export function OnboardingGate() {
   const { setOnboardingComplete } = useAppStore()
@@ -45,7 +71,12 @@ export function OnboardingGate() {
       particleCount: 160,
       spread: 80,
       origin: { y: 0.55 },
-      colors: ['#7C5CFF', '#B5A3FF', '#A121CE', '#C99518', '#FFFFFF'],
+      // Galaxy palette only — accent + accent-light + the magenta stop
+      // from the wordmark gradient + accent-press for a deeper note +
+      // white. The earlier `#C99518` gold was a leftover from the old
+      // archetype palette and broke the brand cohesion at the moment of
+      // celebration.
+      colors: ['#7C5CFF', '#B5A3FF', '#A121CE', '#5B3FE8', '#FFFFFF'],
     })
     setTimeout(async () => {
       await setOnboardingComplete()
@@ -53,7 +84,21 @@ export function OnboardingGate() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden galaxy-immersive p-3 gap-3">
+    <div className="relative flex h-screen w-screen overflow-hidden galaxy-immersive p-3 gap-3">
+      {/* Cosmic backdrop — WebGL celestial sphere shader drifts behind
+          the panels. The .galaxy-immersive radial bloom underneath
+          provides the brand-tinted base; the shader paints nebula
+          clouds and a faint starfield on top, with cursor-driven warp.
+          opacity: 0.8 lets the base wash come through so the violet
+          identity persists even when the shader is mid-drift. */}
+      <div
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{ opacity: 0.8, mixBlendMode: 'screen' }}
+      >
+        <CelestialSphere hue={278} speed={0.16} zoom={1.5} particleSize={2.2} />
+      </div>
+
       {/* Left: progress checklist */}
       <div className="w-[300px] shrink-0 flex flex-col bg-bg-base rounded-xl shadow-card overflow-hidden">
         {/* Title bar — shows the brand mark instead of being empty. The drag
@@ -193,16 +238,25 @@ export function OnboardingGate() {
                 transition={{ delay: 0.1, type: 'spring', stiffness: 200, damping: 20 }}
                 className="text-center px-8"
               >
+                {/* Constellation snap-in — your starpath ignites. The
+                    StarpathLogo sits at center; six small violet stars
+                    orbit around it. The orbit metaphor lands here at
+                    the moment of brand reveal: you've configured your
+                    coordinates, now your galaxy lights up. */}
                 <motion.div
-                  animate={{
-                    rotate: [0, 4, -4, 0],
-                    scale: [1, 1.06, 1],
-                  }}
-                  transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ delay: 0.25, type: 'spring', stiffness: 180, damping: 24 }}
                   className="inline-block mb-5"
-                  style={{ filter: 'drop-shadow(0 6px 24px rgba(124,92,255,0.45))' }}
+                  style={{ filter: 'drop-shadow(0 8px 28px rgba(124,92,255,0.45))' }}
                 >
-                  <StarpathLogo size={64} />
+                  <OrbitingSystem
+                    size={240}
+                    innerRadius={92}
+                    innerSpeed={0.28}
+                    innerOrbit={FINALE_STARS}
+                    center={<StarpathLogo size={56} />}
+                  />
                 </motion.div>
                 <h2 className="text-[28px] font-bold leading-tight mb-2 galaxy-text">
                   You&apos;re all set

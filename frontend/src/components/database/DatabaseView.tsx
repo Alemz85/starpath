@@ -109,6 +109,7 @@ export function DatabaseView() {
       rows = rows.filter(r => r.overall >= filters.scoreMin && r.overall <= filters.scoreMax)
     }
     if (tokenFilters.company)   rows = rows.filter(r => r.company.toLowerCase().includes(tokenFilters.company!.toLowerCase()))
+    if (tokenFilters.role)      rows = rows.filter(r => r.role.toLowerCase().includes(tokenFilters.role!.toLowerCase()))
     if (tokenFilters.tier)      rows = rows.filter(r => r.tier.toLowerCase() === tokenFilters.tier!.toLowerCase())
     if (tokenFilters.archetype) rows = rows.filter(r => {
       const ta = tokenFilters.archetype!.toLowerCase()
@@ -185,7 +186,7 @@ export function DatabaseView() {
               type="checkbox"
               checked={showClosed}
               onChange={e => setShowClosed(e.target.checked)}
-              className="accent-[#7C5CFF]"
+              className="accent-accent"
             />
             Show zero-score
           </label>
@@ -305,6 +306,7 @@ function DatabaseTable({
 
 interface TokenFilters {
   company?: string
+  role?: string
   tier?: string
   archetype?: string
   location?: string
@@ -312,17 +314,25 @@ interface TokenFilters {
   minScore?: number
 }
 
+// Token query parser. Supports both:
+//   - Bare values:    `company:Stripe tier:T1`
+//   - Quoted values:  `company:"JP Morgan" role:"Senior Engineer"`
+// Quoted values are required for multi-word matches (company names with
+// spaces, role titles, archetypes). The regex tries the quoted form
+// first, then falls back to the unquoted single-token form.
 function parseTokenQuery(q: string): { tokenFilters: TokenFilters; freeText: string } {
   const tokenFilters: TokenFilters = {}
-  const tokenRe = /(\w+):([^\s]+)/g
+  const tokenRe = /(\w+):(?:"([^"]+)"|(\S+))/g
   let freeText = q
   let match: RegExpExecArray | null
 
   while ((match = tokenRe.exec(q)) !== null) {
-    const [full, key, val] = match
+    const [full, key, quotedVal, plainVal] = match
+    const val = quotedVal ?? plainVal
     freeText = freeText.replace(full, '').trim()
     switch (key.toLowerCase()) {
       case 'company':    tokenFilters.company   = val; break
+      case 'role':       tokenFilters.role      = val; break
       case 'tier':       tokenFilters.tier      = val; break
       case 'archetype':  tokenFilters.archetype = val; break
       case 'location':   tokenFilters.location  = val; break

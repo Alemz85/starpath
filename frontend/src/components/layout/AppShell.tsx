@@ -22,7 +22,12 @@ export function AppShell() {
   useEffect(() => { load() }, [load])
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-bg-base">
+    <div className="flex h-screen w-screen overflow-hidden bg-bg-cosmos">
+      {/* Fixed-position grain overlay — adds 2.5% galaxy-tinted noise
+          across the whole viewport so the violet-cool wash of bg-cosmos
+          reads as an atmospheric surface rather than a flat tinted
+          background. pointer-events: none. */}
+      <div className="cosmos-grain" aria-hidden />
       <Sidebar />
       <main className="flex-1 overflow-hidden flex flex-col min-w-0">
         {view === 'scouting' && <CommandCenter />}

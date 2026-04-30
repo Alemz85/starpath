@@ -26,7 +26,7 @@
 
 ## Scoring System
 
-There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). It uses the **Dimensional Scoring Framework** below and produces an **Overall** score on a 1-10 scale by rolling up Current Fit and Aspirational Fit with phase-aware weights.
+There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). It uses the **Dimensional Scoring Framework** below and produces an **Overall** score on a 1-10 scale by rolling up Current Fit and Aspirational Fit with fixed weights (CF×0.70 + AF×0.30).
 
 **Score interpretation (Overall):**
 - 9.0+ → Strong match, recommend applying immediately (Tier 1)
@@ -163,23 +163,16 @@ Aspirational Fit = (Growth/Mobility + Optionality/Exit + Brand Value) / 3
 
 ### Overall
 
-```
-Overall = Current Fit × {CF_weight} + Aspirational Fit × {AF_weight}
-        + context modifiers (see below)
-```
+`Overall = Current Fit × 0.70 + Aspirational Fit × 0.30 + context modifiers`
 
-**Phase-aware weights** (set in `user/profile.yml → phase`; can also be overridden in `user/_profile.md` → Scoring Weights):
-- **`exploring` → 70/30** (CF=0.70, AF=0.30): landscape mapping; reachability is the primary question
-- **`applying` → 60/40** (CF=0.60, AF=0.40): choosing between live offers; ambition weighs more
-
-`phase` does NOT change the report shape, the tier rules, or the data layout — it only flips these weights.
+Fixed weighting (CF dominates — reachability is the primary question for an entry-level user). The math, including the bottom-range penalty on rollups and the context modifiers below, is computed by `scripts/score-listing.mjs` — the agent passes judgment dim scores in, the script returns CF / AF / Overall / tier / modifiers-applied with full math.
 
 **Context modifiers** (applied after the weighted rollup):
-- Salary Adj for City ≤ 4 → **−0.4** to Overall (poverty-wage or well below local market)
-- Salary Adj for City ≥ 9 → **+0.2** to Overall (notably above local market rate)
-- Work-Life Balance ≤ 4 → **−0.2** to Overall (poor WLB reputation, sweatshop signals)
+- Salary Adj for City ≤ 4 → **−0.4** (poverty-wage or well below market)
+- Salary Adj for City ≥ 9 → **+0.2** (notably above market)
+- Work-Life Balance ≤ 4 → **−0.2** (poor WLB reputation)
 
-Context modifiers can stack (e.g., low salary + poor WLB = −0.6). When a modifier fires, show it explicitly in the Overall line:
+Modifiers stack. When any fire, show them explicitly in the Overall line of the report (the script returns them in `overall_modifiers`):
 ```
 **Overall** | **X.X/10** | CF × 0.70 + AF × 0.30 − 0.4 (Salary Adj=3) − 0.2 (WLB=4) |
 ```
@@ -191,35 +184,45 @@ These appear in every report for situational awareness. The Salary and WLB dimen
 | Dimension | Type | What it measures |
 |-----------|------|------------------|
 | **Best Cities** | 1-10 numeric | Does the role's location match the user's preferred-cities list from `_profile.md`? 10 = top preferred, 1 = unworkable / requires relocation outside acceptable EU set |
-| **Salary Adj for City** | 1-10 numeric | Is the likely compensation reasonable for that city's cost of living? See Salary Adj anchor table below. |
+| **Salary Adj for City** | 1-10 numeric | **Savings power after cost of living.** Not "is the salary competitive for this city's labor market" — that conflates a low-COL city paying market-rate-low with a high-COL city paying market-rate-high. The rubric below converts gross salary to monthly net (country-specific tax), subtracts a city comfortable-life baseline, and scores the resulting monthly savings on an absolute band. A €30K Barcelona role and a €60K Dublin role can both be "competitive for their city" yet save very different amounts — this dimension scores the latter, not the former. |
 | **Work-Life Balance** | 1-10 numeric | Company reputation for WLB (Glassdoor / Blind / known culture). 10 = healthy ~40h, 1 = sweatshop / known burnout culture |
 | **Best-fit Early-career Roles** | text (list) | What specific roles at this company would actually suit the user best — even if they differ from the role being evaluated. Free-form list of 1-4 alternatives. |
 
-#### Salary Adj for City — anchor table
+#### Salary Adj for City — savings-power rubric
 
-The user's `_profile.md` → City-Specific Salary Bands defines a "good = 8" threshold per city (intern €/mo or full-time €K/yr). Score against THAT threshold for the city the role is in — never against a global average.
+**Score what the salary actually saves**, not how it compares to the local labor market. Two cities at "competitive" pay can save very different amounts; that's what this dimension captures.
 
-| Disclosed comp vs. city threshold | Score |
-|----------------------------------|-------|
-| ≥ +25% above threshold (clearly top of market for level/city) | **10** |
-| +10% to +25% above threshold | **9** |
-| At threshold (±5%) | **8** |
-| 0% to −10% (within bottom of band) | **7** |
-| −10% to −25% below threshold | **5** |
-| −25% to −50% below threshold | **3** |
-| > 50% below threshold OR poverty-wage | **1** |
+The math is encoded in `scripts/score-listing.mjs` (and `scripts/lib/score-bands.mjs`). The agent's job here is to:
 
-**Operational rules:**
-1. **Salary disclosed as a range** → score the **midpoint**, not "uncertain → 5". A €45–55K Dublin posting (threshold €40K = 8) → midpoint €50K = +25% → **10**.
-2. **Salary disclosed as single figure** → score directly against the threshold.
-3. **Salary undisclosed** → consult the comp cache (next subsection). If the cache resolves it, treat the cached midpoint as disclosed. If it doesn't, score **5** AND prepend `[undisclosed]` to the reasoning. 5 is the default ONLY when the JD is silent AND the cache misses.
-4. **Range crosses the threshold** → still take the midpoint. "Within reach OR above" is not "uncertain".
-5. **Fall back to global table** in `_profile.md` (`€45K+ = 10`, `€35–44K = 8`, etc.) only when the city is not in the city-specific table.
-6. **"Top of target range"**, "competitive for the city", "premium brand" are NOT reasons to mark down. Score the number, not the framing.
+1. **Build total comp inputs** by reading the JD:
+   - Base salary, bonus % (or industry-typical estimate when undisclosed: big tech ≈ 15%, MBB ≈ 20%, banking ≈ 30%+, most other ≈ 0–10%), 13th/14th month months, monthly cash benefits (transit / meals / gym / housing), one-off sign-on amount.
+   - **Equity:** prefer Levels.fyi (`company × role × level × city` already encodes role-dependent grants). If Levels.fyi has nothing AND the JD discloses an equity number, annualize over vest — public RSU at face value, private RSU/options at 50% haircut (tag `[equity speculative]`). If neither source resolves it, set to zero and tag `[equity unknown — base only]`. Don't speculate.
+   - Statutory benefits the country requires anyway (basic EU healthcare, statutory PTO minimum, statutory parental leave) DO NOT count.
+2. **Resolve the tax rate** for `(country, gross-rounded-to-€5K)`: check `data/tax-cache.tsv` for a row within 90 days. On miss, WebSearch a tax calculator (talent.com / gov.ie / hmrc / etc.) at this exact gross, then pass to the script as `tax_override` and run with `--write-cache` to persist.
+3. **Resolve the city baseline:** check `data/col-cache.tsv` within 60 days. On miss, WebSearch `numbeo.com/cost-of-living/in/{city}` and parse `Single person estimated monthly costs without rent + Apartment 1BR City Centre`. Pass as `col_override`, run with `--write-cache`.
+4. **Decide the soft-benefits modifier** (judgment call, ±1.0 max — see table below) and pass as `soft_benefits_modifier`.
+5. **Run the script.** It computes total comp → net → minus baseline → savings band → applies modifier → returns the score with full math provenance, ready to drop into the reasoning cell verbatim.
+
+**Soft-benefits modifier** — applied to the score by the script, but the agent picks the value:
+
+| Signal | Modifier |
+|--------|----------|
+| Any 2 of: PTO ≥30 days, fully flex / fully remote / hybrid 2-3d max, exceptional perks (sabbatical / housing / parental leave > statutory / learning stipend ≥€2K), Glassdoor benefits ≥4.0/5 | **+0.5 to +1.0** |
+| 1 of the above OR explicitly-named meaningful perks | **+0.3** |
+| Statutory minimums only | **0** |
+| PTO ≤22 days, on-site mandatory in a high-COL city, Glassdoor benefits ≤2.5/5 | **−0.3 to −0.5** |
+
+WebSearch `{company} benefits {city} site:glassdoor.com OR site:levels.fyi` if the JD doesn't surface enough to judge. Apply in 0.1 steps mid-bucket.
+
+**Reasoning cell** — paste the script's `salary_adj_for_city.math` field verbatim. It contains every number with its source. Generic "competitive for the city" or "mid-range" without provenance is not allowed.
+
+**Internships** — pass `is_intern: true` in the script input; the script halves the city baseline (shared housing assumed) unless the JD explicitly states company-provided housing.
+
+**Poverty-wage discard:** if the script returns `score: 1` (savings < −€400/mo), `modes/pipeline.md` § Step 2c discards the listing.
 
 #### Comp cache (`data/comp-cache.tsv`)
 
-When a JD doesn't disclose salary, look up `(company, role_archetype, city)` in `data/comp-cache.tsv` BEFORE scoring 5. The cache is the system's persistent memory of comp data — populated at evaluation time, reused for ~60 days, then refreshed.
+When a JD doesn't disclose salary, look up `(company, role_archetype, city)` in `data/comp-cache.tsv`. The cache is the system's persistent memory of comp data — populated at evaluation time, reused for ~60 days, then refreshed.
 
 **Schema (TSV with header row):**
 
@@ -239,12 +242,10 @@ SumUp	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 **Lookup flow (do this in order, stop at first hit):**
 
 1. **Exact match:** `company` + `role_archetype` + `city` AND `last_updated` is within 60 days. Use these min/max as if disclosed.
-2. **Cross-city same role:** `company` + `role_archetype` in a peer city (Berlin↔Munich, Dublin↔Amsterdam) within 60 days. Adjust ±10% by relative city threshold from `_profile.md`. Mark reasoning *(cached, cross-city adjusted)*.
+2. **Cross-city same role:** `company` + `role_archetype` in a peer city (Berlin↔Munich, Dublin↔Amsterdam) within 60 days. Adjust the cached gross by the ratio of the two cities' baselines from the cost-of-living table above (e.g. Munich/Berlin ≈ 2,600/2,200 = 1.18 → multiply Berlin gross by 1.18 to estimate Munich). Mark reasoning *(cached, cross-city adjusted)*.
 3. **Same company, peer archetype:** `company` + adjacent role_archetype (e.g. "Data Analyst" → "Business Analyst") in same city within 60 days. Mark reasoning *(cached, peer-archetype proxy)*.
-4. **Cache miss or stale (> 60 days)** — branch by `phase`:
-   - **`applying` phase** (user committed to this listing): run a **WebSearch** in this priority order — **Levels.fyi → Glassdoor → Blind → Payscale**. Aim for 2 sources to cross-check. Take the median of the entry-level / target-level band. Then **append a row to `data/comp-cache.tsv`** with `source` = whichever site won, `confidence` = `high` (multiple sources agree) / `medium` (single source) / `low` (had to extrapolate). This is how the cache grows organically — every committed evaluation feeds it.
-   - **`exploring` phase** (landscape mapping, cheap): do NOT run a WebSearch. Score from the JD's disclosed figure or the city-band default. If undisclosed, score 5 with `[undisclosed]` reasoning. The cache fills via `applying`-phase runs — `exploring` reads from it but doesn't pay the WebSearch cost.
-5. **WebSearch returned nothing useful:** score **5** with `[undisclosed]` reasoning. Do NOT fabricate a band.
+4. **Cache miss or stale (> 60 days):** run a **WebSearch** in this priority order — **Levels.fyi → Glassdoor → LinkedIn Salary → Payscale → Blind**. Aim for 2 sources to cross-check. Take the median of the entry-level / target-level band. Score it through the savings-power rubric above (gross → net → minus baseline → score). Prepend `[estimated from {source}]` to the reasoning so provenance is visible. Then **append a row to `data/comp-cache.tsv`** with `source` = whichever site won, `confidence` = `high` (multiple sources agree) / `medium` (single source) / `low` (extrapolated). A defended estimate beats a blind 5; the cache grows organically from every evaluation.
+5. **WebSearch returned nothing useful** (rare — small private startups, very niche roles, jurisdictions with no salary-data culture): score **5** with `[undisclosed — no public data]` reasoning. Do NOT fabricate a band. This is the only path to a default-5 score.
 
 **Refresh rules:**
 
@@ -280,7 +281,7 @@ Generic platitudes — "competitive but reachable", "good growth trajectory", "s
 | Brand Value | Use the brand-tier table directly (10/9/8/7/6/...). Reasoning = which named tier the company sits in. |
 | Sales-Trap Risk | Cite the JD's quota/pipeline/outbound language verbatim if any. If the JD is silent, say so. |
 | Best Cities | Name the city + its position in `_profile.md`'s preferred-cities list. |
-| Salary Adj for City | Cite the disclosed figure OR `[undisclosed]`. State the city threshold from `_profile.md` being scored against. Generic "mid-range" is insufficient. |
+| Salary Adj for City | Paste `scripts/score-listing.mjs`'s `salary_adj_for_city.math` field verbatim — it contains every number with provenance. When the comp came from an estimate (Glassdoor / Levels.fyi / comp-cache lookup, not disclosed in the JD), pass `comp_source: "estimate"` so the script tags the gross with `**` and appends `(** = estimated)` to the chain. Don't paraphrase the math. Agent's only judgment input is the soft-benefits modifier value, which must be justified separately (e.g. `[modifier +0.5: PTO 32d, hybrid 2d, Glassdoor benefits 4.2]`). Generic "competitive for the city" without the script-generated math is not allowed. |
 | Work-Life Balance | Cite Glassdoor / Blind / known reputation signal. Generic "structured onboarding" is insufficient. |
 
 **Worked example — Ease of Entry, Revolut Rev-celerator Graduate Programme:**
@@ -460,8 +461,6 @@ Reports render the dimensions as a single table:
 | Work-Life Balance (context) | X/10 | One sentence on company WLB reputation |
 | Best-fit Early-career Roles (context) | — | Comma-separated list of 1-4 alternative roles at this company |
 ```
-
-Note: the Overall line weight shown (0.70/0.30) is for `phase: exploring`. In `phase: applying` use 0.60/0.40. Always show the actual weights used.
 
 ### Comparative Rank Block
 

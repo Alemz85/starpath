@@ -9,8 +9,7 @@ import { ipc } from '@/lib/ipc'
 import {
   Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X,
 } from 'lucide-react'
-import { StatCard } from '@/components/command-center/StatCard'
-import { RunningInScanFooter } from '@/components/command-center/CommandCenter'
+import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { cn, deadlineUrgency, urgencyBadge } from '@/lib/utils'
@@ -112,28 +111,42 @@ export function ApplyingView() {
       </div>
 
       <div className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0">
-        {/* Hero */}
-        <div className="shrink-0 galaxy-bg rounded-lg p-6 border border-border-default">
-          <div className="flex items-center gap-3">
-            <Briefcase size={20} className="text-accent" />
-            <div>
-              <h1 className="text-page text-text-1 mb-1">Applying</h1>
-              <p className="text-body text-text-3">
-                {loaded
-                  ? `${applications.length} active · ${totalInterviewing} interviewing · ${totalOffers} offers`
-                  : 'Loading data…'}
-              </p>
-            </div>
+        {/* Editorial hero — display title + 4-column funnel strip
+            (Sent → Responded → Interviewing → Offers). Hairline
+            dividers, no card frames. Interviewing and Offers get
+            accent + pulsing dot so the in-flight stages stand out. */}
+        <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
+          <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
+            <h1 className="text-display-2 text-text-1">Applying</h1>
+            {loaded && urgentCount > 0 && (
+              <span className="text-label text-danger font-medium">
+                {urgentCount} urgent {urgentCount === 1 ? 'deadline' : 'deadlines'}
+              </span>
+            )}
           </div>
-        </div>
 
-        {/* Stats */}
-        <div className="shrink-0 grid grid-cols-3 gap-3 lg:grid-cols-5">
-          <StatCard label="Applied"          value={loaded ? String(totalApplied)      : '—'} icon={Briefcase} loading={!loaded} />
-          <StatCard label="Responded"        value={loaded ? String(totalResponded)    : '—'} icon={MessageSquare} accent="text-accent" loading={!loaded} />
-          <StatCard label="Interviewing"     value={loaded ? String(totalInterviewing) : '—'} icon={GraduationCap} accent="text-warning" loading={!loaded} />
-          <StatCard label="Offers"           value={loaded ? String(totalOffers)       : '—'} icon={FileText} accent="text-success" loading={!loaded} />
-          <StatCard label="Urgent deadlines" value={loaded ? String(urgentCount)       : '—'} icon={AlertTriangle} accent={urgentCount > 0 ? 'text-danger' : undefined} loading={!loaded} />
+          {loaded ? (
+            <div className="grid grid-cols-4 divide-x divide-border-default/50">
+              <HeroStatTile value={totalApplied}      label="Sent"          sub="applications" />
+              <HeroStatTile value={totalResponded}    label="Responded"     sub="replies received" />
+              <HeroStatTile
+                value={totalInterviewing}
+                label="Interviewing"
+                sub="active processes"
+                accent={totalInterviewing > 0 ? 'text-warning' : undefined}
+                highlightDot={totalInterviewing > 0 ? 'bg-warning' : undefined}
+              />
+              <HeroStatTile
+                value={totalOffers}
+                label="Offers"
+                sub="received"
+                accent={totalOffers > 0 ? 'text-success' : undefined}
+                highlightDot={totalOffers > 0 ? 'bg-success' : undefined}
+              />
+            </div>
+          ) : (
+            <div className="h-14 shimmer rounded-lg" />
+          )}
         </div>
 
         {/* Inbox — pending URLs */}

@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
-import { getPhase, setPhase, hasLegacyMode } from '@/lib/parsers/yaml'
-import type { Phase, ModelAlias, ModelPrefs } from '@/types'
+import type { ModelAlias, ModelPrefs } from '@/types'
 import { DEFAULT_MODEL_PREFS } from '@/types'
 
 // Returns true if the currently-pointed-at repo already has the four critical
@@ -21,7 +20,6 @@ interface AppState {
   repoPath: string | null
   isOnboarded: boolean
   tailoringComplete: boolean
-  phase: Phase
   claudeInstalled: boolean
   models: ModelPrefs
 
@@ -31,7 +29,6 @@ interface AppState {
   setOnboardingComplete: () => Promise<void>
   setTailoringComplete: () => Promise<void>
   resetTailoring: () => Promise<void>
-  setPhase: (phase: Phase) => Promise<void>
   setModel: (category: keyof ModelPrefs, model: ModelAlias) => Promise<void>
   recheckClaude: () => Promise<boolean>
 }
@@ -40,27 +37,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   repoPath: null,
   isOnboarded: false,
   tailoringComplete: true,
-  phase: 'exploring',
   claudeInstalled: false,
   models: DEFAULT_MODEL_PREFS,
 
   init: async () => {
     const cfg = await ipc.getConfig()
     const claudeCheck = await ipc.checkClaude()
-
-    let phase: Phase = 'exploring'
-    if (cfg?.repoPath) {
-      const profileRaw = await ipc.readFile('user/profile.yml')
-      if (profileRaw) {
-        phase = getPhase(profileRaw)
-        // One-shot migration: rewrite the file to use the canonical `phase`
-        // key when it still has the legacy `current_mode` key. After this,
-        // no more backward-compat handling is needed in code.
-        if (hasLegacyMode(profileRaw)) {
-          await ipc.writeFile('user/profile.yml', setPhase(profileRaw, phase))
-        }
-      }
-    }
 
     // Auto-flip both onboarding + tailoring flags whenever the repo on disk
     // is clearly already set up. Covers two paths:
@@ -88,7 +70,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       repoPath:        cfg?.repoPath ?? null,
       isOnboarded,
       tailoringComplete,
-      phase,
       claudeInstalled: claudeCheck?.installed ?? false,
       models:          cfg?.models ?? DEFAULT_MODEL_PREFS,
     })
@@ -128,16 +109,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     const installed = claudeCheck?.installed ?? false
     set({ claudeInstalled: installed })
     return installed
-  },
-
-  setPhase: async (phase: Phase) => {
-    if (get().phase === phase) return
-    const raw = await ipc.readFile('user/profile.yml')
-    if (raw) {
-      const updated = setPhase(raw, phase)
-      await ipc.writeFile('user/profile.yml', updated)
-    }
-    set({ phase })
   },
 
   setModel: async (category, model) => {

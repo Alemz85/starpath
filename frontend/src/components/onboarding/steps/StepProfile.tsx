@@ -77,7 +77,7 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
 
     let raw = await ipc.readFile('user/profile.yml')
     if (!raw || raw.trim().length < 20) {
-      raw = `candidate:\n  full_name: ""\n  email: ""\n  phone: ""\n  location: ""\n  linkedin: ""\n\nphase: exploring\n\ncomp:\n  target_range: ""\n  currency: "EUR"\n\ntargeting:\n  roles: []\n  seniority: "Mid"\n  remote: "preferred"\n`
+      raw = `candidate:\n  full_name: ""\n  email: ""\n  phone: ""\n  location: ""\n  linkedin: ""\n\ncomp:\n  target_range: ""\n  currency: "EUR"\n\ntargeting:\n  roles: []\n  seniority: "Mid"\n  remote: "preferred"\n`
     }
 
     const patch = (yaml: string, key: string, val: string) =>
@@ -253,7 +253,7 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
         <button
           onClick={handleSave}
           disabled={!canSave || saving || saved}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] text-white rounded-pill transition-all font-medium text-[14px] shadow-[0_2px_10px_rgba(124,92,255,0.25)]"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] text-white rounded-pill transition-all font-medium text-[14px] shadow-pill hover:shadow-pill-hover"
         >
           {saving && <Loader2 size={14} className="animate-spin" />}
           {saved && <CheckCircle2 size={15} />}

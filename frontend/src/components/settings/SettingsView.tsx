@@ -258,7 +258,7 @@ export function SettingsView() {
 // ─── General tab ──────────────────────────────────────────────────────────────
 
 function GeneralTab() {
-  const { repoPath, setRepoPath, phase, setPhase, models, setModel, resetTailoring } = useAppStore()
+  const { repoPath, setRepoPath, models, setModel, resetTailoring } = useAppStore()
   const { refresh } = useDataStore()
 
   const MODEL_ROWS: Array<{
@@ -292,23 +292,6 @@ function GeneralTab() {
             <FolderOpen size={13} />
             Change
           </button>
-        </div>
-      </SettingRow>
-
-      <SettingRow title="Phase" description="Controls the CF/AF rollup weights. `exploring` weights reachability higher (70/30); `applying` weights ambition higher (60/40). The cockpit's Scouting / Applying tabs are about workflow stage, not phase.">
-        <div className="flex rounded-md overflow-hidden border border-border-default w-fit mt-3">
-          {(['exploring', 'applying'] as const).map(p => (
-            <button
-              key={p}
-              onClick={() => setPhase(p)}
-              className={cn(
-                'px-4 py-2 text-label transition-colors capitalize',
-                phase === p ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',
-              )}
-            >
-              {p}
-            </button>
-          ))}
         </div>
       </SettingRow>
 

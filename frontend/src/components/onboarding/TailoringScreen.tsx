@@ -146,8 +146,7 @@ export function TailoringScreen() {
         {state === 'error' && (
           <button
             onClick={() => setTailoringComplete()}
-            className="btn-pill-outline"
-            style={{ color: '#FFFFFF', borderColor: 'rgba(255,255,255,0.25)' }}
+            className="btn-pill-outline !text-white !border-white/25"
           >
             Continue to app
           </button>
