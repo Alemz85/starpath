@@ -10,10 +10,12 @@
 // Documented adjustments:
 //   - Brand:  CEMS-adjacent firms (McKinsey/BCG/EY/Accenture/Google/Spotify/Wise) → +0.6
 //   - Brand:  Google specifically → +1.0 ON TOP of the +0.6 (so Google = +1.6 total)
-//   - Brand:  dream company → override to 10 (regardless of raw judgment)
+//   - Brand:  upper-tier dream company → override to 10 (regardless of raw judgment)
+//   - Brand:  lower-tier dream company → +1.0 bonus (stacks with CEMS-adjacent;
+//             NO override to 10 and no AF floor — just a meaningful brand boost)
 //   - Growth: structured onboarding / mentorship / learning path → +1.0
 //   - Growth: sink-or-swim culture signal → −1.0
-//   - AF:     dream company → floor at 8.0 (after rollup)
+//   - AF:     upper-tier dream company → floor at 8.0 (after rollup; lower tier does NOT floor)
 //
 // All numbers ultimately clamped to [1, 10].
 
@@ -26,9 +28,10 @@ const DEFAULT_CEMS_ADJACENT = ['McKinsey', 'BCG', 'EY', 'Accenture', 'Google', '
 export function applyBrandCalibration(rawBrand, company, calibration) {
   const cemsList = calibration?.cems_adjacent_companies ?? DEFAULT_CEMS_ADJACENT
   const dreamList = calibration?.dream_companies ?? []
+  const lowerTierDreamList = calibration?.lower_tier_dream_companies ?? []
   const adjustments = []
 
-  // Dream-company override wins — score floors at 10 regardless of other adjustments.
+  // Upper-tier dream override wins — Brand floors at 10 regardless of other adjustments.
   if (dreamList.some(c => sameCompany(c, company))) {
     adjustments.push({ source: 'dream-company override', value: 10 - rawBrand, type: 'override' })
     return { value: 10, adjustments }
@@ -42,6 +45,10 @@ export function applyBrandCalibration(rawBrand, company, calibration) {
   if (sameCompany('Google', company)) {
     value += 1.0
     adjustments.push({ source: 'Google special', value: +1.0 })
+  }
+  if (lowerTierDreamList.some(c => sameCompany(c, company))) {
+    value += 1.0
+    adjustments.push({ source: 'lower-tier dream company', value: +1.0 })
   }
   return { value: clamp(value), adjustments }
 }
