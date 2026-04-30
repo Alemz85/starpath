@@ -472,6 +472,35 @@ const FIXTURES = [
     },
   },
   {
+    name: 'Lower-tier dream — Brand +1.0 bonus, no override, no AF floor',
+    input: {
+      company: 'Microsoft', role_archetype: 'Sales Operations Intern',
+      city: 'Dublin', country: 'IE',
+      comp: { base: 25200 },
+      tax_override: { rate: 0.12, source: 'fixture' },
+      col_override: { baseline_eur: 3000, source: 'fixture' },
+      is_intern: true,
+      soft_benefits_modifier: 0,
+      calibration: {
+        dream_companies: ['Google'],
+        lower_tier_dream_companies: ['Mastercard', 'Glovo', 'Celonis', 'Amazon', 'Microsoft'],
+        has_structured_onboarding: false,
+      },
+      judgment_scores: {
+        skills_match: 8, ease_of_entry: 5, strategic_fit: 8,
+        growth_mobility: 8, optionality_exit: 9, brand_value: 8,  // raw 8 → +1.0 → 9
+        sales_trap_risk: 8, work_life_balance: 7, best_cities: 8,
+      },
+    },
+    expect: {
+      // Brand: 8 + 1.0 (lower-tier dream) = 9 — stacks but no override to 10
+      'calibrated_dims.brand_value.final': 9,
+      // AF = (8 + 9 + 9) / 3 = 8.67 — no dream-company AF floor (lower tier doesn't floor)
+      'aspirational_fit': 8.67,
+      'aspirational_fit_floor': null,
+    },
+  },
+  {
     name: 'Structured onboarding calibration — Growth raw 7 → final 8',
     input: {
       company: 'Acme', role_archetype: 'Data Analyst',
