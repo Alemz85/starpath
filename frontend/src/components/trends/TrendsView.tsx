@@ -9,11 +9,25 @@ import {
 import { cn } from '@/lib/utils'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { EmptyState } from '@/components/shared/EmptyState'
+import { scoreColor as galaxyScoreColor } from '@/lib/tier'
 import type { ScoreEntry } from '@/types'
 
+// Multi-series chart palette — sourced from the documented categorical
+// chart tokens (DESIGN-meta.md § Data Viz palette). Aurora-tuned cousins
+// of galaxy violet so adjacent lines actually contrast instead of
+// collapsing into one violet ladder. Order is anchor → indigo → cool →
+// warm → warm → cool → neutral so the first three (Overall / Current
+// Fit / Aspirational Fit, the default-active series) read at maximum
+// contrast and the rest fan out warm/cool/warm/cool.
 const DIM_COLORS = [
-  '#7C5CFF', '#C99518', '#A0612C', '#6B7280',
-  '#2ABBA7', '#F3425F', '#54C7EC', '#A121CE',
+  '#7C5CFF',  // chart-1 — galaxy violet, Overall
+  '#3D2BB5',  // chart-2 — deep indigo, Current Fit
+  '#2EB8A8',  // chart-3 — aurora teal, Aspirational Fit
+  '#E84F8E',  // chart-4 — nebula pink, Skills Match
+  '#F2A837',  // chart-5 — cosmic amber, Brand Value
+  '#4D8DFF',  // chart-6 — azure, Growth
+  '#8595A4',  // chart-7 — slate, Work-Life (intentionally muted)
 ]
 
 type DimKey = 'avg_overall' | 'avg_current_fit' | 'avg_aspirational_fit' | 'avg_skills_match' | 'avg_brand_value' | 'avg_growth' | 'avg_wlb'
@@ -140,7 +154,7 @@ export function TrendsView() {
             >
               <span
                 className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: activeDims.has(key) ? DIM_COLORS[i % DIM_COLORS.length] : '#CED0D4' }}
+                style={{ background: activeDims.has(key) ? DIM_COLORS[i % DIM_COLORS.length] : 'var(--divider-gray)' }}
               />
               {label}
             </button>
@@ -150,8 +164,11 @@ export function TrendsView() {
         {!loaded ? (
           <div className="h-64 shimmer rounded-lg" />
         ) : byDate.length === 0 ? (
-          <div className="flex items-center justify-center h-64 text-label text-text-4">
-            No data to display.
+          <div className="flex items-center justify-center h-64 rounded-lg border border-border-default bg-bg-panel/40">
+            <EmptyState
+              title="No score history yet"
+              hint="Run a Filter to Database scan to populate the trend chart."
+            />
           </div>
         ) : (
           <div className="galaxy-bg border border-border-default rounded-lg p-4" style={{ height: 340 }}>
@@ -482,11 +499,6 @@ function EmptyHint() {
 }
 
 // Same galaxy palette as the rest of the app (Database scoreColor,
-// ReportSlideOver hero, etc) so a number reads as the same color
-// everywhere it appears.
-function scoreTierColor(v: number): string {
-  if (v >= 8.5) return '#3D2BB5'
-  if (v >= 7)   return '#7C5CFF'
-  if (v >= 5)   return '#A89CD9'
-  return '#94A3B8'
-}
+// ReportSlideOver hero, etc) — sourced from the shared `lib/tier.ts`
+// module so a number reads as the same color everywhere it appears.
+const scoreTierColor = galaxyScoreColor

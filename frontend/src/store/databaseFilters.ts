@@ -16,12 +16,17 @@ interface DatabaseFiltersState {
   setFilters: (f: FacetFilters) => void
   setQuery: (q: string) => void
   setShowClosed: (b: boolean) => void
-  /** Apply a CmdK navigate(view, databaseFilter) hop. Sets the search
-   *  query to `company:{name}` and clears the chip filters so the user
-   *  immediately sees just that company's rows. */
-  applyCommandKFilter: (companyName: string) => void
+  /** Apply a navigate(view, databaseFilter) hop. Accepts either a bare
+   *  company name (legacy: CmdK passes "Acme Corp" → becomes
+   *  `company:Acme Corp`) or a tokenized query (`archetype:Backend
+   *  Engineer`, `tier:T1`, `location:Berlin`, etc.) and uses it
+   *  verbatim. Show-closed is forced on so the navigated-to filter
+   *  always returns rows even when the user had closed listings hidden. */
+  applyCommandKFilter: (input: string) => void
   reset: () => void
 }
+
+const TOKEN_PREFIX_RE = /^(company|role|archetype|tier|location|type|minscore|maxscore|liveness):/i
 
 export const useDatabaseFilters = create<DatabaseFiltersState>((set) => ({
   filters:    EMPTY_FILTERS,
@@ -30,9 +35,13 @@ export const useDatabaseFilters = create<DatabaseFiltersState>((set) => ({
   setFilters:    (filters)    => set({ filters }),
   setQuery:      (query)      => set({ query }),
   setShowClosed: (showClosed) => set({ showClosed }),
-  applyCommandKFilter: (name) => set({
-    filters: EMPTY_FILTERS,
-    query:   `company:${name}`,
-  }),
+  applyCommandKFilter: (input) => {
+    const tokenized = TOKEN_PREFIX_RE.test(input) ? input : `company:${input}`
+    set({
+      filters: EMPTY_FILTERS,
+      query:   tokenized,
+      showClosed: true,
+    })
+  },
   reset: () => set({ filters: EMPTY_FILTERS, query: '', showClosed: false }),
 }))

@@ -121,7 +121,7 @@ function PasteMode({
         <button
           onClick={onSave}
           disabled={!ready || saved}
-          className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] text-white rounded-pill transition-all font-medium text-[14px] shadow-[0_2px_10px_rgba(124,92,255,0.25)]"
+          className="inline-flex items-center gap-2 px-5 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98] text-white rounded-pill transition-all font-medium text-[14px] shadow-pill hover:shadow-pill-hover"
         >
           {saved ? <CheckCircle2 size={15} /> : <FileText size={15} />}
           {saved ? 'Saved' : 'Save CV'}

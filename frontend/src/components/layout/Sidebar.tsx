@@ -16,10 +16,10 @@ import {
   ChevronRight,
   Activity,
   User,
-  Loader2,
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
 import { StarpathLogo } from '@/components/shared/Logos'
+import { OrbitalLoader } from '@/components/ui/orbital-loader'
 
 interface NavItem {
   view: ViewId
@@ -73,30 +73,30 @@ export function Sidebar() {
       <button
         key={item.view}
         onClick={() => handleNav(item)}
+        aria-label={item.label}
+        aria-current={currentView === item.view ? 'page' : undefined}
         className={cn(
-          'w-full flex items-center gap-3 px-2 py-2 rounded-md transition-colors text-body',
+          'w-full flex items-center gap-3 px-2 py-2 rounded-md text-body',
+          'transition-[background-color,color] duration-200 ease-quart',
           currentView === item.view
-            ? 'bg-accent/15 text-text-1 border-l-2 border-accent -ml-[1px] pl-[7px]'
+            ? 'bg-accent/15 text-text-1 font-medium'
             : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
           !expanded && 'justify-center px-0',
         )}
         title={!expanded ? item.label : undefined}
       >
         <span className="relative shrink-0 inline-flex">
-          {showRunning && (
-            <span
-              className="absolute inset-[-6px] rounded-full animate-pulse pointer-events-none"
-              style={{ boxShadow: '0 0 0 4px rgba(124, 92, 255, 0.20), 0 0 12px 4px rgba(124, 92, 255, 0.30)' }}
-              aria-hidden
-            />
-          )}
           <Icon size={15} className={cn('relative', showRunning && 'text-accent')} />
+          {/* Running indicator — small two-ring orbital loader at the
+              top-right corner of the icon. Replaces the prior box-shadow
+              halo + Loader2 spinner combo, which read as the generic
+              "AI app spinner" pattern. The rings tie back to the orbital
+              language used in the Activity panel, ProfileView career
+              constellation, and Onboarding finale. */}
           {showRunning && (
-            <Loader2
-              size={9}
-              className="absolute -top-1 -right-1.5 animate-spin text-accent"
-              strokeWidth={2.5}
-            />
+            <span className="absolute -top-1 -right-1.5 z-10">
+              <OrbitalLoader size={14} rings={2} strokeClass="text-accent" />
+            </span>
           )}
         </span>
         {expanded && (

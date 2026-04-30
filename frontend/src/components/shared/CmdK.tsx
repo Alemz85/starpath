@@ -3,17 +3,14 @@
 import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import { useDataStore } from '@/store/data'
-import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Compass,
+  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase,
 } from 'lucide-react'
 
 export function CmdK() {
   const [open, setOpen] = useState(false)
-  const { setPhase, phase } = useAppStore()
-  const otherPhase = phase === 'applying' ? 'exploring' : 'applying'
   const { scoreHistory, scouting } = useDataStore()
   const { navigate } = useNavStore()
 
@@ -85,14 +82,6 @@ export function CmdK() {
             </Command.Group>
 
             <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Actions</span>}>
-              <Command.Item
-                value={`switch phase exploring applying ${otherPhase}`}
-                onSelect={async () => { await setPhase(otherPhase); setOpen(false) }}
-                className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
-              >
-                <Compass size={14} className="text-text-3" />
-                Switch phase to {otherPhase} ({otherPhase === 'applying' ? '60/40 weights' : '70/30 weights'})
-              </Command.Item>
               <Command.Item
                 value="open activity"
                 onSelect={() => go('scan')}

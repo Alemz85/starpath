@@ -9,14 +9,49 @@ import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
 import { ClaudeLogo } from '@/components/shared/Logos'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
-import { StatCard } from './StatCard'
+import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import {
-  BarChart2, Inbox, Target, Radar, Calendar,
   Play, Zap, Filter, Square, ArrowRight,
   ChevronDown, Check,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, formatRelative } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
+
+// StatTile — single column inside a hero stat strip. No card frame, no
+// border on its own; relies on a sibling `divide-x` parent to provide
+// the hairline rhythm. Optional `accent` color highlights the most
+// actionable figure (pending listings, interviewing) and a tiny
+// pulsing dot draws the eye to non-zero values.
+function HeroStatTile({
+  value, label, sub, accent, highlightDot,
+}: {
+  value: string | number
+  label: string
+  sub?: string
+  accent?: string
+  highlightDot?: string
+}) {
+  return (
+    <div className="px-5 first:pl-0 last:pr-0">
+      <div className="relative inline-block">
+        <span className={cn(
+          'text-[26px] font-mono font-semibold tabular-nums leading-none',
+          accent ?? 'text-text-1',
+        )}>
+          {value}
+        </span>
+        {highlightDot && (
+          <span
+            className={cn('absolute -top-0.5 -right-2.5 w-1.5 h-1.5 rounded-full animate-pulse', highlightDot)}
+            aria-hidden
+          />
+        )}
+      </div>
+      <div className="text-label text-text-2 font-medium mt-2">{label}</div>
+      {sub && <div className="text-micro text-text-4 mt-0.5 normal-case">{sub}</div>}
+    </div>
+  )
+}
 
 const FULL_SCAN_ID       = 'cmd-full-scan'
 const API_SCAN_ID        = 'cmd-api-scan'
@@ -67,15 +102,17 @@ export function CommandCenter() {
   const { repoPath } = useAppStore()
   const { scoreHistory, applications, pipeline, scansThisMonth, loaded, refresh } = useDataStore()
 
-  // Compute stats
   const totalEvaluated = scoreHistory.length
+  const distinctCompanies = useMemo(
+    () => new Set(scoreHistory.map(e => e.company).filter(Boolean)).size,
+    [scoreHistory],
+  )
   const active = applications.filter(a =>
     ['Applied', 'Responded', 'Interview', 'Offer'].includes(a.status)
   ).length
   const pendingListings = pipeline.length
-
   const lastScanDate = scoreHistory.length
-    ? scoreHistory.sort((a, b) => b.date.localeCompare(a.date))[0]?.date
+    ? [...scoreHistory].sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? null
     : null
 
   return (
@@ -85,50 +122,51 @@ export function CommandCenter() {
       </div>
 
       <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-6 overflow-hidden min-h-0">
-        {/* Hero — fixed height */}
-        <div className="shrink-0 galaxy-bg rounded-lg p-6 border border-border-default">
-          <div>
-            <h1 className="text-page text-text-1 mb-1">Scouting</h1>
-            <p className="text-body text-text-3">
-              {loaded ? `${totalEvaluated} offers evaluated · ${pendingListings} pending in pipeline` : 'Loading data…'}
-            </p>
+        {/* Editorial hero — display title + 4-column stat strip below.
+            The strip uses hairline dividers (no card frames) so it
+            doesn't read as a templated SaaS dashboard, but every key
+            number is large and instantly scannable. The Pending column
+            gets accent emphasis and a pulsing dot when > 0 so the
+            "you have stuff to filter" signal can't be missed. */}
+        <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
+          <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
+            <h1 className="text-display-2 text-text-1">Scouting</h1>
+            {loaded && lastScanDate && (
+              <span className="text-label text-text-3">
+                Last scan{' '}
+                <span className="text-text-2 font-medium">{formatRelative(lastScanDate)}</span>
+              </span>
+            )}
           </div>
-        </div>
 
-        {/* Stats row — fixed height */}
-        <div className="shrink-0 grid grid-cols-3 gap-3 lg:grid-cols-5">
-          <StatCard
-            label="Total evaluated"
-            value={loaded ? String(totalEvaluated) : '—'}
-            icon={BarChart2}
-            loading={!loaded}
-          />
-          <StatCard
-            label="Active"
-            value={loaded ? String(active) : '—'}
-            icon={Target}
-            accent="text-accent"
-            loading={!loaded}
-          />
-          <StatCard
-            label="Pending Listings"
-            value={loaded ? String(pendingListings) : '—'}
-            icon={Inbox}
-            loading={!loaded}
-          />
-          <StatCard
-            label="Scans this month"
-            value={loaded ? String(scansThisMonth) : '—'}
-            icon={Radar}
-            loading={!loaded}
-          />
-          <StatCard
-            label="Last scan"
-            value={lastScanDate ?? '—'}
-            icon={Calendar}
-            small
-            loading={!loaded}
-          />
+          {loaded ? (
+            <div className="grid grid-cols-4 divide-x divide-border-default/50">
+              <HeroStatTile
+                value={totalEvaluated}
+                label="Evaluated"
+                sub={`${distinctCompanies} ${distinctCompanies === 1 ? 'company' : 'companies'}`}
+              />
+              <HeroStatTile
+                value={active}
+                label="Active"
+                sub={active === 1 ? 'application' : 'applications'}
+              />
+              <HeroStatTile
+                value={pendingListings}
+                label="Pending"
+                sub="ready to filter"
+                accent={pendingListings > 0 ? 'text-accent' : undefined}
+                highlightDot={pendingListings > 0 ? 'bg-accent' : undefined}
+              />
+              <HeroStatTile
+                value={scansThisMonth}
+                label="Scans"
+                sub="this month"
+              />
+            </div>
+          ) : (
+            <div className="h-14 shimmer rounded-lg" />
+          )}
         </div>
 
         {/* Scouting cockpit (flex-grows to fill remaining height) */}
@@ -178,7 +216,12 @@ function RecentTopPicks() {
           <TopPickCard
             key={`${entry.company}-${entry.role}-${i}`}
             entry={entry}
-            onClick={() => navigate('reports', `${entry.company}|${entry.role}`)}
+            onClick={() =>
+              // Database opens filtered to the exact company + role pair.
+              // Quoted values let multi-word names match precisely (the
+              // newly-extended token query supports `role:"Senior Engineer"`).
+              navigate('database', `company:"${entry.company}" role:"${entry.role}"`)
+            }
           />
         ))}
       </div>
@@ -632,7 +675,7 @@ function ModelChip() {
 // Shared exports — used by ScanView, ApplyingView, ActiveProcessesBar etc.
 export {
   ActionButton, ActivityPanel, LoadingMessage, pickVisible, HoverDescriptionRow,
-  ElapsedChip, formatElapsed, RunningInScanFooter, statusDone,
+  ElapsedChip, formatElapsed, RunningInScanFooter, statusDone, HeroStatTile,
 }
 
 // Lightweight status check shared across ScoutingActionPanel's many useEffects.
@@ -790,20 +833,23 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
   const isRunning = record?.status === 'running'
   const hasOutput = (record?.output.length ?? 0) > 0
   const showLoadingMessages = isRunning && !hasOutput
+  // Idle state — no spawn picked yet — surfaces the starfield decoration
+  // so the Activity surface reads as "deep space waiting for liftoff"
+  // instead of an empty matte rectangle. The moment a run starts the
+  // stars step aside (overflow-hidden keeps them from racing past the
+  // streaming output text either way).
+  const isIdle = !record
 
   return (
-    <div
-      className="flex-1 min-h-0 relative rounded-xl overflow-hidden flex flex-col"
-      style={{ background: '#1F1B36', boxShadow: '0 10px 32px rgba(20, 14, 50, 0.18)' }}
-    >
+    <div className={cn(
+      'flex-1 min-h-0 relative rounded-xl overflow-hidden flex flex-col bg-galaxy-matte shadow-card',
+      isIdle && 'galaxy-stars',
+    )}>
       {/* Header strip — no static "Terminal" label. When the running spawn is
           a Claude invocation the brand mark sits next to the label so the user
           knows what's at the wheel. The elapsed chip ticks every second while
           running so a "stuck" run can never look like "instant" success. */}
-      <div
-        className="shrink-0 h-8 px-5 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider"
-        style={{ background: '#2A2548', borderColor: 'rgba(255,255,255,0.05)' }}
-      >
+      <div className="shrink-0 h-8 px-5 flex items-center justify-between border-b border-white/5 text-[10px] font-mono uppercase tracking-wider bg-galaxy-matte-2">
         <span className="text-white/55 inline-flex items-center gap-1.5">
           {record?.tool === 'claude' && <ClaudeLogo size={12} />}
           {record ? `${record.label} ${statusGlyph(record)}` : 'Idle'}
@@ -924,17 +970,23 @@ function LoadingMessage({ seed, showClaudeMark = false }: { seed: number; showCl
 
   return (
     <div className="absolute inset-0 top-7 flex items-center justify-center pointer-events-none px-6">
-      <div className="flex flex-col items-center gap-3">
-        {showClaudeMark && (
-          <div className="animate-pulse">
-            <ClaudeLogo size={28} />
-          </div>
-        )}
+      <div className="flex flex-col items-center gap-4">
+        {/* Orbital rings while waiting for first output. The Claude
+            mark used to pulse here, but a tri-ring orbit reads as
+            "we're scanning through the universe of listings" — a
+            domain-truer signal than a generic logo bounce. */}
+        <div className="relative inline-flex items-center justify-center">
+          <OrbitalLoader size={64} strokeClass="text-accent-light" />
+          {showClaudeMark && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <ClaudeLogo size={20} />
+            </div>
+          )}
+        </div>
         <p
           key={idx}
-          className="italic text-[12.5px] text-center"
+          className="italic text-[12.5px] text-center text-accent-light max-w-[42ch]"
           style={{
-            color: '#B5A3FF',
             animation: 'chip-appear 320ms ease both',
           }}
         >

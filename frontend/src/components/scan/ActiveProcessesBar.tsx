@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useMemo } from 'react'
-import { Loader2, CheckCircle2, X as XIcon, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, X as XIcon, AlertTriangle } from 'lucide-react'
+import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import { cn } from '@/lib/utils'
 import { useSpawnsStore, type SpawnRecord, type SpawnStatus } from '@/store/spawns'
 import { ElapsedChip } from '@/components/command-center/CommandCenter'
@@ -93,7 +94,7 @@ function ProcessRow({
 }
 
 function StatusIcon({ status }: { status: SpawnStatus }) {
-  if (status === 'running') return <Loader2 size={12} className="shrink-0 animate-spin text-accent" />
+  if (status === 'running') return <OrbitalLoader size={14} rings={2} strokeClass="text-accent" className="shrink-0" />
   if (status === 'done')    return <CheckCircle2 size={12} className="shrink-0 text-success" />
   if (status === 'error')   return <AlertTriangle size={12} className="shrink-0 text-danger" />
   return <XIcon size={12} className="shrink-0 text-text-4" />  // killed

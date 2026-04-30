@@ -132,18 +132,109 @@ textarea:focus-visible {
 }
 
 /* Immersive galaxy surface — full-screen splash/onboarding.
-   Meta-grammar "dark immersive moment": deep navy + violet + Oculus Purple. */
+   Layered recipe: a deep radial bloom anchored at top-center fades
+   from galaxy-deep navy at the core to a saturated accent-hover
+   violet at the corners (the 21st.dev "dark + purple deep" pattern,
+   re-tuned to the starpath palette). Two ambient texture washes sit
+   on top to break the gradient's mathematical evenness — without
+   them the corners feel too clean. */
 .galaxy-immersive {
   background:
-    radial-gradient(ellipse at 22% 28%, rgba(124, 92, 255, 0.28) 0%, transparent 55%),
-    radial-gradient(ellipse at 78% 72%, rgba(161, 33, 206, 0.22) 0%, transparent 60%),
-    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.08) 0%, transparent 40%),
-    #0A0820;
+    radial-gradient(ellipse at 22% 28%, rgba(124, 92, 255, 0.16) 0%, transparent 55%),
+    radial-gradient(ellipse at 78% 72%, rgba(161, 33, 206, 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.07) 0%, transparent 40%),
+    radial-gradient(125% 125% at 50% 8%, #0A0820 38%, #5B3FE8 100%);
   color: #FFFFFF;
 }
 .galaxy-immersive ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.18);
   border: 2px solid transparent;
+}
+
+/* Twinkling starfield — opt-in decoration for dark surfaces only
+   (galaxy-immersive, galaxy-matte, galaxy-deep). Two tiled radial
+   layers (slow 7s + fast 4.2s) for delicate parallax twinkle. Stars
+   are intentionally small and quiet — the surface is the hero, not
+   the decoration. Host element must be `position: relative` and
+   `overflow: hidden`. Honors prefers-reduced-motion. */
+.galaxy-stars {
+  position: relative;
+}
+.galaxy-stars::before,
+.galaxy-stars::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-repeat: repeat;
+  background-size: 260px 260px;
+}
+.galaxy-stars > * {
+  position: relative;
+  z-index: 1;
+}
+.galaxy-stars::before {
+  background-image:
+    radial-gradient(0.9px 0.9px at 14% 22%, rgba(255, 255, 255, 0.78) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 38% 9%,  rgba(220, 210, 255, 0.66) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 71% 31%, rgba(255, 255, 255, 0.70) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 88% 14%, rgba(181, 163, 255, 0.74) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 24% 67%, rgba(255, 255, 255, 0.62) 0%, transparent 100%),
+    radial-gradient(1px 1px at 56% 78%, rgba(220, 210, 255, 0.70) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 81% 60%, rgba(255, 255, 255, 0.60) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 6% 88%,  rgba(181, 163, 255, 0.72) 0%, transparent 100%);
+  animation: star-twinkle-slow 7s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+}
+.galaxy-stars::after {
+  background-size: 180px 180px;
+  background-image:
+    radial-gradient(0.7px 0.7px at 33% 41%, rgba(255, 255, 255, 0.46) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 62% 18%, rgba(255, 255, 255, 0.42) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 12% 55%, rgba(220, 210, 255, 0.46) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 92% 73%, rgba(255, 255, 255, 0.46) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 47% 92%, rgba(255, 255, 255, 0.42) 0%, transparent 100%);
+  animation: star-twinkle-fast 4.2s cubic-bezier(0.25, 1, 0.5, 1) infinite;
+  animation-delay: -1.6s;
+}
+@keyframes star-twinkle-slow {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.92; }
+}
+@keyframes star-twinkle-fast {
+  0%, 100% { opacity: 0.30; }
+  50%      { opacity: 0.78; }
+}
+
+/* Orbital loader rings — paired keyframes so each ring can have its
+   own duration and direction. Linear ease so the ring spins evenly
+   (curves would visibly accelerate/decelerate which reads as broken). */
+@keyframes orbital-spin-cw  { to { transform: rotate(360deg); } }
+@keyframes orbital-spin-ccw { to { transform: rotate(-360deg); } }
+.orbital-spin     { animation-iteration-count: infinite; animation-timing-function: linear; }
+.orbital-spin-cw  { animation-name: orbital-spin-cw; }
+.orbital-spin-ccw { animation-name: orbital-spin-ccw; }
+
+/* Cosmos grain — fixed, full-viewport noise overlay at 2% opacity.
+   Adds texture so light surfaces don't feel sterile-flat. SVG noise
+   is inlined as data URI to avoid a network fetch. The layer is
+   `position: fixed` and `pointer-events: none` so it never affects
+   interaction. Per perf guardrails: not attached to scroll containers. */
+.cosmos-grain {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.486  0 0 0 0 0.361  0 0 0 0 1  0 0 0 0.65 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+  background-size: 200px 200px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .galaxy-stars::before,
+  .galaxy-stars::after { animation: none; opacity: 0.65; }
+  .btn-pill > svg     { transition: none; }
+  .orbital-spin       { animation: none; }
 }
 
 /* Brand wordmark — galaxy gradient text clip. */
@@ -179,7 +270,12 @@ textarea:focus-visible {
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-/* Pill button utility — galaxy primary CTA */
+/* Primary CTA pill — galaxy violet. Motion design:
+   - 200ms cubic-bezier(0.25,1,0.5,1) on color/shadow (state, not decoration)
+   - active scale(0.98) for physical-press feedback
+   - galaxy-tinted hover shadow rather than generic black drop
+   - magnetic hover: child icon translates 1px right on hover (only
+     applies when wrapped with .group on the button element) */
 .btn-pill {
   display: inline-flex;
   align-items: center;
@@ -194,12 +290,20 @@ textarea:focus-visible {
   color: #FFFFFF;
   border: none;
   cursor: pointer;
-  transition: background 200ms ease, transform 150ms ease, box-shadow 200ms ease;
+  transition: background 200ms cubic-bezier(0.25, 1, 0.5, 1),
+              box-shadow 200ms cubic-bezier(0.25, 1, 0.5, 1),
+              transform 150ms cubic-bezier(0.25, 1, 0.5, 1);
   box-shadow: 0 1px 2px rgba(76, 47, 200, 0.15);
 }
-.btn-pill:hover { background: #5B3FE8; box-shadow: 0 4px 12px rgba(124, 92, 255, 0.35); }
+.btn-pill:hover {
+  background: #5B3FE8;
+  box-shadow: 0 6px 18px 0 rgba(124, 92, 255, 0.32), 0 1px 2px 0 rgba(76, 47, 200, 0.18);
+}
 .btn-pill:active { background: #4A2FC8; transform: scale(0.98); }
 .btn-pill:disabled { background: #DEE3E9; color: #8595A4; cursor: not-allowed; box-shadow: none; }
+.btn-pill > svg { transition: transform 220ms cubic-bezier(0.25, 1, 0.5, 1); }
+.btn-pill:hover > svg { transform: translateX(1px); }
+.btn-pill:disabled > svg { transform: none; }
 
 .btn-pill-outline {
   display: inline-flex;
@@ -234,28 +338,32 @@ textarea:focus-visible {
   margin-bottom: 1rem;
   letter-spacing: 0;
 }
-/* h2: section headers — match the DimensionGroup heading style so the
-   body reads with one type system. Section headers (## Fit/gaps, ##
-   Verdict, ## Path forward) sit at the same visual rhythm as Current Fit
-   / Aspirational Fit / Context group headers. */
+/* h2: section headers — bumped to 16px so they actually feel like
+   section breaks rather than slightly-bold body text. The
+   DimensionGroup component uses 16px too, so the body reads with
+   one consistent rhythm across both the parsed dimensional view and
+   the markdown-rendered sections. Letter-spacing tightened slightly
+   per Optimistic VF small-headline conventions. */
 .prose-report h2 {
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 600;
-  color: #1C2B33;
-  margin-top: 1.5rem;
-  margin-bottom: 0.75rem;
+  color: #050505;
+  margin-top: 1.75rem;
+  margin-bottom: 0.875rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #DEE3E9;
-  letter-spacing: 0;
+  letter-spacing: -0.01em;
   text-transform: none;
 }
-/* h3: sub-sections */
+/* h3: sub-sections — sized between body and h2 so a "### " heading
+   still reads as a heading, not just bold body text. */
 .prose-report h3 {
-  font-size: 14px;
+  font-size: 14.5px;
   font-weight: 600;
   color: #1C2B33;
-  margin-top: 1rem;
-  margin-bottom: 0.375rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.005em;
 }
 .prose-report p { margin-bottom: 0.75rem; color: #1C2B33; }
 .prose-report ul, .prose-report ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }

@@ -17,6 +17,16 @@ The store's visual hierarchy is ruthlessly simple. Photography does the heavy li
 - 8px spacing grid with disciplined vertical rhythm
 - Alternating light/dark sections create a "walkthrough" retail cadence
 
+## 1.5 Register, color strategy, motion principles
+
+**Register:** product. The desktop app is a power-user tool — the user spends hours in it making decisions. Design serves the work. Familiarity is a virtue (Linear / Stripe / Things 3 / Raycast as benchmarks); strangeness without purpose is the failure mode. One display moment per primary view; everything else stays in the dense workhorse scale.
+
+**Color strategy:** Restrained. Tinted neutrals + one saturated accent (galaxy violet) ≤10% of the surface. The accent reads as action; semantic tokens (success / warning / danger) read as state. The chart palette (`chart-1`…`chart-7`) is its own categorical track, isolated to multi-series data viz. Tier and status scales never collapse into the chart track and vice versa.
+
+**Theme:** light. Physical scene — a job seeker reviewing AI-generated offer evaluations on a 14" laptop in a quiet evening home office, sometimes for hours, deciding which of 200 listings deserves an application. That sustained-reading scene calls for light surfaces. The two dark moments are intentional — the OnboardingGate immersive (brand reveal) and the ActivityPanel matte body (live AI streaming, terminal feel).
+
+**Motion:** every transition lands at 150–250 ms with `cubic-bezier(0.25, 1, 0.5, 1)` (ease-out-quart, the `ease-quart` Tailwind token). Motion conveys state (load, hover, selection, expansion) — never decoration. No orchestrated mount sequences; no comet trails on every primary CTA; no auto-playing animations. The persistent atmospherics live in two places only — the universal `cosmos-grain` overlay and the opt-in `galaxy-stars` decoration on dark idle surfaces.
+
 ## 2. Color Palette & Roles
 
 ### Primary
@@ -49,7 +59,8 @@ The product-line accents are replaced by the **tier scale** (evaluation strength
 
 ### Surface & Background
 
-- **White** (`#FFFFFF`): Primary page canvas, nav bar background, card surfaces (token `bg-base`)
+- **White** (`#FFFFFF`): Card / popover / nav-bar surfaces (token `bg-base`)
+- **Cosmos Wash** (`oklch(0.99 0.004 285)`): App-shell page surface — a barely-perceptible OKLCH violet bleed so cards and chrome feel like they're floating in galaxy space rather than sitting on raw white (token `bg-cosmos`). Pair with the `cosmos-grain` overlay (see § Decorative Depth) for the full atmospheric base.
 - **Soft Gray** (`#F1F4F7`): Secondary background for content sections (`--dolly-bg-grey`, token `bg-panel`)
 - **Warm Gray** (`#F7F8FA`): Flat card background, subtle surface differentiation (token `bg-elevated`)
 - **Web Wash** (`#F0F2F5`): Deemphasized background areas, sidebar/topbar chrome (token `bg-chrome`)
@@ -78,6 +89,22 @@ The product-line accents are replaced by the **tier scale** (evaluation strength
 - **Error BG** (`rgba(200, 10, 40, 0.12)`): Subtle error background tint
 - **Warning BG** (`rgba(247, 185, 40, 0.15)`): Subtle warning background tint
 - **Info BG** (`rgba(124, 92, 255, 0.12)`): Subtle informational violet tint (matches `accent-soft`)
+
+### Data Viz palette — categorical chart series
+
+Multi-series charts (TrendsView dimension lines, future radar/spider, breakdown panels) need 5–7 distinguishable hues without collapsing into one violet ladder. The palette is "aurora-tuned": galaxy violet anchors the brand series, then cool and warm cousins fan out so adjacent lines never read as the same color. These tokens are reserved for **categorical data series only** — they don't replace tier or status semantics, and they don't get used for chrome.
+
+| Token | Hex | Role |
+|-------|-----|------|
+| `chart-1` | `#7C5CFF` | Galaxy violet — anchor / Overall (matches `accent`) |
+| `chart-2` | `#3D2BB5` | Deep galaxy indigo — strongest fit dimension (matches `tier-1`) |
+| `chart-3` | `#2EB8A8` | Aurora teal — cool counterpart |
+| `chart-4` | `#E84F8E` | Nebula pink — warm counterpart (distinct from the magenta in `.galaxy-text`) |
+| `chart-5` | `#F2A837` | Cosmic amber — warm tertiary (distinct from `warning #F7B928`) |
+| `chart-6` | `#4D8DFF` | Azure — cool tertiary |
+| `chart-7` | `#8595A4` | Slate — neutral / "muted by intent" series |
+
+Use `chart-1` first (the anchor), then alternate warm/cool/warm/cool when adding series so neighbours contrast. Don't reach for `accent`, `tier-*`, or `success/warning/danger` for chart series — they carry semantics that conflict with arbitrary categorical use. The chart palette stays separate so a status stays semantic and a series stays categorical.
 
 ### Gradient System
 
@@ -120,6 +147,19 @@ The product-line accents are replaced by the **tier scale** (evaluation strength
 ### Principles
 
 Optimistic VF is the cornerstone of Meta's typographic identity — a humanist sans-serif with geometric underpinnings that strikes a balance between Silicon Valley precision and consumer warmth. The "ss01" and "ss02" stylistic sets introduce alternate glyphs that give headlines a distinctive Meta character. Weight 500 (Medium) dominates headlines, creating a presence that commands without shouting, while the unexpected use of weight 300 (Light) at 28px adds an airy, editorial quality to subheadings. Negative letter-spacing at smaller sizes (-0.14px to -0.16px) tightens the optical rhythm for UI elements, keeping the reading experience crisp and efficient.
+
+### Tailwind tokens for the display scale
+
+The app is a power-user product (register: product). Per the product doctrine, display fonts are reserved for one-off "moments," not pages — every surface beyond the entry hero stays on the dense `text-page` and below scale. A single display token (`text-display-2`, capped at 36px) covers the editorial hero on Scouting and Applying.
+
+| Tailwind class | Maps to | Use |
+|----------------|---------|-----|
+| `text-display-2` | 36px / 500 / 1.12 / -0.02em tracking | The **one** hero moment per primary view. Title only — never apply to subheads, labels, or data |
+| `text-page`      | 22px / 500 / 1.28 | Title-bar headings, page titles in dense views (Trends, Reports, Database) |
+| `text-section`   | 16px / 500 / -0.16px tracking | Subheads, hero summary prose, section headers |
+| `text-body`      | 13px / 400 / 1.5 | Default body, table cells |
+| `text-label`     | 12px / 400 / -0.14px | Form labels, secondary metadata |
+| `text-micro`     | 11px / 600 uppercase / 0.06em tracking | Eyebrow tags, axis labels |
 
 ## 4. Component Stylings
 
@@ -187,7 +227,7 @@ Optimistic VF is the cornerstone of Meta's typographic identity — a humanist s
 - Frosted glass effect: `rgba(241, 244, 247, 0.8)` with backdrop-filter blur (`.frosted` utility)
 - Logo: `<StarpathLogo />` SVG paired with the galaxy-violet wordmark, left-aligned
 - Links: Optimistic VF, 13px (`text-body`), Dark Charcoal (`#1C2B33`)
-- Active item: `bg-accent/15` (galaxy-violet wash) + `border-l-2 border-accent` rail
+- Active item: `bg-accent/15` galaxy-violet wash + `text-text-1` + `font-medium` weight bump. **No side-stripe rail** — colored borders >1px on a list item are decorative noise; the background tint plus weight contrast is enough.
 - Hover: `text-text-2` + `bg-bg-elevated`
 - CTA: Galaxy Violet pill button, right-aligned
 - Mobile: hamburger collapse, full-screen overlay nav
@@ -273,10 +313,13 @@ The Meta Store favors a primarily flat elevation model. Most surface differentia
 
 ### Decorative Depth
 
-- **Frosted glass nav**: `rgba(241, 244, 247, 0.8)` background with backdrop-filter blur, creating a translucent navigation bar (`.frosted`)
-- **Active-nav running halo**: `0 0 0 4px rgba(124, 92, 255, 0.20), 0 0 12px 4px rgba(124, 92, 255, 0.30)` — emitted around the Activity sidebar icon when a spawn is running, paired with an `animate-pulse` class
-- **Dark section gradient**: `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` overlay on product photography for text legibility
-- **Glimmer loading states**: Shimmer animation over `#F1F4F7` → `#E4E8EC` → `#F1F4F7` gradient, 1500ms infinite — used for skeleton screens (`.shimmer` utility)
+- **Frosted glass nav**: `rgba(241, 244, 247, 0.8)` background with backdrop-filter blur, creating a translucent navigation bar (`.frosted`).
+- **Active-nav running halo**: `0 0 0 4px rgba(124, 92, 255, 0.20), 0 0 12px 4px rgba(124, 92, 255, 0.30)` — emitted around the Activity sidebar icon when a spawn is running, paired with an `animate-pulse` class.
+- **Dark section gradient**: `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` overlay on product photography for text legibility.
+- **Glimmer loading states**: Shimmer animation over `#F1F4F7` → `#E4E8EC` → `#F1F4F7` gradient, 1500ms infinite — used for skeleton screens (`.shimmer` utility).
+- **Cosmos grain overlay** (`.cosmos-grain`): Fixed-position, full-viewport SVG noise at 2.5% opacity tinted to galaxy violet. Mounted once in the AppShell so every screen carries the same subliminal texture — keeps `bg-cosmos` from reading as a flat tinted background. `pointer-events: none`, never attached to a scroll container (per perf guardrails).
+- **Twinkling starfield** (`.galaxy-stars`): Opt-in decoration for **dark surfaces only** — `galaxy-immersive`, `galaxy-matte`, `galaxy-deep`. Two tiled radial-gradient layers (slow 7s + fast 4.2s with `cubic-bezier(0.25, 1, 0.5, 1)`) animate opacity for delicate parallax twinkle. Stars are intentionally small and quiet — the surface is the hero, not the decoration. Host element must be `position: relative` and `overflow: hidden`. Honors `prefers-reduced-motion`. **Don't use over light surfaces** — stars vanish on white.
+- **Galaxy-tinted shadows** (`shadow-cosmos`, `shadow-cosmos-lift`): Ambient + direct shadow pair on the violet hue axis instead of pure black. Used on hero cards (Scouting / Applying / Profile editorial heroes) so cast shadow inherits the brand temperature rather than reading as generic black drop.
 
 ## 7. Do's and Don'ts
 
@@ -359,12 +402,14 @@ The Meta Store favors a primarily flat elevation model. Most surface differentia
 - Dark immersive sections: Galaxy Deep (`#0A0820`); matte panels: Galaxy Matte (`#1F1B36`)
 - Tier scale: T1 `#3D2BB5` → T2 `#7C5CFF` → T3 `#A89CD9` → T4 `#94A3B8`
 - Status: success `#007D1E`, warning `#F7B928`, danger `#C80A28`, info `#7C5CFF`
+- Chart series (categorical only): `chart-1` `#7C5CFF` · `chart-2` `#3D2BB5` · `chart-3` `#2EB8A8` · `chart-4` `#E84F8E` · `chart-5` `#F2A837` · `chart-6` `#4D8DFF` · `chart-7` `#8595A4`
+- App shell wash: `bg-cosmos` `oklch(0.99 0.004 285)` — never raw `#FFFFFF` for the page; cards still use `bg-base`
 
 ### Example Component Prompts
 
 - "Create a product hero section with a full-width cinematic image, `linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.6))` text overlay, Optimistic-style 64px/500 white headline, and a Galaxy Violet (`#7C5CFF`) pill button (100px radius, 10px 22px padding, hover `#5B3FE8`)"
 - "Design a 3-column product card grid with 20px rounded corners, white backgrounds, edge-to-edge product images at top, 18px/400 body text in Slate Gray (`#5D6C7B`), and 24px grid gap"
-- "Build a sticky navigation bar with white background, `rgba(241, 244, 247, 0.8)` frosted glass effect (`.frosted` utility), 13px/500 dark text links, an active-state `bg-accent/15` + `border-l-2 border-accent` rail, and a right-aligned Galaxy Violet pill CTA"
+- "Build a sticky navigation bar with white background, `rgba(241, 244, 247, 0.8)` frosted glass effect (`.frosted` utility), 13px/500 dark text links, an active-state `bg-accent/15` wash with `font-medium` weight bump (no border rail), and a right-aligned Galaxy Violet pill CTA"
 - "Create a galaxy-immersive section with `#0A0820` background plus violet-and-magenta radial washes (the `.galaxy-immersive` recipe), white 48px/500 headline, `#5D6C7B` body text, and a secondary outlined pill button with `rgba(10, 19, 23, 0.12)` border"
 - "Design a tier comparison grid with Soft Gray (`#F1F4F7`) background, 24px rounded cards, tier-coloured chips (`tier-1 #3D2BB5`, `tier-2 #7C5CFF`, `tier-3 #A89CD9`, `tier-4 #94A3B8`), and 14px/700 bold labels"
 

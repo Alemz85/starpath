@@ -77,7 +77,7 @@ This system is designed to be customized by you (AI Agent). Common requests:
 
 ## Skill Modes
 
-There is **one evaluation mode** (`scouting`). Per-listing follow-up actions (Tailor CV, Prep Application, Draft Application) are separate skills the user triggers when they want them. Phase (`user/profile.yml → phase`) controls only the CF/AF rollup weights.
+There is **one evaluation mode** (`scouting`). Per-listing follow-up actions (Tailor CV, Prep Application, Draft Application) are separate skills the user triggers when they want them. CF/AF rollup weights are fixed at 70/30.
 
 | If the user... | Mode |
 |----------------|------|
@@ -99,8 +99,6 @@ There is **one evaluation mode** (`scouting`). Per-listing follow-up actions (Ta
 | Asks about follow-ups or application cadence | `followup` |
 | Asks about deadlines, closing dates, what's urgent | `deadlines` |
 | Wants to browse/filter all evaluated offers as a table | `db` |
-
-**Phase:** `user/profile.yml → phase` is `exploring` (CF/AF weights = 70/30, default for landscape mapping) or `applying` (60/40, weights ambition higher when choosing between live offers). Phase does NOT change the report shape — only the rollup weights. Toggle via Settings or CmdK.
 
 ## CV Source of Truth
 

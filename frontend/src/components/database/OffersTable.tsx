@@ -17,6 +17,8 @@ import { parseCities } from '@/lib/entityId'
 import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
+import { scoreColor, scoreColorLight } from '@/lib/tier'
+import { useId } from 'react'
 
 interface OffersTableProps {
   rows: ScoreEntry[]
@@ -27,20 +29,10 @@ interface OffersTableProps {
 
 const col = createColumnHelper<ScoreEntry>()
 
-// ─── Score dial — galaxy palette, matches the tier scale ────────────────────
-//
-// T1 (≥8.5) deep galaxy indigo · T2 (≥7) violet · T3 (≥5) lavender ·
-// T4 (<5) faded slate. Same palette is used by the tier badges so the dial
-// color and the row's tier read as one coherent signal.
-
-function scoreColor(v: number): string {
-  if (v >= 8.5) return '#3D2BB5'   // tier-1 — deep galaxy indigo
-  if (v >= 7)   return '#7C5CFF'   // tier-2 — galaxy violet
-  if (v >= 5)   return '#A89CD9'   // tier-3 — muted lavender
-  return '#94A3B8'                  // tier-4 — faded slate
-}
+// Score dial — galaxy tier palette via shared util in `lib/tier.ts`.
 
 function ScoreDial({ value }: { value: number }) {
+  const reactId = useId().replace(/[:]/g, '')
   if (value <= 0) {
     return <span className="text-[11px] font-mono text-text-4 tabular-nums">—</span>
   }
@@ -51,25 +43,51 @@ function ScoreDial({ value }: { value: number }) {
   const pct = Math.max(0, Math.min(1, value / 10))
   const dash = c * pct
   const color = scoreColor(value)
+  const colorLight = scoreColorLight(value)
+  const isT1 = value >= 8.5
+  const gradId = `sd-grad-${reactId}`
+  const glowId = `sd-glow-${reactId}`
   return (
-    <div className="relative inline-flex" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90 absolute inset-0">
+    <div
+      className="relative inline-flex"
+      style={{ width: size, height: size }}
+      role="img"
+      aria-label={`Score ${value.toFixed(1)} out of 10`}
+    >
+      <svg width={size} height={size} className="-rotate-90 absolute inset-0" aria-hidden>
+        <defs>
+          <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%"   stopColor={color} />
+            <stop offset="100%" stopColor={colorLight} />
+          </linearGradient>
+          {isT1 && (
+            <filter id={glowId} x="-40%" y="-40%" width="180%" height="180%">
+              <feGaussianBlur stdDeviation="1.1" result="b" />
+              <feMerge>
+                <feMergeNode in="b" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          )}
+        </defs>
         <circle cx={size/2} cy={size/2} r={r} stroke="#DEE3E9" strokeWidth={stroke} fill="none" />
         <circle
           cx={size/2}
           cy={size/2}
           r={r}
-          stroke={color}
+          stroke={`url(#${gradId})`}
           strokeWidth={stroke}
           fill="none"
           strokeDasharray={`${dash} ${c}`}
           strokeLinecap="round"
-          style={{ transition: 'stroke-dasharray 360ms ease-out' }}
+          filter={isT1 ? `url(#${glowId})` : undefined}
+          style={{ transition: 'stroke-dasharray 220ms cubic-bezier(0.25, 1, 0.5, 1)' }}
         />
       </svg>
       <span
         className="absolute inset-0 flex items-center justify-center font-mono font-semibold tabular-nums"
         style={{ fontSize: 10.5, color: '#1C2B33' }}
+        aria-hidden
       >
         {value.toFixed(1)}
       </span>

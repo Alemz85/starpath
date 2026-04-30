@@ -6,6 +6,8 @@ import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { cn } from '@/lib/utils'
+import { TIER_HEX } from '@/lib/tier'
+import { CareerConstellation } from './CareerConstellation'
 import type { ScoreEntry, ApplicationEntry } from '@/types'
 
 // ─── Profile YAML helpers ────────────────────────────────────────────────────
@@ -38,12 +40,21 @@ function extractList(yaml: string, key: string): string[] {
 
 const TIER_RANK: Record<string, number> = { T1: 5, 'T2-high': 4, T2: 3, T3: 2, T4: 1 }
 
+// Heatmap cell color — maps the day's best tier onto the galaxy-violet
+// tier scale. Empty days fall back to bg-panel so the grid reads as a
+// quiet surface, not a default-T4 wash. T2-high uses accent-hover, the
+// stop between T1 and T2 in the wordmark gradient (the design system
+// doesn't formally define a T2-high color).
 function tierHeatColor(tier: string, count: number): string {
-  if (count === 0) return '#F1F4F7'
+  if (count === 0) return '#F1F4F7' // bg-panel
   const map: Record<string, string> = {
-    T1: '#C99518', 'T2-high': '#2ABBA7', T2: '#7C5CFF', T3: '#A0612C', T4: '#CED0D4',
+    T1:        TIER_HEX.T1,
+    'T2-high': TIER_HEX['T2-high'],
+    T2:        TIER_HEX.T2,
+    T3:        TIER_HEX.T3,
+    T4:        TIER_HEX.T4,
   }
-  return map[tier] ?? '#CED0D4'
+  return map[tier] ?? TIER_HEX.T4
 }
 
 interface HeatCell { date: string; count: number; bestTier: string }
@@ -107,13 +118,13 @@ function Sparkline({ values }: { values: number[] }) {
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-12 overflow-visible">
         <defs>
           <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#7C5CFF" stopOpacity="0.22" />
-            <stop offset="100%" stopColor="#7C5CFF" stopOpacity="0" />
+            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.22" />
+            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={areaPath} fill="url(#sg)" />
-        <path d={linePath} fill="none" stroke="#7C5CFF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx={last.x} cy={last.y} r="3" fill="#7C5CFF" />
+        <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={last.x} cy={last.y} r="3" fill="var(--accent)" />
         <text x={last.x + 6} y={last.y + 1} fontSize="9" fill="#5D6C7B" dominantBaseline="middle">
           {values[values.length - 1].toFixed(1)}
         </text>
@@ -189,11 +200,6 @@ export function ProfileView() {
       headline:  extract(profileRaw, 'headline'),
       comp:      extract(profileRaw, 'target_range'),
       currency:  extract(profileRaw, 'currency') || 'USD',
-      // `phase` is the canonical key; `current_mode` is read for legacy
-      // profile.yml files until the launch routine rewrites them.
-      phase:     (extract(profileRaw, 'phase') || extract(profileRaw, 'current_mode') || 'exploring')
-                   .replace(/^scouting$/, 'exploring')
-                   .replace(/^job-seeking$/, 'applying'),
       roles:     extractRoles(profileRaw),
       powers:    extractList(profileRaw, 'superpowers'),
     }
@@ -234,40 +240,31 @@ export function ProfileView() {
 
       <div className="flex-1 overflow-y-auto max-w-[740px] mx-auto w-full px-5 pb-10 pt-4 space-y-4">
 
-        {/* ── Hero ── */}
-        <div className="relative rounded-xl bg-bg-panel border border-border-default p-5 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-accent/6 via-transparent to-[#E8B547]/3 pointer-events-none" />
-          <div className="relative flex items-start gap-4">
-            {/* Avatar with glow */}
+        {/* ── Hero — editorial profile card. Replaces the prior
+            avatar + 5-stat-card grid with a single asymmetric block:
+            avatar + identity + prose summary on the left, hero figure
+            (T1 hits — the proudest metric for a job seeker) on the
+            right. The richer data sections below (activity heatmap,
+            tier breakdown, achievements) carry the full numerics so a
+            stat-card row would be redundant. */}
+        <div className="relative rounded-xl bg-bg-panel border border-border-default p-6 overflow-hidden shadow-cosmos">
+          <div className="absolute inset-0 bg-gradient-to-br from-accent/6 via-transparent to-tier-1/5 pointer-events-none" />
+          <div className="relative flex items-start gap-5">
             <div className="relative shrink-0">
               <div className="absolute inset-0 rounded-full bg-accent/30 blur-md scale-110" />
-              <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-accent via-[#6B48E8] to-[#4A2FA8] flex items-center justify-center text-white font-semibold text-xl shadow-lg">
+              <div className="relative w-16 h-16 rounded-full bg-gradient-to-br from-accent via-accent-hover to-accent-press flex items-center justify-center text-white font-semibold text-xl shadow-lift">
                 {initials}
               </div>
-              <div className={cn(
-                'absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-bg-panel',
-                profile?.phase === 'exploring' ? 'bg-info' : 'bg-success',
-              )} title={profile?.phase === 'exploring' ? 'Exploring' : 'Applying'} />
             </div>
 
             <div className="flex-1 min-w-0 pt-0.5">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-[16px] font-semibold text-text-1 leading-tight">
-                  {profile?.name || 'Your Name'}
-                </h1>
-                <span className={cn(
-                  'text-[10px] font-mono font-medium px-2 py-0.5 rounded-full border',
-                  profile?.phase === 'exploring'
-                    ? 'text-info border-info/30 bg-info/10'
-                    : 'text-success border-success/30 bg-success/10',
-                )}>
-                  {profile?.phase === 'exploring' ? '● Exploring' : '● Applying'}
-                </span>
-              </div>
+              <h1 className="text-[17px] font-semibold text-text-1 leading-tight tracking-[-0.01em]">
+                {profile?.name || 'Your Name'}
+              </h1>
               {profile?.headline && (
-                <p className="text-body text-text-3 mt-0.5">{profile.headline}</p>
+                <p className="text-body text-text-3 mt-1">{profile.headline}</p>
               )}
-              <div className="flex items-center gap-4 mt-1.5 flex-wrap">
+              <div className="flex items-center gap-4 mt-2 flex-wrap">
                 {profile?.location && (
                   <span className="flex items-center gap-1 text-label text-text-4">
                     <MapPin size={10} />{profile.location}
@@ -284,37 +281,46 @@ export function ProfileView() {
                   </span>
                 )}
               </div>
+              {stats.total > 0 && (
+                <p className="text-label text-text-3 mt-3 max-w-[58ch]">
+                  <span className="text-text-1 font-medium tabular-nums">{stats.total}</span>{' '}
+                  {stats.total === 1 ? 'evaluation' : 'evaluations'}.{' '}
+                  {stats.applied > 0 && (
+                    <>
+                      <span className="text-text-1 font-medium tabular-nums">{stats.applied}</span>{' '}
+                      {stats.applied === 1 ? 'application' : 'applications'} sent
+                      {stats.interviews > 0 ? `, ${stats.interviews} reached interviews.` : '.'}
+                    </>
+                  )}
+                  {stats.applied === 0 && stats.t1 > 0 && (
+                    <>Average score <span className="text-text-1 font-medium tabular-nums">{stats.avg.toFixed(1)}</span>.</>
+                  )}
+                </p>
+              )}
             </div>
 
-            {/* XP pill */}
-            <div className="shrink-0 flex flex-col items-center gap-0.5 pt-1">
-              <span className="text-2xl font-semibold font-mono text-tier-1">{stats.total}</span>
-              <span className="text-micro text-text-4 uppercase tracking-wider">evals</span>
-            </div>
+            {stats.t1 > 0 && (
+              <div className="shrink-0 self-stretch flex flex-col items-center justify-center pl-4 border-l border-border-default/60">
+                <span className="text-display-2 font-mono font-semibold tabular-nums leading-none text-tier-1">
+                  {stats.t1}
+                </span>
+                <span className="text-micro text-text-4 uppercase tracking-wider mt-2">
+                  T1 hits
+                </span>
+              </div>
+            )}
           </div>
-        </div>
-
-        {/* ── Stats bar ── */}
-        <div className="grid grid-cols-5 gap-2.5">
-          {[
-            { label: 'T1 Hits',     value: stats.t1,             sub: 'top tier',  color: 'text-tier-1'  },
-            { label: 'Avg Score',   value: stats.avg.toFixed(1), sub: '/ 10.0',    color: 'text-accent'  },
-            { label: 'Applied',     value: stats.applied,        sub: 'sent',      color: 'text-info'    },
-            { label: 'Interviews',  value: stats.interviews,     sub: 'reached',   color: 'text-warning' },
-            { label: 'Badges',      value: `${unlockedCount}/10`, sub: 'unlocked', color: 'text-tier-1'  },
-          ].map(({ label, value, sub, color }) => (
-            <div key={label} className="rounded-lg bg-bg-panel border border-border-default p-3 flex flex-col items-center gap-0.5 text-center">
-              <span className={cn('text-[22px] font-semibold font-mono leading-none', color)}>{value}</span>
-              <span className="text-[11px] text-text-2 font-medium mt-1">{label}</span>
-              <span className="text-micro text-text-4">{sub}</span>
-            </div>
-          ))}
         </div>
 
         {/* Edit panel was here briefly — moved to the dedicated
             Configuration tab so this Profile remains a clean read-only
             showcase. To edit anything (identity / comp / languages /
             target roles / portals) navigate to Configuration. */}
+
+        {/* ── Career constellation — companies + archetypes orbit your
+            avatar. Sized by # of evaluations, glow tinted by avg score.
+            Hidden when there's not enough data to read as a galaxy. ── */}
+        <CareerConstellation initials={initials} />
 
         {/* ── Activity heatmap ── */}
         <div className="rounded-xl bg-bg-panel border border-border-default p-4">
@@ -342,12 +348,12 @@ export function ProfileView() {
           <div className="flex items-center gap-3 mt-3">
             <span className="text-micro text-text-4">Less</span>
             {[
-              { color: '#F1F4F7', label: 'none' },
-              { color: '#CED0D4', label: 'T4'   },
-              { color: '#A0612C', label: 'T3'   },
-              { color: '#7C5CFF', label: 'T2'   },
-              { color: '#2ABBA7', label: 'T2+'  },
-              { color: '#C99518', label: 'T1'   },
+              { color: '#F1F4F7',              label: 'none' },
+              { color: TIER_HEX.T4,         label: 'T4'   },
+              { color: TIER_HEX.T3,         label: 'T3'   },
+              { color: TIER_HEX.T2,         label: 'T2'   },
+              { color: TIER_HEX['T2-high'], label: 'T2+'  },
+              { color: TIER_HEX.T1,         label: 'T1'   },
             ].map(({ color, label }) => (
               <span key={label} className="flex items-center gap-1">
                 <span className="w-[11px] h-[11px] rounded-[2px] inline-block" style={{ backgroundColor: color }} />
@@ -374,13 +380,16 @@ export function ProfileView() {
               Tier breakdown
             </h2>
             {stats.total > 0 ? (
+              // T2-high uses accent-hover (the gradient stop between T1 and T2)
+              // — bg-success is reserved for offer/positive status, not tier
+              // strength. Gradient runs T1 indigo → T2-high → T2 → T3 → T4.
               <div className="space-y-2.5">
                 {[
-                  { label: 'T1',  n: stats.t1,  bar: 'bg-tier-1',  txt: 'text-tier-1'  },
-                  { label: 'T2+', n: stats.t2h, bar: 'bg-success',  txt: 'text-success'  },
-                  { label: 'T2',  n: stats.t2,  bar: 'bg-accent',   txt: 'text-accent'   },
-                  { label: 'T3',  n: stats.t3,  bar: 'bg-tier-3',   txt: 'text-tier-3'   },
-                  { label: 'T4',  n: stats.t4,  bar: 'bg-text-4/40',txt: 'text-text-4'   },
+                  { label: 'T1',  n: stats.t1,  bar: 'bg-tier-1',      txt: 'text-tier-1'      },
+                  { label: 'T2+', n: stats.t2h, bar: 'bg-accent-hover', txt: 'text-accent-hover' },
+                  { label: 'T2',  n: stats.t2,  bar: 'bg-accent',       txt: 'text-accent'       },
+                  { label: 'T3',  n: stats.t3,  bar: 'bg-tier-3',       txt: 'text-tier-3'       },
+                  { label: 'T4',  n: stats.t4,  bar: 'bg-tier-4',       txt: 'text-tier-4'       },
                 ].map(({ label, n, bar, txt }) => (
                   <div key={label} className="flex items-center gap-2">
                     <span className={cn('text-micro font-mono w-5 shrink-0 font-semibold', txt)}>{label}</span>
@@ -450,9 +459,12 @@ export function ProfileView() {
                 title={badge.desc}
                 className={cn(
                   'flex flex-col items-center gap-1.5 p-2.5 rounded-lg border text-center transition-all duration-200',
+                  // Epic glow uses the tier-1 indigo (matches the badge tint)
+                  // rather than a stale gold (#E8B547) shadow that lingered
+                  // from the old archetype palette.
                   badge.unlocked ? (
                     badge.rarity === 'epic'
-                      ? 'border-tier-1/40 bg-tier-1/6 shadow-[0_0_12px_rgba(232,181,71,0.08)]'
+                      ? 'border-tier-1/40 bg-tier-1/6 shadow-[0_0_12px_rgba(61,43,181,0.18)]'
                       : badge.rarity === 'rare'
                       ? 'border-accent/25 bg-accent/6'
                       : 'border-border-default bg-bg-elevated'
