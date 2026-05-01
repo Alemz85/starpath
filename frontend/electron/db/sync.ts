@@ -175,6 +175,10 @@ export function syncScoreHistory(db: Database.Database, repoPath: string): { cha
   if (text == null) return { changed: false, rows: 0 }
 
   const rows = parseScoreHistory(text)
+  // Strip portal-homepage URLs at ingestion so the cache's join key is
+  // either listing-specific or empty (which falls back to (company, role)
+  // matching in the renderer). Mirrors extractUrl's gate for reports.
+  for (const r of rows) r.url = sanitizeListingUrl(r.url)
   const insert = db.prepare(`
     INSERT INTO score_history (
       date, archetype, skills_match, ease_of_entry, strategic_fit, current_fit,
@@ -315,13 +319,52 @@ function backfillScoreHistoryUrls(db: Database.Database): void {
   `)
 }
 
+// Hosts that serve company-level portal homepages. A URL on one of these
+// hosts whose path is empty or a single slug (no `/jobs/...`, no token
+// segment, no listing query param) is a careers homepage — NOT a listing
+// URL. Storing it as a join key would collide every listing at that
+// company onto the same row, so we treat it as no URL.
+const PORTAL_HOMEPAGE_HOSTS = new Set([
+  'boards.greenhouse.io',
+  'job-boards.greenhouse.io',
+  'boards.eu.greenhouse.io',
+  'jobs.ashbyhq.com',
+  'jobs.lever.co',
+  'careers.smartrecruiters.com',
+])
+
+const LISTING_QUERY_KEYS = ['gh_jid', 'gh_src', 'jobid', 'job_id', 'id', 'postingid']
+
+function looksLikePortalHomepage(rawUrl: string): boolean {
+  let u: URL
+  try { u = new URL(rawUrl) } catch { return false }
+  if (!PORTAL_HOMEPAGE_HOSTS.has(u.host)) return false
+  const segs = u.pathname.split('/').filter(Boolean)
+  if (segs.length > 1) return false  // has a sub-path → likely listing
+  for (const k of LISTING_QUERY_KEYS) {
+    if (u.searchParams.has(k)) return false
+  }
+  return true
+}
+
+// Common gate for any URL we're about to store as a join key. Returns
+// '' for anything that isn't a valid http(s) URL or that looks like a
+// bare portal homepage. Used by both the report `**URL:**` extractor
+// and the score_history.url ingestion path so the cache never holds a
+// URL that would silently collide unrelated listings.
+function sanitizeListingUrl(raw: string): string {
+  const u = (raw ?? '').trim()
+  if (!u || !/^https?:\/\//i.test(u)) return ''
+  if (looksLikePortalHomepage(u)) return ''
+  return u
+}
+
 // Pull "**URL:** https://..." out of a report's body. The colon may be
 // followed by any whitespace; the URL ends at the first whitespace.
 function extractUrl(text: string): string {
   const m = text.match(/^\*\*URL:\*\*\s*(\S+)/im)
   if (!m) return ''
-  const u = m[1].trim()
-  return /^https?:\/\//i.test(u) ? u : ''
+  return sanitizeListingUrl(m[1])
 }
 
 // ─── Public entry points ──────────────────────────────────────────────────────

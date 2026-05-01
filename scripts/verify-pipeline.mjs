@@ -31,9 +31,45 @@ const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
   : join(CAREER_OPS, 'applications.md');
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
+const SCORE_HISTORY_FILE = join(CAREER_OPS, 'data/score-history.tsv');
 const ADDITIONS_DIR = join(CAREER_OPS, 'batch/tracker-additions');
 const SCOUTING_ADDITIONS_DIR = join(CAREER_OPS, 'batch/scouting-additions');
 const REPORTS_DIR = join(CAREER_OPS, 'reports');
+
+// Mirrors frontend/electron/db/sync.ts:looksLikePortalHomepage. Hosts
+// that serve company-level careers homepages — a URL on one of these
+// hosts with an empty or single-slug path is NOT a listing URL and would
+// collide every listing at that company onto the same join key.
+const PORTAL_HOMEPAGE_HOSTS = new Set([
+  'boards.greenhouse.io',
+  'job-boards.greenhouse.io',
+  'boards.eu.greenhouse.io',
+  'jobs.ashbyhq.com',
+  'jobs.lever.co',
+  'careers.smartrecruiters.com',
+]);
+const LISTING_QUERY_KEYS = ['gh_jid', 'gh_src', 'jobid', 'job_id', 'id', 'postingid'];
+
+function looksLikePortalHomepage(rawUrl) {
+  let u;
+  try { u = new URL(rawUrl); } catch { return false; }
+  if (!PORTAL_HOMEPAGE_HOSTS.has(u.host)) return false;
+  const segs = u.pathname.split('/').filter(Boolean);
+  if (segs.length > 1) return false;
+  for (const k of LISTING_QUERY_KEYS) {
+    if (u.searchParams.has(k)) return false;
+  }
+  return true;
+}
+
+function walkReports(dir, out) {
+  if (!existsSync(dir)) return;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const fp = join(dir, e.name);
+    if (e.isDirectory()) walkReports(fp, out);
+    else if (e.name.endsWith('.md')) out.push(fp);
+  }
+}
 const STATES_FILE = existsSync(join(CAREER_OPS, 'templates/states.yml'))
   ? join(CAREER_OPS, 'templates/states.yml')
   : join(CAREER_OPS, 'states.yml');
@@ -68,29 +104,30 @@ function warn(msg) { console.log(`⚠️  ${msg}`); warnings++; }
 function ok(msg) { console.log(`✅ ${msg}`); }
 
 // --- Read applications.md ---
-if (!existsSync(APPS_FILE)) {
+const hasAppsFile = existsSync(APPS_FILE);
+if (!hasAppsFile) {
   console.log('\n📊 No applications.md found. This is normal for a fresh setup.');
-  console.log('   The file will be created when you evaluate your first offer.\n');
-  process.exit(0);
+  console.log('   Skipping applications-tracker checks; URL/report audit still runs.\n');
 }
-const content = readFileSync(APPS_FILE, 'utf-8');
+const content = hasAppsFile ? readFileSync(APPS_FILE, 'utf-8') : '';
 const lines = content.split('\n');
 
 const entries = [];
-for (const line of lines) {
-  if (!line.startsWith('|')) continue;
-  const parts = line.split('|').map(s => s.trim());
-  if (parts.length < 9) continue;
-  const num = parseInt(parts[1]);
-  if (isNaN(num)) continue;
-  entries.push({
-    num, date: parts[2], company: parts[3], role: parts[4],
-    score: parts[5], status: parts[6], pdf: parts[7], report: parts[8],
-    notes: parts[9] || '',
-  });
+if (hasAppsFile) {
+  for (const line of lines) {
+    if (!line.startsWith('|')) continue;
+    const parts = line.split('|').map(s => s.trim());
+    if (parts.length < 9) continue;
+    const num = parseInt(parts[1]);
+    if (isNaN(num)) continue;
+    entries.push({
+      num, date: parts[2], company: parts[3], role: parts[4],
+      score: parts[5], status: parts[6], pdf: parts[7], report: parts[8],
+      notes: parts[9] || '',
+    });
+  }
+  console.log(`\n📊 Checking ${entries.length} entries in applications.md\n`);
 }
-
-console.log(`\n📊 Checking ${entries.length} entries in applications.md\n`);
 
 // --- Check 1: Canonical statuses ---
 let badStatuses = 0;
@@ -264,6 +301,54 @@ if (existsSync(SCOUTING_FILE)) {
   }
   if (pendingScoutTsvs === 0) ok('No pending scouting TSVs');
 }
+
+// --- URL quality: report headers + score-history.tsv ---
+//
+// A URL on the join key (`**URL:**` in reports, `url` column in
+// score-history.tsv) must be listing-specific. A bare portal homepage
+// like `https://boards.greenhouse.io/anthropic` would map every listing
+// at that company onto the same key and the frontend cache would link
+// them to the wrong report. Warn so the agent can re-evaluate or fix
+// by hand.
+let portalUrls = 0;
+
+// Reports' `**URL:**` header
+const reportFiles = [];
+walkReports(REPORTS_DIR, reportFiles);
+for (const fp of reportFiles) {
+  const text = readFileSync(fp, 'utf-8');
+  const m = text.match(/^\*\*URL:\*\*\s*(\S+)/im);
+  if (!m) continue;
+  const url = m[1].trim();
+  if (!/^https?:\/\//i.test(url)) continue;
+  if (looksLikePortalHomepage(url)) {
+    warn(`Portal-homepage URL in report header: ${fp.replace(CAREER_OPS + '/', '')} — "${url}"`);
+    portalUrls++;
+  }
+}
+
+// score-history.tsv `url` column (column 26)
+if (existsSync(SCORE_HISTORY_FILE)) {
+  const lines = readFileSync(SCORE_HISTORY_FILE, 'utf-8').split('\n');
+  const header = (lines[0] || '').split('\t');
+  const urlIdx = header.indexOf('url');
+  if (urlIdx >= 0) {
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.trim()) continue;
+      const cols = line.split('\t');
+      const url = (cols[urlIdx] ?? '').trim();
+      if (!/^https?:\/\//i.test(url)) continue;
+      if (looksLikePortalHomepage(url)) {
+        const company = cols[header.indexOf('company')] ?? '';
+        const role = cols[header.indexOf('role')] ?? '';
+        warn(`Portal-homepage URL in score-history row: ${company} — ${role} — "${url}"`);
+        portalUrls++;
+      }
+    }
+  }
+}
+if (portalUrls === 0) ok('No portal-homepage URLs (all join keys are listing-specific)');
 
 // --- Summary ---
 console.log('\n' + '='.repeat(50));
