@@ -1025,7 +1025,7 @@ function ScoreMiniBar({ entry }: { entry: ScoreEntry }) {
   ]
 
   return (
-    <div className="flex gap-3 px-5 py-3 border-b border-border-default bg-bg-elevated/50 shrink-0 overflow-x-auto">
+    <div className="flex justify-center gap-3 px-5 py-3 border-b border-border-default bg-bg-elevated/50 shrink-0 overflow-x-auto">
       {dims.map(({ key, label }) => {
         const raw = entry[key]
         const val = typeof raw === 'number' ? raw : 0

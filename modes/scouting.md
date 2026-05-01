@@ -92,7 +92,6 @@ The report format depends on where Current Fit lands. **Always compute the full 
 # Scouting: {Company} — {Role}
 
 **Date:** {YYYY-MM-DD}
-**Mode:** scouting
 **URL:** {listing-specific url or "—"}
 **Location:** {city, country} {remote-policy in 2–4 words}
 **Archetype:** {primary, plus secondary if hybrid}
@@ -136,7 +135,7 @@ CF 8.0–8.9 → "apply with prep". CF 7.0–7.9 → "apply if pipeline thin". B
 
 ### Tier 3 — Current Fit < 7.0 AND Aspirational Fit ≥ 7.0 (growth target), OR Ease of Entry ≤ 4 gate
 
-Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title becomes `# Gap & Growth:`, `**Tier:** T3`, `**Mode:** scouting (growth target)`). Body is the most compact, ~25–30 lines:
+Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title becomes `# Gap & Growth:`, `**Tier:** T3`). Body is the most compact, ~25–30 lines:
 
 ```markdown
 ## Dimensional scoring
