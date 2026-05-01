@@ -24,7 +24,11 @@ interface ConfigDirtyState {
   setDirty: (tab: ConfigTab, source: string, dirty: boolean) => void
   registerSaveHandler: (source: string, handler: (() => Promise<void>) | null) => void
   saveAll:  (tab: ConfigTab) => Promise<void>
+  /** Save every dirty tab (used by AppShell's cross-view nav guard). */
+  saveAllDirty: () => Promise<void>
   isDirty:  (tab: ConfigTab) => boolean
+  /** True when ANY tab has unsaved changes (used by the nav-guard gate). */
+  isAnyDirty: () => boolean
   resetAll: () => void
 }
 
@@ -65,6 +69,17 @@ export const useConfigDirty = create<ConfigDirtyState>((set, get) => ({
       await handler()
     }
   },
+  saveAllDirty: async () => {
+    // Iterate the three tabs; saveAll on a clean tab is a no-op (its
+    // dirty-source set is empty and the handler loop short-circuits).
+    await get().saveAll('identity')
+    await get().saveAll('roles')
+    await get().saveAll('portals')
+  },
   isDirty: (tab) => get()[tab].size > 0,
+  isAnyDirty: () => {
+    const s = get()
+    return s.identity.size + s.roles.size + s.portals.size > 0
+  },
   resetAll: () => set({ identity: new Set(), roles: new Set(), portals: new Set() }),
 }))
