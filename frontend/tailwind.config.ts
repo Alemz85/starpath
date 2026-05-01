@@ -37,7 +37,14 @@ const config: Config = {
         'accent-light': '#B5A3FF',
         // Tier palette — galaxy violet gradient. T1 deep indigo for the
         // strongest matches; T4 fades to slate so the worst rows recede.
-        // Score colors match this scale (see scoreColor in OffersTable).
+        // Used for tier chips (badge + matching `tier-N-bg` surface) where
+        // the lavender reads as a tier marker thanks to chip context.
+        //
+        // Note: continuous score colors (Database cells, Trends top-X,
+        // slide-over rollups) DIVERGE from this scale — they use a 5-band
+        // gradient with aurora teal at the top (≥9.0), brand violets in
+        // the apply zone (7.0–8.9), and neutral slate below. See
+        // `lib/tier.ts → scoreColor` for the full banding + rationale.
         'tier-1':      '#3D2BB5',  // deep galaxy indigo — strongest
         'tier-1-bg':   '#EFEAFF',
         'tier-2':      '#7C5CFF',  // galaxy violet (matches accent)

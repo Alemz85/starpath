@@ -16,13 +16,17 @@ import type { ScoreEntry } from '@/types'
 // Multi-series chart palette — sourced from the documented categorical
 // chart tokens (DESIGN-meta.md § Data Viz palette). Aurora-tuned cousins
 // of galaxy violet so adjacent lines actually contrast instead of
-// collapsing into one violet ladder. Order is anchor → indigo → cool →
-// warm → warm → cool → neutral so the first three (Overall / Current
-// Fit / Aspirational Fit, the default-active series) read at maximum
-// contrast and the rest fan out warm/cool/warm/cool.
+// collapsing into one violet ladder.
+//
+// Series order maps to the DIMENSIONS array below: Overall (deep indigo)
+// reads as the rolled-up "headline" number; Current Fit gets the brand
+// galaxy violet because it's the day-to-day reachability driver of the
+// rollup (CF×0.70 + AF×0.30) — the line the user watches most. The
+// remaining slots fan out warm/cool/warm/cool so adjacent series
+// contrast at first glance.
 const DIM_COLORS = [
-  '#7C5CFF',  // chart-1 — galaxy violet, Overall
-  '#3D2BB5',  // chart-2 — deep indigo, Current Fit
+  '#3D2BB5',  // chart-2 — deep indigo, Overall (the rollup)
+  '#7C5CFF',  // chart-1 — galaxy violet, Current Fit (brand anchor; primary driver)
   '#2EB8A8',  // chart-3 — aurora teal, Aspirational Fit
   '#E84F8E',  // chart-4 — nebula pink, Skills Match
   '#F2A837',  // chart-5 — cosmic amber, Brand Value

@@ -352,7 +352,7 @@ export function ProfileEditPanel() {
               cc={form.phoneCC} num={form.phoneNum}
               onChange={(cc, num) => setForm(prev => ({ ...prev, phoneCC: cc, phoneNum: num }))}
             />
-            <Field label="Location"      value={form.location}      onChange={v => set('location', v)}      placeholder="Barcelona, Spain" />
+            <Field label="Location"      value={form.location}      onChange={v => set('location', v)}      placeholder="City, Country" />
             <Field label="LinkedIn"      value={form.linkedin}      onChange={v => set('linkedin', v)}      placeholder="linkedin.com/in/yourname" />
             <Field label="Portfolio"     value={form.portfolio_url} onChange={v => set('portfolio_url', v)} placeholder="https://yoursite.com" />
             <Field label="GitHub"        value={form.github}        onChange={v => set('github', v)}        placeholder="github.com/yourhandle" />
@@ -364,7 +364,7 @@ export function ProfileEditPanel() {
           <input
             value={form.headline}
             onChange={e => set('headline', e.target.value)}
-            placeholder="e.g. Analytics & Strategy — CEMS Graduate"
+            placeholder="e.g. Senior Frontend Engineer · 5y product experience"
             className="w-full px-3 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors focus:border-accent/50 outline-none"
           />
           {form.headline && (

@@ -1030,19 +1030,17 @@ function ScoreMiniBar({ entry }: { entry: ScoreEntry }) {
         const raw = entry[key]
         const val = typeof raw === 'number' ? raw : 0
         const pct = Math.min(100, (val / 10) * 100)
-        // Tier-aligned banding (matches lib/tier.ts scoreColor): the
-        // score bar communicates evaluation strength, not lifecycle —
-        // so it uses the galaxy tier scale, not success/warning/danger
-        // (those are reserved for offer/interview/rejected status).
-        const color =
-          val >= 8.5 ? 'bg-tier-1' :
-          val >= 7   ? 'bg-tier-2' :
-          val >= 5   ? 'bg-tier-3' : 'bg-tier-4'
+        // Score bars use `scoreColor()` so they stay in lock-step with
+        // every other floating score number in the app (Database dial,
+        // slide-over rollup, Trends top-X). The 5–7 mid band drops to
+        // neutral slate via `scoreColor`, not lavender — see
+        // `lib/tier.ts` for the rationale.
+        const fill = scoreColor(val)
         return (
           <div key={key} className="flex flex-col gap-1 items-center min-w-[56px]">
             <span className="text-micro text-text-4 uppercase whitespace-nowrap">{label}</span>
             <div className="w-full h-1 bg-bg-elevated rounded-full overflow-hidden">
-              <div className={cn('h-full rounded-full', color)} style={{ width: `${pct}%` }} />
+              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: fill }} />
             </div>
             <span className="text-micro font-mono text-text-3">{val.toFixed(1)}</span>
           </div>
