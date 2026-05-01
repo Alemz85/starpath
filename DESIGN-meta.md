@@ -41,12 +41,20 @@ The store's visual hierarchy is ruthlessly simple. Photography does the heavy li
 
 The product-line accents are replaced by the **tier scale** (evaluation strength) and **status scale** (application lifecycle). Both ladder off the galaxy violet primary so the system reads as one palette.
 
-**Tier scale** — galaxy violet gradient. T1 deep indigo for the strongest matches; T4 fades to slate so the worst rows recede:
+**Tier scale** — galaxy violet gradient. T1 deep indigo for the strongest matches; T4 fades to slate so the worst rows recede. Used for tier chips (badge + matching `tier-N-bg` surface):
 
 - **Tier 1 / Deep Galaxy Indigo** (`#3D2BB5`): Strongest evaluation match. Token `tier-1`. Surface: `tier-1-bg #EFEAFF`.
 - **Tier 2 / Galaxy Violet** (`#7C5CFF`): Strong match (matches the primary accent). Token `tier-2`. Surface: `tier-2-bg #F1ECFF`.
 - **Tier 3 / Muted Lavender** (`#A89CD9`): Softer match. Token `tier-3`. Surface: `tier-3-bg #F4F1FA`.
 - **Tier 4 / Faded Slate** (`#94A3B8`): Weak/skip — barely there. Token `tier-4`.
+
+**Score scale** — continuous score colors (Database dial, Trends top-X, slide-over rollups, Reports list) DIVERGE from the tier scale. Tier chips have chip-context (label + matching `-bg`) that grounds the lavender; floating score numbers don't, so they use a 5-band gradient calibrated to the score-interpretation ladder in `modes/_shared.md`. Aurora teal at the top is the only non-violet hue — it earns its slot because (a) it's the documented "cool counterpart" of galaxy violet so it stays in the cosmic family, (b) it breaks the all-violet monotone exactly where it's rare and deserved, and (c) teal reads as "premium / exceptional" without crossing into warm "warning" hues. See `frontend/src/lib/tier.ts → scoreColor` for the implementation.
+
+- **≥ 9.0 / Aurora Teal** (`#2EB8A8`, chart-3 hue): Strong match — "stellar" tier; rare and earned.
+- **≥ 8.0 / Deep Galaxy Indigo** (`#3D2BB5`): Good match; salient brand-deep.
+- **≥ 7.0 / Galaxy Violet** (`#7C5CFF`): Decent match; brand anchor at the apply threshold.
+- **≥ 5.0 / Slate Gray** (`#5D6C7B`, text-3): Below the apply threshold — reads as "data, not hierarchy".
+- **< 5.0 / Faded Slate** (`#94A3B8`, T4 base): Sub-floor; fully receded.
 
 **Status scale** — semantic colors mapped to the application lifecycle (see `STATUS_COLORS` in `frontend/src/types/index.ts`):
 
