@@ -1,34 +1,52 @@
-// calibration.mjs — Apply user-specific scoring calibrations
-// (documented in user/_profile.md § Score Calibration).
+// calibration.mjs — Apply user-supplied scoring calibrations.
 //
-// The agent extracts the company name + JD signals (onboarding /
-// sink-or-swim / dream-company / CEMS list) and passes them as
-// `calibration` input to score-listing. This module applies the
-// documented bonuses deterministically so they can't drift between
-// evaluations.
+// Calibration data MUST come from the caller (the agent reads it from
+// `user/profile.yml` and `user/_profile.md`, then passes it into
+// score-listing as the `calibration` field of the input JSON). This
+// module applies the rules deterministically so they can't drift
+// between evaluations — it does NOT bake in any user's specific
+// company lists. Everything is data-driven.
 //
-// Documented adjustments:
-//   - Brand:  CEMS-adjacent firms (McKinsey/BCG/EY/Accenture/Google/Spotify/Wise) → +0.6
-//   - Brand:  Google specifically → +1.0 ON TOP of the +0.6 (so Google = +1.6 total)
-//   - Brand:  upper-tier dream company → override to 10 (regardless of raw judgment)
-//   - Brand:  lower-tier dream company → +1.0 bonus (stacks with CEMS-adjacent;
-//             NO override to 10 and no AF floor — just a meaningful brand boost)
-//   - Growth: structured onboarding / mentorship / learning path → +1.0
-//   - Growth: sink-or-swim culture signal → −1.0
-//   - AF:     upper-tier dream company → floor at 8.0 (after rollup; lower tier does NOT floor)
+// Calibration shape (all fields optional; missing = no effect):
+//   {
+//     "brand_affinity_companies":     ["McKinsey", "BCG", ...],   // +0.6 to Brand on match
+//     "dream_companies":              ["Google", ...],            // override Brand to 10 + AF floor 8.0
+//     "lower_tier_dream_companies":   ["Mastercard", "Glovo", ...], // +1.0 to Brand on match
+//     "extra_brand_bonuses": [                                    // company-specific top-up
+//       { "company": "Google", "bonus": 1.0, "reason": "priority target" }
+//     ],
+//     "has_structured_onboarding":    true,                       // +1.0 to Growth
+//     "has_sink_or_swim_signal":      false                       // −1.0 to Growth
+//   }
+//
+// Backward-compat: `cems_adjacent_companies` is accepted as an alias
+// for `brand_affinity_companies` so existing user/_profile.md prose
+// referencing "CEMS-adjacent firms" continues to flow through the
+// agent without refactoring.
+//
+// Adjustments applied:
+//   - Brand:  brand_affinity_companies match → +0.6
+//   - Brand:  upper-tier dream_companies match → override to 10
+//   - Brand:  lower_tier_dream_companies match → +1.0
+//   - Brand:  extra_brand_bonuses entry match → +entry.bonus
+//   - Growth: has_structured_onboarding → +1.0
+//   - Growth: has_sink_or_swim_signal → −1.0
+//   - AF:     upper-tier dream_companies match → floor at 8.0 (after rollup)
 //
 // All numbers ultimately clamped to [1, 10].
-
-const DEFAULT_CEMS_ADJACENT = ['McKinsey', 'BCG', 'EY', 'Accenture', 'Google', 'Spotify', 'Wise']
 
 /**
  * Apply Brand calibration to the agent's raw Brand score.
  * Returns { value, adjustments } so the caller can show what fired.
  */
 export function applyBrandCalibration(rawBrand, company, calibration) {
-  const cemsList = calibration?.cems_adjacent_companies ?? DEFAULT_CEMS_ADJACENT
+  const affinityList =
+    calibration?.brand_affinity_companies ??
+    calibration?.cems_adjacent_companies ??  // backward-compat alias
+    []
   const dreamList = calibration?.dream_companies ?? []
   const lowerTierDreamList = calibration?.lower_tier_dream_companies ?? []
+  const extraBonuses = calibration?.extra_brand_bonuses ?? []
   const adjustments = []
 
   // Upper-tier dream override wins — Brand floors at 10 regardless of other adjustments.
@@ -38,17 +56,22 @@ export function applyBrandCalibration(rawBrand, company, calibration) {
   }
 
   let value = rawBrand
-  if (cemsList.some(c => sameCompany(c, company))) {
+  if (affinityList.some(c => sameCompany(c, company))) {
     value += 0.6
-    adjustments.push({ source: 'CEMS-adjacent firm', value: +0.6 })
-  }
-  if (sameCompany('Google', company)) {
-    value += 1.0
-    adjustments.push({ source: 'Google special', value: +1.0 })
+    adjustments.push({ source: 'brand-affinity firm', value: +0.6 })
   }
   if (lowerTierDreamList.some(c => sameCompany(c, company))) {
     value += 1.0
     adjustments.push({ source: 'lower-tier dream company', value: +1.0 })
+  }
+  for (const entry of extraBonuses) {
+    if (entry?.company && sameCompany(entry.company, company) && Number.isFinite(entry.bonus)) {
+      value += entry.bonus
+      adjustments.push({
+        source: entry.reason ? `${entry.company} bonus (${entry.reason})` : `${entry.company} bonus`,
+        value: entry.bonus,
+      })
+    }
   }
   return { value: clamp(value), adjustments }
 }

@@ -422,7 +422,7 @@ const FIXTURES = [
     },
   },
   {
-    name: 'Google calibration stack — CEMS +0.6 + Google +1.0 on Brand',
+    name: 'Brand calibration stack — affinity +0.6 + extra_brand_bonus +1.0',
     input: {
       company: 'Google', role_archetype: 'Account Strategist',
       city: 'Dublin', country: 'IE',
@@ -431,7 +431,8 @@ const FIXTURES = [
       col_override: { baseline_eur: 3000, source: 'fixture' },
       soft_benefits_modifier: 0.5,
       calibration: {
-        cems_adjacent_companies: ['Google', 'McKinsey', 'BCG', 'EY', 'Accenture', 'Spotify', 'Wise'],
+        brand_affinity_companies: ['Google', 'McKinsey', 'BCG', 'EY', 'Accenture', 'Spotify', 'Wise'],
+        extra_brand_bonuses: [{ company: 'Google', bonus: 1.0, reason: 'priority target' }],
         dream_companies: [],  // intentionally empty so we test pure +0.6 + +1.0 stacking, not the dream override
         has_structured_onboarding: false,
       },
@@ -442,7 +443,7 @@ const FIXTURES = [
       },
     },
     expect: {
-      // Brand: raw 8 + 0.6 (CEMS) + 1.0 (Google) = 9.6
+      // Brand: raw 8 + 0.6 (affinity) + 1.0 (Google extra_bonus) = 9.6
       'calibrated_dims.brand_value.final': 9.6,
     },
   },
