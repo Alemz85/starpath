@@ -37,7 +37,7 @@ The markdown files are the source of truth. The app is a fancy reader and a thin
 
 Prerequisites:
 
-- **Mac with Apple Silicon (M1+)** — the DMG is arm64-only. Intel Mac users need to rebuild from source (see `frontend/README.md`).
+- **Mac with Apple Silicon (M1+)** — the DMG is arm64-only. Intel Mac is not shipped; if you're on an Intel Mac you can rebuild locally from source (`cd frontend && npm install && npm run package`).
 - **[Claude Code](https://claude.ai/download)** installed and logged in (`claude login`). The desktop app shells out to the `claude` CLI for every AI run; without it, nothing runs.
 - **A free folder** somewhere on disk to put the workspace.
 
@@ -55,9 +55,8 @@ That's it. Don't run `npm install` here — you don't need to.
 Download from the [Releases page](../../releases):
 
 - **`starpath-AppleSilicon-Mac.dmg`** — for M1 / M2 / M3 / M4 Macs (2020 onward)
-- **`starpath-Intel-Mac.dmg`** — for older Intel Macs
 
-Not sure which you have? Apple menu → About This Mac. "Chip: Apple M…" means Apple Silicon; "Processor: Intel…" means Intel.
+Intel Mac is not shipped — rebuild locally if needed (`cd frontend && npm install && npm run package`).
 
 Open the DMG, drag **starpath** to Applications. First launch: right-click → Open (the build is unsigned, so Gatekeeper warns you the first time only).
 

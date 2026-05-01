@@ -125,10 +125,6 @@
         }
       ]
     },
-    "publish": {
-      "provider": "github",
-      "owner": "santifer",
-      "repo": "career-ops"
-    }
+    "publish": null
   }
 }
