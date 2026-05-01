@@ -77,7 +77,7 @@ Follow the lookup flow defined in `modes/_shared.md` § Comp cache. Single rule 
 
 ### Calibration hooks
 
-- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` (e.g., entry-level comp bands, mentorship bonus, brand bonus for CEMS-adjacent firms).
+- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` and the structured `calibration:` block in `user/profile.yml` (e.g., entry-level comp bands, mentorship bonus, brand-affinity bonuses, per-company `extra_brand_bonuses`).
 - **Location policy:** The Best Cities context dimension reads from `_profile.md` → Your Location Policy. A preferred-cities top hit floors at 9.0; a non-preferred EU city floors at 6.0; outside EU drops to 2.0-3.0.
 - **Dream-company floor:** If the company is in the user's dream list (`user/profile.yml` → `target_roles.dream_companies` or `_profile.md` → Dream Companies), floor **Brand Value at 10** AND **Aspirational Fit at 8.0** regardless of function match. The user wants their foot in the door.
 - **Sales-Trap Risk reminder:** Sales-Trap Risk is scored (10 = well protected, 1 = high risk) and displayed in the table, but is **not included in the Aspirational Fit rollup**. It serves as a decision-support signal — a score of 1-2 should be flagged prominently as a red flag.
@@ -93,7 +93,7 @@ The report format depends on where Current Fit lands. **Always compute the full 
 
 **Date:** {YYYY-MM-DD}
 **Mode:** scouting
-**URL:** {url or "—"}
+**URL:** {listing-specific url or "—"}
 **Location:** {city, country} {remote-policy in 2–4 words}
 **Archetype:** {primary, plus secondary if hybrid}
 **Current Fit:** {X.X}/10
@@ -103,6 +103,8 @@ The report format depends on where Current Fit lands. **Always compute the full 
 ```
 
 **Header discipline.** Each value is a clean short key/value pair — no parentheticals, no run-context annotations, no assumption-justification mid-sentence. The Tier line is mandatory and must match the report's tier directory; T4 skips don't write a report. If you'd write `(reused from row #...)` or `(assumed — JD city not surfaced; X is Microsoft's EMEA hub...)`, delete it and move the analytical content into the appropriate body section (Role summary's Remote field, or Best Cities reasoning).
+
+**URL discipline (NEVER write a generic portal URL).** The `**URL:**` field MUST be listing-specific — it points to a single job posting, not a company careers page. A listing URL contains a job identifier: `/jobs/{id}` (Greenhouse), a job-token slug (Lever, Ashby), a UUID, or `?gh_jid=...`. If the only URL you have is a portal homepage (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`, etc.) — write `—` instead. Same rule for the `url` column in `data/score-history.tsv` (write `n/d`). Writing the portal URL pollutes the cross-table join key: two unrelated listings at the same company would collide on the same URL and the frontend cache would link them to the wrong report.
 
 The T3 Gap & Growth report uses the same header but its title prefix is `# Gap & Growth:` and its Mode is `scouting (growth target)`.
 
@@ -185,7 +187,7 @@ For each gap closeable on a 6–12 month horizon: name it, cite the JD evidence,
 - **{Gap}** — JD requires {verbatim quote}; CV doesn't show it. **Close in {X weeks/months}** via {cert / project / proof point}.
 - **{Gap 2}** — same shape.
 
-If there are no meaningful gaps: *"No structural gaps — the candidate's profile maps directly onto the JD's stated requirements."*
+If there are no meaningful gaps: *"No structural gaps — your profile maps directly onto the JD's stated requirements."*
 
 ## C) Comp & demand
 One row. If estimated, mark it.
@@ -196,7 +198,7 @@ One row. If estimated, mark it.
 ## D) Recommendation
 {2–3 lines max. The verdict (act / monitor / skip), the single biggest lever or blocker, and one growth pointer.}
 
-If a hard constraint exists (scheduling conflict, work-rights gate, language wall, deadline already passed) that materially changes the verdict, surface it as a sentence in the Recommendation — `"Hard constraint: CEMS Master starts Sep 2026; this role's start window overlaps and isn't deferrable."` Don't bury it in the Gaps section.
+If a hard constraint exists (scheduling conflict, work-rights gate, language wall, deadline already passed) that materially changes the verdict, surface it as a sentence in the Recommendation — `"Hard constraint: your next degree program starts before this role's start window and isn't deferrable."` Don't bury it in the Gaps section.
 
 ## E) Career path impact
 **Read `user/profile.yml → profile.dream_companies` at render time.**

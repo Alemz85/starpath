@@ -17,6 +17,28 @@ Two layers. Read `DATA_CONTRACT.md` for the full list.
 
 **THE RULE:** When the user asks to customize anything (archetypes, narrative, negotiation scripts, proof points, location policy, comp targets), ALWAYS write to `user/_profile.md` or `user/profile.yml`. NEVER edit `modes/_shared.md` for user-specific content. This ensures system updates don't overwrite their customizations.
 
+### System Layer Hygiene — No Hardcoded User Data
+
+The Data Contract above is necessary but not sufficient. The system layer leaks user data through *examples and defaults* even when no one set out to write user-specific content. Before committing any change to `modes/*`, `scripts/*`, `templates/*`, `frontend/*`, or `CLAUDE.md`, run this checklist:
+
+**Anti-patterns to refuse:**
+- **Worked examples that name the user's actual schools, projects, or proof points.** *"Your Esade MSc + CEMS dual-degree + Sabadell capstone read as 'top-tier academic equivalent'"* hardcodes one user's CV into every agent's reasoning template. Use generic placeholders ("your top-school MSc", "your main capstone project") and tell the agent to substitute from `user/cv.md` at evaluation time.
+- **Hardcoded default lists in scripts.** `const DEFAULT_X = ['McKinsey', 'BCG', ...]` ships one user's preferences as the silent fallback for everyone. Default to `[]` (fail-closed) and require the caller to pass calibration data; document the expected source in `user/profile.yml` or `user/_profile.md`.
+- **Hardcoded conditional logic against a specific company.** `if (company === 'Google') value += 1.0` bakes one user's dream-company override into system code. Express it as data (`extra_brand_bonuses: [{company, bonus, reason}]`) and let the data live in `user/profile.yml`.
+- **Examples that name a specific city/country/nationality as the canonical case.** Frontend placeholders ("Barcelona, Spain") and rule examples ("for an EU citizen…") read as "the system assumes this profile". Use `City, Country` placeholders; describe rules in terms of the candidate's `visa_status` / `preferred_cities` / etc., not in terms of one user's specific values.
+- **Hardcoded specific dates or timelines.** *"Your CEMS Master starts Sep 2026"* in a system mode example dates the file. Use generic phrasing ("your next degree program starts before this role's start window") and let the actual dates flow from `user/cv.md`.
+- **Listing companies/schools/archetypes inline as if they're system defaults.** A reference table in a system file is fine ONLY if it covers the universal landscape (e.g., the school-region map covers ~20 European business schools), not if it lists one user's targets.
+
+**What stays in system layer (legitimate references):**
+- Generic reference data (full school-region tables, full city→country mappings, the canonical CEMS Corporate Partner list).
+- Test fixtures with concrete inputs (`base: 30000, city: "Barcelona"` in test-all.mjs is fine — it's exercising the rubric, not setting a default).
+- Mode prose that talks ABOUT user data (`"read user/cv.md § Education"`) rather than embedding it.
+- Backward-compat aliases when renaming a calibration field, so existing user data still flows.
+
+**When in doubt:** ask "would another user with a different background, country, school, or set of dream companies get a wrong answer or surprising behavior from this code/example?" If yes, the data belongs in `user/*`, not in the system layer.
+
+**When the system layer NEEDS a concrete example,** prefer fictional/illustrative cases ("a candidate with X background applying to Y") over the current user's actual case. The agent's worked examples are templates — they should model the *pattern*, not the *person*.
+
 ## Frontend Design System (MANDATORY)
 
 **Before creating a new UI component, modifying styling, picking colors, or adjusting layout in `frontend/`, read `DESIGN-meta.md`.** It is the single source of truth for the design language — palette, typography, spacing, component patterns, motion, and do's-and-don'ts.

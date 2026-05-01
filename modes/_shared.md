@@ -24,6 +24,26 @@
 
 ---
 
+## Report Voice
+
+**Reports are written FOR the candidate, not ABOUT them.** Every prose section (Reasoning cells, Gaps, Recommendation, Career Path Impact, TL;DR) addresses the candidate directly in **second person** — *"your CV covers Python + R + SQL"*, *"you finish the [redacted degree/date]"*, *"this role accelerates you toward Stripe / Wise / Monzo exits"*. Treat the report as a memo the candidate is reading about a role being evaluated for them — not a referral profile being written for a third-party recruiter.
+
+**Hard bans in report prose:**
+- *"the user"* / *"the candidate"* / *"the candidate's profile"* / *"applicants like this one"*
+- Third-person possessive about the candidate: *"his/her CV"*, *"their MSc"*, *"the candidate's CEMS dual degree"*
+- Recruiter-memo register: *"the applicant would benefit from…"*, *"this profile demonstrates…"*
+
+**Use instead:** *"you"*, *"your"*, *"yours"*. Imperative voice is fine — *"lead with your strongest proof point"*, *"push for an alumni referral before submitting"*.
+
+**Where third person is still correct:**
+- Internal system docs and mode files (this file, scouting.md, etc.) — these are written for the AI agent and human maintainers, not for the candidate.
+- TSV / cache rows / log entries — they're machine-readable metadata, not prose.
+- References to other people: hiring managers, recruiters, peer applicants, alumni.
+
+This rule is universal across modes (`scouting`, `interview-prep`, `apply`, `pdf`, `positioning`, `ofertas`, `contacto`, `deep`, `training`, `project`, `tracker`, `patterns`, `followup`, `deadlines`). When updating older reports, rewrite to second person; do not preserve historical third-person phrasing.
+
+---
+
 ## Scoring System
 
 There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). It uses the **Dimensional Scoring Framework** below and produces an **Overall** score on a 1-10 scale by rolling up Current Fit and Aspirational Fit with fixed weights (CF×0.70 + AF×0.30).
@@ -275,9 +295,9 @@ Generic platitudes — "competitive but reachable", "good growth trajectory", "s
 
 | Dimension | Required evidence in reasoning |
 |-----------|-------------------------------|
-| Skills Match | Walk the JD's required-skills list. Name 1-2 the user has (cite CV section) + 1 the user lacks, OR explicitly say "all listed skills covered". |
+| Skills Match | Walk the JD's required-skills list. Name 1-2 you have (cite CV section) + 1 you lack, OR explicitly say "all listed skills covered". |
 | Ease of Entry | Quote the JD's hardest gate (YoE, prior background, language, citizenship) OR `[no explicit gate stated]`. If a brand-tier or cohort adjustment from the calibration table applies, name it; if none applies, that's fine. |
-| Strategic/Analytical Fit | Name 1-2 specific responsibilities from the JD that map to the user's archetype. |
+| Strategic/Analytical Fit | Name 1-2 specific responsibilities from the JD that map to your archetype. |
 | Growth/Mobility | Cite the structural growth signal (graduate scheme size, rotation length, named promotion path). Generic "team is growing" is insufficient. |
 | Optionality/Exit | Name 2 concrete next-move destinations the brand + skill set unlocks. |
 | Brand Value | Use the brand-tier table directly (10/9/8/7/6/...). Reasoning = which named tier the company sits in. |
@@ -286,24 +306,24 @@ Generic platitudes — "competitive but reachable", "good growth trajectory", "s
 | Salary Adj for City | Paste `scripts/score-listing.mjs`'s `salary_adj_for_city.math` field verbatim — it contains every number with provenance. When the comp came from an estimate (Glassdoor / Levels.fyi / comp-cache lookup, not disclosed in the JD), pass `comp_source: "estimate"` so the script tags the gross with `**` and appends `(** = estimated)` to the chain. Don't paraphrase the math. Agent's only judgment input is the soft-benefits modifier value, which must be justified separately (e.g. `[modifier +0.5: PTO 32d, hybrid 2d, Glassdoor benefits 4.2]`). Generic "competitive for the city" without the script-generated math is not allowed. |
 | Work-Life Balance | Cite Glassdoor / Blind / known reputation signal. Generic "structured onboarding" is insufficient. |
 
-**Worked example — Ease of Entry, Revolut Rev-celerator Graduate Programme:**
+**Worked example — Ease of Entry, top-tier graduate programme with a prior-background preference clause:**
 
-The same JD can defensibly land at different scores depending on how the agent weighs the audit signals. Both of these cells meet the depth bar:
+The same JD can defensibly land at different scores depending on how the agent weighs the audit signals. Both of these cells meet the depth bar (substitute the candidate's actual schools and proof points from `user/cv.md` when applying this pattern):
 
 ```
 | Ease of Entry | 5/10 | JD lists prior-background preference: "previous working experience
-  or internship at top-tier IB/PE/strategy consultancy/fast-growing tech." User has AP
-  Consulting (2mo, small boutique) — falls short of "top-tier" bar; CEMS dual-degree partly
-  substitutes. Graduate-cohort bonus (+1, ~15-20 spots). Net 5. |
+  or internship at top-tier IB/PE/strategy consultancy/fast-growing tech." Your prior
+  experience (small boutique advisory, ~2mo) falls short of the "top-tier" bar; your top-
+  school MSc partly substitutes. Graduate-cohort bonus (+1, ~15-20 spots). Net 5. |
 ```
 
 ```
-| Ease of Entry | 7/10 | JD lists prior-background preference (same quote). User's CEMS dual-
-  degree + Sabadell capstone read as "top-tier academic equivalent" the JD intends. Graduate-
+| Ease of Entry | 7/10 | JD lists prior-background preference (same quote). Your top-school
+  MSc + capstone project read as "top-tier academic equivalent" the JD intends. Graduate-
   cohort bonus (+1, ~15-20 spots). Net 7. |
 ```
 
-Both cells trace the score back to a verbatim JD quote and a named calibration adjustment. The score difference is a real judgment call about whether CEMS substitutes for prior-IB/PE — neither is "wrong". A cell saying *"competitive but designed for new grads"* without quoting the JD or naming a calibration term is missing the audit work that justifies *any* number in this column.
+Both cells trace the score back to a verbatim JD quote and a named calibration adjustment. The score difference is a real judgment call about whether the candidate's academic track substitutes for prior-IB/PE — neither is "wrong". A cell saying *"competitive but designed for new grads"* without quoting the JD or naming a calibration term is missing the audit work that justifies *any* number in this column.
 
 **For agents running in parallel:** the JD audit (see scouting.md § Pre-scoring JD audit) feeds these reasoning cells. Run the audit first; the cells write themselves from its output.
 
@@ -319,7 +339,7 @@ The dimensional table is meant to fingerprint the *role*, not the *company*. Two
 
 If you find yourself about to write the same dim numbers for two roles, stop and re-read both JDs. They WILL differ on at least Skills Match. If after re-reading you're certain the dimensional fingerprint really is identical (e.g., two truly indistinguishable rotation-program seats), use the multi-variant collapse rule in `modes/pipeline.md` Step 2c.1 — score one master, list the rest as variants. Don't write 15 identical rows.
 
-The Notes column in `data/scouting.md` is **not optional** for these rows. Each row gets a one-line tier summary referencing this specific role's strongest signal — *"Strong Big-4 FS strategy match, Sabadell capstone is direct STAR-R candidate"* beats an empty cell every time. An empty Notes column on a clustered company is the surest tell that copy-paste happened.
+The Notes column in `data/scouting.md` is **not optional** for these rows. Each row gets a one-line tier summary referencing this specific role's strongest signal — *"Strong Big-4 FS strategy match, candidate's main capstone is a direct STAR-R fit"* beats an empty cell every time. An empty Notes column on a clustered company is the surest tell that copy-paste happened.
 
 ### Calibration & special rules
 
@@ -350,6 +370,8 @@ Adjust the score from a "matches the persona" baseline using these factors:
 | **Internship vs full-time:** structured internship at the same brand | +1 | Internships have larger cohorts (5-20 spots) and lower stakes than full-time hires |
 | **Class size signal:** rotational programs, graduate schemes, LDPs (10-20+ spots/year) | +1 | More spots = lower per-applicant odds matter less than per-cohort selection |
 | **Language-restricted role:** the JD requires a language the candidate has natively that filters most applicants out | +1 to +2 | Italian-only or Portuguese-only filters remove ~60-80% of the EU applicant pool |
+| **Local target-school match:** role's country/region aligns with a country where the candidate's institution is a recognized top recruiting target (see school-region map below) | **+1** | Local alumni networks materially boost screening pass-rates; recruiters in the school's home market pre-filter for known-school graduates and have warm referral lines |
+| **CEMS double-match:** role is at a CEMS Corporate Partner AND the candidate is in/from a CEMS school AND the role is in a country where that CEMS school is locally strong | **+2** (replaces local-school +1; does not stack with it) | CEMS Corporate Partners actively recruit from CEMS schools through dedicated channels (CEMS Career Forum, partner-only postings); when both signals fire, the local-network strength compounds with the CEMS-channel strength |
 | **Visa friction:** role's country requires a work permit the candidate doesn't have (per `_profile.md` → location.visa_status) | −1 to −3 | Adds an extra hiring step; some employers won't sponsor at the intern/grad level. See sub-table below. |
 
 **Visa-friction sub-table.** Read the candidate's `visa_status` from `user/_profile.md` § Your Location Policy or `user/profile.yml` → `candidate.work_permit`. Match the role's country against what that visa actually unlocks.
@@ -357,17 +379,64 @@ Adjust the score from a "matches the persona" baseline using these factors:
 | Role's country | Candidate has EU permit only | Candidate has US work auth only | Candidate has both EU + UK |
 |----------------|------------------------------|----------------------------------|----------------------------|
 | **EU member states** (Ireland, Spain, Germany, France, Italy, Netherlands, Portugal, Austria, Belgium, etc.) | 0 | −3 (visa wall) | 0 |
-| **UK** (post-Brexit) | **−1** if employer has a known sponsorship licence (Revolut, Stripe, Celonis, Big-4 all do at grad level) — −2 if unclear or no sponsorship language | −3 | 0 |
+| **UK** (post-Brexit) | See UK calibration below — default **−2**, drops to **−1** only for explicit grad-program at known-sponsor brands clearing the £38,700 Skilled Worker floor | −3 | 0 |
 | **Switzerland / Norway / Iceland** (EFTA, not EU) | **−1** — most employers handle the work permit but it's an extra step | −3 | −1 |
 | **US / Canada** | −3 (H1B / L-1 / TN — entry-level sponsorship is rare) | 0 / +0 | −3 |
 | **Singapore / UAE / other non-Western** | −2 to −3 | −2 | −2 |
 | **Country requires a passport the candidate doesn't have** (e.g., German civil-service-grade roles requiring DE citizenship) | hard discard via Step 2c gate, not a soft penalty | same | same |
 
-**Sponsorship-language signal.** If the JD explicitly says "we sponsor visas for graduate roles" / "open to candidates requiring sponsorship", drop the friction penalty by 1 (e.g., UK with active sponsor language → 0). If the JD explicitly says "must have unrestricted right to work in {country}" and the candidate doesn't, that's a hard discard via Step 2c, not a soft penalty here.
+**UK calibration (post-Brexit, EU-only candidates).** The Skilled Worker visa is now the only realistic FT route for EU candidates without UK status. It has two binding constraints: (a) employer must hold a sponsorship licence AND issue a Certificate of Sponsorship (CoS — quota-controlled), and (b) the role must pay **≥ £38,700/year** (April 2024+ minimum, or the going-rate for the SOC code, whichever is higher). New-entrant rates can drop to ~£30,960 for under-26 / first-time visa holders — but that's a discount, not the default. Sponsorship licence ≠ willingness to sponsor at entry level.
 
-**For the user's current profile** (`visa_status: "EU citizen — no sponsorship needed"`): EU-located roles score Ease of Entry without any visa friction. UK roles eat a −1 (most top brands sponsor, friction is small but real). Swiss / Norwegian roles eat a −1. US roles eat a −3 unless the JD explicitly opens the door. **A London role at Revolut / Celonis / Stripe / Datadog should still be highly applicable, just realistically 1 point less easy than the equivalent role in Dublin / Amsterdam / Berlin.**
+| Scenario | Penalty | Rationale |
+|----------|---------|-----------|
+| **UK FT < £38,700 base, EU-only candidate, no graduate-visa route mentioned** | **HARD DISCARD via Step 2c** (not a soft penalty) | The salary floor is mechanical — sponsorship is denied at the Home Office stage regardless of employer willingness |
+| **UK FT ≥ £38,700, structured graduate program at established sponsor** (Revolut, Stripe UK, Big-4 grad scheme, Mastercard, Microsoft UK, Google UK, Bloomberg, JPM, etc.) | **−1** | Sponsorship runs on rails for grad cohorts; CoS is pre-allocated; still real friction (timing, paperwork, employer choice between equally-qualified UK and non-UK candidates) |
+| **UK FT ≥ £38,700, ad-hoc full-time entry-level at known sponsor** (non-cohort hire) | **−2** | One-off CoS issuance is materially harder than cohort sponsorship; recruiter often defaults to UK-status candidates to avoid the process |
+| **UK FT ≥ £38,700, employer with no clear sponsorship signal** (smaller scaleups, mid-tier consultancies, US firms with London offices but unclear UK sponsorship policy) | **−3** | Sponsorship may not even be available; default assumption is no, until JD or employer history proves otherwise |
+| **UK internship at established sponsor** (Revolut, Stripe, Big-4, banks) | **−1** | Interns typically use the Temporary Worker (Government Authorised Exchange / Tier 5) or Student visa routes; experienced sponsors run this regularly |
+| **UK internship at smaller / unclear-sponsor employer** | **−2** | Same uncertainty as ad-hoc FT — assume no until proven otherwise |
+
+**Sponsorship-language signal.** If the JD explicitly says "we sponsor visas for graduate roles" / "open to candidates requiring sponsorship", drop the friction penalty by 1 (e.g., default UK FT −2 → −1; UK grad −1 → 0). If the JD explicitly says "must have unrestricted right to work in {country}" and the candidate doesn't, that's a hard discard via Step 2c, not a soft penalty here.
+
+**Salary floor is a gate, not a modifier.** When evaluating a UK role for an EU-only candidate, the FIRST check is the £38,700 floor (or going-rate equivalent if listed). If the JD discloses comp below that and doesn't mention the new-entrant rate or sponsorship explicitly, route the listing through Step 2c hard-discard logic — do NOT apply a soft EoE penalty and let it surface as Tier 2 / Tier 3. If comp is undisclosed but Glassdoor/Levels.fyi peer data lands the role below £38,700, treat it as a likely hard discard and explicitly flag the ambiguity in the report.
+
+**For the user's current profile** (`visa_status: "EU citizen — no sponsorship needed"`): EU-located roles score Ease of Entry without any visa friction. UK roles use the calibration above — most ad-hoc FT London listings at non-grad-program scale are −2 or −3, not −1. Swiss / Norwegian roles eat a −1. US roles eat a −3 unless the JD explicitly opens the door. **A London role at Revolut / Stripe / Big-4 grad scheme is still highly applicable; an ad-hoc FT London role at a mid-tier scaleup or a London consultancy without grad-program sponsorship infrastructure is materially harder and should score that way.**
 
 The "10 = perfectly designed for this profile" bar is reserved for roles where the persona description matches AND the brand isn't drawing thousands of applicants. **A top-tier brand internship that the user is an exact persona match for typically lands at 7-8, not 10.**
+
+**Local target-school sub-table.** Read the candidate's institutions from `user/cv.md` § Education. Match each school against this map; apply the **+1** bonus when the role's country appears in the school's "primary" column, or the **+2** CEMS-double-match bonus when the company is a CEMS Corporate Partner AND the school's CEMS-strength country matches the role's country. The user can extend this table in `user/_profile.md` for school-specific calibration overrides.
+
+| School | Primary recruiting market | Secondary markets | CEMS member? |
+|--------|---------------------------|-------------------|--------------|
+| **Esade** (Barcelona) | Spain (esp. Barcelona, Madrid) | Italy, France, Latin America, Portugal | Yes |
+| **IESE** (Barcelona / Madrid) | Spain | Italy, Latin America, US (MBA-tier) | No |
+| **IE** (Madrid) | Spain | Latin America, Portugal, MENA | No |
+| **Bocconi** (Milan) | Italy | Switzerland, Spain, EU broadly | Yes |
+| **HEC Paris** | France | Switzerland, Belgium, Luxembourg, EU broadly | Yes |
+| **ESSEC / ESCP** (Paris) | France | Belgium, Luxembourg, Germany | ESCP yes / ESSEC yes |
+| **INSEAD** (Fontainebleau / Singapore) | France, Singapore | Global — recognized everywhere at MBA tier | No |
+| **LBS / LSE / Oxford / Cambridge / Imperial** | UK | EU broadly (post-Brexit reduced), US | LSE yes |
+| **Copenhagen Business School (CBS)** | Denmark | Sweden, Norway, Finland, Germany, Netherlands | Yes |
+| **Rotterdam School of Management (RSM)** | Netherlands | Belgium, Germany | Yes |
+| **St Gallen (HSG)** | Switzerland | Germany, Austria, Liechtenstein | Yes |
+| **WHU / ESMT / Mannheim** | Germany | Austria, Switzerland | WHU yes / ESMT no / Mannheim no |
+| **Stockholm School of Economics (SSE)** | Sweden | Finland, Norway, Denmark | Yes |
+| **NHH Norwegian School of Economics** | Norway | Sweden, Denmark | Yes |
+| **Aalto University School of Business** | Finland | Sweden, Estonia | Yes |
+| **Trinity College Dublin / UCD Smurfit** | Ireland | UK | UCD Smurfit yes |
+| **Vienna University of Economics (WU)** | Austria | Germany, CEE | Yes |
+| **Católica Lisbon** | Portugal | Spain, Brazil, Angola | Yes |
+| **Warsaw School of Economics (SGH)** | Poland | CEE | Yes |
+
+**How to apply:**
+1. List the candidate's schools (from `cv.md` § Education).
+2. For each school, identify primary + secondary markets from the table above.
+3. If the role's country appears in any school's **primary** column → **+1** EoE.
+4. If the company is a CEMS Corporate Partner (per `https://cems.org/corporate-partners` — list includes McKinsey, BCG, L'Oréal, Mastercard, Accenture, Allianz, AXA, Danone, Henkel, ING, LVMH, Procter & Gamble, Roland Berger, Telefónica, Generali, Hermès, Microsoft (selected geographies), Schroders, Swiss Re, etc.) AND the candidate has a CEMS school AND the role is in that CEMS school's **primary** market → **+2** (replaces the +1; does not stack).
+5. **Secondary** markets do NOT trigger a bonus by default — they're documented as context, but the boost is reserved for primary markets where alumni density and recruiter familiarity are highest. The user can override per-region in `_profile.md`.
+6. **Cap:** the local-school bonus does NOT bypass the EoE ≤ 4 hard-experience-wall gate. If a role's binding constraint is a multi-year YoE wall, the school boost can move EoE from 3 → 4 but not push it above the gate.
+
+The school boost is the cleanest possible counterweight to brand-competition penalties: a candidate with a school in the role's primary recruiting market is genuinely more reachable than an equally-qualified applicant from outside that regional alumni network, even at the same brand tier.
 
 #### Ease of Entry is point-in-time
 
@@ -550,7 +619,7 @@ date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobil
 - `employment_type` — `internship` | `full-time` | `working-student` | `graduate-program` | `contract` | `n/d`.
 - `duration` — free text from the JD (e.g., `6mo`, `12mo`, `permanent`, `n/d`). Use `permanent` for standard full-time with no stated end date.
 - `salary_raw` — exact figure or range as stated in the JD (e.g., `€1,500/mo`, `€35–45K`, `competitive`). Use `n/d` if not disclosed.
-- `url` — the listing URL from the JD page (`https://...`). This is the **stable join key** used by the frontend cache to bind a score-history row to its `reports/...md` file. Always write it. Use `n/d` only when the source is a paste with no URL.
+- `url` — the **listing-specific** URL from the JD page (`https://...`). This is the **stable join key** used by the frontend cache to bind a score-history row to its `reports/...md` file. Always write it. **NEVER write a bare portal/careers-homepage URL** (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`, etc.) — those URLs are shared across every listing at the company and would collide on join. A listing URL must contain a job identifier: `/jobs/{id}`, a job-token slug, a UUID, or `?gh_jid=...`. Use `n/d` when (a) the source is a paste with no URL, OR (b) the only URL you have is a portal homepage.
 
 **Rows written before 2026-04-26** have 21 columns (no metadata columns). Readers must handle variable column counts — pad short rows with empty strings rather than skipping them.
 
