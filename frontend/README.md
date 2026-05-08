@@ -28,7 +28,7 @@ arch -arm64 npx electron-rebuild -f -w better-sqlite3
 npm run package
 ```
 
-Outputs `dist/starpath-0.1.0-arm64.dmg` (~163MB). The build is **arm64-only** by design — drop `x64` from `package.json → build.mac.target` if you ever need Intel.
+Outputs `dist/starpath-{version}-arm64.dmg` (~163MB; version pulled from `package.json`). The build is **arm64-only** by design — drop `x64` from `package.json → build.mac.target` if you ever need Intel.
 
 To regenerate the app icon and DMG background from `assets/starpath_logo.svg`:
 
@@ -40,24 +40,26 @@ node frontend/build-icon.mjs
 
 ## Install
 
-1. Open `dist/starpath-0.1.0-arm64.dmg`
+1. Open `dist/starpath-{version}-arm64.dmg`
 2. Drag **starpath** → Applications
 3. Right-click → Open to bypass Gatekeeper (build is unsigned)
 4. On first launch: click **Choose folder** and select your career-ops repo root (the folder containing `CLAUDE.md` — not `frontend/`). If the repo is already populated (cv.md, profile.yml, portals.yml present), the wizard auto-skips.
 
 ## App shape
 
-Sidebar is split into a **primary** tier and a **secondary** tier separated by a divider:
+Sidebar is split into three tiers — **primary** (workflow stage), **secondary** (read-only data lenses), and **bottom** (config) — separated by dividers:
 
 | Tier | Tab | Purpose |
 |------|-----|---------|
-| Primary | **Scouting** | Cockpit for landscape mapping. Full Scan / API Only / Generate Reports buttons → spawn `claude -p '/career-ops <mode>'`. Activity panel streams live output. Sets `current_mode: scouting` in `user/profile.yml`. |
-| Primary | **Applying** | Cockpit for active applications. Stats, active-application list with per-row Tailor CV / Draft / Prep / Report buttons + `FilesStrip` artifact indicators + status dropdown. Sets `current_mode: applying`. |
+| Primary | **Scouting** | Cockpit for landscape mapping. Full Scan / API Only / Filter to Database / Generate Reports buttons → spawn `claude -p '/career-ops <mode>'` (or `node scripts/scan.mjs`). Full Scan and API Only also fire the JobSpy aggregator (Indeed + Google) in parallel as a zero-token sibling. Activity panel streams live output. |
+| Primary | **Applying** | Cockpit for active applications. Stats, active-application list with per-row Tailor CV / Draft / Prep / Report buttons + `FilesStrip` artifact indicators + status dropdown. Kanban inbox for new URLs. |
 | Secondary | **Database** | Universal lens over `data/score-history.tsv`. Score-dial column, listing card with logo + role, relative dates, liveness facet (active <14d / stale 14–90d / closed) derived from `data/scan-history.tsv`. Row click → action popover. |
-| Secondary | **Pipeline** | Application Kanban (Evaluated → Applied → Responded → Interview → Offer) + URL Inbox. Each card has the same per-listing actions as Applying. |
-| Secondary | **Reports** | Browse `reports/tier-*/*.md`. Slide-over has `Apply` / `View in Database` / `Open URL` pills + `FilesStrip`. |
-| Secondary | **Trends** | Recharts dimensional time-series across all evaluations. |
-| Secondary | **Scan** | Same cockpit as Scouting's scan section, dedicated route. The sidebar Scan tab shows a spinner whenever any spawn is running anywhere in the app. |
+| Secondary | **Reports** | Browse `reports/tier-*/*.md`. Slide-over has `Apply` / `View in Database` / `Open URL` pills + `FilesStrip` and tabs for Scouting report / Application prep. |
+| Secondary | **Trends** | Recharts dimensional time-series across all evaluations + Top X panels (companies with logos, locations with country flags, archetypes). |
+| Secondary | **Activity** | Live log for every spawn — scans, filter runs, tailoring, JobSpy, company API probes. The sidebar entry shows an orbital loader whenever any spawn is running anywhere in the app. |
+| Bottom | **Profile** | Read-only career-constellation view: CV, archetypes, proof points, languages. |
+| Bottom | **Configuration** | Editable user data: identity, comp, languages, target roles, portals. Diff-aware Save → re-tailors the title-filter keywords and `_profile.md` candidate context. |
+| Bottom | **Settings** | App-level toggles — repository path, model picks per spawn category, theme. |
 
 Cross-linking spine: every entity is keyed by `company + role`. The same `<ApplyAction>` (a button → status-dropdown morph) lives in the Database popover, the Reports slide-over header, and the Applying rows. The same `<FilesStrip>` (CV / Prep doc icons) lives wherever a listing is shown.
 
