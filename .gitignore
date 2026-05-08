@@ -22,6 +22,9 @@ batch/batch-state.tsv
 batch/batch-input.tsv
 batch/tracker-additions/**/*.tsv
 !batch/tracker-additions/.gitkeep
+batch/scouting-additions/**/*.tsv
+batch/scouting-additions/merged/
+!batch/scouting-additions/.gitkeep
 jds/*
 !jds/.gitkeep
 
@@ -50,13 +53,59 @@ bun.lock
 career-dashboard
 package-lock.json
 
-# Agent skills — user-installed generic skills, not project-specific
-.claude/skills/agent-browser/
-.claude/skills/electron-pro/
-.claude/skills/frontend-design/
-.claude/skills/impeccable/
-.claude/skills/web-design-guidelines/
-.claude/skills/webapp-testing/
+# Agent skills — only project-specific career-ops* skills are tracked.
+# Everything else under .claude/skills/ is user-installed tooling that
+# varies machine-to-machine and shouldn't ship in the repo.
+.claude/skills/*
+!.claude/skills/career-ops/
+!.claude/skills/career-ops-setup/
+
+# Third-party AI/coding tool workspaces — these tools drop dotdirs at the
+# repo root for their own state; none belong in the project.
+.adal/
+.agents/
+.aider-desk/
+.augment/
+.bob/
+.codeartsdoer/
+.codebuddy/
+.codemaker/
+.codestudio/
+.commandcode/
+.continue/
+.cortex/
+.crush/
+.devin/
+.factory/
+.forge/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.next/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.rovodev/
+.tabnine/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+
+# Claude Code skills installer artifacts (managed locally, not committed).
+# Leading slash anchors to repo root so this doesn't accidentally match
+# `.claude/skills/` (which has its own rule above).
+/skills/
+/skills-lock.json
 
 # Playwright MCP session artifacts
 .playwright-mcp/
@@ -67,3 +116,10 @@ data/landscape-*.csv
 # Filter intelligence state (local, machine-specific)
 data/filter-log.md
 data/filter-audit-state.json
+
+# JobSpy aggregator scraper (scripts/jobspy/)
+scripts/jobspy/.venv/
+scripts/jobspy/__pycache__/
+data/scan-history.jobspy.tsv
+data/pipeline.jobspy.md
+batch/jobspy-merged/
