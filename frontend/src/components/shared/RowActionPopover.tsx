@@ -234,14 +234,16 @@ function spawnReport(entry: ScoreEntry) {
       const { spawns, start, clear } = useSpawnsStore.getState()
       if (spawns[id]?.status === 'running') return
       if (spawns[id]) clear(id)
-      // Run the unified evaluation mode (`modes/scouting.md`) and write
-      // the per-listing report file. Use the source URL when available so
-      // the mode can re-fetch the JD; otherwise fall back to a
-      // company+role prompt pulled from the existing data/scouting.md row.
+      // Render-only: the listing was already scored by Filter to Database,
+      // so this run fetches the JD only to write prose. Numbers are copied
+      // from data/score-history.tsv + data/scouting.md verbatim — no
+      // re-scoring, no new score-history row.
       const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
+      const reuseInstr =
+        'RENDER-ONLY mode: do not re-score. Read the dimensional row from data/score-history.tsv (match by company + role) and the rollup score + tier from data/scouting.md, and copy those numbers verbatim into the report header and dimensional table. Write the prose sections (Role summary, Gaps, Comp, Recommendation, Career path impact) normally from the JD — do not narrate, justify, or comment on the score numbers; treat them as given. Do NOT append a new row to data/score-history.tsv.'
       const slash = url
-        ? `/career-ops scouting ${url} — write the per-listing report under reports/tier-N/{Company} - {Role}.md following the Tier-1 deep template in modes/scouting.md § "Full Report Format". Reuse the existing data/scouting.md row's score if present.`
-        : `/career-ops scouting for ${entry.company} — ${entry.role} — write the per-listing report under reports/tier-N/ following the Tier-1 deep template in modes/scouting.md. The listing already exists in data/scouting.md; reuse its score.`
+        ? `/career-ops scouting ${url} — write the per-listing report under reports/tier-N/{Company} - {Role}.md following the Tier-1 deep template in modes/scouting.md § "Full Report Format". ${reuseInstr}`
+        : `/career-ops scouting for ${entry.company} — ${entry.role} — write the per-listing report under reports/tier-N/ following the Tier-1 deep template in modes/scouting.md. ${reuseInstr}`
       const model = useAppStore.getState().models.generateReport
       start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash, model))
     },
