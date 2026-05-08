@@ -57,6 +57,14 @@ const FULL_SCAN_ID       = 'cmd-full-scan'
 const API_SCAN_ID        = 'cmd-api-scan'
 const PIPELINE_FILTER_ID = 'cmd-pipeline-filter'
 const FILTERED_SCAN_ID   = 'cmd-filtered-scan'
+// JobSpy aggregator scraper (Indeed + Google). Single shared spawn —
+// either Full Scan or API Only triggers it; if it's already running,
+// the second click reuses it. Writes to staging files, picked up by
+// scripts/merge-scan-staging.mjs after both finish.
+const JOBSPY_ID          = 'cmd-jobspy'
+const STAGING_MERGE_ID   = 'cmd-staging-merge'
+const JOBSPY_PYTHON      = 'scripts/jobspy/.venv/bin/python'
+const JOBSPY_SCRIPT      = 'scripts/jobspy/scan.py'
 
 // Three pipeline-mode prompts. All share `/career-ops pipeline` as the slash
 // command (so the skill router still loads modes/pipeline.md), but the
@@ -275,6 +283,8 @@ function ScoutingActionPanel({
   const fullScan       = spawns[FULL_SCAN_ID]
   const apiScan        = spawns[API_SCAN_ID]
   const pipelineFilter = spawns[PIPELINE_FILTER_ID]
+  const jobspy        = spawns[JOBSPY_ID]
+  const stagingMerge  = spawns[STAGING_MERGE_ID]
 
   // Refresh the data store when each finishes (Filter grows scouting.md;
   // scan grows pipeline.md). Reports generation has moved off this tab —
@@ -283,15 +293,42 @@ function ScoutingActionPanel({
   useEffect(() => { if (statusDone(apiScan))        onPipelineDone() }, [apiScan?.status,        onPipelineDone])
   useEffect(() => { if (statusDone(pipelineFilter)) onPipelineDone() }, [pipelineFilter?.status, onPipelineDone])
 
+  // When JobSpy AND at least one scan have finished, run the merge step
+  // exactly once. The "!stagingMerge" guard prevents re-firing — once
+  // start() runs, stagingMerge becomes a record so the condition stays
+  // false until the next scan click (which clears it via startJobspyIfIdle).
+  useEffect(() => {
+    const jobspyDone = statusDone(jobspy)
+    const someScanDone = statusDone(fullScan) || statusDone(apiScan)
+    if (jobspyDone && someScanDone && !stagingMerge) {
+      start(STAGING_MERGE_ID, 'Merge JobSpy staging', 'node', ['scripts/merge-scan-staging.mjs'])
+    }
+  }, [jobspy?.status, fullScan?.status, apiScan?.status, stagingMerge, start])
+
+  // Refresh the data store after the merge appends staging into pipeline.md
+  useEffect(() => { if (statusDone(stagingMerge)) onPipelineDone() }, [stagingMerge?.status, onPipelineDone])
+
+  // Spawn JobSpy alongside whichever scan was clicked. If JobSpy is
+  // already running (e.g. from the other scan button), reuse it instead
+  // of double-spawning — avoids racing on the same staging files.
+  const startJobspyIfIdle = () => {
+    if (jobspy?.status === 'running') return
+    if (jobspy) clear(JOBSPY_ID)
+    if (stagingMerge) clear(STAGING_MERGE_ID)
+    start(JOBSPY_ID, 'JobSpy (Indeed + Google)', JOBSPY_PYTHON, [JOBSPY_SCRIPT])
+  }
+
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
     start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan', 'sonnet'))
+    startJobspyIfIdle()
   }
   const handleApiScan = () => {
     if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }
     if (apiScan) clear(API_SCAN_ID)
     start(API_SCAN_ID, 'API Scan', 'node', ['scripts/scan.mjs'])
+    startJobspyIfIdle()
   }
   const handleFilter = () => {
     if (pipelineFilter?.status === 'running') { kill(PIPELINE_FILTER_ID); return }
@@ -305,7 +342,7 @@ function ScoutingActionPanel({
         items={[
           {
             key: 'full',
-            description: 'Playwright + ATS APIs + WebSearch — uses Claude (token cost)',
+            description: 'Playwright + ATS APIs + WebSearch + JobSpy aggregators (Indeed/Google) — uses Claude (token cost). JobSpy runs in parallel as a zero-token sibling.',
             node: (
               <ActionButton
                 label="Full Scan"
@@ -319,7 +356,7 @@ function ScoutingActionPanel({
           },
           {
             key: 'api',
-            description: 'Direct ATS API calls — zero token cost, instant',
+            description: 'Direct ATS API calls + JobSpy aggregators (Indeed/Google) — zero token cost. JobSpy runs in parallel.',
             node: (
               <ActionButton
                 label="API Only"

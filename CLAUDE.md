@@ -63,7 +63,9 @@ The Data Contract above is necessary but not sufficient. The system layer leaks 
 | `templates/cv-template.html` | HTML template for CVs |
 | `reports/tier-{1..4}/{Company} - {Role}.md` | Evaluation reports — header + dimensional table + Role summary + Gaps + Comp + Recommendation + Career path impact |
 
-Key scripts (all under `scripts/`): `scan.mjs` (zero-token portal scanner — Greenhouse/Ashby/Lever APIs), `generate-pdf.mjs` (Playwright HTML→PDF), `merge-tracker.mjs` / `merge-scouting.mjs` (TSV → markdown merge), `promote-to-applications.mjs` (T1 scouting → applications), `verify-pipeline.mjs` / `dedup-tracker.mjs` / `normalize-statuses.mjs` (health), `check-liveness.mjs` (posting liveness), `analyze-patterns.mjs` / `followup-cadence.mjs` (analysis).
+Key scripts (all under `scripts/`): `scan.mjs` (zero-token portal scanner — Greenhouse/Ashby/Lever APIs), `jobspy/scan.py` (zero-token aggregator scanner — Indeed/Google via [JobSpy](https://github.com/speedyapply/JobSpy); writes to staging files; setup once via `scripts/jobspy/setup.sh`), `merge-scan-staging.mjs` (merges JobSpy staging into canonical scan-history.tsv + pipeline.md after both scrapers exit), `generate-pdf.mjs` (Playwright HTML→PDF), `merge-tracker.mjs` / `merge-scouting.mjs` (TSV → markdown merge), `promote-to-applications.mjs` (T1 scouting → applications), `verify-pipeline.mjs` / `dedup-tracker.mjs` / `normalize-statuses.mjs` (health), `check-liveness.mjs` (posting liveness), `analyze-patterns.mjs` / `followup-cadence.mjs` (analysis).
+
+**Aggregator scraper (`scripts/jobspy/`):** runs in parallel with `scan.mjs` from both Full Scan and API Only buttons. Indeed + Google only (LinkedIn excluded — account/IP/ToS risk). Mirrors `scan.mjs`'s 4-pass filter (title pos/neg, lang blocklist, EU location allowlist, URL dedup) plus a `MAX_NEW_ROWS_PER_RUN=100` ceiling. Writes to `data/scan-history.jobspy.tsv` and `data/pipeline.jobspy.md`; `merge-scan-staging.mjs` appends those into the canonical files and archives the staging to `batch/jobspy-merged/`.
 
 ## First Run — Onboarding
 
