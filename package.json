@@ -1,7 +1,7 @@
 {
-  "name": "career-ops",
+  "name": "starpath",
   "version": "1.0.0",
-  "description": "AI-powered job search pipeline built on Claude Code",
+  "description": "AI-powered job search pipeline built on Claude Code, with the starpath desktop GUI on top",
   "scripts": {
     "doctor": "node scripts/doctor.mjs",
     "verify": "node scripts/verify-pipeline.mjs",
@@ -18,13 +18,15 @@
     "job-search",
     "claude-code",
     "career",
-    "automation"
+    "automation",
+    "electron",
+    "starpath"
   ],
-  "author": "Santiago Fernández de Valderrama <hi@santifer.io> (https://santifer.io)",
-  "homepage": "https://santifer.io",
+  "author": "Alessandro Mezzanotte <alezco85@gmail.com>",
+  "homepage": "https://github.com/Alemz85/starpath",
   "repository": {
     "type": "git",
-    "url": "https://github.com/santifer/career-ops"
+    "url": "https://github.com/Alemz85/starpath.git"
   },
   "license": "MIT",
   "dependencies": {

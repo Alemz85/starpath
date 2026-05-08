@@ -4,7 +4,7 @@ A local-first AI job-search workspace — a desktop app, a markdown-driven evalu
 
 You scan job portals, score every listing across ten dimensions, get tier-bucketed reports, track applications across a kanban, and watch your trajectory in dimensional trends — all running on your own laptop, against your own data, with your own Claude account doing the heavy lifting.
 
-> Built on top of [`career-ops`](https://github.com/santifer/career-ops) by [santifer](https://santifer.io). Same data contract, same modes, with a desktop GUI on top.
+> Started as a fork of [`santifer/career-ops`](https://github.com/santifer/career-ops); now an independent project that's diverged in scope and direction.
 
 ---
 
@@ -140,12 +140,4 @@ For the data contract (what's user-layer, what's system-layer, what's safe to au
 
 ## Acknowledgements
 
-Built on [`santifer/career-ops`](https://github.com/santifer/career-ops). The mode files, scoring framework, and data contract are upstream's. Starpath adds the desktop GUI and a few of its own opinions about how an honest scoring system should work.
-
-Pull upstream changes:
-
-```bash
-git remote add upstream https://github.com/santifer/career-ops.git   # one-time
-git fetch upstream
-git merge upstream/main
-```
+starpath started as a fork of [`santifer/career-ops`](https://github.com/santifer/career-ops). The mode-driven evaluation pattern, the data contract concept, and the original scoring rubric all originate there. The project has since diverged substantially — the desktop GUI, the hybrid scoring engine, the entity model, the parallel JobSpy aggregator, the SQLite cache, and most recent direction are starpath's. Upstream is no longer tracked.

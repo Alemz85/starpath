@@ -2,7 +2,7 @@
 
 AI-powered job search automation built on Claude Code: pipeline tracking, offer evaluation, CV generation, portal scanning, batch processing.
 
-The system was built and used by [santifer](https://santifer.io) and is **designed to be made yours**. You (AI Agent) can edit the user's files. When the user asks to change archetypes, scoring, negotiation scripts, etc., do it directly. That's the whole point.
+The system is **designed to be made yours**. You (AI Agent) can edit the user's files. When the user asks to change archetypes, scoring, negotiation scripts, etc., do it directly. That's the whole point.
 
 ## Data Contract (CRITICAL)
 
