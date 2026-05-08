@@ -10,7 +10,7 @@ You scan job portals, score every listing across ten dimensions, get tier-bucket
 
 ## What it does
 
-- **Scout the market.** Hit Greenhouse / Ashby / Lever / SmartRecruiters / Workday APIs across companies you care about, filter by your title rules, and triage the candidates into Tier 1–4 based on a calibrated dimensional rubric.
+- **Scout the market.** Hit Greenhouse / Ashby / Lever / SmartRecruiters / Workday APIs across companies you care about, plus Indeed and Google Jobs via a [JobSpy](https://github.com/speedyapply/JobSpy) aggregator that runs in parallel. Everything gets filtered by your title rules and triaged into Tier 1–4 against a calibrated dimensional rubric.
 - **Score honestly.** Every listing gets a 1–10 score across 10 dimensions (Skills, Ease of Entry, Strategic Fit, Growth, Optionality, Brand, WLB, Salary, etc.) with JD-grounded reasoning you can audit.
 - **Generate tailored CVs and applications.** When you decide to apply, the same workspace tailors a CV to the JD and drafts the application form answers from your CV + profile.
 - **Track applications.** Drag-and-drop kanban (Evaluated → Applied → Responded → Interview → Offer) with persisted writebacks to `data/applications.md`.
@@ -26,7 +26,7 @@ There are three pieces:
 | Piece | What it is | Where it lives |
 |------|-----------|----------------|
 | **Markdown data layer** | Your CV, profile, target roles, scored evaluations, full reports — plain markdown / TSV. Human-editable, gitignored. | `user/`, `data/`, `reports/` |
-| **Claude Code engine** | A set of skills (`modes/scouting.md`, `modes/oferta.md`, etc.) that read the data layer and write back. Spawned via the `claude` CLI. | `modes/`, `.claude/skills/`, `scripts/` |
+| **Claude Code engine** | A set of skills (`modes/scouting.md`, `modes/apply.md`, `modes/interview-prep.md`, etc.) that read the data layer and write back. Spawned via the `claude` CLI. | `modes/`, `.claude/skills/`, `scripts/` |
 | **Starpath desktop app** | Electron + Next.js GUI. Reads the markdown for display, kicks off Claude runs, watches files via chokidar, mirrors them into a fast SQLite cache for filtering and trends. | the DMG in [Releases](../../releases) (and `frontend/` for source) |
 
 The markdown files are the source of truth. The app is a fancy reader and a thin scribe. Claude Code is the brain.
@@ -76,13 +76,22 @@ When the wizard finishes it runs the `career-ops-setup` skill once — Claude re
 
 ### 4 — Use it
 
-- **Scouting tab** — *Filter to Database* scores every URL in the inbox. *Top Reports* also generates full prose reports for the top 8.
-- **Database tab** — every scored listing in one filterable table. Click any row for the action menu (View report / Apply / Tailor CV / Prep interview / Open URL / Discard).
-- **Reports tab** — every full prose report. Click any to open the slide-over with the dimensional table + Fit/gaps + Verdict + Path forward.
-- **Applying tab** — kanban for active applications. Drag cards across columns to update status. Inbox at the top for pasting new URLs.
-- **Trends tab** — time-series of your dimensional scores + top companies / locations / archetypes panels.
-- **Configuration tab** — edit identity, comp, languages, target roles, portals.
-- **Activity tab** — the live log for every Claude run happening anywhere in the app.
+The sidebar is split into three tiers — primary (workflow stage), secondary (read-only data lenses), and bottom (your config):
+
+**Primary**
+- **Scouting** — *Filter to Database* scores every URL in the inbox. *Top Reports* generates full prose reports for the top 8. The Full Scan and API Only buttons now also fire the JobSpy aggregator (Indeed + Google) in parallel as a zero-token sibling.
+- **Applying** — kanban for active applications. Drag cards across columns to update status. Inbox at the top for pasting new URLs.
+
+**Secondary**
+- **Database** — every scored listing in one filterable table. Click any row for the action menu (View report / Apply / Tailor CV / Prep interview / Open URL / Discard).
+- **Reports** — every full prose report. Click any to open the slide-over with the dimensional table + Fit/gaps + Verdict + Path forward.
+- **Trends** — time-series of your dimensional scores + top companies / locations / archetypes panels.
+- **Activity** — the live log for every Claude run happening anywhere in the app.
+
+**Bottom**
+- **Profile** — read-only career-constellation view of your CV, archetypes, and proof points.
+- **Configuration** — edit identity, comp, languages, target roles, portals.
+- **Settings** — repository path, model picks, and other app-level toggles.
 
 ---
 
