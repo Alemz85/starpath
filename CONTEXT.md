@@ -11,7 +11,7 @@ For a new Claude instance picking up engineering work on this project. Pairs wit
 1. **Backend.** Markdown / YAML / Node.js (`.mjs`) files that Claude Code reads and writes via the modes in `modes/*.md`. Data lives in `data/`, `reports/`, `user/`, `interview-prep/`. Scripts live in `scripts/`.
 2. **Desktop frontend (`frontend/`).** An Electron app branded **starpath** that reads (and lightly writes back to) the same files. Next.js 14 renderer, Electron 29 shell, SQLite cache mirror at `{userData}/cache.db`. Markdown/TSV remain canonical — the cache is fully derived.
 
-Originally built by [santifer](https://santifer.io). Root `package.json` declares `career-ops` v1.0.0; `frontend/package.json` declares `starpath-desktop` v0.1.0.
+Originally a fork of [`santifer/career-ops`](https://github.com/santifer/career-ops); now an independent project. Root `package.json` declares `starpath` v1.0.0 (workspace tooling — not released anywhere); `frontend/package.json` declares `starpath-desktop` (the released Electron app — see that file for the current version, which drives the GitHub Releases tag).
 
 For the directory tree, see **STRUCTURE.md**.
 
