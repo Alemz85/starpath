@@ -14,8 +14,20 @@ import { parseCities, entityId } from '@/lib/entityId'
 import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
-  const { scoreHistory, liveness, loaded } = useDataStore()
+  const { scoreHistory: scoreHistoryRaw, liveness, loaded, discarded } = useDataStore()
   const databaseFilter = useNavStore(s => s.databaseFilter)
+
+  // Drop tombstoned rows up-front. The tombstone set is keyed by
+  // livenessKey(company, role) — identical to the key used for the
+  // liveness lookup, so the popover's "Mark not interested" click hides
+  // every sibling row of the same listing in one shot. Memo only on the
+  // two inputs so unrelated re-renders don't re-walk the array.
+  const scoreHistory = useMemo(
+    () => discarded.size === 0
+      ? scoreHistoryRaw
+      : scoreHistoryRaw.filter(r => !discarded.has(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`)),
+    [scoreHistoryRaw, discarded],
+  )
 
   // Filter state lives in a Zustand store (useDatabaseFilters) so the
   // user's chip / search / show-closed selections survive tab switches.

@@ -10,6 +10,11 @@ interface DataState {
   reports:      ReportFile[]
   scansThisMonth: number   // unique scan-run dates in the current month
   liveness:     Record<string, 'active' | 'stale' | 'closed'>  // company|role key
+  /** Tombstone set of company|role keys the user has marked Not Interested.
+   *  Persisted to data/discarded.tsv. Views (Database, Scouting board)
+   *  filter their rows through this set so discarded listings disappear
+   *  without destroying the underlying score-history record. */
+  discarded:    Set<string>
   loaded:       boolean
   loading:      boolean
 
@@ -27,6 +32,12 @@ interface DataState {
     reportPath?: string
   }) => Promise<void>
   setApplicationStatus: (company: string, role: string, status: AppStatus) => Promise<void>
+  /** Tombstone-discard for "Not interested". Appends to data/discarded.tsv
+   *  so the listing disappears from Database/Scouting views. If the entry
+   *  also exists in applications.md (already applied), its status is
+   *  flipped to SKIP — preserves the application history. Score-history
+   *  rows stay on disk so positioning/peer-rank analytics remain intact. */
+  discardListing: (company: string, role: string) => Promise<void>
 }
 
 export const useDataStore = create<DataState>((set) => ({
@@ -37,6 +48,7 @@ export const useDataStore = create<DataState>((set) => ({
   reports:      [],
   scansThisMonth: 0,
   liveness:     {},
+  discarded:    new Set<string>(),
   loaded:       false,
   loading:      false,
 
@@ -86,6 +98,50 @@ export const useDataStore = create<DataState>((set) => ({
     await ipc.writeFile(path, next)
     await useDataStore.getState().refresh()
   },
+
+  discardListing: async (company, role) => {
+    const tombstonePath = 'data/discarded.tsv'
+    const key = livenessKey(company, role)
+
+    // 1. Append to the tombstone file. Header + one row per discard so
+    //    the file is human-readable / hand-editable for undo.
+    const existing = await ipc.readFile(tombstonePath) ?? ''
+    const today = new Date().toISOString().slice(0, 10)
+    const header = 'company\trole\tdate'
+    const alreadyTombstoned = existing
+      .split('\n')
+      .slice(1)
+      .some(line => {
+        const [c, r] = line.split('\t')
+        if (!c || !r) return false
+        return livenessKey(c, r) === key
+      })
+    if (!alreadyTombstoned) {
+      const body = existing.trim()
+        ? existing.trimEnd() + '\n' + `${company}\t${role}\t${today}` + '\n'
+        : header + '\n' + `${company}\t${role}\t${today}` + '\n'
+      await ipc.writeFile(tombstonePath, body)
+    }
+
+    // 2. If the entry exists in applications.md (already applied), flip
+    //    its status to SKIP — keeps the application record for history
+    //    while signaling it's no longer active. If it doesn't exist
+    //    there, updateApplicationStatus is a no-op.
+    const appsPath = 'data/applications.md'
+    const appsRaw = await ipc.readFile(appsPath) ?? ''
+    const appsNext = updateApplicationStatus(appsRaw, company, role, 'SKIP' as AppStatus)
+    if (appsNext !== appsRaw) await ipc.writeFile(appsPath, appsNext)
+
+    // 3. Optimistically update the in-memory tombstone set so the UI
+    //    hides the row immediately (the chokidar watcher will pick up
+    //    discarded.tsv and refresh() will re-derive on the next round).
+    set(state => {
+      const next = new Set(state.discarded)
+      next.add(key)
+      return { discarded: next }
+    })
+    await useDataStore.getState().refresh()
+  },
 }))
 
 let refreshInFlight: Promise<void> | null = null
@@ -93,13 +149,14 @@ let refreshInFlight: Promise<void> | null = null
 // ─── Loading ──────────────────────────────────────────────────────────────────
 
 async function loadAll() {
-  const [apps, scouting, scoreRows, pipelineRows, reportRows, scanHistRaw] = await Promise.all([
+  const [apps, scouting, scoreRows, pipelineRows, reportRows, scanHistRaw, discardedRaw] = await Promise.all([
     ipc.db.applications(),
     ipc.db.scouting(),
     ipc.db.scoreHistory(),
     ipc.db.pipeline(),
     ipc.db.reports(),
     ipc.readFile('data/scan-history.tsv'),
+    ipc.readFile('data/discarded.tsv'),
   ])
 
   useDataStore.setState({
@@ -110,7 +167,25 @@ async function loadAll() {
     reports:      (reportRows   ?? []).map(toReportFile),
     scansThisMonth: countScansThisMonth(scanHistRaw),
     liveness:     deriveLiveness(scanHistRaw),
+    discarded:    parseDiscarded(discardedRaw),
   })
+}
+
+// data/discarded.tsv is a flat tombstone log written by discardListing().
+// Header row + `company\trole\tdate` per row; we collapse to a Set of
+// livenessKey(company, role) so Database/Scouting views can do O(1) tests.
+function parseDiscarded(raw: string | null): Set<string> {
+  const out = new Set<string>()
+  if (!raw) return out
+  const lines = raw.split('\n')
+  for (let i = 1; i < lines.length; i++) {
+    const cells = lines[i].split('\t')
+    const company = (cells[0] ?? '').trim()
+    const role    = (cells[1] ?? '').trim()
+    if (!company || !role) continue
+    out.add(livenessKey(company, role))
+  }
+  return out
 }
 
 // ─── Liveness ─────────────────────────────────────────────────────────────────

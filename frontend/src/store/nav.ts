@@ -30,9 +30,11 @@ interface NavState {
 
 // Views that should be gated behind the unsaved-changes modal when
 // they're the *origin* (current) view AND the destination is different.
-// Configuration is currently the only view with form-dirty tracking
-// (via useConfigDirty); add other views here as their dirty stores land.
-const GATED_ORIGINS: ReadonlySet<ViewId> = new Set(['config'])
+// Both Configuration and Profile host editable forms; both write their
+// dirty state into useConfigDirty (the Profile main tab embeds the same
+// ProfileEditPanel that the Configuration → Identity sub-tab uses, and
+// it registers under the 'identity' key).
+const GATED_ORIGINS: ReadonlySet<ViewId> = new Set(['config', 'profile'])
 
 export const useNavStore = create<NavState>((set, get) => ({
   view: 'scouting',
@@ -46,7 +48,7 @@ export const useNavStore = create<NavState>((set, get) => ({
     // Gate: if the user is leaving a dirty origin, capture the intent
     // and let AppShell render the modal. The modal's Save/Discard paths
     // call confirmPendingNavigate to actually swap the view.
-    if (GATED_ORIGINS.has(state.view) && state.view === 'config' && useConfigDirty.getState().isAnyDirty()) {
+    if (GATED_ORIGINS.has(state.view) && useConfigDirty.getState().isAnyDirty()) {
       set({ pendingView: view, pendingDatabaseFilter: databaseFilter })
       return
     }

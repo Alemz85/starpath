@@ -7,7 +7,7 @@ import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ScoreEntry, AppStatus } from '@/types'
+import type { ScoreEntry } from '@/types'
 
 const POPOVER_WIDTH = 280
 
@@ -147,13 +147,11 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
           label="Mark not interested"
           tone="muted"
           onClick={async () => {
-            await useDataStore.getState().promoteToApplication({
-              company: entry.company,
-              role: entry.role,
-              overall: entry.overall,
-              tier: entry.tier,
-            })
-            await useDataStore.getState().setApplicationStatus(entry.company, entry.role, 'SKIP' as AppStatus)
+            // Tombstone the listing so it disappears from Database/Scouting
+            // views. If it already exists in applications.md (post-apply),
+            // discardListing also flips that row's status to SKIP so the
+            // application record stays — see store/data.ts.
+            await useDataStore.getState().discardListing(entry.company, entry.role)
             onClose()
           }}
         />
