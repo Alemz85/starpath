@@ -61,6 +61,13 @@ const FILTERED_SCAN_ID   = 'cmd-filtered-scan'
 // either Full Scan or API Only triggers it; if it's already running,
 // the second click reuses it. Writes to staging files, picked up by
 // scripts/merge-scan-staging.mjs after both finish.
+//
+// JOBSPY_ENABLED gates the spawn AND the merge step. Flip to true to
+// re-enable; the constants below stay in place so re-enabling is a
+// one-line change. (Disabled because Indeed/Google funnel surfaces too
+// many CPG/HR/retail roles that bypass the title positives — see top-20
+// jobspy-scored audit: nothing ≥7.5 overall.)
+const JOBSPY_ENABLED     = false
 const JOBSPY_ID          = 'cmd-jobspy'
 const STAGING_MERGE_ID   = 'cmd-staging-merge'
 const JOBSPY_PYTHON      = 'scripts/jobspy/.venv/bin/python'
@@ -191,18 +198,20 @@ export function CommandCenter() {
 
 function RecentTopPicks() {
   const scoreHistory = useDataStore(s => s.scoreHistory)
+  const discarded    = useDataStore(s => s.discarded)
   const navigate = useNavStore(s => s.navigate)
 
   const topPicks = useMemo(() => {
     return [...scoreHistory]
       .filter(s => s.tier === 'T1' || s.tier === 'T2-high' || s.tier === 'T2')
+      .filter(s => !discarded.has(`${s.company.trim().toLowerCase()}|${s.role.trim().toLowerCase()}`))
       .sort((a, b) => {
         // Prefer most recent; break ties by score desc.
         const cmp = (b.date ?? '').localeCompare(a.date ?? '')
         return cmp !== 0 ? cmp : (b.overall - a.overall)
       })
       .slice(0, 8)
-  }, [scoreHistory])
+  }, [scoreHistory, discarded])
 
   if (topPicks.length === 0) return null
 
@@ -297,7 +306,11 @@ function ScoutingActionPanel({
   // exactly once. The "!stagingMerge" guard prevents re-firing — once
   // start() runs, stagingMerge becomes a record so the condition stays
   // false until the next scan click (which clears it via startJobspyIfIdle).
+  //
+  // Gated on JOBSPY_ENABLED so when JobSpy is off, the merge never runs
+  // (nothing to merge — staging files stay empty).
   useEffect(() => {
+    if (!JOBSPY_ENABLED) return
     const jobspyDone = statusDone(jobspy)
     const someScanDone = statusDone(fullScan) || statusDone(apiScan)
     if (jobspyDone && someScanDone && !stagingMerge) {
@@ -312,6 +325,7 @@ function ScoutingActionPanel({
   // already running (e.g. from the other scan button), reuse it instead
   // of double-spawning — avoids racing on the same staging files.
   const startJobspyIfIdle = () => {
+    if (!JOBSPY_ENABLED) return
     if (jobspy?.status === 'running') return
     if (jobspy) clear(JOBSPY_ID)
     if (stagingMerge) clear(STAGING_MERGE_ID)
