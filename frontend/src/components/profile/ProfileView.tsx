@@ -183,8 +183,9 @@ function badges(history: ScoreEntry[], apps: ApplicationEntry[]): Badge[] {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function ProfileView() {
-  const { repoPath } = useAppStore()
-  const { scoreHistory, applications } = useDataStore()
+  const repoPath = useAppStore(s => s.repoPath)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
+  const applications = useDataStore(s => s.applications)
   const [profileRaw, setProfileRaw] = useState<string | null>(null)
 
   useEffect(() => {

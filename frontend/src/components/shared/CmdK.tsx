@@ -11,8 +11,9 @@ import {
 
 export function CmdK() {
   const [open, setOpen] = useState(false)
-  const { scoreHistory, scouting } = useDataStore()
-  const { navigate } = useNavStore()
+  const scoreHistory = useDataStore(s => s.scoreHistory)
+  const scouting = useDataStore(s => s.scouting)
+  const navigate = useNavStore(s => s.navigate)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

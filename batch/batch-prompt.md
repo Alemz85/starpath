@@ -173,12 +173,19 @@ Analyze posting signals to assess whether this is a real, active opening.
 
 ### Step 3 — Save Report .md
 
+Determine the appropriate **Score Band** from the global Score:
+- **Stellar** (Score ≥ 9.0, or uniform fingerprint) → Maps under the hood to physical folder `reports/tier-1/` (`{N}` = 1).
+- **Strong** (Score 8.0–8.9) → Maps under the hood to physical folder `reports/tier-2/` (`{N}` = 2) with "Apply with prep" verdict.
+- **Decent** (Score 7.0–7.9) → Maps under the hood to physical folder `reports/tier-2/` (`{N}` = 2) with "Apply if pipeline thin" verdict.
+- **Pass / Growth Target** (Score 5.0–6.9, or < 7.0 with AF ≥ 7.0 / Ease of Entry ≤ 4) → Maps under the hood to physical folder `reports/tier-3/` (`{N}` = 3).
+- **Skip** (Score < 5.0, or language wall exception) → Maps under the hood to physical folder `reports/tier-4/` (`{N}` = 4).
+
 Save the full evaluation to:
 ```
 reports/tier-{N}/{{REPORT_NUM}}-{company-slug}-{{DATE}}.md
 ```
 
-Where `{N}` is derived from the global Score: `Score ≥ 9.0 → tier-1`, `7.0 ≤ Score < 9.0 → tier-2`, `Score < 7.0 → tier-3`, `SKIP → tier-4`. And `{company-slug}` is the company name in lowercase, no spaces, with hyphens.
+Where `{N}` is the legacy tier digit (1, 2, 3, or 4) corresponding to the Score Band mapping. And `{company-slug}` is the company name in lowercase, no spaces, with hyphens.
 
 **Report format:**
 

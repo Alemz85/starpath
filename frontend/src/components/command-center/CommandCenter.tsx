@@ -114,8 +114,13 @@ const LOADING_MESSAGES = [
 ]
 
 export function CommandCenter() {
-  const { repoPath } = useAppStore()
-  const { scoreHistory, applications, pipeline, scansThisMonth, loaded, refresh } = useDataStore()
+  const repoPath = useAppStore(s => s.repoPath)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
+  const applications = useDataStore(s => s.applications)
+  const pipeline = useDataStore(s => s.pipeline)
+  const scansThisMonth = useDataStore(s => s.scansThisMonth)
+  const loaded = useDataStore(s => s.loaded)
+  const refresh = useDataStore(s => s.refresh)
 
   const totalEvaluated = scoreHistory.length
   const distinctCompanies = useMemo(
@@ -287,7 +292,10 @@ function ScoutingActionPanel({
   repoPath: string | null
   onPipelineDone: () => void
 }) {
-  const { spawns, start, kill, clear } = useSpawnsStore()
+  const spawns = useSpawnsStore(s => s.spawns)
+  const start = useSpawnsStore(s => s.start)
+  const kill = useSpawnsStore(s => s.kill)
+  const clear = useSpawnsStore(s => s.clear)
   const pipelineModel = useAppStore(s => s.models.pipeline)
   const fullScan       = spawns[FULL_SCAN_ID]
   const apiScan        = spawns[API_SCAN_ID]
@@ -433,7 +441,10 @@ function ScoutingActionPanel({
 
 function FilteredScanRow() {
   const repoPath = useAppStore(s => s.repoPath)
-  const { spawns, start, kill, clear } = useSpawnsStore()
+  const spawns = useSpawnsStore(s => s.spawns)
+  const start = useSpawnsStore(s => s.start)
+  const kill = useSpawnsStore(s => s.kill)
+  const clear = useSpawnsStore(s => s.clear)
   const filteredScan = spawns[FILTERED_SCAN_ID]
   const selected     = useScanFilter(s => s.selected)
   const toggle       = useScanFilter(s => s.toggle)

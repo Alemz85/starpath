@@ -57,7 +57,8 @@ const TIME_RANGE_LABEL: Record<TimeRange, string> = {
 }
 
 export function TrendsView() {
-  const { loaded, scoreHistory } = useDataStore()
+  const loaded = useDataStore(s => s.loaded)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
   const [activeDims, setActiveDims] = useState<Set<DimKey>>(new Set(['avg_overall', 'avg_current_fit', 'avg_aspirational_fit']))
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
 

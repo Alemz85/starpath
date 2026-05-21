@@ -48,11 +48,16 @@ This rule is universal across modes (`scouting`, `interview-prep`, `apply`, `pdf
 
 There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). It uses the **Dimensional Scoring Framework** below and produces an **Overall** score on a 1-10 scale by rolling up Current Fit and Aspirational Fit with fixed weights (CF×0.70 + AF×0.30).
 
-**Score interpretation (Overall):**
-- 9.0+ → Strong match, recommend applying immediately (Tier 1)
-- 8.0–8.9 → Good match, worth applying with prep (Tier 2)
-- 7.0–7.9 → Decent match, apply only if pipeline thin (Tier 2)
-- Below 7.0 → Recommend against applying (see Ethical Use in CLAUDE.md). Tier 3 if AF ≥ 7.0 (growth target); Tier 4 otherwise (skip).
+**Score interpretation & Score Bands (Overall):**
+- **Stellar (Overall ≥ 9.0 or Uniform Fingerprint)** → Strongest match, recommend applying immediately (*maps under the hood to Tier 1 / `reports/tier-1/`*).
+- **Strong (Overall 8.0–8.9)** → Good match, worth applying with prep (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply with prep" verdict*).
+- **Decent (Overall 7.0–7.9)** → Decent match, apply only if pipeline thin (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply if pipeline thin" verdict*).
+- **Pass / Growth Target (Overall 5.0–6.9 or < 7.0 with AF ≥ 7.0 / Ease of Entry ≤ 4)** → Recommend against immediate application; target for skill acquisition and roadmaps (*maps under the hood to Tier 3 / `reports/tier-3/`*).
+- **Skip (Overall < 5.0 or status SKIP)** → Low fit or mismatch; filtered out (*maps under the hood to Tier 4 / `reports/tier-4/`*).
+
+> [!NOTE]
+> **Under-the-Hood Compatibility Mapping:**
+> To ensure the stable operation of the Electron desktop app, SQLite database scanner, and file-based pipelines, legacy symbols (`T1`, `T2`, `T3`, `T4`) and file paths (e.g. `reports/tier-N/`) remain fully active as the serialization layer. The system maps the conceptual Score Bands to physical storage keys transparently. Always write physical records using the correct underlying keys while keeping all candidate-facing prose and scoring descriptions focused on the 5 Score Bands.
 
 ## Dimensional Scoring Framework
 
@@ -466,49 +471,49 @@ The penalty is intentionally modest — about half a tier boundary — so it nud
 
 #### Ease of Entry hard gate (experience wall)
 
-Ease of Entry ≤ 4 means the candidate faces a hard experience wall — multi-year YoE requirements, hyper-competitive pipelines, or credentials they don't have. This gate **fires for all tiers** — it can demote T2 to T3 as well as T1 to T3.
+Ease of Entry ≤ 4 means the candidate faces a hard experience wall — multi-year YoE requirements, hyper-competitive pipelines, or credentials they don't have. This gate **fires for all score bands** — it can demote Stellar or Strong or Decent matches into the **Pass / Growth Target** band.
 
-**Rule:** If Ease of Entry ≤ 4, the role's tier is **capped at T3** (growth target) regardless of the CF rollup. The CF/AF/Overall scores are still computed normally — the gate only affects tier assignment. This ensures that roles with hard experience walls are surfaced as growth targets with gap-closing roadmaps, not as "worth noting" T2 entries that imply near-term actionability.
+**Rule:** If Ease of Entry ≤ 4, the role's score band is **capped at Pass / Growth Target** (which maps to legacy Tier 3 under the hood) regardless of the CF rollup. The CF/AF/Overall scores are still computed normally — the gate only affects score band / tier classification. This ensures that roles with hard experience walls are surfaced as growth targets with gap-closing roadmaps, not as active matches that imply near-term actionability.
 
-**Why this fires for T2 as well:** A role where the user has good skills (Skills Match 8) and the work is analytical (Strategic Fit 8) but faces a 2-year experience wall (EoE 4) would naturally land in T2 — yet the T2 "short summary" format implies the user should consider applying now. A T3 Gap & Growth report with a concrete "revisit when" trigger is more honest and more useful.
+**Why this fires for Decent/Strong as well:** A role where the user has good skills (Skills Match 8) and the work is analytical (Strategic Fit 8) but faces a 2-year experience wall (EoE 4) would naturally land as Decent or Strong — yet that implies the user should apply now. Surfacing it as a **Pass / Growth Target** with a concrete "revisit when" roadmap is more honest and useful.
 
-**Display rule:** When the gate fires, note it in the tier line: `**Tier:** T3 (EoE gate — CF/Overall would place T2 but Ease of Entry ≤ 4)`.
+**Display rule:** When the gate fires, note it in the tier/band line: `**Tier:** T3 (EoE gate — CF/Overall would place Decent/Strong but Ease of Entry ≤ 4)`.
 
-#### Language-barrier exception: force Tier 4 skip
+#### Language-barrier exception: force Skip band
 
-When the binding gap on a role is a **foreign-language requirement** (the JD asks for fluency in language X, the candidate doesn't have X on their CV and isn't learning it), **force Tier 4 (skip) regardless of other dimensions**. Do NOT produce a Tier 3 Gap & Growth Report for the role. Do NOT write a stepping-stone roadmap.
+When the binding gap on a role is a **foreign-language requirement** (the JD asks for fluency in language X, the candidate doesn't have X on their CV and isn't learning it), **force the Skip band** (which maps to legacy Tier 4 under the hood) regardless of other dimensions. Do NOT produce a Gap & Growth Report for the role. Do NOT write a stepping-stone roadmap.
 
-**Why:** Tier 3 Gap & Growth reports assume the gap closes on a 6-12 month horizon. Foreign-language acquisition to JD-fluency level is a 2-5 year relocation/lifestyle decision, not a job-specific skill build. Producing a detailed "here's how to close this gap" report for a language wall wastes tokens and gives misleading "here's the plan" framing to a gap that is structurally unbridgeable in the relevant timeframe.
+**Why:** Gap & Growth reports assume the gap closes on a 6-12 month horizon. Foreign-language acquisition to JD-fluency level is a 2-5 year relocation/lifestyle decision, not a job-specific skill build. Producing a detailed "here's how to close this gap" report for a language wall wastes tokens and gives misleading "here's the plan" framing to a gap that is structurally unbridgeable in the relevant timeframe.
 
 **How to apply:**
 1. Detect the language requirement: JD says "fluent German", "native French", "C1 Spanish", "business-level Japanese", etc., AND `user/cv.md` / `user/profile.yml` show the candidate does NOT have that language at that level.
-2. Skip the Tier 3 template. Do NOT write a `reports/tier-3/scout-...md` file for the role.
+2. Skip the Gap & Growth template. Do NOT write a `reports/tier-3/scout-...md` file for the role.
 3. Log the row to `data/score-history.tsv` with `tier=skip`.
 4. Write the scouting tracker TSV with `tier=T4`, `report=—`, and a note starting with `T4 skip (language wall): requires {X}, not on CV`.
 
-**Scope:** this only applies when the ONLY significant blocker is language. If the role also has a YoE wall, stack mismatch, etc., those are normal Tier 3 gaps and the standard tier rules apply — language is just one of the gaps in that case. But when the dimensional fingerprint would otherwise produce T3 (AF ≥ 8.0) purely because of an unreachable language requirement, force T4 instead.
+**Scope:** this only applies when the ONLY significant blocker is language. If the role also has a YoE wall, stack mismatch, etc., those are normal Gap & Growth gaps and standard rules apply — language is just one of the gaps in that case. But when the dimensional fingerprint would otherwise produce a Pass / Growth Target (AF ≥ 8.0) purely because of an unreachable language requirement, force a Skip instead.
 
-#### Tier 1 override: uniformly strong fingerprint
+#### Stellar band override: uniformly strong fingerprint
 
-A role qualifies for **Tier 1** (full scouting report) under either of two conditions:
+A role qualifies for the **Stellar** score band (full report; maps to legacy Tier 1 under the hood) under either of two conditions:
 
 1. **Standard:** `Current Fit ≥ 9.0`
 2. **Override:** all **6 rollup scoring dimensions** score ≥ 8 **AND** both rollups (CF and AF) ≥ 8.0 (Sales-Trap Risk is not considered for this override since it's not in the rollups)
 
-**Reasoning:** a role with a uniformly strong fingerprint (no dimension below 8) is substantively as strong as a CF=9.0+ role even if the rollup average doesn't quite cross the threshold. The override catches borderline-strong matches that miss Tier 1 by a rounding margin but are clearly worth the full analytical write-up.
+**Reasoning:** a role with a uniformly strong fingerprint (no dimension below 8) is substantively as strong as a CF=9.0+ role even if the rollup average doesn't quite cross the threshold. The override catches borderline-strong matches that miss the Stellar band by a rounding margin but are clearly worth the full analytical write-up.
 
 The override is harder to game than just lowering the cutoff — it rewards consistency across the dimensional fingerprint, not a high average that hides a bad dimension.
 
-**Important:** Tier 1 means a **full markdown report only** — evaluation never auto-generates PDFs at any tier. CV / PDF generation is a separate, manual operation via `/career-ops pdf` (or the Database popover's "Tailor CV" button).
+**Important:** Stellar band means a **full markdown report only** — evaluation never auto-generates PDFs at any band. CV / PDF generation is a separate, manual operation via `/career-ops pdf` (or the Database popover's "Tailor CV" button).
 
-#### T2 verdict scaling
+#### Strong and Decent verdict scaling
 
-Tier 2 spans CF=7.0–8.9 — a wide range with meaningfully different actionability. The tier column itself stays a single value (`T2`), but the verdict line in the report scales by Current Fit:
+The Strong and Decent bands span CF=7.0–8.9 (which maps to legacy Tier 2 under the hood). The under-the-hood tier directory remains `T2`, but the verdict in the report scales based on the score band:
 
-- **CF 8.0–8.9 — "apply with prep":** strong match; promotion hint `MONITOR` in the tracker.
-- **CF 7.0–7.9 — "apply if pipeline thin":** decent match; revisit post-graduation. No promotion hint.
+- **Strong (CF 8.0–8.9) — "Apply with prep":** good match; promotion hint `MONITOR` in the tracker.
+- **Decent (CF 7.0–7.9) — "Apply if pipeline thin":** decent match; revisit post-graduation. No promotion hint.
 
-Both render the same dimensional table; only the verdict phrasing differs. There is **no T2-high sub-tier** — never write `T2-high` to the tier column of `scouting.md` or `score-history.tsv`. See `modes/scouting.md` for the template.
+Both render the same dimensional table; only the verdict phrasing differs. There is **no T2-high sub-tier** — never write `T2-high` to the tier column of `scouting.md` or `score-history.tsv`. See `modes/scouting.md` for the templates.
 
 ### Standard report block format
 

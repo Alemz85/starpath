@@ -356,9 +356,11 @@ if (newLines.length > 0) {
       break;
     }
   }
-  if (insertIdx >= 0) {
-    appLines.splice(insertIdx, 0, ...newLines);
+  if (insertIdx === -1) {
+    console.error("❌ Error: Could not find table header separator line (|---|) in markdown file.");
+    process.exit(1);
   }
+  appLines.splice(insertIdx, 0, ...newLines);
 }
 
 // Write back

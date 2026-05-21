@@ -34,6 +34,8 @@ const PIPELINE_PATH        = 'data/pipeline.md';
 const APPLICATIONS_PATH    = 'data/applications.md';
 const STAGING_HISTORY_PATH = 'data/scan-history.jobspy.tsv';
 const STAGING_PIPELINE_PATH = 'data/pipeline.jobspy.md';
+const TMP_HISTORY_PATH     = 'data/scan-history.jobspy.tsv.tmp';
+const TMP_PIPELINE_PATH    = 'data/pipeline.jobspy.md.tmp';
 const ARCHIVE_DIR          = 'batch/jobspy-merged';
 
 const HISTORY_HEADER = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates';
@@ -123,15 +125,17 @@ function appendToPipelineMd(lines) {
 
 // ── Archive ────────────────────────────────────────────────────────────
 
-function archiveStaging() {
+// ── Archive ────────────────────────────────────────────────────────────
+
+function archiveStaging(tmpHistoryExists, tmpPipelineExists) {
   mkdirSync(ARCHIVE_DIR, { recursive: true });
   const now = new Date();
   const stamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19); // 2026-05-05T17-43-12
-  if (existsSync(STAGING_HISTORY_PATH)) {
-    renameSync(STAGING_HISTORY_PATH, join(ARCHIVE_DIR, `${stamp}.tsv`));
+  if (tmpHistoryExists && existsSync(TMP_HISTORY_PATH)) {
+    renameSync(TMP_HISTORY_PATH, join(ARCHIVE_DIR, `${stamp}.tsv`));
   }
-  if (existsSync(STAGING_PIPELINE_PATH)) {
-    renameSync(STAGING_PIPELINE_PATH, join(ARCHIVE_DIR, `${stamp}.md`));
+  if (tmpPipelineExists && existsSync(TMP_PIPELINE_PATH)) {
+    renameSync(TMP_PIPELINE_PATH, join(ARCHIVE_DIR, `${stamp}.md`));
   }
   return stamp;
 }
@@ -147,6 +151,14 @@ function main() {
     return 0;
   }
 
+  // Atomically rename to .tmp before processing to isolate
+  if (stagingHistoryExists) {
+    renameSync(STAGING_HISTORY_PATH, TMP_HISTORY_PATH);
+  }
+  if (stagingPipelineExists) {
+    renameSync(STAGING_PIPELINE_PATH, TMP_PIPELINE_PATH);
+  }
+
   // 1. Merge scan-history
   const today = new Date().toISOString().slice(0, 10);
   const { rows, urlToIndex } = loadHistory();
@@ -154,7 +166,7 @@ function main() {
   let updatedScanDates = 0;
 
   if (stagingHistoryExists) {
-    const stagingLines = readFileSync(STAGING_HISTORY_PATH, 'utf-8')
+    const stagingLines = readFileSync(TMP_HISTORY_PATH, 'utf-8')
       .split('\n')
       .slice(1)               // skip staging header
       .filter(l => l.trim());
@@ -178,7 +190,7 @@ function main() {
   // 2. Merge pipeline.md (URL-deduped against pipeline + applications)
   let pipelineAppended = 0;
   if (stagingPipelineExists) {
-    const stagingLines = readFileSync(STAGING_PIPELINE_PATH, 'utf-8')
+    const stagingLines = readFileSync(TMP_PIPELINE_PATH, 'utf-8')
       .split('\n')
       .filter(l => l.trim());
 
@@ -198,7 +210,7 @@ function main() {
   }
 
   // 3. Archive staging
-  const stamp = archiveStaging();
+  const stamp = archiveStaging(stagingHistoryExists, stagingPipelineExists);
 
   console.log(
     `[merge] Done — scan-history: +${appended} new, ${updatedScanDates} re-seen; ` +

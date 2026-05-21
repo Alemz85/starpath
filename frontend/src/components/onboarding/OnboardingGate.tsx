@@ -50,7 +50,7 @@ function StarDot({ bright = false }: { bright?: boolean }) {
 }
 
 export function OnboardingGate() {
-  const { setOnboardingComplete } = useAppStore()
+  const setOnboardingComplete = useAppStore(s => s.setOnboardingComplete)
   const [completed, setCompleted] = useState<Set<OnboardingStep>>(new Set())
   const [activeStep, setActiveStep] = useState<OnboardingStep>('repo')
   const [done, setDone] = useState(false)

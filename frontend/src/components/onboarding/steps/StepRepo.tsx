@@ -6,7 +6,7 @@ import { ipc } from '@/lib/ipc'
 import { useAppStore } from '@/store/app'
 
 export function StepRepo({ onComplete }: { onComplete: () => void }) {
-  const { setRepoPath } = useAppStore()
+  const setRepoPath = useAppStore(s => s.setRepoPath)
   const [status, setStatus] = useState<'idle' | 'loading' | 'validating' | 'invalid' | 'done' | 'error'>('idle')
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [manualPath, setManualPath] = useState('')

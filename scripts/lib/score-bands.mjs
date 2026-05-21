@@ -137,14 +137,19 @@ export function rollupOverall(cf, af, { salary_adj_for_city, work_life_balance, 
   return { overall, modifiersApplied: modifiers }
 }
 
-/* ───── Tier assignment ─────────────────────────────────────────── */
+/* ───── Score Band & Tier assignment ─────────────────────────────── */
 
 /**
- * Tier rules from modes/scouting.md § Output Behavior:
- *   T1 — CF ≥ 9.0  OR  (all 6 dims ≥ 8 AND both rollups ≥ 8.0)  ← uniform-fingerprint override
- *   T2 — CF ≥ 7.0 AND Ease of Entry > 4
- *   T3 — (CF < 7.0 AND AF ≥ 7.0)  OR  Ease of Entry ≤ 4 gate
- *   T4 — else
+ * Assigns the conceptual Score Band and legacy Tier indicator.
+ * Under the hood, legacy symbols ('T1'–'T4') are returned to maintain
+ * perfect compatibility with Electron scanners, SQLite schemas, and TSV parsers.
+ *
+ * Mapping Rules:
+ *   - Stellar (T1): CF ≥ 9.0  OR  (all 6 dims ≥ 8 AND both rollups ≥ 8.0)  ← uniform-fingerprint override
+ *   - Strong (T2): CF 8.0–8.9 AND Ease of Entry > 4 (verdict: "Apply with prep")
+ *   - Decent (T2): CF 7.0–7.9 AND Ease of Entry > 4 (verdict: "Apply if pipeline thin")
+ *   - Pass / Growth Target (T3): Overall 5.0–6.9, or < 7.0 with AF ≥ 7.0, OR Ease of Entry ≤ 4 gate
+ *   - Skip (T4): else / language wall exception
  *
  *   sixDims = { skills_match, ease_of_entry, strategic_fit, growth_mobility, optionality_exit, brand_value }
  */
@@ -152,22 +157,27 @@ export function assignTier({ cf, af, sixDims }) {
   const eoe = sixDims.ease_of_entry
   const allDimsAtLeast = (n) => Object.values(sixDims).every(s => s >= n)
 
-  // T1 standard
+  // Stellar Band (maps to legacy Tier 1)
   if (cf >= 9.0) return { tier: 'T1', reason: 'CF ≥ 9.0' }
-  // T1 uniform-fingerprint override
+  
+  // Stellar Band uniform-fingerprint override
   if (allDimsAtLeast(8) && cf >= 8.0 && af >= 8.0) {
     return { tier: 'T1', reason: 'uniform fingerprint: all 6 dims ≥ 8 AND CF/AF ≥ 8.0' }
   }
-  // T3 gate: EoE ≤ 4 forces T3 (or T4 if AF too low)
+  
+  // Pass / Growth Target Band: Ease of Entry ≤ 4 gate demotes to legacy Tier 3
   if (eoe <= 4) {
     if (af >= 7.0) return { tier: 'T3', reason: 'EoE ≤ 4 gate (growth target)' }
     return { tier: 'T4', reason: 'EoE ≤ 4 AND AF < 7' }
   }
-  // T2
+  
+  // Strong & Decent Bands (map to legacy Tier 2)
   if (cf >= 7.0) return { tier: 'T2', reason: 'CF ≥ 7.0 AND EoE > 4' }
-  // T3 growth target
+  
+  // Pass / Growth Target Band: low Current Fit but high Aspirational Fit
   if (af >= 7.0) return { tier: 'T3', reason: 'CF < 7.0 AND AF ≥ 7.0' }
-  // T4
+  
+  // Skip Band (maps to legacy Tier 4)
   return { tier: 'T4', reason: 'CF < 7.0 AND AF < 7.0' }
 }
 

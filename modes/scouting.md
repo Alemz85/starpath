@@ -82,11 +82,13 @@ Follow the lookup flow defined in `modes/_shared.md` § Comp cache. Single rule 
 - **Dream-company floor:** If the company is in the user's dream list (`user/profile.yml` → `target_roles.dream_companies` or `_profile.md` → Dream Companies), floor **Brand Value at 10** AND **Aspirational Fit at 8.0** regardless of function match. The user wants their foot in the door.
 - **Sales-Trap Risk reminder:** Sales-Trap Risk is scored (10 = well protected, 1 = high risk) and displayed in the table, but is **not included in the Aspirational Fit rollup**. It serves as a decision-support signal — a score of 1-2 should be flagged prominently as a red flag.
 
-## Output Behavior — Tiered by Current Fit
+## Output Behavior — Framed by Score Bands
 
-The report format depends on where Current Fit lands. **Always compute the full dimensional table first**, then choose the tier — the same table appears in every tier so positioning can read it.
+The report format depends on which **Score Band** the listing falls into based on its Overall and dimensional scores. **Always compute the full dimensional table first**, then determine the score band — the same table appears in every format so positioning can read it.
 
-### Universal header (every tier writes this)
+To maintain perfect compatibility with SQLite schemas, TSV parsing scripts, and Electron desktop dashboard components, all physical directory routing and serialization keys use the legacy "Tier" indicators (`T1`–`T4` codes and physical directory routing `reports/tier-{N}/`).
+
+### Universal header (every Score Band writes this)
 
 ```markdown
 # Scouting: {Company} — {Role}
@@ -101,21 +103,21 @@ The report format depends on where Current Fit lands. **Always compute the full 
 **Tier:** {T1|T2|T3}
 ```
 
-**Header discipline.** Each value is a clean short key/value pair — no parentheticals, no run-context annotations, no assumption-justification mid-sentence. The Tier line is mandatory and must match the report's tier directory; T4 skips don't write a report. If you'd write `(reused from row #...)` or `(assumed — JD city not surfaced; X is Microsoft's EMEA hub...)`, delete it and move the analytical content into the appropriate body section (Role summary's Remote field, or Best Cities reasoning).
+**Header discipline.** Each value is a clean short key/value pair — no parentheticals, no run-context annotations, no assumption-justification mid-sentence. The Tier line is mandatory and must match the report's tier directory (`T1` for Stellar, `T2` for Strong or Decent, `T3` for Pass / Growth Target); Skip matches `T4` under the hood but doesn't write a report. If you'd write `(reused from row #...)` or `(assumed — JD city not surfaced; X is Microsoft's EMEA hub...)`, delete it and move the analytical content into the appropriate body section (Role summary's Remote field, or Best Cities reasoning).
 
 **URL discipline (NEVER write a generic portal URL).** The `**URL:**` field MUST be listing-specific — it points to a single job posting, not a company careers page. A listing URL contains a job identifier: `/jobs/{id}` (Greenhouse), a job-token slug (Lever, Ashby), a UUID, or `?gh_jid=...`. If the only URL you have is a portal homepage (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`, etc.) — write `—` instead. Same rule for the `url` column in `data/score-history.tsv` (write `n/d`). Writing the portal URL pollutes the cross-table join key: two unrelated listings at the same company would collide on the same URL and the frontend cache would link them to the wrong report.
 
-The T3 Gap & Growth report uses the same header but its title prefix is `# Gap & Growth:` and its Mode is `scouting (growth target)`.
+The Pass / Growth Target report uses the same header but its title prefix is `# Gap & Growth:` and its Mode is `scouting (growth target)`.
 
-### Tier 1 — Current Fit ≥ 9.0 (or uniform fingerprint override: all 6 dims ≥ 8 AND both rollups ≥ 8.0)
+### Stellar Band — Overall ≥ 9.0 (or uniform fingerprint override: all 6 dims ≥ 8 AND both rollups ≥ 8.0)
 
-Generate a **full report** — header above + the body sections defined under "Tier 1 body" below. Net length ~70–90 lines.
+Generate a **full report** — header above + the body sections defined under "Stellar body" below. Net length ~70–90 lines. Under the hood, this is saved to `reports/tier-1/` and marked as `T1`.
 
 Surface to the user with: *"Strong match — full evaluation ready. If you want a tailored CV, run `/career-ops pdf` against the URL. If you're ready to actively apply, click Apply in the Database to move it to your active applications, then click Prep Application for interview intel."*
 
-### Tier 2 — Current Fit ≥ 7.0 AND Ease of Entry > 4
+### Strong / Decent Bands — Overall 7.0–8.9 AND Ease of Entry > 4
 
-Generate a **short summary report**. Universal header (with `**Tier:** T2`), same dimensional table, lighter body:
+Generate a **short summary report**. Universal header (with `**Tier:** T2` to map to the `reports/tier-2/` directory), same dimensional table, lighter body:
 
 ```markdown
 ## Dimensional scoring
@@ -125,17 +127,17 @@ Generate a **short summary report**. Universal header (with `**Tier:** T2`), sam
 {2 bullets max — strongest match + biggest gap}
 
 ## Verdict
-{One line — "Apply with prep" (CF 8.0+) | "Apply if pipeline thin" (CF 7.0–7.9) | "Track company only"}
+{One line — "Apply with prep" for Strong (Overall 8.0–8.9) | "Apply if pipeline thin" for Decent (Overall 7.0–7.9) | "Track company only"}
 
 ## Path forward
 {ONE sentence, concrete next step. No multi-step plans, no bullets.}
 ```
 
-CF 8.0–8.9 → "apply with prep". CF 7.0–7.9 → "apply if pipeline thin". Both write `Tier: T2` to scouting.md and score-history.tsv (no T2-high sub-tier).
+Strong (Overall 8.0–8.9) → "Apply with prep" verdict. Decent (Overall 7.0–7.9) → "Apply if pipeline thin" verdict. Both write `Tier: T2` to scouting.md, report headers, and score-history.tsv (no `T2-high` or other sub-tiers).
 
-### Tier 3 — Current Fit < 7.0 AND Aspirational Fit ≥ 7.0 (growth target), OR Ease of Entry ≤ 4 gate
+### Pass / Growth Target Band — Overall 5.0–6.9, OR < 7.0 with AF ≥ 7.0, OR Ease of Entry ≤ 4 gate
 
-Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title becomes `# Gap & Growth:`, `**Tier:** T3`). Body is the most compact, ~25–30 lines:
+Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title becomes `# Gap & Growth:`, `**Tier:** T3` to map to `reports/tier-3/` directory). Body is the most compact, ~25–30 lines:
 
 ```markdown
 ## Dimensional scoring
@@ -146,15 +148,15 @@ Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal hea
 - **Revisit when:** {one line, concrete trigger}
 ```
 
-**Exception — language wall:** if the binding gap is a foreign-language requirement the candidate doesn't have (and isn't learning), force Tier 4 instead. See `_shared.md` § "Language-barrier exception" — language acquisition is multi-year, so a Gap & Growth roadmap would be misleading.
+**Exception — language wall:** if the binding gap is a foreign-language requirement the candidate doesn't have (and isn't learning), force the Skip band instead. See `_shared.md` § "Language-barrier exception" — language acquisition is multi-year, so a Gap & Growth roadmap would be misleading.
 
-### Tier 4 — Both scores low (skip)
+### Skip Band — Overall < 5.0 or status SKIP
 
-Current Fit < 7.0 AND Aspirational Fit < 7.0 → **skip**. Do NOT write a report. **Still compute the full dimensional table** for `data/score-history.tsv`. Add a one-line entry to `data/scouting.md` with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
+Both scores low (Overall < 5.0) or language wall exception → **skip**. Do NOT write a report file. **Still compute the full dimensional table** for `data/score-history.tsv` (mapped to `tier=skip`). Add a one-line entry to `data/scouting.md` with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
 
-## Tier 1 body
+## Stellar body
 
-The Tier 1 report leads with the dimensional table — it's the load-bearing artifact. Everything else is short and grounded in the table.
+The Stellar report leads with the dimensional table — it's the load-bearing artifact. Everything else is short and grounded in the table.
 
 ```markdown
 ## Dimensional scoring

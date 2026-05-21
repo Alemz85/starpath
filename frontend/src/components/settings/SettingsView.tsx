@@ -258,8 +258,12 @@ export function SettingsView() {
 // ─── General tab ──────────────────────────────────────────────────────────────
 
 function GeneralTab() {
-  const { repoPath, setRepoPath, models, setModel, resetTailoring } = useAppStore()
-  const { refresh } = useDataStore()
+  const repoPath = useAppStore(s => s.repoPath)
+  const setRepoPath = useAppStore(s => s.setRepoPath)
+  const models = useAppStore(s => s.models)
+  const setModel = useAppStore(s => s.setModel)
+  const resetTailoring = useAppStore(s => s.resetTailoring)
+  const refresh = useDataStore(s => s.refresh)
 
   const MODEL_ROWS: Array<{
     key: 'pipeline' | 'tailorCv' | 'draftApp' | 'interviewPrep' | 'generateReport'

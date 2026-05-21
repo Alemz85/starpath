@@ -9,12 +9,12 @@ function parseMarkdownTable(md: string): Array<Record<string, string>> {
 
   const headers = tableLines[0]
     .split('|')
+    .slice(1, -1)
     .map(h => h.trim())
-    .filter(Boolean)
 
   return tableLines.slice(2).flatMap(row => {
-    const cols = row.split('|').map(c => c.trim()).filter(Boolean)
-    if (cols.length === 0 || cols[0] === '---') return []
+    const cols = row.split('|').slice(1, -1).map(c => c.trim())
+    if (cols.length === 0 || cols[0].startsWith('---')) return []
     const obj: Record<string, string> = {}
     headers.forEach((h, i) => { obj[h] = cols[i] ?? '' })
     return [obj]

@@ -123,3 +123,14 @@ scripts/jobspy/__pycache__/
 data/scan-history.jobspy.tsv
 data/pipeline.jobspy.md
 batch/jobspy-merged/
+
+# Backups and transient working data
+data/*.bak
+data/discarded.tsv
+
+# Pipeline working directories (one-off, per-run scratch)
+batch/pipeline-run-*/
+
+# Positioning compute helper (one-off, regenerated per positioning run)
+batch/positioning-compute.json
+batch/positioning-compute.mjs
