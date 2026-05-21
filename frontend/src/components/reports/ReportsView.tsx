@@ -956,22 +956,12 @@ function PositioningModal({
             <h2 className="text-page text-text-1 leading-tight tracking-[-0.01em]">
               Career Positioning — {report.dateStr}
             </h2>
-            <p
-              className="text-section text-text-2 leading-snug mt-1 line-clamp-2"
-              title={report.focusPath}
-            >
-              <span className="text-text-4 font-medium">Focus path · </span>
-              {report.focusPath}
+            {/* Short generic caption — short enough to never overflow.
+                The actual focus-path verdict lives prominently in the
+                TL;DR card right below, where it belongs. */}
+            <p className="text-label text-text-3 leading-snug mt-1.5">
+              Where you stand · What to do next
             </p>
-            <div className="flex items-center gap-2 mt-2 flex-wrap text-label">
-              <span className="text-text-3 font-mono tabular-nums">
-                {report.evalCount} analyzed
-              </span>
-              <span className="text-text-4">·</span>
-              <span className="text-text-4 font-mono text-[11px] truncate max-w-[300px]" title={report.path}>
-                {report.path}
-              </span>
-            </div>
           </div>
           <button
             onClick={handleClose}
