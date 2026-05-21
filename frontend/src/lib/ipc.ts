@@ -27,6 +27,7 @@ export const ipc = {
   selectCvPdf:          ()                     => api().selectCvPdf()  as Promise<{ path: string } | null>,
   validatePath:         (p: string)             => api().validatePath(p) as Promise<{ path: string; valid: boolean }>,
   openExternal:         (url: string)           => api().openExternal(url),
+  revealFile:           (filePath: string)      => api().revealFile(filePath) as Promise<boolean>,
 
   // Claude
   checkClaude:          ()                     => api().checkClaude() as Promise<{ installed: boolean }>,

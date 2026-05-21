@@ -310,6 +310,20 @@ ipcMain.handle('app:open-external', (_e, url: unknown) => {
   if (u.startsWith('http://') || u.startsWith('https://')) shell.openExternal(u)
 })
 
+// Reveal a file in the OS file manager (Finder / Explorer). Path is
+// resolved against the repo root so a renderer can't escape it.
+ipcMain.handle('app:reveal-file', (_e, filePath: unknown) => {
+  const rel = validateString(filePath, 'filePath')
+  const full = resolveRepoPath(rel)
+  if (!full) return false
+  try {
+    shell.showItemInFolder(full)
+    return true
+  } catch {
+    return false
+  }
+})
+
 // ─── IPC: Claude checks ───────────────────────────────────────────────────────
 
 ipcMain.handle('app:check-claude', async () => {
