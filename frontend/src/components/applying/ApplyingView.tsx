@@ -17,17 +17,26 @@ import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
 
 const STATUS_GROUPS: AppStatus[] = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer']
 
-const PER_APP_TAILOR_CV = 'app-tailor-cv'
-const PER_APP_DRAFT_APP = 'app-draft'
-const PER_APP_INTERVIEW = 'app-interview'
+function getSpawnId(prefix: string, app: ApplicationEntry): string {
+  const cleanCompany = app.company.toLowerCase().replace(/[^a-z0-9]/g, '-')
+  const cleanRole = app.role.toLowerCase().replace(/[^a-z0-9]/g, '-')
+  return `${prefix}-${cleanCompany}-${cleanRole}`
+}
 
 export function ApplyingView() {
-  const { repoPath } = useAppStore()
+  const repoPath = useAppStore(s => s.repoPath)
   const models = useAppStore(s => s.models)
-  const { applications, pipeline, loaded, refresh } = useDataStore()
+  const applications = useDataStore(s => s.applications)
+  const pipeline = useDataStore(s => s.pipeline)
+  const loaded = useDataStore(s => s.loaded)
+  const refresh = useDataStore(s => s.refresh)
   const setApplicationStatus = useDataStore(s => s.setApplicationStatus)
-  const { spawns, start, kill, clear } = useSpawnsStore()
+  const spawns = useSpawnsStore(s => s.spawns)
+  const start = useSpawnsStore(s => s.start)
+  const kill = useSpawnsStore(s => s.kill)
+  const clear = useSpawnsStore(s => s.clear)
   const navigate = useNavStore(s => s.navigate)
+
   // Track which card is currently being dragged so columns can highlight as
   // drop targets and so onDrop has the source info even if the dataTransfer
   // payload is missing (Electron's drag events occasionally drop the data).
@@ -37,22 +46,25 @@ export function ApplyingView() {
   // an OS-level window.confirm() that doesn't match the app design.
   const [pendingDiscard, setPendingDiscard] = useState<ApplicationEntry | null>(null)
 
-  const tailor = spawns[PER_APP_TAILOR_CV]
-  const draft  = spawns[PER_APP_DRAFT_APP]
-  const prep   = spawns[PER_APP_INTERVIEW]
-
   // Refresh data store whenever a per-card spawn finishes — newly-generated
   // CV files / status writebacks should propagate to FilesStrip and the
   // Kanban without manual refresh.
+  const finishedSpawnIds = useMemo(() => {
+    return Object.entries(spawns)
+      .filter(([id, record]) => {
+        const isAppSpawn = id.startsWith('app-tailor-cv') || id.startsWith('app-draft') || id.startsWith('app-interview')
+        const isFinished = record.status === 'done' || record.status === 'error' || record.status === 'killed'
+        return isAppSpawn && isFinished
+      })
+      .map(([id]) => id)
+      .join(',')
+  }, [spawns])
+
   useEffect(() => {
-    if (tailor?.status === 'done' || tailor?.status === 'error' || tailor?.status === 'killed') refresh()
-  }, [tailor?.status, refresh])
-  useEffect(() => {
-    if (draft?.status === 'done' || draft?.status === 'error' || draft?.status === 'killed') refresh()
-  }, [draft?.status, refresh])
-  useEffect(() => {
-    if (prep?.status === 'done' || prep?.status === 'error' || prep?.status === 'killed') refresh()
-  }, [prep?.status, refresh])
+    if (finishedSpawnIds) {
+      void refresh()
+    }
+  }, [finishedSpawnIds, refresh])
 
   const grouped = useMemo(() => {
     const map: Record<string, ApplicationEntry[]> = {}
@@ -77,9 +89,9 @@ export function ApplyingView() {
     start(id, `${label}: ${app.company}`, 'claude', claudeArgs(slash, model))
   }
 
-  const handleTailorCV = (a: ApplicationEntry) => launch(PER_APP_TAILOR_CV, 'Tailor CV',         a, 'modes/pdf.md',            models.tailorCv)
-  const handleDraftApp = (a: ApplicationEntry) => launch(PER_APP_DRAFT_APP, 'Draft Application', a, 'modes/apply.md',          models.draftApp)
-  const handlePrepInt  = (a: ApplicationEntry) => launch(PER_APP_INTERVIEW, 'Prep Application', a, 'modes/interview-prep.md', models.interviewPrep)
+  const handleTailorCV = (a: ApplicationEntry) => launch(getSpawnId('app-tailor-cv', a), 'Tailor CV',         a, 'modes/pdf.md',            models.tailorCv)
+  const handleDraftApp = (a: ApplicationEntry) => launch(getSpawnId('app-draft', a),     'Draft Application', a, 'modes/apply.md',          models.draftApp)
+  const handlePrepInt  = (a: ApplicationEntry) => launch(getSpawnId('app-interview', a), 'Prep Application', a, 'modes/interview-prep.md', models.interviewPrep)
 
   const handleDropOnColumn = (target: AppStatus) => {
     if (!dragging) return
@@ -446,9 +458,14 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
 }) {
   const urgency = deadlineUrgency(app.deadline)
   const badge = urgencyBadge(urgency)
-  const tailorRunning = spawns[PER_APP_TAILOR_CV]?.status === 'running' && spawns[PER_APP_TAILOR_CV]?.label.includes(app.company)
-  const draftRunning  = spawns[PER_APP_DRAFT_APP]?.status === 'running' && spawns[PER_APP_DRAFT_APP]?.label.includes(app.company)
-  const prepRunning   = spawns[PER_APP_INTERVIEW]?.status === 'running' && spawns[PER_APP_INTERVIEW]?.label.includes(app.company)
+  
+  const tailorSpawnId = getSpawnId('app-tailor-cv', app)
+  const draftSpawnId = getSpawnId('app-draft', app)
+  const prepSpawnId = getSpawnId('app-interview', app)
+
+  const tailorRunning = spawns[tailorSpawnId]?.status === 'running'
+  const draftRunning  = spawns[draftSpawnId]?.status === 'running'
+  const prepRunning   = spawns[prepSpawnId]?.status === 'running'
 
   return (
     <div

@@ -14,7 +14,10 @@ import { parseCities, entityId } from '@/lib/entityId'
 import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
-  const { scoreHistory: scoreHistoryRaw, liveness, loaded, discarded } = useDataStore()
+  const scoreHistoryRaw = useDataStore(s => s.scoreHistory)
+  const liveness = useDataStore(s => s.liveness)
+  const loaded = useDataStore(s => s.loaded)
+  const discarded = useDataStore(s => s.discarded)
   const databaseFilter = useNavStore(s => s.databaseFilter)
 
   // Drop tombstoned rows up-front. The tombstone set is keyed by

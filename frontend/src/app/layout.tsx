@@ -8,7 +8,10 @@ import { OnboardingGate } from '@/components/onboarding/OnboardingGate'
 import { TailoringScreen } from '@/components/onboarding/TailoringScreen'
 
 export default function RootLayout({ children: _children }: { children: React.ReactNode }) {
-  const { init, isOnboarded, tailoringComplete, repoPath } = useAppStore()
+  const init = useAppStore(s => s.init)
+  const isOnboarded = useAppStore(s => s.isOnboarded)
+  const tailoringComplete = useAppStore(s => s.tailoringComplete)
+  const repoPath = useAppStore(s => s.repoPath)
 
   useEffect(() => {
     init()

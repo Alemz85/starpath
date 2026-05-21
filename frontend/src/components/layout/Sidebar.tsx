@@ -59,7 +59,8 @@ const BOTTOM_ITEMS: NavItem[] = [
 
 export function Sidebar() {
   const [expanded, setExpanded] = useState(true)
-  const { view: currentView, navigate } = useNavStore()
+  const currentView = useNavStore(s => s.view)
+  const navigate = useNavStore(s => s.navigate)
   const anyRunning = useSpawnsStore(isAnyRunning)
 
   const handleNav = (item: NavItem) => {

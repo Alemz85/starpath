@@ -177,7 +177,7 @@ let brokenReports = 0;
 for (const e of entries) {
   const match = e.report.match(/\]\(([^)]+)\)/);
   if (!match) continue;
-  const reportPath = join(CAREER_OPS, match[1]);
+  const reportPath = join(CAREER_OPS, decodeURIComponent(match[1]));
   if (!existsSync(reportPath)) {
     error(`#${e.num}: Report not found: ${match[1]}`);
     brokenReports++;
@@ -189,7 +189,7 @@ if (brokenReports === 0) ok('All report links valid');
 let badScores = 0;
 for (const e of entries) {
   const s = e.score.replace(/\*\*/g, '').trim();
-  if (!/^\d+\.?\d*\/5$/.test(s) && s !== 'N/A' && s !== 'DUP') {
+  if (!/^\d+\.?\d*\/(?:5|10)$/.test(s) && s !== 'N/A' && s !== 'DUP') {
     error(`#${e.num}: Invalid score format: "${e.score}"`);
     badScores++;
   }
@@ -282,7 +282,7 @@ if (existsSync(SCOUTING_FILE)) {
       brokenScoutReports++;
       continue;
     }
-    const reportPath = join(CAREER_OPS, m[1]);
+    const reportPath = join(CAREER_OPS, decodeURIComponent(m[1]));
     if (!existsSync(reportPath)) {
       error(`scouting #${e.num}: Report not found: ${m[1]}`);
       brokenScoutReports++;

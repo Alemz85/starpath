@@ -11,7 +11,7 @@ import path from 'path'
 import fs from 'fs'
 import https from 'https'
 import http from 'http'
-import { exec, spawn, ChildProcess } from 'child_process'
+import { exec, spawn, ChildProcess, execFile } from 'child_process'
 import { promisify } from 'util'
 import {
   openDb, closeDb, rebuildDb, startWatcher, ensureSynced, resync,
@@ -84,9 +84,10 @@ function getRepoPath(): string | null {
 function resolveRepoPath(filePath: string): string | null {
   const repoPath = getRepoPath()
   if (!repoPath) return null
-  // Security: prevent path traversal
-  const resolved = path.resolve(repoPath, filePath)
-  if (!resolved.startsWith(path.resolve(repoPath))) return null
+  const base = path.resolve(repoPath)
+  const resolved = path.resolve(base, filePath)
+  const relative = path.relative(base, resolved)
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null
   return resolved
 }
 
@@ -390,8 +391,9 @@ ipcMain.handle('shell:run', async (_e, cmd: unknown, args: unknown) => {
   if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) throw new Error('args must be string[]')
   const repoPath = getRepoPath() ?? app.getPath('home')
   return new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
-    exec([c, ...args as string[]].join(' '), { cwd: repoPath, env: SHELL_ENV }, (err, stdout, stderr) => {
-      resolve({ stdout, stderr, code: err?.code ?? 0 })
+    execFile(c, args as string[], { cwd: repoPath, env: SHELL_ENV }, (err, stdout, stderr) => {
+      const code = typeof err?.code === 'number' ? err.code : (err ? 1 : 0)
+      resolve({ stdout, stderr, code })
     })
   })
 })
@@ -414,6 +416,11 @@ ipcMain.handle('shell:spawn', (_e, id: unknown, cmd: unknown, args: unknown) => 
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   spawnedProcesses.set(sid, proc)
+  proc.on('error', (err: Error) => {
+    mainWindow?.webContents.send('shell:output', sid, `❌ Spawn error: ${err.message}`)
+    mainWindow?.webContents.send('shell:done', sid, -1)
+    spawnedProcesses.delete(sid)
+  })
   proc.stdout?.on('data', (chunk: Buffer) => {
     mainWindow?.webContents.send('shell:output', sid, chunk.toString())
   })

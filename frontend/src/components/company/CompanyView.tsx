@@ -11,7 +11,9 @@ import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 
 export function CompanyView({ slug }: { slug: string }) {
-  const { scoreHistory, applications, loaded } = useDataStore()
+  const scoreHistory = useDataStore(s => s.scoreHistory)
+  const applications = useDataStore(s => s.applications)
+  const loaded = useDataStore(s => s.loaded)
   const [selectedEntry, setSelectedEntry] = useState<ScoreEntry | null>(null)
 
   // Find the actual company name from the slug

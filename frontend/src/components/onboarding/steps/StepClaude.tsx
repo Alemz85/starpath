@@ -12,7 +12,7 @@ const POLL_INTERVAL = 2500
 const POLL_TIMEOUT = 5 * 60 * 1000
 
 export function StepClaude({ onComplete }: { onComplete: () => void }) {
-  const { recheckClaude } = useAppStore()
+  const recheckClaude = useAppStore(s => s.recheckClaude)
   const [state, setState] = useState<State>('checking')
   const [rechecking, setRechecking] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)

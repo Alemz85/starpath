@@ -19,7 +19,7 @@ const MESSAGES = [
 ]
 
 export function TailoringScreen() {
-  const { setTailoringComplete } = useAppStore()
+  const setTailoringComplete = useAppStore(s => s.setTailoringComplete)
   const [state, setState] = useState<State>('running')
   const [output, setOutput] = useState<string[]>([])
   const [msgIndex, setMsgIndex] = useState(0)

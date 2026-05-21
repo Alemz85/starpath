@@ -54,7 +54,7 @@ interface ReportSlideOverProps {
 }
 
 export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, onSwitchEntity, onClose }: ReportSlideOverProps) {
-  const { repoPath } = useAppStore()
+  const repoPath = useAppStore(s => s.repoPath)
   const navigate = useNavStore(s => s.navigate)
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const [scoutingContent, setScoutingContent] = useState<string | null>(null)
