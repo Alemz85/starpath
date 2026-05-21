@@ -14,6 +14,7 @@ const electronAPI = {
   selectCvPdf: () => ipcRenderer.invoke('app:select-cv-pdf'),
   validatePath: (p: string) => ipcRenderer.invoke('app:validate-path', p),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
+  revealFile: (filePath: string) => ipcRenderer.invoke('app:reveal-file', filePath),
 
   // Claude checks
   checkClaude: () => ipcRenderer.invoke('app:check-claude'),

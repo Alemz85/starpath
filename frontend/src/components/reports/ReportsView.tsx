@@ -7,7 +7,8 @@ import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
   Search, FileText, X, ExternalLink, Sparkles, Square,
-  ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp, Target, AlertTriangle
+  ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp, Target,
+  Copy, Folder, Check, Compass
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
@@ -745,7 +746,69 @@ function ReportCard({
   )
 }
 
-/* ───── High-End Markdown Styling for Positioning Reports ───── */
+/* ───── Positioning Modal — slide-over with hero, TOC, featured TL;DR ───── */
+
+interface TocItem {
+  slug: string
+  label: string
+}
+
+interface ParsedPositioningReport {
+  /** Body of the `## TL;DR` section (without the heading) — null if absent. */
+  tldr: string | null
+  /** The full markdown with the TL;DR section stripped, so the main render
+   *  doesn't double up after the featured card. The Y/M preamble stays. */
+  body: string
+  /** Table of contents — one entry per top-level `##` heading (plus a synthetic
+   *  TL;DR entry if a TL;DR card will render). Order matches the document. */
+  toc: TocItem[]
+}
+
+// Stable slug shared by the h2 `id` attribute and the TOC pill `onClick`
+// scroll target — so each pill scrolls to its corresponding section.
+function slugify(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/^[1-9]\.?\s+/, '')         // strip "1. " / "2. " admin prefix
+    .replace(/[—–]/g, '-')               // em/en-dash → hyphen
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'section'
+}
+
+// Strip the same admin prefix the h2 renderer strips, so TOC labels match
+// what's visible on the section header.
+function cleanHeading(s: string): string {
+  return s.replace(/^[1-9]\.?\s+/, '').trim()
+}
+
+function parsePositioningReport(content: string): ParsedPositioningReport {
+  // Pull the TL;DR block: heading line + everything up to the next `## `
+  // heading or a horizontal rule. The whole match is removed from the body
+  // so the featured card and the main render don't duplicate it.
+  const tldrRe = /^##\s+TL[;:]?\s*DR[ \t]*\n([\s\S]*?)(?=\n##\s+|\n---\s*$|\n---\s*\n|$)/im
+  const m = tldrRe.exec(content)
+  const tldr = m ? m[1].trim() : null
+  let body = content
+  if (m) {
+    body = (content.slice(0, m.index) + content.slice(m.index + m[0].length))
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+
+  // TOC = TL;DR (if any) + every `## ` heading in the remaining body. We
+  // skip the appendix sub-headings (### A. / ### B. …) — only top-level
+  // sections become nav targets so the strip stays scannable.
+  const toc: TocItem[] = []
+  if (tldr) toc.push({ slug: 'tldr', label: 'TL;DR' })
+  const headingRe = /^##\s+(.+)$/gm
+  let h: RegExpExecArray | null
+  while ((h = headingRe.exec(body)) !== null) {
+    const raw = h[1].trim()
+    toc.push({ slug: slugify(raw), label: cleanHeading(raw) })
+  }
+
+  return { tldr, body, toc }
+}
 
 function PositioningModal({
   report,
@@ -755,9 +818,24 @@ function PositioningModal({
   onClose: () => void
 }) {
   const [active, setActive] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [activeSection, setActiveSection] = useState<string>('tldr')
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+
+  // Parse once per report change — the regex passes are cheap but the
+  // modal re-renders frequently during the open/close animation.
+  const parsed = useMemo(() => parsePositioningReport(report.content), [report.content])
+
   useEffect(() => {
     const t = setTimeout(() => setActive(true), 20)
     return () => clearTimeout(t)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose() }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleClose = () => {
@@ -765,50 +843,246 @@ function PositioningModal({
     setTimeout(onClose, 260)
   }
 
+  const handleCopyTldr = async () => {
+    if (!parsed.tldr) return
+    try {
+      await navigator.clipboard.writeText(parsed.tldr)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1800)
+    } catch {
+      // Clipboard API can fail in non-secure contexts — silently noop.
+    }
+  }
+
+  const handleRevealFile = () => {
+    void ipc.revealFile(report.path)
+  }
+
+  // Smooth-scroll the body to a slug. The TL;DR card has id="tldr"; every
+  // h2 in the markdown gets id={slug} via MD_COMPONENTS below. We compute
+  // the target's offset relative to the scroll container so the header
+  // chrome doesn't cover it.
+  const scrollToSlug = (slug: string) => {
+    if (!scrollEl) return
+    const target = scrollEl.querySelector<HTMLElement>(`[data-slug="${slug}"]`)
+    if (!target) return
+    const containerTop = scrollEl.getBoundingClientRect().top
+    const targetTop = target.getBoundingClientRect().top
+    const offset = targetTop - containerTop + scrollEl.scrollTop - 12
+    scrollEl.scrollTo({ top: offset, behavior: 'smooth' })
+    setActiveSection(slug)
+  }
+
+  // Track which section is currently in view so the TOC pill stays in
+  // sync with the user's scroll position. IntersectionObserver fires on
+  // each anchored heading as it crosses the top band of the container.
+  useEffect(() => {
+    if (!scrollEl) return
+    const targets = scrollEl.querySelectorAll<HTMLElement>('[data-slug]')
+    if (targets.length === 0) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter(e => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
+        if (visible) {
+          const slug = visible.target.getAttribute('data-slug')
+          if (slug) setActiveSection(slug)
+        }
+      },
+      {
+        root: scrollEl,
+        rootMargin: '0px 0px -75% 0px',
+        threshold: [0, 1],
+      }
+    )
+    targets.forEach(t => observer.observe(t))
+    return () => observer.disconnect()
+  }, [scrollEl, parsed])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-end">
+    <>
       {/* Backdrop */}
       <div
         className={cn(
-          'absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity duration-[260ms]',
-          active ? 'opacity-100' : 'opacity-0'
+          'fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] transition-opacity duration-[260ms]',
+          active ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}
       />
-      
-      {/* Panel */}
-      <div
-        className={cn(
-          'relative w-full max-w-3xl h-full bg-bg-base border-l border-border-strong flex flex-col shadow-cosmos-lift transition-[transform,opacity] duration-[260ms] ease-out',
-          active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0'
-        )}
-      >
-        <div className="titlebar-drag h-1 shrink-0 bg-transparent" />
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border-default bg-bg-chrome shrink-0">
-          <div className="flex items-center gap-2">
-            <Sparkles size={16} className="text-accent animate-pulse" />
-            <h2 className="text-[14px] font-bold text-text-1">
-              Career Positioning Report — {report.dateStr}
+      {/* Panel — matches ReportSlideOver's shell so positioning reports
+          read as first-class siblings of per-listing reports, not as a
+          weaker centered modal. 860px is a touch wider than the listing
+          slide-over (720px) because positioning content carries denser
+          tables and longer paragraphs. */}
+      <div className={cn(
+        'fixed right-0 top-0 bottom-0 z-40 w-[860px] max-w-full bg-bg-panel border-l border-border-strong flex flex-col shadow-cosmos-lift',
+        'transition-[transform,opacity] duration-[260ms] ease-out',
+        active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
+      )}>
+        {/* Drag region — h-11 gives macOS a real area to grab without
+            clobbering the chrome below. */}
+        <div className="titlebar-drag h-11 shrink-0" />
+
+        {/* Accent-tinted hero stripe — positioning reports get the accent
+            gradient (where per-listing reports get a tier-colored one). */}
+        <div
+          className="relative h-2 shrink-0"
+          aria-hidden
+          style={{
+            background: 'linear-gradient(90deg, #7C5CFF 0%, #7C5CFF66 60%, transparent 100%)',
+          }}
+        />
+
+        {/* Editorial header — same hierarchy as ReportSlideOver
+            (eyebrow → page-size title → meta row) so the two modals read
+            as one design system. */}
+        <div className="flex items-start gap-4 px-6 pt-5 pb-4 border-b border-border-default shrink-0">
+          <div
+            className="shrink-0 w-12 h-12 rounded-xl flex items-center justify-center mt-0.5"
+            style={{
+              background: '#7C5CFF1F',
+              border: '1px solid #7C5CFF40',
+            }}
+            aria-hidden
+          >
+            <Sparkles size={20} className="text-accent" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-micro text-text-4 uppercase tracking-[0.08em] mb-0.5">
+              Positioning Snapshot
+            </div>
+            <h2 className="text-page text-text-1 leading-tight tracking-[-0.01em]">
+              Career Positioning — {report.dateStr}
             </h2>
+            <p
+              className="text-section text-text-2 leading-snug mt-1 line-clamp-2"
+              title={report.focusPath}
+            >
+              <span className="text-text-4 font-medium">Focus path · </span>
+              {report.focusPath}
+            </p>
+            <div className="flex items-center gap-2 mt-2 flex-wrap text-label">
+              <span className="text-text-3 font-mono tabular-nums">
+                {report.evalCount} analyzed
+              </span>
+              <span className="text-text-4">·</span>
+              <span className="text-text-4 font-mono text-[11px] truncate max-w-[300px]" title={report.path}>
+                {report.path}
+              </span>
+            </div>
           </div>
           <button
             onClick={handleClose}
-            className="p-1 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
+            className="shrink-0 p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
+            title="Close (Esc)"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
-        
-        {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
-          <div className="prose-report">
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-              {report.content}
-            </ReactMarkdown>
-          </div>
+
+        {/* Action pills — mirrors ReportSlideOver's pattern. Copy TL;DR is
+            the primary action (the whole point of TL;DR is portability);
+            Reveal in Finder gives users a path back to the raw file. */}
+        <div className="flex items-center gap-2 px-5 py-3 border-b border-border-default shrink-0 flex-wrap">
+          <button
+            onClick={handleCopyTldr}
+            disabled={!parsed.tldr}
+            title={parsed.tldr ? 'Copy the TL;DR block to clipboard' : 'No TL;DR section detected in this report'}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border text-[12px] transition-colors',
+              parsed.tldr
+                ? 'border-accent/35 bg-accent/10 text-accent-text hover:bg-accent/15'
+                : 'border-border-default bg-bg-elevated text-text-4 opacity-60 cursor-not-allowed',
+            )}
+          >
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+            {copied ? 'Copied' : 'Copy TL;DR'}
+          </button>
+          <button
+            onClick={handleRevealFile}
+            title="Reveal the markdown file in Finder"
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
+          >
+            <Folder size={11} />
+            Reveal file
+          </button>
         </div>
+
+        {/* Sticky section nav — horizontal pill row. Stays in view as the
+            body scrolls so jumping between TL;DR ↔ §3 Recommendation ↔
+            Appendix is one click in a 280-line report. */}
+        {parsed.toc.length > 1 && (
+          <div className="flex items-center gap-1.5 px-5 py-2 border-b border-border-default shrink-0 overflow-x-auto">
+            <Compass size={11} className="text-text-4 shrink-0" />
+            {parsed.toc.map((item) => (
+              <button
+                key={item.slug}
+                onClick={() => scrollToSlug(item.slug)}
+                className={cn(
+                  'shrink-0 px-2.5 py-0.5 text-micro font-medium rounded-full border transition-all duration-150 uppercase tracking-wider',
+                  activeSection === item.slug
+                    ? 'bg-accent/15 border-accent/40 text-accent-text font-bold'
+                    : 'text-text-3 border-border-default hover:border-border-strong hover:bg-bg-elevated',
+                )}
+                title={item.label}
+              >
+                {item.label.length > 28 ? item.label.slice(0, 26) + '…' : item.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Body — scroll container hosts the featured TL;DR card and the
+            markdown render. IntersectionObserver above watches every
+            [data-slug] element here so the nav pill highlights track the
+            user's scroll. */}
+        <div
+          ref={setScrollEl}
+          className="flex-1 overflow-y-auto px-6 py-5"
+        >
+          {parsed.tldr && <TldrCard markdown={parsed.tldr} />}
+
+          {parsed.body && (
+            <div className="prose-report">
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                {parsed.body}
+              </ReactMarkdown>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Featured card for the TL;DR section. The whole point of a positioning
+// report is that the user should be able to act on the TL;DR alone — so
+// it gets a distinct accent-tinted card at the top of the body, separate
+// from the rest of the prose. The markdown inside still flows through the
+// same MD_COMPONENTS so labels (Focus path / Do next / Stop doing /
+// Highest-leverage cheap fix) retain their bold treatment from the source.
+function TldrCard({ markdown }: { markdown: string }) {
+  return (
+    <div
+      data-slug="tldr"
+      className="mb-7 rounded-xl p-5 border"
+      style={{
+        background: 'linear-gradient(135deg, #7C5CFF14 0%, #7C5CFF08 100%)',
+        borderColor: '#7C5CFF40',
+      }}
+    >
+      <div className="flex items-center gap-2 mb-3">
+        <Sparkles size={13} className="text-accent" />
+        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-accent-text">
+          TL;DR — the punchline
+        </span>
+      </div>
+      <div className="prose-report prose-report--tldr">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS_TLDR}>
+          {markdown}
+        </ReactMarkdown>
       </div>
     </div>
   )
@@ -826,22 +1100,34 @@ function flattenChildrenText(node: React.ReactNode): string {
 
 function sectionIcon(label: string): React.ElementType | null {
   const l = label.toLowerCase()
+  if (l.includes('tl;dr') || l.includes('tldr'))                          return Sparkles
   if (l.includes('where you stand') || l.includes('rollup') || l === 'summary') return ClipboardList
-  if (l.includes('gap') || l.includes('bottleneck')) return Lightbulb
-  if (l.includes('comp') || l.includes('salary') || l.includes('opportunity') || l.includes('demand')) return Coins
-  if (l.includes('recommendation') || l.includes('verdict')) return CheckCircle2
-  if (l.includes('trajectory') || l.includes('path') || l.includes('horizon')) return TrendingUp
-  if (l.includes('analysis') || l.includes('coverage') || l.includes('standing')) return Target
+  if (l.includes('per-archetype') || l.includes('per archetype') || l.includes('archetype'))     return Target
+  if (l.includes('priority') || l.includes('recommendation') || l.includes('verdict'))           return CheckCircle2
+  if (l.includes('trajectory') || l.includes('horizon'))                  return TrendingUp
+  if (l.includes('appendix') || l.includes('supporting data') || l.includes('data sources'))     return Lightbulb
+  if (l.includes('gap') || l.includes('bottleneck'))                      return Lightbulb
+  if (l.includes('comp') || l.includes('salary') || l.includes('opportunity') || l.includes('demand'))  return Coins
+  if (l.includes('analysis') || l.includes('coverage') || l.includes('standing'))                return Compass
   return null
 }
 
+// Shared markdown components used by the main positioning body. The h2
+// renderer carries a data-slug attribute that the TOC pills + scroll
+// observer use to navigate the report.
 const MD_COMPONENTS = {
   h2: ({ children, ...rest }: { children?: React.ReactNode }) => {
     const text = flattenChildrenText(children)
-    const stripped = text.replace(/^[1-5A-E]\.?\s+/, '').trim()
+    const stripped = cleanHeading(text)
+    const slug = slugify(text)
     const Icon = sectionIcon(stripped)
     return (
-      <h2 className="flex items-center gap-2 text-page font-semibold text-text-1 border-b border-border-default pb-2.5 mt-8 mb-4" {...rest}>
+      <h2
+        data-slug={slug}
+        id={slug}
+        className="scroll-mt-4 flex items-center gap-2 text-page font-semibold text-text-1 border-b border-border-default pb-2.5 mt-8 mb-4"
+        {...rest}
+      >
         {Icon && (
           <Icon
             size={16}
@@ -877,21 +1163,46 @@ const MD_COMPONENTS = {
     )
   },
   thead: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <thead className="bg-bg-elevated border-b border-border-default" {...rest}>{children}</thead>
+    return <thead className="bg-bg-elevated/60 border-b border-border-default" {...rest}>{children}</thead>
   },
   tbody: ({ children, ...rest }: { children?: React.ReactNode }) => {
     return <tbody className="divide-y divide-border-default" {...rest}>{children}</tbody>
   },
   th: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <th className="px-4 py-3 text-label font-semibold text-text-3 uppercase tracking-wider" {...rest}>{children}</th>
+    return <th className="px-4 py-2.5 text-[11px] font-semibold text-text-3 uppercase tracking-[0.06em]" {...rest}>{children}</th>
   },
   td: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <td className="px-4 py-3 text-body text-text-2 font-medium" {...rest}>{children}</td>
+    return <td className="px-4 py-2.5 text-[12.5px] text-text-2 leading-snug" {...rest}>{children}</td>
   },
   ul: ({ children, ...rest }: { children?: React.ReactNode }) => {
     return <ul className="list-disc pl-5 mb-4 space-y-1.5 text-body text-text-2" {...rest}>{children}</ul>
   },
+  ol: ({ children, ...rest }: { children?: React.ReactNode }) => {
+    return <ol className="list-decimal pl-5 mb-4 space-y-1.5 text-body text-text-2" {...rest}>{children}</ol>
+  },
   li: ({ children, ...rest }: { children?: React.ReactNode }) => {
     return <li className="leading-relaxed" {...rest}>{children}</li>
   },
+}
+
+// Compact markdown components for the TL;DR card. Same component set,
+// but with tighter spacing and no h2 chrome — the TL;DR is a single
+// stretch of bold-labeled paragraphs plus one ordered list, not a
+// document with its own sub-sections.
+const MD_COMPONENTS_TLDR = {
+  ...MD_COMPONENTS,
+  h2: ({ children }: { children?: React.ReactNode }) => (
+    // TL;DR shouldn't contain h2s, but if it does, render them lightly so
+    // the card doesn't grow chrome that belongs to the main body.
+    <div className="text-[13px] font-semibold text-text-1 mt-3 mb-2">{children}</div>
+  ),
+  p: ({ children, ...rest }: { children?: React.ReactNode }) => (
+    <p className="text-[13.5px] text-text-2 leading-relaxed mb-3 last:mb-0" {...rest}>{children}</p>
+  ),
+  ol: ({ children, ...rest }: { children?: React.ReactNode }) => (
+    <ol className="list-decimal pl-5 mb-3 space-y-1 text-[13.5px] text-text-2" {...rest}>{children}</ol>
+  ),
+  ul: ({ children, ...rest }: { children?: React.ReactNode }) => (
+    <ul className="list-disc pl-5 mb-3 space-y-1 text-[13.5px] text-text-2" {...rest}>{children}</ul>
+  ),
 }
