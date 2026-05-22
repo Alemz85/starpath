@@ -128,6 +128,12 @@ batch/jobspy-merged/
 data/*.bak
 data/discarded.tsv
 
+# Screenshots dropped at repo root for sharing context (e.g. with Claude).
+# These are local artifacts, not project assets.
+/Screenshot*.png
+/Screenshot*.jpg
+/Screenshot*.jpeg
+
 # Pipeline working directories (one-off, per-run scratch)
 batch/pipeline-run-*/
 
