@@ -228,7 +228,13 @@ export function ReportsView() {
             : 'n/d'
           
           const evalMatch = content.match(/\*\*Evaluations analyzed:\*\*\s*(.+)$/mi)
-          const evalCount = evalMatch ? evalMatch[1].trim() : 'n/d'
+          // The full line ("151 score-history rows (...) · 2 active-tracker
+          // entries · 0 previous positioning reports") doesn't fit anywhere
+          // we'd want to show it. Pull the first integer for a compact
+          // "{N} analyzed" stat usable in tight surfaces.
+          const evalCountLong = evalMatch ? evalMatch[1].trim() : 'n/d'
+          const firstNum = evalCountLong.match(/\d[\d,]*/)
+          const evalCount = firstNum ? firstNum[0] : 'n/d'
           
           parsed.push({
             filename: file,
@@ -439,7 +445,7 @@ export function ReportsView() {
           <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
             {loadingPositioning && positioningReports.length === 0 ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="shrink-0 w-[260px] h-[88px] shimmer rounded-xl" />
+                <div key={i} className="shrink-0 w-[220px] h-[72px] shimmer rounded-xl" />
               ))
             ) : positioningReports.length === 0 ? (
               <div className="flex-1 min-h-[72px] rounded-xl border border-dashed border-border-default flex items-center justify-center text-center px-4 py-3">
@@ -452,26 +458,25 @@ export function ReportsView() {
                 <button
                   key={rep.filename}
                   onClick={() => setSelectedPositioning(rep)}
-                  className="shrink-0 w-[260px] p-3 rounded-xl bg-bg-base border border-border-default hover:border-accent-soft hover:shadow-subtle text-left flex items-center gap-3 transition-all duration-300 group"
+                  className="shrink-0 w-[220px] p-3 rounded-xl bg-bg-base border border-border-default hover:border-accent-soft hover:shadow-subtle text-left flex items-center gap-3 transition-all duration-300 group"
+                  title={rep.focusPath}
                 >
                   <div className="shrink-0 transition-transform duration-300 group-hover:scale-105">
                     {renderPositioningIcon(rep.month)}
                   </div>
-                  <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[12px] font-bold text-text-1 group-hover:text-accent transition-colors duration-150">
-                        {rep.dateStr}
-                      </span>
-                      <span className="text-[10px] text-text-4 font-mono shrink-0">
-                        {rep.evalCount}
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-text-4 uppercase tracking-wider">Focus</span>
-                    <span
-                      className="text-[11px] font-semibold text-text-2 leading-snug line-clamp-2"
-                      title={rep.focusPath}
-                    >
-                      {rep.focusPath}
+                  {/* Card content is just the date + a compact analyzed-
+                      count stat. The focus-path caption is dropped — at
+                      220px there isn't enough room for a real one, and a
+                      generic placeholder would just be visual chrome.
+                      Hover the card to see the full focus path; click to
+                      open the modal where the focus path renders as a
+                      real subtitle. */}
+                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                    <span className="text-[13px] font-bold text-text-1 group-hover:text-accent transition-colors duration-150 leading-tight">
+                      {rep.dateStr}
+                    </span>
+                    <span className="text-[10.5px] text-text-4 font-mono tabular-nums">
+                      {rep.evalCount} analyzed
                     </span>
                   </div>
                 </button>
@@ -968,12 +973,19 @@ function PositioningModal({
             <h2 className="text-page text-text-1 leading-tight tracking-[-0.01em]">
               Career Positioning — {report.dateStr}
             </h2>
-            {/* Short generic caption — short enough to never overflow.
-                The actual focus-path verdict lives prominently in the
-                TL;DR card right below, where it belongs. */}
-            <p className="text-label text-text-3 leading-snug mt-1.5">
-              Where you stand · What to do next
-            </p>
+            {/* The modal hero has room for a real focus-path subtitle —
+                show it (line-clamp-2) so the user sees this run's verdict
+                without opening the body. The strip card upstream drops
+                this because 220px isn't enough; the modal is. */}
+            {report.focusPath && report.focusPath !== 'n/d' && (
+              <p
+                className="text-label text-text-3 leading-snug mt-1.5 line-clamp-2"
+                title={report.focusPath}
+              >
+                <span className="text-text-4 font-medium">Focus · </span>
+                {report.focusPath}
+              </p>
+            )}
           </div>
           <button
             onClick={handleClose}
