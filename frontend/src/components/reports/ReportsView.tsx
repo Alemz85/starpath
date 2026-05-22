@@ -782,15 +782,27 @@ function cleanHeading(s: string): string {
 }
 
 function parsePositioningReport(content: string): ParsedPositioningReport {
+  // Strip the H1 title + the `**Evaluations analyzed:** ... · ... · ...`
+  // / `**Primary archetypes considered:** ...` admin metadata block at the
+  // top of the report. The title is already expressed in the hero; the
+  // metadata lines were rendering as a long overflowing paragraph in the
+  // body. Also drop the leading `---` rule that separates the metadata
+  // block from the first section in the canonical template.
+  let working = content
+    .replace(/^#\s+[^\n]+\n+/, '')                                  // H1 title
+    .replace(/^(?:\*\*[^*]+:\*\*[^\n]*\n+)+/, '')                   // **Key:** value lines
+    .replace(/^---\s*\n+/, '')                                      // separator rule
+    .trimStart()
+
   // Pull the TL;DR block: heading line + everything up to the next `## `
   // heading or a horizontal rule. The whole match is removed from the body
   // so the featured card and the main render don't duplicate it.
   const tldrRe = /^##\s+TL[;:]?\s*DR[ \t]*\n([\s\S]*?)(?=\n##\s+|\n---\s*$|\n---\s*\n|$)/im
-  const m = tldrRe.exec(content)
+  const m = tldrRe.exec(working)
   const tldr = m ? m[1].trim() : null
-  let body = content
+  let body = working
   if (m) {
-    body = (content.slice(0, m.index) + content.slice(m.index + m[0].length))
+    body = (working.slice(0, m.index) + working.slice(m.index + m[0].length))
       .replace(/\n{3,}/g, '\n\n')
       .trim()
   }

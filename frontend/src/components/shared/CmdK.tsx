@@ -6,8 +6,9 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase,
+  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus,
 } from 'lucide-react'
+import { useAddListingStore } from '@/store/addListing'
 
 export function CmdK() {
   const [open, setOpen] = useState(false)
@@ -83,6 +84,17 @@ export function CmdK() {
             </Command.Group>
 
             <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Actions</span>}>
+              <Command.Item
+                value="add listing url paste evaluate"
+                onSelect={() => {
+                  useAddListingStore.getState().show()
+                  setOpen(false)
+                }}
+                className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+              >
+                <Plus size={14} className="text-accent" />
+                Add listing (paste URL)
+              </Command.Item>
               <Command.Item
                 value="open activity"
                 onSelect={() => go('scan')}

@@ -16,6 +16,7 @@ import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
 import { ConfigurationView } from '@/components/configuration/ConfigurationView'
 import { ProfileView } from '@/components/profile/ProfileView'
+import { AddListingModal } from '@/components/scouting/AddListingModal'
 
 // Display labels for the cross-view nav guard's modal copy. Keep in
 // sync with the Sidebar's NavItem labels.
@@ -82,6 +83,7 @@ export function AppShell() {
         {view === 'profile'  && <ProfileView />}
       </main>
       <CmdK />
+      <AddListingModal />
 
       {/* Cross-view unsaved-changes guard. Fires when the user clicks a
           sidebar item (or anything else that calls navigate()) while
