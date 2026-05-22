@@ -12,10 +12,10 @@ import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import {
   Play, Zap, Filter, Square, ArrowRight,
-  ChevronDown, Check,
+  ChevronDown, ChevronRight, Check, Plus,
 } from 'lucide-react'
+import { useAddListingStore } from '@/store/addListing'
 import { cn, formatRelative } from '@/lib/utils'
-import type { ScoreEntry } from '@/types'
 
 // StatTile — single column inside a hero stat strip. No card frame, no
 // border on its own; relies on a sibling `divide-x` parent to provide
@@ -189,97 +189,14 @@ export function CommandCenter() {
           )}
         </div>
 
-        {/* Scouting cockpit (flex-grows to fill remaining height) */}
+        {/* Scouting cockpit (flex-grows to fill remaining height).
+            Recent top picks was removed from this view — the Database
+            tab is the canonical "browse what's been scored" surface, and
+            the Filtered Scan section below is now the visual anchor for
+            the cockpit's bottom half. */}
         <ScoutingActionPanel repoPath={repoPath} onPipelineDone={refresh} />
-
-        {/* Recent top picks — gives the page substance even when no scan
-            is running. Reads from scoreHistory; clicks navigate to /reports
-            filtered to that listing. */}
-        <RecentTopPicks />
       </div>
     </div>
-  )
-}
-
-function RecentTopPicks() {
-  const scoreHistory = useDataStore(s => s.scoreHistory)
-  const discarded    = useDataStore(s => s.discarded)
-  const navigate = useNavStore(s => s.navigate)
-
-  const topPicks = useMemo(() => {
-    return [...scoreHistory]
-      .filter(s => s.tier === 'T1' || s.tier === 'T2-high' || s.tier === 'T2')
-      .filter(s => !discarded.has(`${s.company.trim().toLowerCase()}|${s.role.trim().toLowerCase()}`))
-      .sort((a, b) => {
-        // Prefer most recent; break ties by score desc.
-        const cmp = (b.date ?? '').localeCompare(a.date ?? '')
-        return cmp !== 0 ? cmp : (b.overall - a.overall)
-      })
-      .slice(0, 8)
-  }, [scoreHistory, discarded])
-
-  if (topPicks.length === 0) return null
-
-  return (
-    <div className="shrink-0">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-[10px] uppercase tracking-[0.12em] text-text-4 font-semibold">
-          Recent top picks
-        </p>
-        <button
-          onClick={() => navigate('database')}
-          className="text-[11px] text-text-3 hover:text-accent transition-colors"
-        >
-          See all in Database →
-        </button>
-      </div>
-      <div className="flex gap-2.5 overflow-x-auto pb-1 -mx-1 px-1">
-        {topPicks.map((entry, i) => (
-          <TopPickCard
-            key={`${entry.company}-${entry.role}-${i}`}
-            entry={entry}
-            onClick={() =>
-              // Database opens filtered to the exact company + role pair.
-              // Quoted values let multi-word names match precisely (the
-              // newly-extended token query supports `role:"Senior Engineer"`).
-              navigate('database', `company:"${entry.company}" role:"${entry.role}"`)
-            }
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function TopPickCard({ entry, onClick }: { entry: ScoreEntry; onClick: () => void }) {
-  const tierColor =
-    entry.tier === 'T1'      ? 'text-tier-1' :
-    entry.tier === 'T2-high' ? 'text-success' :
-    entry.tier === 'T2'      ? 'text-tier-2' :
-                                'text-text-3'
-  return (
-    <button
-      onClick={onClick}
-      className="shrink-0 w-[200px] text-left p-3 rounded-lg bg-bg-panel border border-border-default hover:border-accent/40 hover:bg-accent/[0.04] transition-all"
-    >
-      <div className="flex items-start gap-2.5">
-        <CompanyLogo company={entry.company} size={26} className="shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0 leading-tight">
-          <div className="text-[12.5px] text-text-1 font-semibold truncate">{entry.company}</div>
-          <div className="text-[11px] text-text-3 truncate mt-0.5">{entry.role}</div>
-        </div>
-      </div>
-      <div className="flex items-center justify-between mt-2.5">
-        <span className={cn('text-[10px] font-mono font-bold tracking-wide', tierColor)}>
-          {entry.tier === 'T2-high' ? 'T2+' : entry.tier}
-        </span>
-        {entry.overall > 0 && (
-          <span className="text-[11px] font-mono font-semibold text-text-2 tabular-nums">
-            {entry.overall.toFixed(1)}
-          </span>
-        )}
-      </div>
-    </button>
   )
 }
 
@@ -413,6 +330,15 @@ function ScoutingActionPanel({
             node: <div className="w-px h-6 bg-border-default" aria-hidden />,
           },
           {
+            key: 'add-listing',
+            description: 'Paste a job posting URL the scanner didn\'t find. Choose to score it into the Database now (uses tokens, no prose report) or just queue it for the next filter pass.',
+            node: <AddListingButton disabled={!repoPath} />,
+          },
+          {
+            key: 'sep3',
+            node: <div className="w-px h-6 bg-border-default" aria-hidden />,
+          },
+          {
             key: 'model',
             description: 'Model used for the Filter to Database run. Scan is always Sonnet. Report generation has its own model — set in Settings → Models, used by the Reports tab\'s Generate Top 5 button and the per-listing Generate Report action.',
             node: <ModelChip />,
@@ -453,6 +379,11 @@ function FilteredScanRow() {
 
   const [companies, setCompanies] = useState<Array<{ name: string; method: 'api' | 'websearch' | 'unknown' }>>([])
   const [dreamCompanies, setDreamCompanies] = useState<string[]>([])
+  // Chip canvas defaults to collapsed — the header strip's selection
+  // summary + Run button cover the common case (run a quick filtered
+  // scan on the existing dream selection). Editing the company set is
+  // the less-common action and lives behind a one-click expand.
+  const [expanded, setExpanded] = useState(false)
 
   // Load on mount: portals.yml → tracked_companies (with their scan
   // method) and profile.yml → dream_companies (just the names).
@@ -519,10 +450,19 @@ function FilteredScanRow() {
     <div className="mt-auto pt-6">
       <div className="rounded-xl border border-border-default overflow-hidden bg-bg-panel/80">
         {/* Header strip — icon-mark left, status middle, actions right.
+            Clickable as a whole to toggle the chip canvas; the inner
+            action buttons stop propagation so they don't double-toggle.
             Soft galaxy gradient so it reads as a distinct surface from
             the action-button row above. */}
-        <div
-          className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border-default/60"
+        <button
+          type="button"
+          onClick={() => setExpanded(e => !e)}
+          aria-expanded={expanded}
+          className={cn(
+            'w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors',
+            expanded ? 'border-b border-border-default/60' : 'border-b border-transparent',
+            'hover:bg-accent/[0.02]',
+          )}
           style={{
             background: 'linear-gradient(135deg, rgba(124,92,255,0.10) 0%, rgba(124,92,255,0.02) 100%)',
           }}
@@ -532,7 +472,14 @@ function FilteredScanRow() {
               <Filter size={14} className="text-accent" />
             </div>
             <div className="min-w-0">
-              <div className="text-[13px] font-semibold text-text-1 leading-tight">Filtered Scan</div>
+              <div className="text-[13px] font-semibold text-text-1 leading-tight flex items-center gap-1.5">
+                Filtered Scan
+                <span className="text-text-4">
+                  {expanded
+                    ? <ChevronDown size={12} />
+                    : <ChevronRight size={12} />}
+                </span>
+              </div>
               <div className="text-[11.5px] text-text-3 truncate mt-0.5">
                 {selected.size === 0
                   ? 'Pick companies to scan only those — others stay untouched.'
@@ -548,7 +495,13 @@ function FilteredScanRow() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div
+            className="flex items-center gap-1.5 shrink-0"
+            // Inner action buttons own their own clicks; stop propagation
+            // so clicking Clear / Reset / Run doesn't also collapse or
+            // expand the chip canvas.
+            onClick={e => e.stopPropagation()}
+          >
             {selected.size > 0 && (
               <button
                 onClick={clearAll}
@@ -585,9 +538,10 @@ function FilteredScanRow() {
               {running ? 'Stop' : 'Run filtered scan'}
             </button>
           </div>
-        </div>
+        </button>
 
-        {/* Chip canvas — bigger now, fits ~5-6 rows before scroll. */}
+        {/* Chip canvas — collapsed by default, expands inline on click. */}
+        {expanded && (
         <div
           className="flex flex-wrap gap-2 max-h-[240px] overflow-y-auto px-4 py-4"
           style={{ scrollbarWidth: 'thin' }}
@@ -623,6 +577,7 @@ function FilteredScanRow() {
             )
           })}
         </div>
+        )}
       </div>
     </div>
   )
@@ -824,6 +779,28 @@ function ActionButton({
     >
       <Icon size={14} />
       {label}
+    </button>
+  )
+}
+
+// Dedicated CTA for the Add Listing modal. Visually distinct from the
+// scan/filter buttons (accent-soft tint, plus glyph) because it
+// represents a CREATE action — the user is contributing new data, not
+// running an automation. Hover-row description owns the tooltip.
+function AddListingButton({ disabled }: { disabled?: boolean }) {
+  const show = useAddListingStore(s => s.show)
+  return (
+    <button
+      onClick={() => show()}
+      disabled={disabled}
+      className={cn(
+        'inline-flex items-center gap-2 rounded-pill px-4 py-2 text-[13.5px] font-medium border transition-all',
+        'border-accent/40 bg-accent/10 text-accent-text hover:bg-accent/15 hover:border-accent/55',
+        'disabled:opacity-40 disabled:cursor-not-allowed',
+      )}
+    >
+      <Plus size={14} />
+      Add Listing
     </button>
   )
 }
