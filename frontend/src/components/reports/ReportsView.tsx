@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
@@ -178,6 +178,7 @@ export function ReportsView() {
   const [query, setQuery] = useState('')
   const [selectedBands, setSelectedBands] = useState<Set<ScoreBand>>(new Set())
   const [selected, setSelected] = useState<ReportFile | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
   
   // Positioning Hub State
   const [positioningReports, setPositioningReports] = useState<PositioningReportInfo[]>([])
@@ -346,6 +347,55 @@ export function ReportsView() {
     setSelectedBands(next)
   }
 
+  // Bands present anywhere in the corpus — this is the stable chip set.
+  // T3/T4 listings never get a report written to disk, so 'pass'/'skip'
+  // typically don't appear; computing this from the data keeps the chip row
+  // honest instead of always rendering five chips, three of which match zero.
+  const corpusBands = useMemo(() => {
+    const present = new Set<ScoreBand>()
+    for (const r of reportRows) present.add(getScoreBand(r.overall, r.tier))
+    return (['stellar', 'strong', 'decent', 'pass', 'skip'] as const).filter(b => present.has(b))
+  }, [reportRows])
+
+  // Per-band report counts under the active search query but BEFORE the band
+  // selection itself — bands are an OR multi-select, so each chip's count
+  // shows how many reports it would add given the current search. This is the
+  // same facet-count rule the Database filter sidebar uses (count a dimension
+  // with every OTHER active filter applied, but not its own selection).
+  const bandCounts = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const counts: Record<ScoreBand, number> = { stellar: 0, strong: 0, decent: 0, pass: 0, skip: 0 }
+    for (const r of reportRows) {
+      if (q && !(r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q))) continue
+      counts[getScoreBand(r.overall, r.tier)]++
+    }
+    return counts
+  }, [reportRows, query])
+
+  const hasActiveFilters = query.trim() !== '' || selectedBands.size > 0
+
+  const clearFilters = () => {
+    setQuery('')
+    setSelectedBands(new Set())
+  }
+
+  // `/` focuses the search box from anywhere in the view (matching the kbd
+  // hint), as long as the user isn't already typing into a field. This makes
+  // the Database FilterBar's `/` affordance real here too.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+      const el = document.activeElement
+      const typing = el instanceof HTMLElement &&
+        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      if (typing) return
+      e.preventDefault()
+      searchRef.current?.focus()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   const scoreIndex = useMemo(() => {
     const byExact   = new Map<string, ScoreEntry>()
     const byCompany = new Map<string, ScoreEntry[]>()
@@ -493,15 +543,27 @@ export function ReportsView() {
         <div className="flex items-center gap-2 flex-1 max-w-xs">
           <Search size={13} className="text-text-4 shrink-0" />
           <input
+            ref={searchRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') {
+                if (query) setQuery('')
+                else e.currentTarget.blur()
+              }
+            }}
             placeholder="Search company or role…"
-            className="flex-1 bg-transparent outline-none text-label text-text-1 placeholder:text-text-4"
+            spellCheck={false}
+            className="flex-1 bg-transparent outline-none text-label text-text-1 placeholder:text-text-4 min-w-0"
           />
-          {query && (
+          {query ? (
             <button onClick={() => setQuery('')} className="text-text-4 hover:text-text-2 shrink-0">
               <X size={11} />
             </button>
+          ) : (
+            <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-mono text-text-4 bg-bg-base border border-border-default shrink-0">
+              /
+            </kbd>
           )}
         </div>
 
@@ -542,26 +604,32 @@ export function ReportsView() {
             Reports for T3/T4 listings aren't written to disk by the pipeline,
             so showing 'Pass'/'Skip' chips here always yields zero matches. */}
         <div className="flex items-center gap-1.5">
-          {(['stellar', 'strong', 'decent', 'pass', 'skip'] as const)
-            .filter(band => reportRows.some(r => getScoreBand(r.overall, r.tier) === band))
-            .map(band => {
-              const details = BAND_DETAILS[band]
-              const active = selectedBands.has(band)
-              return (
-                <button
-                  key={band}
-                  onClick={() => toggleBand(band)}
-                  className={cn(
-                    'px-2.5 py-0.5 text-micro font-medium rounded-full border transition-all duration-200 uppercase tracking-wider',
-                    active
-                      ? `${details.bg} ${details.text} ${details.border} font-bold`
-                      : 'text-text-3 border-border-default hover:border-border-strong hover:bg-bg-elevated'
-                  )}
-                >
-                  {details.label.split(' ')[0]}
-                </button>
-              )
-            })}
+          {corpusBands.map(band => {
+            const details = BAND_DETAILS[band]
+            const active = selectedBands.has(band)
+            const count = bandCounts[band]
+            // Grey out bands the current search excludes — still clickable, but
+            // signals "selecting this adds nothing right now". Never mute the
+            // active chip (the user explicitly turned it on).
+            const muted = count === 0 && !active
+            return (
+              <button
+                key={band}
+                onClick={() => toggleBand(band)}
+                title={`${details.label} · ${count} report${count === 1 ? '' : 's'}`}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-2.5 py-0.5 text-micro font-medium rounded-full border transition-all duration-200 uppercase tracking-wider',
+                  active
+                    ? `${details.bg} ${details.text} ${details.border} font-bold`
+                    : 'text-text-3 border-border-default hover:border-border-strong hover:bg-bg-elevated',
+                  muted && 'opacity-40',
+                )}
+              >
+                <span>{details.label.split(' ')[0]}</span>
+                <span className="text-[10px] font-mono tabular-nums text-text-4">{count}</span>
+              </button>
+            )
+          })}
         </div>
 
         <div className="w-px h-4 bg-border-default" />
@@ -595,11 +663,35 @@ export function ReportsView() {
               <div key={i} className="h-24 shimmer rounded-lg" />
             ))}
           </div>
+        ) : reportRows.length === 0 ? (
+          <div className="flex items-center justify-center py-10">
+            <div className="galaxy-bg rounded-xl px-10 py-12 flex flex-col items-center gap-3 max-w-sm text-center">
+              <FileText size={32} className="text-accent opacity-80" />
+              <p className="text-label text-text-2 font-medium">No reports yet</p>
+              <p className="text-[12px] text-text-3 leading-relaxed">
+                Reports get written when you run <span className="text-text-2 font-semibold">Generate top 5 reports</span> or
+                promote a listing from the Database. They&apos;ll show up here as a scannable grid.
+              </p>
+            </div>
+          </div>
         ) : filteredFiles.length === 0 ? (
           <div className="flex items-center justify-center py-10">
-            <div className="galaxy-bg rounded-xl px-10 py-12 flex flex-col items-center gap-3 max-w-sm">
+            <div className="galaxy-bg rounded-xl px-10 py-12 flex flex-col items-center gap-3 max-w-sm text-center">
               <FileText size={32} className="text-accent opacity-80" />
-              <p className="text-label text-text-3">No reports match your filters.</p>
+              <p className="text-label text-text-3">
+                No reports match {query.trim()
+                  ? <>“<span className="text-text-2">{query.trim()}</span>”</>
+                  : 'your filters'}.
+              </p>
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
+                >
+                  <X size={11} />
+                  Clear filters
+                </button>
+              )}
             </div>
           </div>
         ) : (
