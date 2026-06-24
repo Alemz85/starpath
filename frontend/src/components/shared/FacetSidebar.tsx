@@ -43,6 +43,19 @@ export function hasActiveFilters(f: FacetFilters): boolean {
   )
 }
 
+// Per-option entity counts, keyed by option value. Optional — when omitted
+// (e.g. a future consumer that hasn't wired counts) the groups render exactly
+// as before. Counts are faceted: each map already reflects the other active
+// filters, computed by the caller.
+export interface FacetCounts {
+  companies: Record<string, number>
+  locations: Record<string, number>
+  archetypes: Record<string, number>
+  tiers: Record<string, number>
+  employmentTypes: Record<string, number>
+  liveness: Record<string, number>
+}
+
 interface FacetSidebarProps {
   filters: FacetFilters
   onChange: (f: FacetFilters) => void
@@ -53,9 +66,10 @@ interface FacetSidebarProps {
     tiers: string[]
     employmentTypes: string[]
   }
+  counts?: FacetCounts
 }
 
-export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) {
+export function FacetSidebar({ filters, onChange, options, counts }: FacetSidebarProps) {
   const toggle = (key: keyof Pick<FacetFilters, 'companies' | 'locations' | 'archetypes' | 'tiers' | 'employmentTypes'>, val: string) => {
     const next = new Set(filters[key])
     if (next.has(val)) next.delete(val)
@@ -89,6 +103,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
           label="Liveness"
           items={['active', 'stale', 'closed']}
           selected={filters.liveness as Set<string>}
+          counts={counts?.liveness}
           onToggle={v => {
             const next = new Set(filters.liveness)
             const lv = v as Liveness
@@ -103,6 +118,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
           label="Tier"
           items={['T1', 'T2', 'T3', 'T4']}
           selected={filters.tiers}
+          counts={counts?.tiers}
           onToggle={v => toggle('tiers', v)}
           renderItem={tier => <TierChip tier={tier} />}
         />
@@ -110,6 +126,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
           label="Company"
           items={options.companies}
           selected={filters.companies}
+          counts={counts?.companies}
           onToggle={v => toggle('companies', v)}
           maxShow={8}
         />
@@ -117,6 +134,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
           label="Location"
           items={options.locations}
           selected={filters.locations}
+          counts={counts?.locations}
           onToggle={v => toggle('locations', v)}
           maxShow={6}
         />
@@ -124,6 +142,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
           label="Archetype"
           items={options.archetypes}
           selected={filters.archetypes}
+          counts={counts?.archetypes}
           onToggle={v => toggle('archetypes', v)}
           maxShow={6}
         />
@@ -131,6 +150,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
           label="Employment type"
           items={options.employmentTypes}
           selected={filters.employmentTypes}
+          counts={counts?.employmentTypes}
           onToggle={v => toggle('employmentTypes', v)}
         />
         <ScoreRangeGroup
@@ -144,7 +164,7 @@ export function FacetSidebar({ filters, onChange, options }: FacetSidebarProps) 
 }
 
 function FacetGroup({
-  label, items, selected, onToggle, maxShow = 20, renderItem,
+  label, items, selected, onToggle, maxShow = 20, renderItem, counts,
 }: {
   label: string
   items: string[]
@@ -152,10 +172,20 @@ function FacetGroup({
   onToggle: (v: string) => void
   maxShow?: number
   renderItem?: (v: string) => React.ReactNode
+  counts?: Record<string, number>
 }) {
   const [expanded, setExpanded] = useState(true)
   const [showAll, setShowAll] = useState(false)
-  const visible = showAll ? items : items.slice(0, maxShow)
+
+  // Groups with a fixed semantic order (Tier T1→T4, Liveness active→closed,
+  // flagged by having a renderItem) keep their given order. Free-form value
+  // lists (companies, locations…) sort by count desc when counts are present,
+  // so the maxShow truncation surfaces the most-populated options instead of
+  // an alphabetical head.
+  const ordered = counts && !renderItem
+    ? [...items].sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0) || a.localeCompare(b))
+    : items
+  const visible = showAll ? ordered : ordered.slice(0, maxShow)
   const activeInGroup = items.filter(i => selected.has(i)).length
 
   if (items.length === 0) return null
@@ -184,22 +214,34 @@ function FacetGroup({
         <div className="space-y-0.5 pb-1">
           {visible.map(item => {
             const isOn = selected.has(item)
+            const count = counts?.[item]
+            // Grey options that would yield nothing under the current filters,
+            // but keep them clickable (and never grey a selected one).
+            const muted = count === 0 && !isOn
             return (
               <label
                 key={item}
                 className={cn(
                   'flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer transition-colors',
                   isOn ? 'bg-accent/8' : 'hover:bg-bg-elevated',
+                  muted && 'opacity-45',
                 )}
               >
                 <input
                   type="checkbox"
                   checked={isOn}
                   onChange={() => onToggle(item)}
-                  className="w-3 h-3 accent-accent cursor-pointer"
+                  className="w-3 h-3 accent-accent cursor-pointer shrink-0"
                 />
-                {renderItem ? renderItem(item) : (
-                  <span className="text-label text-text-2 truncate">{item}</span>
+                <span className="flex-1 min-w-0 truncate">
+                  {renderItem ? renderItem(item) : (
+                    <span className="text-label text-text-2">{item}</span>
+                  )}
+                </span>
+                {counts && (
+                  <span className="shrink-0 text-[10px] font-mono tabular-nums text-text-4">
+                    {count ?? 0}
+                  </span>
                 )}
               </label>
             )
