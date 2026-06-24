@@ -6,7 +6,7 @@
  * not active applications, so they live in data/scouting.md with a different
  * column shape:
  *
- *   # | Date | Company | Role | Score | Tier | CF/AF | Report | Promotion Hint | Notes
+ *   # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes
  *
  * TSV input format (11 tab-separated columns, written by modes/scouting.md):
  *
@@ -18,6 +18,9 @@
  * Dedup: company normalized + role fuzzy match + report number match.
  * If duplicate with higher score → update in-place, refresh tier / CF-AF / notes.
  *
+ * Parsing/normalization lives in lib/scouting-core.mjs (pure + unit-tested);
+ * this script owns the file I/O and merge orchestration.
+ *
  * Run: node career-ops/merge-scouting.mjs [--dry-run] [--verify]
  */
 
@@ -25,6 +28,17 @@ import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, exists
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
+import {
+  companyKey,
+  normalizeRoleForIndex,
+  roleFuzzyMatch,
+  extractReportNum,
+  parseScore,
+  coalesceDeadline,
+  parseScoutingRow,
+  parseScoutingTsv,
+  formatScoutingRow,
+} from './lib/scouting-core.mjs';
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
@@ -35,13 +49,9 @@ const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
 const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
 
-function normalizeRoleForIndex(role) {
-  return role.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
 function appendDedupIndex(company, role, date) {
   if (DRY_RUN) return;
-  const row = `${normalizeCompany(company)}\t${normalizeRoleForIndex(role)}\t${date}\n`;
+  const row = `${companyKey(company)}\t${normalizeRoleForIndex(role)}\t${date}\n`;
   if (!existsSync(DEDUP_INDEX_FILE)) {
     writeFileSync(DEDUP_INDEX_FILE, DEDUP_INDEX_HEADER + '\n' + row);
   } else {
@@ -51,124 +61,6 @@ function appendDedupIndex(company, role, date) {
 
 mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
 mkdirSync(ADDITIONS_DIR, { recursive: true });
-
-const VALID_TIERS = ['T1', 'T2', 'T3', 'T4'];
-
-function normalizeTier(tier) {
-  const clean = (tier || '').replace(/\*\*/g, '').trim().toUpperCase();
-  if (VALID_TIERS.includes(clean)) return clean;
-  // Accept "Tier 1" / "tier-1" / "1"
-  const m = clean.match(/T(?:IER[- ]?)?(\d)/);
-  if (m && VALID_TIERS.includes(`T${m[1]}`)) return `T${m[1]}`;
-  if (/^\d$/.test(clean) && VALID_TIERS.includes(`T${clean}`)) return `T${clean}`;
-  console.warn(`⚠️  Non-canonical tier "${tier}" → defaulting to "T4"`);
-  return 'T4';
-}
-
-function normalizePromotionHint(hint, tier) {
-  const clean = (hint || '').trim();
-  if (!clean) return tier === 'T1' ? 'READY' : '';
-  if (/^ready/i.test(clean)) return 'READY';
-  return clean;
-}
-
-function normalizeCompany(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function roleFuzzyMatch(a, b) {
-  const wordsA = a.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const wordsB = b.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const overlap = wordsA.filter(w => wordsB.some(wb => wb.includes(w) || w.includes(wb)));
-  return overlap.length >= 2;
-}
-
-function extractReportNum(reportStr) {
-  const m = reportStr.match(/\[(\d+)\]/);
-  return m ? parseInt(m[1]) : null;
-}
-
-/**
- * Reports live in tier subfolders (reports/tier-1/.../tier-4/). If the writer
- * passed a flat path like `reports/scout-014-...md`, rewrite it to the correct
- * tier subfolder. Honor `—` (T4 skip) and already-tiered paths unchanged.
- */
-function rewriteReportPathForTier(reportStr, tier) {
-  if (!reportStr || reportStr === '—' || reportStr === '-') return reportStr;
-  if (/reports\/tier-\d\//.test(reportStr)) return reportStr;
-  const m = tier.match(/^T(\d)$/);
-  if (!m) return reportStr;
-  return reportStr.replace(/reports\//, `reports/tier-${m[1]}/`);
-}
-
-function parseScore(s) {
-  const m = s.replace(/\*\*/g, '').match(/([\d.]+)/);
-  return m ? parseFloat(m[1]) : 0;
-}
-
-function parseScoutingLine(line) {
-  const parts = line.split('|').map(s => s.trim());
-  // New format (13 parts): empty | num | date | company | role | score | tier | cf_af | report | deadline | hint | notes | empty
-  // Old format (12 parts): empty | num | date | company | role | score | tier | cf_af | report | hint | notes | empty
-  if (parts.length < 11) return null;
-  const num = parseInt(parts[1]);
-  if (isNaN(num) || num === 0) return null;
-  const hasDeadline = parts.length >= 13;
-  return {
-    num,
-    date: parts[2],
-    company: parts[3],
-    role: parts[4],
-    score: parts[5],
-    tier: parts[6],
-    cfAf: parts[7],
-    report: parts[8],
-    deadline: hasDeadline ? parts[9] : 'n/d',
-    hint: hasDeadline ? parts[10] : parts[9],
-    notes: hasDeadline ? (parts[11] || '') : (parts[10] || ''),
-    raw: line,
-  };
-}
-
-function parseTsvContent(content, filename) {
-  content = content.trim();
-  if (!content) return null;
-
-  const parts = content.split('\t');
-  if (parts.length < 9) {
-    console.warn(`⚠️  Skipping malformed scouting TSV ${filename}: ${parts.length} fields (expected 11)`);
-    return null;
-  }
-
-  const tier = normalizeTier(parts[5]);
-  // New 11-col format: num date company role score tier cf_af report deadline hint notes
-  // Old 10-col format: num date company role score tier cf_af report hint notes
-  const hasDeadline = parts.length >= 11;
-  const addition = {
-    num: parseInt(parts[0]),
-    date: parts[1],
-    company: parts[2],
-    role: parts[3],
-    score: parts[4],
-    tier,
-    cfAf: parts[6],
-    report: rewriteReportPathForTier(parts[7], tier),
-    deadline: hasDeadline ? (parts[8] || 'n/d') : 'n/d',
-    hint: normalizePromotionHint(hasDeadline ? parts[9] : parts[8], tier),
-    notes: hasDeadline ? (parts[10] || '') : (parts[9] || ''),
-  };
-
-  if (isNaN(addition.num) || addition.num === 0) {
-    console.warn(`⚠️  Skipping ${filename}: invalid entry number`);
-    return null;
-  }
-
-  return addition;
-}
-
-function formatRow(e) {
-  return `| ${e.num} | ${e.date} | ${e.company} | ${e.role} | ${e.score} | ${e.tier} | ${e.cfAf} | ${e.report} | ${e.deadline || 'n/d'} | ${e.hint} | ${e.notes} |`;
-}
 
 // ---- Main ----
 
@@ -191,7 +83,7 @@ let maxNum = 0;
 
 for (const line of fileLines) {
   if (line.startsWith('|') && !line.includes('---') && !/^\|\s*#\s*\|/.test(line)) {
-    const e = parseScoutingLine(line);
+    const e = parseScoutingRow(line);
     if (e) {
       existing.push(e);
       if (e.num > maxNum) maxNum = e.num;
@@ -227,7 +119,7 @@ const newRows = [];
 
 for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
-  const addition = parseTsvContent(content, file);
+  const addition = parseScoutingTsv(content, file);
   if (!addition) { skipped++; continue; }
 
   const reportNum = extractReportNum(addition.report);
@@ -240,8 +132,8 @@ for (const file of tsvFiles) {
     dup = existing.find(e => e.num === addition.num);
   }
   if (!dup) {
-    const normCompany = normalizeCompany(addition.company);
-    dup = existing.find(e => normalizeCompany(e.company) === normCompany && roleFuzzyMatch(addition.role, e.role));
+    const normCompany = companyKey(addition.company);
+    dup = existing.find(e => companyKey(e.company) === normCompany && roleFuzzyMatch(addition.role, e.role));
   }
 
   if (dup) {
@@ -260,10 +152,12 @@ for (const file of tsvFiles) {
           tier: addition.tier,
           cfAf: addition.cfAf,
           report: addition.report,
+          // Preserve the posting's close date if the re-eval didn't restate it.
+          deadline: coalesceDeadline(addition.deadline, dup.deadline),
           hint: addition.hint,
           notes: `Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`,
         };
-        fileLines[idx] = formatRow(merged);
+        fileLines[idx] = formatScoutingRow(merged);
         updated++;
         appendDedupIndex(addition.company, addition.role, addition.date);
       }
@@ -274,7 +168,7 @@ for (const file of tsvFiles) {
   } else {
     const entryNum = addition.num > maxNum ? addition.num : ++maxNum;
     if (addition.num > maxNum) maxNum = addition.num;
-    newRows.push(formatRow({ ...addition, num: entryNum }));
+    newRows.push(formatScoutingRow({ ...addition, num: entryNum }));
     added++;
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score}, ${addition.tier})`);
     appendDedupIndex(addition.company, addition.role, addition.date);
