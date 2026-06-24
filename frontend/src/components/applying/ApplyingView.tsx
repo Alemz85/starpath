@@ -13,54 +13,9 @@ import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/C
 import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
-import { cn, deadlineUrgency, urgencyBadge } from '@/lib/utils'
+import { cn, deadlineLabel, deadlineUrgency, urgencyBadge } from '@/lib/utils'
+import { STATUS_GROUPS, getSpawnId, groupByStatus } from '@/lib/applyingBoard'
 import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
-
-const STATUS_GROUPS: AppStatus[] = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer']
-
-function getSpawnId(prefix: string, app: ApplicationEntry): string {
-  const cleanCompany = app.company.toLowerCase().replace(/[^a-z0-9]/g, '-')
-  const cleanRole = app.role.toLowerCase().replace(/[^a-z0-9]/g, '-')
-  return `${prefix}-${cleanCompany}-${cleanRole}`
-}
-
-// Urgency bucket → sort rank (lower = more pressing, floats to the top of its
-// column). 'none' (Rolling / no deadline) and 'missed' sink below live dates.
-const URGENCY_RANK: Record<ReturnType<typeof deadlineUrgency>, number> = {
-  urgent: 0, month: 1, upcoming: 2, none: 3, missed: 4,
-}
-
-function deadlineTime(deadline: string): number {
-  const t = new Date(deadline).getTime()
-  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t
-}
-
-// Order cards within a column so the nearest live deadline never sits buried
-// under months-out rows: by urgency bucket first, then the actual date.
-function compareByDeadline(a: ApplicationEntry, b: ApplicationEntry): number {
-  const ra = URGENCY_RANK[deadlineUrgency(a.deadline)]
-  const rb = URGENCY_RANK[deadlineUrgency(b.deadline)]
-  if (ra !== rb) return ra - rb
-  return deadlineTime(a.deadline) - deadlineTime(b.deadline)
-}
-
-// Precise, compact deadline read for a card — "Today" / "in 3d" / "Jun 30"
-// instead of the coarse "URGENT" word. Returns null when there's no real date
-// (caller falls back to the urgency badge label, e.g. for Rolling).
-function deadlineLabel(deadline: string): string | null {
-  const d = (deadline ?? '').trim()
-  if (!d || d.toLowerCase() === 'n/d' || d.toLowerCase() === 'rolling') return null
-  const date = new Date(d)
-  if (Number.isNaN(date.getTime())) return null
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const target = new Date(date); target.setHours(0, 0, 0, 0)
-  const days = Math.round((target.getTime() - today.getTime()) / 86_400_000)
-  if (days < 0)   return 'Closed'
-  if (days === 0) return 'Today'
-  if (days === 1) return 'Tomorrow'
-  if (days <= 14) return `in ${days}d`
-  return target.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
 
 export function ApplyingView() {
   const repoPath = useAppStore(s => s.repoPath)
@@ -105,16 +60,9 @@ export function ApplyingView() {
     }
   }, [finishedSpawnIds, refresh])
 
-  const grouped = useMemo(() => {
-    const map: Record<string, ApplicationEntry[]> = {}
-    for (const s of STATUS_GROUPS) map[s] = []
-    for (const a of applications) {
-      if (a.status in map) map[a.status].push(a)
-    }
-    // Sort each column so the most pressing deadline rises to the top.
-    for (const s of STATUS_GROUPS) map[s].sort(compareByDeadline)
-    return map
-  }, [applications])
+  // Bucket into the five active stages, each column sorted by deadline
+  // urgency. Pure logic lives in lib/applyingBoard (groupByStatus).
+  const grouped = useMemo(() => groupByStatus(applications), [applications])
 
   // Rejected + Discarded fall outside the five active kanban stages — collect
   // them for the collapsed "Closed" strip below the board so they stay
