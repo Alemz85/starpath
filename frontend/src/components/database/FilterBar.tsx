@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, KeyboardEvent } from 'react'
+import { useEffect, useRef, useState, KeyboardEvent } from 'react'
 import { Search, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -36,6 +36,26 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
       inputRef.current?.blur()
     }
   }
+
+  // Global "/" shortcut: focus the search box from anywhere in the
+  // Database view, so the <kbd>/</kbd> hint is truthful. Ignore it while a
+  // modifier is held or the user is already typing in a field. FilterBar
+  // unmounts with the Database view, so the cleanup scopes this to it.
+  // (globalThis.KeyboardEvent — not the React synthetic type imported above.)
+  useEffect(() => {
+    const handler = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return
+      const el = document.activeElement
+      const typing =
+        el instanceof HTMLElement &&
+        (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      if (typing) return
+      e.preventDefault()
+      inputRef.current?.focus()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
 
   return (
     <div className="relative">
