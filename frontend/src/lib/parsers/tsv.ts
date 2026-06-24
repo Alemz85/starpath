@@ -10,8 +10,12 @@ function normalizeTier(raw: string): ScoreEntry['tier'] {
   if (t === 't1' || t === 'tier-1') return 'T1'
   if (t === 't2-high' || t === 'short-high') return 'T2-high'
   if (t === 't2' || t === 'short') return 'T2'
-  if (t === 't3' || t === 'gap') return 'T3'
-  if (t === 't4' || t === 'skip' || t === 'growth' || t === 'pipeline') return 'T4'
+  // `growth` is the legacy name for the Pass / Growth Target band = T3 (see
+  // modes/_shared.md § score-history logging + score-bands.mjs assignTier).
+  // It previously fell through to T4, mis-badging every historical growth-band
+  // row (verified: all such rows score in the 5.0–6.9 T3 range, none < 5.0).
+  if (t === 't3' || t === 'gap' || t === 'growth') return 'T3'
+  if (t === 't4' || t === 'skip' || t === 'pipeline') return 'T4'
   return raw
 }
 
