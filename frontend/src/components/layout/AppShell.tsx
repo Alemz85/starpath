@@ -17,6 +17,7 @@ import { SettingsView } from '@/components/settings/SettingsView'
 import { ConfigurationView } from '@/components/configuration/ConfigurationView'
 import { ProfileView } from '@/components/profile/ProfileView'
 import { AddListingModal } from '@/components/scouting/AddListingModal'
+import { AuthBanner } from '@/components/shared/AuthBanner'
 
 // Display labels for the cross-view nav guard's modal copy. Keep in
 // sync with the Sidebar's NavItem labels.
@@ -72,6 +73,7 @@ export function AppShell() {
       <div className="cosmos-grain" aria-hidden />
       <Sidebar />
       <main className="flex-1 overflow-hidden flex flex-col min-w-0">
+        <AuthBanner />
         {view === 'scouting' && <CommandCenter />}
         {view === 'applying' && <ApplyingView />}
         {view === 'database' && <DatabaseView />}

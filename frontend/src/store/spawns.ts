@@ -9,6 +9,15 @@
 
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
+import { useAppStore } from './app'
+
+// Auth-failure signatures Claude prints when its token is dead. Deliberately
+// specific phrases — a bare `401` would false-positive on job-search content
+// like "401(k)". Matched against raw claude-spawn output to raise the global
+// re-login banner the moment a run dies on auth instead of letting it read as
+// a generic error.
+const AUTH_FAILURE_RE =
+  /oauth token has expired|authentication_error|invalid bearer token|invalid x-api-key|invalid api key|please run \/login|401 unauthorized|unauthorized[^a-z0-9]{0,12}401/i
 
 const OUTPUT_CAP = 1000
 
@@ -212,6 +221,12 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
   appendOutput: (id, chunk) => {
     const cur = get().spawns[id]
     if (!cur) return
+    // Watch claude runs for an auth death and raise the global re-login
+    // banner. Checked on the raw chunk before humanizing — the 401 arrives
+    // as a plain-text error line, not a JSONL event.
+    if (cur.tool === 'claude' && AUTH_FAILURE_RE.test(chunk)) {
+      useAppStore.getState().flagAuthError('runtime-401')
+    }
     // Claude spawns produce JSONL — parse + humanize before appending so the
     // panel shows readable progress instead of raw `{"type":"assistant",…}`.
     // node/shell spawns pass through verbatim (already plain text).
