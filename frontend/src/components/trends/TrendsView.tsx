@@ -46,6 +46,16 @@ const DIMENSIONS: Array<{ key: DimKey; label: string; field: keyof ScoreEntry }>
   { key: 'avg_wlb',              label: 'Work-Life',        field: 'work_life_balance' },
 ]
 
+// dataKey → human label, used by the custom chart tooltip to name each
+// active series (recharts only hands the tooltip the raw dataKey).
+const DIM_LABEL_BY_KEY: Record<string, string> =
+  Object.fromEntries(DIMENSIONS.map(d => [d.key, d.label]))
+
+// Color (sourced from the line palette) keyed by dataKey, so the tooltip
+// dots match the line colors regardless of which dims are toggled on.
+const DIM_COLOR_BY_KEY: Record<string, string> =
+  Object.fromEntries(DIMENSIONS.map((d, i) => [d.key, DIM_COLORS[i % DIM_COLORS.length]]))
+
 type TimeRange = 'all' | '1y' | '6m' | '1m'
 
 const TIME_RANGE_DAYS: Record<TimeRange, number | null> = {
@@ -90,6 +100,8 @@ export function TrendsView() {
       avgAF:      avg(filtered, 'aspirational_fit').toFixed(2),
     }
   }, [filtered])
+
+  const distribution = useMemo(() => buildDistribution(filtered), [filtered])
 
   const toggleDim = (key: DimKey) => {
     setActiveDims(prev => {
@@ -194,9 +206,8 @@ export function TrendsView() {
                   width={28}
                 />
                 <Tooltip
-                  contentStyle={{ background: '#FFFFFF', border: '1px solid #DEE3E9', borderRadius: 12, fontSize: 12, boxShadow: '0 12px 28px 0 rgba(0,0,0,0.08), 0 2px 4px 0 rgba(0,0,0,0.04)' }}
-                  labelStyle={{ color: '#1C2B33', fontWeight: 600 }}
-                  itemStyle={{ color: '#5D6C7B' }}
+                  content={<ChartTooltip />}
+                  cursor={{ stroke: '#CED0D4', strokeDasharray: '3 3' }}
                 />
                 {DIMENSIONS.map(({ key }, i) =>
                   activeDims.has(key) ? (
@@ -214,6 +225,16 @@ export function TrendsView() {
               </LineChart>
             </ResponsiveContainer>
           </div>
+        )}
+
+        {/* Score distribution — the *shape* of pipeline quality, which
+            neither the time-series (averages) nor the top-X panels (best
+            performers) reveal. Bands map 1:1 to the documented score-
+            interpretation scale (`_shared.md` § Score interpretation), and
+            an accent bracket marks the 7.0 apply threshold so the headline
+            read is "what fraction of what I evaluate is worth applying to". */}
+        {loaded && filtered.length > 0 && (
+          <ScoreDistributionCard dist={distribution} />
         )}
 
         {/* Top-X panels: separate rhythms for archetype (horizontal bars,
@@ -387,6 +408,183 @@ function avg(rows: ScoreEntry[], field: keyof ScoreEntry): number {
     if (typeof v === 'number') { sum += v; n++ }
   }
   return n === 0 ? 0 : sum / n
+}
+
+// Median is the honest "typical" figure for a skewed score corpus — the
+// mean gets dragged by a cluster of T1 hits or a long T4 tail, the median
+// doesn't. Shown alongside the distribution as a one-number summary.
+function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
+  const xs = rows
+    .map(r => r[field])
+    .filter((v): v is number => typeof v === 'number')
+    .sort((a, b) => a - b)
+  if (xs.length === 0) return 0
+  const mid = Math.floor(xs.length / 2)
+  return xs.length % 2 === 0 ? (xs[mid - 1] + xs[mid]) / 2 : xs[mid]
+}
+
+// ─── Score distribution ──────────────────────────────────────────────────────
+//
+// Five bands matched 1:1 to the documented score-interpretation scale and the
+// `scoreColor()` ordinal palette (lib/tier.ts): everything ≥7.0 is the brand-
+// violet "apply-worthy" group, below that fades to slate. Coloring each band
+// by scoreColor(midpoint) keeps the histogram in lockstep with the same number
+// → color mapping used by the Database dial and the top-X panels. Colors are
+// resolved here via the imported `galaxyScoreColor` (not the `scoreTierColor`
+// alias declared lower in the file) so this module-level literal doesn't trip
+// the temporal-dead-zone.
+
+interface ScoreBand {
+  key: string
+  label: string
+  range: string
+  lo: number          // inclusive lower bound
+  hi: number          // exclusive upper bound (Infinity for the top band)
+  color: string
+  applyWorthy: boolean
+}
+
+const SCORE_BANDS: ScoreBand[] = [
+  { key: 'subfloor', label: 'Sub-floor', range: '< 5', lo: -Infinity, hi: 5,        color: galaxyScoreColor(4),   applyWorthy: false },
+  { key: 'belowbar', label: 'Below bar', range: '5–7', lo: 5,         hi: 7,        color: galaxyScoreColor(6),   applyWorthy: false },
+  { key: 'decent',   label: 'Decent',    range: '7–8', lo: 7,         hi: 8,        color: galaxyScoreColor(7.5), applyWorthy: true },
+  { key: 'good',     label: 'Good',      range: '8–9', lo: 8,         hi: 9,        color: galaxyScoreColor(8.5), applyWorthy: true },
+  { key: 'stellar',  label: 'Stellar',   range: '≥ 9', lo: 9,         hi: Infinity, color: galaxyScoreColor(9.5), applyWorthy: true },
+]
+
+interface Distribution {
+  bands: Array<ScoreBand & { count: number }>
+  total: number       // count of scored rows (overall > 0)
+  max: number         // tallest band, for bar scaling (min 1 to avoid /0)
+  applyPct: number    // % of scored rows in an apply-worthy band
+  median: number
+}
+
+function buildDistribution(rows: ScoreEntry[]): Distribution {
+  const counts = SCORE_BANDS.map(() => 0)
+  const scored: ScoreEntry[] = []
+  for (const r of rows) {
+    const v = r.overall
+    // Mirror the top-X panels' `avgScore > 0` rule — score-history carries a
+    // few legacy rows with 0 / n-d overalls that aren't real evaluations.
+    if (typeof v !== 'number' || v <= 0) continue
+    const idx = SCORE_BANDS.findIndex(b => v >= b.lo && v < b.hi)
+    if (idx >= 0) { counts[idx]++; scored.push(r) }
+  }
+  const bands = SCORE_BANDS.map((b, i) => ({ ...b, count: counts[i] }))
+  const applyWorthy = bands.reduce((s, b) => s + (b.applyWorthy ? b.count : 0), 0)
+  return {
+    bands,
+    total: scored.length,
+    max: Math.max(1, ...counts),
+    applyPct: scored.length ? Math.round((applyWorthy / scored.length) * 100) : 0,
+    median: median(scored, 'overall'),
+  }
+}
+
+function ScoreDistributionCard({ dist }: { dist: Distribution }) {
+  const { bands, max, applyPct, total, median: med } = dist
+  return (
+    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
+      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
+        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Score Distribution</span>
+        <span className="text-[11px] font-mono tabular-nums text-text-4">
+          <span className="text-accent-text font-semibold">{applyPct}%</span>
+          <span> clear the 7.0 bar</span>
+          {total > 0 && <span> · median {med.toFixed(1)}</span>}
+        </span>
+      </div>
+
+      {/* Bars track — fixed height; bar heights cap at 88% of the track so the
+          count label sitting above the tallest bar never clips. */}
+      <div className="flex items-end gap-2.5" style={{ height: 132 }}>
+        {bands.map(b => {
+          const h = (b.count / max) * 88
+          return (
+            <div key={b.key} className="flex-1 flex flex-col justify-end items-center h-full">
+              <span
+                className="text-[11px] font-mono tabular-nums font-semibold mb-1"
+                style={{ color: b.count > 0 ? b.color : '#8595A4' }}
+              >
+                {b.count}
+              </span>
+              <div
+                className="w-full rounded-t-[5px]"
+                style={{
+                  height: `${h}%`,
+                  minHeight: b.count > 0 ? 3 : 0,
+                  background: `linear-gradient(180deg, ${b.color} 0%, ${b.color}cc 100%)`,
+                }}
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Band labels under each column */}
+      <div className="flex gap-2.5 mt-2">
+        {bands.map(b => (
+          <div key={b.key} className="flex-1 text-center">
+            <div className="text-[11px] text-text-2 leading-tight">{b.label}</div>
+            <div className="text-[10px] font-mono text-text-4">{b.range}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Apply-threshold bracket — spans the three apply-worthy bands (the last
+          3 of 5 equal columns). The 2:3 flex split lines the accent rule up
+          under the 7–8 / 8–9 / ≥9 columns. */}
+      <div className="flex gap-2.5 mt-1.5">
+        <div className="flex-[2]" aria-hidden />
+        <div className="flex-[3] flex items-center gap-1.5">
+          <span className="h-px flex-1 bg-accent/30" />
+          <span className="text-[9px] uppercase tracking-[0.1em] text-accent/80 font-semibold whitespace-nowrap">apply-worthy</span>
+          <span className="h-px flex-1 bg-accent/30" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Chart tooltip ───────────────────────────────────────────────────────────
+
+interface ChartTooltipProps {
+  active?: boolean
+  label?: string | number
+  payload?: Array<{ dataKey?: string | number; value?: number | string; color?: string; payload?: DateBucket }>
+}
+
+// Custom tooltip for the dimensional time-series. The default recharts tooltip
+// can't show n (evaluations behind each point), so a 9.5 from one lucky listing
+// looked identical to a 9.5 averaged across twenty. Surfacing the count makes a
+// spike honest: "n=1" reads as noise, "n=18" as signal.
+function ChartTooltip({ active, label, payload }: ChartTooltipProps) {
+  if (!active || !payload?.length) return null
+  const count = payload[0]?.payload?.count
+  return (
+    <div className="rounded-xl border border-border-default bg-white px-3 py-2 shadow-card min-w-[150px]">
+      <div className="flex items-baseline justify-between gap-4 mb-1.5">
+        <span className="text-[12px] font-semibold text-text-1">{label}</span>
+        {typeof count === 'number' && (
+          <span className="text-[10px] font-mono text-text-4 tabular-nums">n={count}</span>
+        )}
+      </div>
+      <ul className="space-y-1">
+        {payload.map(p => {
+          const key = String(p.dataKey ?? '')
+          return (
+            <li key={key} className="flex items-center gap-2 text-[11.5px]">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color ?? DIM_COLOR_BY_KEY[key] }} />
+              <span className="text-text-3 flex-1">{DIM_LABEL_BY_KEY[key] ?? key}</span>
+              <span className="font-mono tabular-nums text-text-1 font-medium">
+                {typeof p.value === 'number' ? p.value.toFixed(1) : p.value}
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
 }
 
 // ─── Top-X panels ────────────────────────────────────────────────────────────
