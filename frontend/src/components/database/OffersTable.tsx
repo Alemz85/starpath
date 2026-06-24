@@ -15,6 +15,7 @@ import type { ScoreEntry, AppStatus } from '@/types'
 import { STATUS_COLORS, ENGAGED_STATUSES } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { parseCities } from '@/lib/entityId'
+import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
@@ -314,14 +315,14 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     const byPair = new Set<string>()
     for (const r of reports) {
       if (r.url) byUrl.add(r.url)
-      byPair.add(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`)
+      byPair.add(livenessKey(r.company, r.role))
     }
     return { byUrl, byPair }
   }, [reports])
 
   const hasReport = (entry: ScoreEntry): boolean => {
     if (entry.url && reportSet.byUrl.has(entry.url)) return true
-    return reportSet.byPair.has(`${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`)
+    return reportSet.byPair.has(livenessKey(entry.company, entry.role))
   }
 
   // Listing → application status, keyed company|role (same key the liveness /
@@ -330,7 +331,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   const statusByKey = useMemo(() => {
     const m = new Map<string, AppStatus>()
     for (const a of applications) {
-      m.set(`${a.company.trim().toLowerCase()}|${a.role.trim().toLowerCase()}`, a.status)
+      m.set(livenessKey(a.company, a.role), a.status)
     }
     return m
   }, [applications])
@@ -375,7 +376,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const company = info.getValue()
         const entry = info.row.original
         const role = entry.role
-        const status = statusByKey.get(`${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`)
+        const status = statusByKey.get(livenessKey(entry.company, entry.role))
         return (
           <div className="flex items-center gap-3 min-w-0">
             <CompanyLogo company={company} size={28} className="shrink-0" />

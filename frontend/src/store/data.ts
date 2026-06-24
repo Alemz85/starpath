@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
 import { upsertApplicationRow, updateApplicationStatus } from '@/lib/applicationsDoc'
+import { livenessKey, parseDiscarded, deriveLiveness, countScansThisMonth } from '@/lib/scanHistory'
 import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus, ScoutingTier } from '@/types'
 
 interface DataState {
@@ -176,104 +177,13 @@ async function loadAll() {
   })
 }
 
-// data/discarded.tsv is a flat tombstone log written by discardListing().
-// Header row + `company\trole\tdate` per row; we collapse to a Set of
-// livenessKey(company, role) so Database/Scouting views can do O(1) tests.
-function parseDiscarded(raw: string | null): Set<string> {
-  const out = new Set<string>()
-  if (!raw) return out
-  const lines = raw.split('\n')
-  for (let i = 1; i < lines.length; i++) {
-    const cells = lines[i].split('\t')
-    const company = (cells[0] ?? '').trim()
-    const role    = (cells[1] ?? '').trim()
-    if (!company || !role) continue
-    out.add(livenessKey(company, role))
-  }
-  return out
-}
-
-// ─── Liveness ─────────────────────────────────────────────────────────────────
+// ─── Scan-history derivations ───────────────────────────────────────────────
 //
-// Score-history entries don't have URLs but they do have company+role and a
-// `source` (often the URL). scan-history.tsv has the canonical URL → date list.
-// We can't perfectly join them, but we can map company+role → most-recent
-// scan_dates entry and derive liveness from the recency.
-//
-// active: seen <14d ago
-// stale:  seen 14–90d ago
-// closed: seen >90d ago, or never-mapped
-function deriveLiveness(raw: string | null): Record<string, 'active' | 'stale' | 'closed'> {
-  if (!raw) return {}
-  const lines = raw.split('\n')
-  if (lines.length < 2) return {}
-  const header = lines[0].split('\t')
-  const companyIdx = header.indexOf('company')
-  const titleIdx   = header.indexOf('title')
-  const datesIdx   = header.indexOf('scan_dates')
-  if (companyIdx < 0 || titleIdx < 0 || datesIdx < 0) return {}
-
-  const today = new Date()
-  const dayMs = 1000 * 60 * 60 * 24
-  const out: Record<string, 'active' | 'stale' | 'closed'> = {}
-
-  for (let i = 1; i < lines.length; i++) {
-    const row = lines[i].split('\t')
-    if (row.length < 3) continue
-    const company = (row[companyIdx] ?? '').trim()
-    const title   = (row[titleIdx] ?? '').trim()
-    const dates   = (row[datesIdx] ?? '').split('|').filter(Boolean)
-    if (!company || !title || dates.length === 0) continue
-
-    const last = dates[dates.length - 1]
-    const lastDate = new Date(last)
-    if (Number.isNaN(lastDate.getTime())) continue
-    const daysAgo = (today.getTime() - lastDate.getTime()) / dayMs
-
-    const liveness: 'active' | 'stale' | 'closed' =
-      daysAgo < 14  ? 'active' :
-      daysAgo < 90  ? 'stale' : 'closed'
-
-    const key = livenessKey(company, title)
-    // Keep the freshest verdict if the same company+role appears in multiple rows.
-    const cur = out[key]
-    if (!cur || rank(liveness) > rank(cur)) out[key] = liveness
-  }
-  return out
-}
-
-function rank(l: 'active' | 'stale' | 'closed'): number {
-  return l === 'active' ? 2 : l === 'stale' ? 1 : 0
-}
-
-export function livenessKey(company: string, role: string): string {
-  return `${company.trim().toLowerCase()}|${role.trim().toLowerCase()}`
-}
-
-// Count unique scan-run *dates* in the current calendar month. Each row of
-// scan-history.tsv has a `scan_dates` column (pipe-separated YYYY-MM-DD list);
-// many rows can share a scan date because a single scan adds many URLs at once,
-// so we union dates across rows and dedupe before counting.
-function countScansThisMonth(raw: string | null): number {
-  if (!raw) return 0
-  const lines = raw.split('\n')
-  if (lines.length < 2) return 0
-  const header = lines[0].split('\t')
-  const datesIdx = header.indexOf('scan_dates')
-  if (datesIdx === -1) return 0
-
-  const monthPrefix = new Date().toISOString().slice(0, 7)  // "YYYY-MM"
-  const seen = new Set<string>()
-  for (let i = 1; i < lines.length; i++) {
-    const row = lines[i].split('\t')
-    const cell = row[datesIdx]
-    if (!cell) continue
-    for (const d of cell.split('|')) {
-      if (d.startsWith(monthPrefix)) seen.add(d)
-    }
-  }
-  return seen.size
-}
+// The pure logic (entity key, discard parsing, liveness, monthly scan count)
+// lives in `@/lib/scanHistory` so it's testable with an injectable clock — the
+// store imports it above and owns only the I/O. `livenessKey` is re-exported
+// for API stability (it's the canonical entity-key builder).
+export { livenessKey }
 
 // ─── Live reload ──────────────────────────────────────────────────────────────
 //
