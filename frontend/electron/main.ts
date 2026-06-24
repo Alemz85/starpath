@@ -112,34 +112,85 @@ async function checkClaudeInstalled(): Promise<boolean> {
   }
 }
 
-async function checkClaudeAuth(): Promise<boolean> {
-  const home = process.env.HOME ?? ''
+interface ClaudeOAuth {
+  expiresAt?: number
+  refreshToken?: string
+}
 
-  // Fast path: check credential files claude-code writes after login
+type AuthReason = 'expired' | 'logged-out'
+interface AuthResult { authenticated: boolean; reason?: AuthReason }
+
+// Locate claude-code's stored credentials. On macOS they live in the login
+// keychain (NOT a file) under the "Claude Code-credentials" service; on other
+// platforms they're written to one of the cred files below. Returns whether
+// *any* creds exist plus the parsed OAuth blob when present (so we can check
+// its expiry). Never throws.
+async function readClaudeCreds(): Promise<{ found: boolean; oauth?: ClaudeOAuth }> {
+  const home = process.env.HOME ?? ''
+  const parse = (raw: string): Record<string, unknown> | null => {
+    try { return JSON.parse(raw) as Record<string, unknown> } catch { return null }
+  }
+
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await execAsync(
+        'security find-generic-password -s "Claude Code-credentials" -w',
+        { env: SHELL_ENV, timeout: 4000 },
+      )
+      const creds = parse(stdout.trim())
+      if (creds) return { found: true, oauth: creds.claudeAiOauth as ClaudeOAuth | undefined }
+    } catch { /* not in keychain — fall through to files */ }
+  }
+
   const credPaths = [
     path.join(home, '.claude', '.credentials.json'),
     path.join(home, '.claude', 'credentials.json'),
     path.join(home, '.config', '@anthropic-ai', 'claude-code', 'credentials.json'),
   ]
   for (const p of credPaths) {
-    if (fs.existsSync(p)) {
-      try {
-        const creds = JSON.parse(fs.readFileSync(p, 'utf-8'))
-        if (creds?.access_token || creds?.token || creds?.api_key || creds?.claudeAiOauth) return true
-      } catch { /* malformed, keep checking */ }
+    if (!fs.existsSync(p)) continue
+    const creds = parse(fs.readFileSync(p, 'utf-8'))
+    if (creds && (creds.access_token || creds.token || creds.api_key || creds.claudeAiOauth)) {
+      return { found: true, oauth: creds.claudeAiOauth as ClaudeOAuth | undefined }
     }
   }
+  return { found: false }
+}
 
-  // Fall back to CLI command
+// Why this is more than an existence check: an OAuth access token that has
+// *expired* still sits in the keychain, and `claude auth status` happily
+// reports `loggedIn: true` for it — but every API call 401s. The only honest
+// signal is `expiresAt`. We treat an expired token as authenticated ONLY when
+// a non-empty refreshToken is present (the CLI silently refreshes on next
+// use); an expired token with no refresh token is a dead session that needs
+// a fresh login.
+async function checkClaudeAuth(): Promise<AuthResult> {
+  const { found, oauth } = await readClaudeCreds()
+
+  if (found) {
+    if (oauth && typeof oauth.expiresAt === 'number') {
+      const expired = Date.now() >= oauth.expiresAt
+      const canRefresh = typeof oauth.refreshToken === 'string' && oauth.refreshToken.length > 0
+      if (expired && !canRefresh) return { authenticated: false, reason: 'expired' }
+      return { authenticated: true }
+    }
+    // Non-OAuth creds (API key etc.) — no expiry to introspect, trust them.
+    return { authenticated: true }
+  }
+
+  // No creds on disk or in the keychain — ask the CLI directly.
   try {
     const { stdout, stderr } = await execAsync('claude auth status', { env: SHELL_ENV, timeout: 6000 })
     const out = (stdout + stderr).toLowerCase()
-    if (out.includes('not logged') || out.includes('not authenticated') || out.includes('sign in')) return false
-    // Any successful response that mentions an account or "logged in" → authenticated
-    if (out.includes('logged in') || out.includes('@') || out.includes('authenticated')) return true
+    if (out.includes('not logged') || out.includes('not authenticated') || out.includes('sign in')) {
+      return { authenticated: false, reason: 'logged-out' }
+    }
+    if (out.includes('logged in') || out.includes('"loggedin": true') || out.includes('@') || out.includes('authenticated')) {
+      return { authenticated: true }
+    }
   } catch { /* command may not exist in older versions */ }
 
-  return false
+  return { authenticated: false, reason: 'logged-out' }
 }
 
 // ─── Window ───────────────────────────────────────────────────────────────────
@@ -332,8 +383,7 @@ ipcMain.handle('app:check-claude', async () => {
 })
 
 ipcMain.handle('app:check-claude-auth', async () => {
-  const authenticated = await checkClaudeAuth()
-  return { authenticated }
+  return await checkClaudeAuth()
 })
 
 ipcMain.handle('app:run-claude-login', () => {

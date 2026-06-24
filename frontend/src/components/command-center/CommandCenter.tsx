@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
-import { useSpawnsStore, isAnyRunning, claudeArgs, type SpawnRecord } from '@/store/spawns'
+import { useSpawnsStore, isAnyRunning, claudeArgs, isAuthFailure, diagnoseFailure, type SpawnRecord } from '@/store/spawns'
 import { useScanFilter } from '@/store/scanFilter'
 import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
@@ -13,6 +13,7 @@ import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import {
   Play, Zap, Filter, Square, ArrowRight,
   ChevronDown, ChevronRight, Check, Plus,
+  AlertTriangle, RotateCw, Loader2,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { cn, formatRelative } from '@/lib/utils'
@@ -943,14 +944,62 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
           <span className="inline-block w-1.5 h-3 bg-accent-light animate-pulse rounded-sm align-middle ml-0.5" />
         )}
 
-        {record && !isRunning && (
+        {record && !isRunning && record.status !== 'error' && (
           <div className="mt-2 text-white/45">
             {record.status === 'done'   && '— exited cleanly —'}
-            {record.status === 'error'  && `— exit ${record.exitCode ?? '?'} —`}
             {record.status === 'killed' && '— stopped —'}
           </div>
         )}
+
+        {record && record.status === 'error' && <FailureCard record={record} />}
       </div>
+    </div>
+  )
+}
+
+// Shown at the foot of the log when a run ends in error. Replaces the bare
+// "— exit 1 —" line with a diagnosed cause and a one-click recovery: re-login
+// when the failure is an auth death (the cause behind 401'd scans), otherwise
+// a verbatim Retry of the same command.
+function FailureCard({ record }: { record: SpawnRecord }) {
+  const retry = useSpawnsStore(s => s.retry)
+  const relogin = useAppStore(s => s.relogin)
+  const reloginInProgress = useAppStore(s => s.reloginInProgress)
+  const authFail = isAuthFailure(record)
+  const reason = diagnoseFailure(record)
+
+  return (
+    <div className="mt-3 rounded-lg border border-[#FF8FA3]/25 bg-[#FF8FA3]/[0.07] px-3.5 py-3 flex items-start gap-3">
+      <AlertTriangle size={14} className="text-[#FF8FA3] shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[12.5px] text-white/85 font-medium">
+          Run failed
+          {record.exitCode != null && (
+            <span className="text-white/40 font-normal"> · exit {record.exitCode}</span>
+          )}
+        </div>
+        {reason && <div className="text-[11.5px] text-white/55 mt-0.5 leading-snug">{reason}</div>}
+      </div>
+      {authFail ? (
+        <button
+          onClick={() => relogin()}
+          disabled={reloginInProgress}
+          className="shrink-0 inline-flex items-center gap-1.5 pl-1.5 pr-3 h-7 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[11.5px] font-medium transition-all disabled:opacity-70 disabled:active:scale-100"
+        >
+          {reloginInProgress
+            ? <Loader2 size={12} className="animate-spin" />
+            : <span className="bg-white rounded-full p-0.5"><ClaudeLogo size={11} /></span>}
+          {reloginInProgress ? 'Waiting…' : 'Sign in again'}
+        </button>
+      ) : (
+        <button
+          onClick={() => retry(record.id)}
+          className="shrink-0 inline-flex items-center gap-1.5 px-3 h-7 bg-white/8 hover:bg-white/14 text-white/80 hover:text-white rounded-pill text-[11.5px] font-medium transition-colors"
+        >
+          <RotateCw size={12} />
+          Retry
+        </button>
+      )}
     </div>
   )
 }
