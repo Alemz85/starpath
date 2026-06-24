@@ -12,13 +12,25 @@
  * If duplicate with higher score → update in-place, update report link
  * Validates status against states.yml (rejects non-canonical, logs warning)
  *
+ * All parsing/normalization lives in lib/tracker-core.mjs (pure + unit-tested);
+ * this script owns only the file I/O and merge orchestration.
+ *
  * Run: node career-ops/merge-tracker.mjs [--dry-run] [--verify]
  */
 
 import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync, appendFileSync } from 'fs';
-import { join, basename, dirname } from 'path';
+import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
+import {
+  companyKey,
+  normalizeRoleForIndex,
+  roleFuzzyMatch,
+  extractReportNum,
+  parseScore,
+  parseAppRow,
+  parseTsvAddition,
+} from './lib/tracker-core.mjs';
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
@@ -32,13 +44,9 @@ const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
 const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
 
-function normalizeRoleForIndex(role) {
-  return role.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
 function appendDedupIndex(company, role, date) {
   if (DRY_RUN) return;
-  const row = `${normalizeCompany(company)}\t${normalizeRoleForIndex(role)}\t${date}\n`;
+  const row = `${companyKey(company)}\t${normalizeRoleForIndex(role)}\t${date}\n`;
   if (!existsSync(DEDUP_INDEX_FILE)) {
     writeFileSync(DEDUP_INDEX_FILE, DEDUP_INDEX_HEADER + '\n' + row);
   } else {
@@ -49,189 +57,6 @@ function appendDedupIndex(company, role, date) {
 // Ensure required directories exist (fresh setup)
 mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
 mkdirSync(ADDITIONS_DIR, { recursive: true });
-
-// Canonical states and aliases.
-// Scouting observations are NOT in this list — they live in data/scouting.md
-// with a Tier column instead. See merge-scouting.mjs.
-const CANONICAL_STATES = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer', 'Rejected', 'Discarded', 'SKIP'];
-
-function validateStatus(status) {
-  const clean = status.replace(/\*\*/g, '').replace(/\s+\d{4}-\d{2}-\d{2}.*$/, '').trim();
-  const lower = clean.toLowerCase();
-
-  for (const valid of CANONICAL_STATES) {
-    if (valid.toLowerCase() === lower) return valid;
-  }
-
-  // Aliases
-  const aliases = {
-    // Spanish → English
-    'evaluada': 'Evaluated', 'condicional': 'Evaluated', 'hold': 'Evaluated', 'evaluar': 'Evaluated', 'verificar': 'Evaluated',
-    'aplicado': 'Applied', 'enviada': 'Applied', 'aplicada': 'Applied', 'applied': 'Applied', 'sent': 'Applied',
-    'respondido': 'Responded',
-    'entrevista': 'Interview',
-    'oferta': 'Offer',
-    'rechazado': 'Rejected', 'rechazada': 'Rejected',
-    'descartado': 'Discarded', 'descartada': 'Discarded', 'cerrada': 'Discarded', 'cancelada': 'Discarded',
-    'no aplicar': 'SKIP', 'no_aplicar': 'SKIP', 'skip': 'SKIP', 'monitor': 'SKIP',
-    'geo blocker': 'SKIP',
-  };
-
-  if (aliases[lower]) return aliases[lower];
-
-  // DUPLICADO/Repost → Discarded
-  if (/^(duplicado|dup|repost)/i.test(lower)) return 'Discarded';
-
-  console.warn(`⚠️  Non-canonical status "${status}" → defaulting to "Evaluated"`);
-  return 'Evaluated';
-}
-
-function normalizeCompany(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function roleFuzzyMatch(a, b) {
-  const wordsA = a.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const wordsB = b.toLowerCase().split(/\s+/).filter(w => w.length > 3);
-  const overlap = wordsA.filter(w => wordsB.some(wb => wb.includes(w) || w.includes(wb)));
-  return overlap.length >= 2;
-}
-
-function extractReportNum(reportStr) {
-  const m = reportStr.match(/\[(\d+)\]/);
-  return m ? parseInt(m[1]) : null;
-}
-
-function parseScore(s) {
-  const m = s.replace(/\*\*/g, '').match(/([\d.]+)/);
-  return m ? parseFloat(m[1]) : 0;
-}
-
-/**
- * Reports live in tier subfolders (reports/tier-1/.../tier-4/). For oferta
- * (applications.md) the tier is derived from the global Score (1-10 scale):
- *   ≥ 9.0 → tier-1; 7.0-8.9 → tier-2; < 7.0 → tier-3; SKIP → tier-4
- * If the writer passed a flat path like `reports/014-...md`, rewrite it.
- * Honor `—` and already-tiered paths unchanged.
- */
-function rewriteReportPathForOfertaTier(reportStr, score, status) {
-  if (!reportStr || reportStr === '—' || reportStr === '-') return reportStr;
-  if (/reports\/tier-\d\//.test(reportStr)) return reportStr;
-  const lowerStatus = (status || '').toLowerCase();
-  let tier;
-  if (lowerStatus === 'skip') tier = 4;
-  else if (score >= 9.0) tier = 1;
-  else if (score >= 7.0) tier = 2;
-  else if (score > 0) tier = 3;
-  else return reportStr;
-  return reportStr.replace(/reports\//, `reports/tier-${tier}/`);
-}
-
-function parseAppLine(line) {
-  const parts = line.split('|').map(s => s.trim());
-  if (parts.length < 9) return null;
-  const num = parseInt(parts[1]);
-  if (isNaN(num) || num === 0) return null;
-  // New format (11 cols + 2 pipes): # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes
-  // Old format (10 cols + 2 pipes): # | Date | Company | Role | Score | Status | PDF | Report | Notes
-  const hasDeadline = parts.length >= 12;
-  return {
-    num, date: parts[2], company: parts[3], role: parts[4],
-    score: parts[5], status: parts[6], pdf: parts[7],
-    deadline: hasDeadline ? parts[8] : 'n/d',
-    report: hasDeadline ? parts[9] : parts[8],
-    notes: hasDeadline ? (parts[10] || '') : (parts[9] || ''),
-    raw: line,
-  };
-}
-
-/**
- * Parse a TSV file content into a structured addition object.
- * Handles: 9-col TSV, 8-col TSV, pipe-delimited markdown.
- */
-function parseTsvContent(content, filename) {
-  content = content.trim();
-  if (!content) return null;
-
-  let parts;
-  let addition;
-
-  // Detect pipe-delimited (markdown table row)
-  if (content.startsWith('|')) {
-    parts = content.split('|').map(s => s.trim()).filter(Boolean);
-    if (parts.length < 8) {
-      console.warn(`⚠️  Skipping malformed pipe-delimited ${filename}: ${parts.length} fields`);
-      return null;
-    }
-    // Format: num | date | company | role | score | status | pdf | report | notes
-    addition = {
-      num: parseInt(parts[0]),
-      date: parts[1],
-      company: parts[2],
-      role: parts[3],
-      score: parts[4],
-      status: validateStatus(parts[5]),
-      pdf: parts[6],
-      report: parts[7],
-      notes: parts[8] || '',
-    };
-  } else {
-    // Tab-separated
-    parts = content.split('\t');
-    if (parts.length < 8) {
-      console.warn(`⚠️  Skipping malformed TSV ${filename}: ${parts.length} fields`);
-      return null;
-    }
-
-    // Detect column order: some TSVs have (status, score), others have (score, status)
-    // Heuristic: if col4 looks like a score and col5 looks like a status, they're swapped
-    const col4 = parts[4].trim();
-    const col5 = parts[5].trim();
-    const col4LooksLikeScore = /^\d+\.?\d*\/\d+$/.test(col4) || col4 === 'N/A' || col4 === 'DUP';
-    const col5LooksLikeScore = /^\d+\.?\d*\/\d+$/.test(col5) || col5 === 'N/A' || col5 === 'DUP';
-    const col4LooksLikeStatus = /^(evaluated|applied|responded|interview|offer|rejected|discarded|skip|evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(col4);
-    const col5LooksLikeStatus = /^(evaluated|applied|responded|interview|offer|rejected|discarded|skip|evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(col5);
-
-    let statusCol, scoreCol;
-    if (col4LooksLikeStatus && !col4LooksLikeScore) {
-      // Standard format: col4=status, col5=score
-      statusCol = col4; scoreCol = col5;
-    } else if (col4LooksLikeScore && col5LooksLikeStatus) {
-      // Swapped format: col4=score, col5=status
-      statusCol = col5; scoreCol = col4;
-    } else if (col5LooksLikeScore && !col4LooksLikeScore) {
-      // col5 is definitely score → col4 must be status
-      statusCol = col4; scoreCol = col5;
-    } else {
-      // Default: standard format (status before score)
-      statusCol = col4; scoreCol = col5;
-    }
-
-    // New 10-col: num date company role status score pdf deadline report notes
-    // Old  9-col: num date company role status score pdf report notes
-    const hasDeadline = parts.length >= 10;
-    addition = {
-      num: parseInt(parts[0]),
-      date: parts[1],
-      company: parts[2],
-      role: parts[3],
-      status: validateStatus(statusCol),
-      score: scoreCol,
-      pdf: parts[6],
-      deadline: hasDeadline ? (parts[7] || 'n/d') : 'n/d',
-      report: hasDeadline ? parts[8] : parts[7],
-      notes: hasDeadline ? (parts[9] || '') : (parts[8] || ''),
-    };
-  }
-
-  if (isNaN(addition.num) || addition.num === 0) {
-    console.warn(`⚠️  Skipping ${filename}: invalid entry number`);
-    return null;
-  }
-
-  addition.report = rewriteReportPathForOfertaTier(addition.report, parseScore(addition.score), addition.status);
-  return addition;
-}
 
 // ---- Main ----
 
@@ -247,7 +72,7 @@ let maxNum = 0;
 
 for (const line of appLines) {
   if (line.startsWith('|') && !line.includes('---') && !line.includes('Empresa')) {
-    const app = parseAppLine(line);
+    const app = parseAppRow(line);
     if (app) {
       existingApps.push(app);
       if (app.num > maxNum) maxNum = app.num;
@@ -285,7 +110,7 @@ const newLines = [];
 
 for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
-  const addition = parseTsvContent(content, file);
+  const addition = parseTsvAddition(content, file);
   if (!addition) { skipped++; continue; }
 
   // Check for duplicate by:
@@ -309,9 +134,9 @@ for (const file of tsvFiles) {
 
   if (!duplicate) {
     // Company + role fuzzy match
-    const normCompany = normalizeCompany(addition.company);
+    const normCompany = companyKey(addition.company);
     duplicate = existingApps.find(app => {
-      if (normalizeCompany(app.company) !== normCompany) return false;
+      if (companyKey(app.company) !== normCompany) return false;
       return roleFuzzyMatch(addition.role, app.role);
     });
   }
