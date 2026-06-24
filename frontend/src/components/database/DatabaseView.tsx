@@ -12,13 +12,21 @@ import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { parseCities, entityId } from '@/lib/entityId'
 import type { ScoreEntry } from '@/types'
+import { ENGAGED_STATUSES } from '@/types'
 
 export function DatabaseView() {
   const scoreHistoryRaw = useDataStore(s => s.scoreHistory)
   const liveness = useDataStore(s => s.liveness)
   const loaded = useDataStore(s => s.loaded)
   const discarded = useDataStore(s => s.discarded)
+  const applications = useDataStore(s => s.applications)
   const databaseFilter = useNavStore(s => s.databaseFilter)
+
+  // "Untapped only" — hide listings already engaged (applied / interviewing /
+  // rejected …) so the table shows only scored-but-not-yet-pursued roles.
+  // Local UI state (not persisted like the facet store) — it's a transient
+  // "help me find what's left to chase" lens, reset on relaunch.
+  const [untappedOnly, setUntappedOnly] = useState(false)
 
   // Drop tombstoned rows up-front. The tombstone set is keyed by
   // livenessKey(company, role) — identical to the key used for the
@@ -87,26 +95,44 @@ export function DatabaseView() {
     return liveness[key] ?? 'active'
   }, [liveness])
 
+  // Keys (company|role) of listings already engaged — feeds the "Untapped
+  // only" filter below. Built from applications.md, lowercased to match the
+  // entity rows (same keying as the liveness / discard maps).
+  const actedKeys = useMemo(() => {
+    const s = new Set<string>()
+    for (const a of applications) {
+      if (ENGAGED_STATUSES.has(a.status)) s.add(`${a.company.trim().toLowerCase()}|${a.role.trim().toLowerCase()}`)
+    }
+    return s
+  }, [applications])
+
+  // Dedupe scoreHistory → one entity per (company, role, city), latest
+  // evaluation wins (max date). Lifted out of the `filtered` memo so the
+  // faceted counts below count the same units the table renders, without
+  // re-walking scoreHistory twice.
+  const entities = useMemo(() => {
+    const m = new Map<string, ScoreEntry>()
+    for (const r of scoreHistory) {
+      const id = entityId(r.company, r.role, parseCities(r.location))
+      const prev = m.get(id)
+      if (!prev || r.date.localeCompare(prev.date) > 0) m.set(id, r)
+    }
+    return [...m.values()]
+  }, [scoreHistory])
+
   // Apply all filters and group siblings into parent rows. The output
   // is one row per (company, role-canonical) group; each row carries
   // a `siblings` array for the OffersTable's expansion to render. A
   // group with only one entity falls through as a flat row (siblings
   // empty), looking exactly like the pre-grouping table.
   const filtered = useMemo(() => {
-    // 1. Dedupe scoreHistory → one entity per (company, role, city).
-    //    Latest evaluation wins (max date).
-    const entities = new Map<string, ScoreEntry>()
-    for (const r of scoreHistory) {
-      const id = entityId(r.company, r.role, parseCities(r.location))
-      const prev = entities.get(id)
-      if (!prev || r.date.localeCompare(prev.date) > 0) entities.set(id, r)
-    }
-    let rows: ScoreEntry[] = [...entities.values()]
+    let rows: ScoreEntry[] = entities
 
     // 2. Apply entity-level filters (everything except liveness, which
     //    is applied at the GROUP level below so a group is visible if
     //    ANY of its siblings matches the liveness chip set).
     if (!showClosed) rows = rows.filter(r => r.overall > 0)
+    if (untappedOnly) rows = rows.filter(r => !actedKeys.has(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`))
     if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
     if (filters.locations.size) {
       rows = rows.filter(r => {
@@ -186,7 +212,74 @@ export function DatabaseView() {
 
     // 5. Sort by overall desc — same as the pre-grouping table.
     return grouped.sort((a, b) => b.overall - a.overall)
-  }, [scoreHistory, liveness, livenessOf, filters, tokenFilters, freeText, showClosed])
+  }, [entities, livenessOf, filters, tokenFilters, freeText, showClosed, untappedOnly, actedKeys])
+
+  // Per-option facet counts (Amazon-style): each dimension is counted with
+  // every OTHER active facet applied but its own selection ignored, so a
+  // count answers "if I toggle this option, how many entities land?" rather
+  // than a static total that ignores the filters already in play. Counted at
+  // the entity level (one row per company+role+city) to match the units the
+  // facet options are built from. The global constraints (search tokens, free
+  // text, zero-score toggle, score range) gate every dimension.
+  const facetCounts = useMemo(() => {
+    const passGlobal = (r: ScoreEntry): boolean => {
+      if (!showClosed && !(r.overall > 0)) return false
+      if (r.overall < filters.scoreMin || r.overall > filters.scoreMax) return false
+      if (tokenFilters.company && !r.company.toLowerCase().includes(tokenFilters.company.toLowerCase())) return false
+      if (tokenFilters.role && !r.role.toLowerCase().includes(tokenFilters.role.toLowerCase())) return false
+      if (tokenFilters.tier && r.tier.toLowerCase() !== tokenFilters.tier.toLowerCase()) return false
+      if (tokenFilters.archetype) {
+        const ta = tokenFilters.archetype.toLowerCase()
+        if (!(r.archetype.toLowerCase().includes(ta) || canonicalizeArchetype(r.archetype).toLowerCase().includes(ta))) return false
+      }
+      if (tokenFilters.location) {
+        const needle = tokenFilters.location.toLowerCase()
+        const hit = r.location.toLowerCase().includes(needle) || parseCities(r.location).cities.some(c => c.toLowerCase().includes(needle))
+        if (!hit) return false
+      }
+      if (tokenFilters.type && !r.employment_type.toLowerCase().includes(tokenFilters.type.toLowerCase())) return false
+      if (tokenFilters.minScore != null && !(r.overall >= tokenFilters.minScore)) return false
+      if (freeText) {
+        const q = freeText.toLowerCase()
+        if (!(r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q))) return false
+      }
+      return true
+    }
+
+    // Per-dimension predicates — mirror the filter logic in `filtered`.
+    const passCompany   = (r: ScoreEntry) => !filters.companies.size || filters.companies.has(r.company)
+    const passLocation  = (r: ScoreEntry) => {
+      if (!filters.locations.size) return true
+      const cities = parseCities(r.location).cities
+      return cities.length === 0 ? filters.locations.has(r.location) : cities.some(c => filters.locations.has(c))
+    }
+    const passArchetype = (r: ScoreEntry) => !filters.archetypes.size || filters.archetypes.has(canonicalizeArchetype(r.archetype))
+    const passTier      = (r: ScoreEntry) => !filters.tiers.size || filters.tiers.has(r.tier) || (r.tier === 'T2-high' && filters.tiers.has('T2'))
+    const passType      = (r: ScoreEntry) => !filters.employmentTypes.size || filters.employmentTypes.has(r.employment_type)
+    const passLiveness  = (r: ScoreEntry) => filters.liveness.has(livenessOf(r))
+
+    const companies: Record<string, number> = {}
+    const locations: Record<string, number> = {}
+    const archetypes: Record<string, number> = {}
+    const tiers: Record<string, number> = {}
+    const employmentTypes: Record<string, number> = {}
+    const liveness: Record<string, number> = {}
+    const bump = (m: Record<string, number>, k: string) => { if (k) m[k] = (m[k] ?? 0) + 1 }
+
+    for (const r of entities) {
+      if (!passGlobal(r)) continue
+      if (passLocation(r) && passArchetype(r) && passTier(r) && passType(r) && passLiveness(r)) bump(companies, r.company)
+      if (passCompany(r) && passArchetype(r) && passTier(r) && passType(r) && passLiveness(r)) {
+        const cities = parseCities(r.location).cities
+        for (const c of (cities.length ? cities : [r.location])) bump(locations, c)
+      }
+      if (passCompany(r) && passLocation(r) && passTier(r) && passType(r) && passLiveness(r)) bump(archetypes, canonicalizeArchetype(r.archetype))
+      if (passCompany(r) && passLocation(r) && passArchetype(r) && passType(r) && passLiveness(r)) bump(tiers, r.tier === 'T2-high' ? 'T2' : r.tier)
+      if (passCompany(r) && passLocation(r) && passArchetype(r) && passTier(r) && passLiveness(r)) bump(employmentTypes, r.employment_type)
+      if (passCompany(r) && passLocation(r) && passArchetype(r) && passTier(r) && passType(r)) bump(liveness, livenessOf(r))
+    }
+    return { companies, locations, archetypes, tiers, employmentTypes, liveness }
+  }, [entities, livenessOf, filters, tokenFilters, freeText, showClosed])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -216,7 +309,7 @@ export function DatabaseView() {
         <div className="flex flex-1 min-h-0">
           {/* Facet sidebar */}
           {facetExpanded && (
-            <FacetSidebar filters={filters} onChange={setFilters} options={options} />
+            <FacetSidebar filters={filters} onChange={setFilters} options={options} counts={facetCounts} />
           )}
 
           {/* Table */}
