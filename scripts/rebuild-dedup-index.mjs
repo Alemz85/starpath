@@ -20,55 +20,16 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { HEADER, collectInto } from './lib/dedup-index.mjs';
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(ROOT, 'data/scouting.md');
 const APPS_FILE = join(ROOT, 'data/applications.md');
 const INDEX_FILE = join(ROOT, 'data/dedup-index.tsv');
 
-const HEADER = 'company_normalized\trole_normalized\tlast_seen_date';
-
-function normalizeCompany(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
-}
-
-function normalizeRole(role) {
-  return role.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-function isDataRow(line) {
-  return line.startsWith('|') && !line.includes('---') && !/^\|\s*#\s*\|/.test(line);
-}
-
-function parseRow(line) {
-  // Both scouting.md and applications.md share: empty | num | date | company | role | ...
-  const parts = line.split('|').map(s => s.trim());
-  if (parts.length < 6) return null;
-  const num = parseInt(parts[1]);
-  if (isNaN(num) || num === 0) return null;
-  const date = parts[2];
-  const company = parts[3];
-  const role = parts[4];
-  if (!date || !company || !role) return null;
-  // Reject obvious header noise where date column doesn't look like a date
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
-  return { date, company, role };
-}
-
 function collect(file, map) {
   if (!existsSync(file)) return 0;
-  const content = readFileSync(file, 'utf-8');
-  let count = 0;
-  for (const line of content.split('\n')) {
-    if (!isDataRow(line)) continue;
-    const r = parseRow(line);
-    if (!r) continue;
-    const key = `${normalizeCompany(r.company)}\t${normalizeRole(r.role)}`;
-    const prev = map.get(key);
-    if (!prev || r.date > prev) map.set(key, r.date);
-    count++;
-  }
-  return count;
+  return collectInto(readFileSync(file, 'utf-8'), map);
 }
 
 const map = new Map();
