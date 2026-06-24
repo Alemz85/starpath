@@ -18,6 +18,7 @@ import { ConfigurationView } from '@/components/configuration/ConfigurationView'
 import { ProfileView } from '@/components/profile/ProfileView'
 import { AddListingModal } from '@/components/scouting/AddListingModal'
 import { AuthBanner } from '@/components/shared/AuthBanner'
+import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 
 // Display labels for the cross-view nav guard's modal copy. Keep in
 // sync with the Sidebar's NavItem labels.
@@ -73,16 +74,24 @@ export function AppShell() {
       <div className="cosmos-grain" aria-hidden />
       <Sidebar />
       <main className="flex-1 overflow-hidden flex flex-col min-w-0">
+        {/* AuthBanner sits OUTSIDE the boundary so an expired-session prompt
+            shows even if the active view itself crashes. */}
         <AuthBanner />
-        {view === 'scouting' && <CommandCenter />}
-        {view === 'applying' && <ApplyingView />}
-        {view === 'database' && <DatabaseView />}
-        {view === 'reports'  && <ReportsView />}
-        {view === 'trends'   && <TrendsView />}
-        {view === 'scan'     && <ScanView />}
-        {view === 'config'   && <ConfigurationView />}
-        {view === 'settings' && <SettingsView />}
-        {view === 'profile'  && <ProfileView />}
+        {/* key={view} remounts a fresh boundary per tab, so a crash in one
+            view clears the moment the user navigates to another. The boundary
+            is transparent when healthy — it returns its children directly, so
+            the view stays a direct flex child of <main>. */}
+        <ErrorBoundary key={view} label={VIEW_LABELS[view]}>
+          {view === 'scouting' && <CommandCenter />}
+          {view === 'applying' && <ApplyingView />}
+          {view === 'database' && <DatabaseView />}
+          {view === 'reports'  && <ReportsView />}
+          {view === 'trends'   && <TrendsView />}
+          {view === 'scan'     && <ScanView />}
+          {view === 'config'   && <ConfigurationView />}
+          {view === 'settings' && <SettingsView />}
+          {view === 'profile'  && <ProfileView />}
+        </ErrorBoundary>
       </main>
       <CmdK />
       <AddListingModal />
