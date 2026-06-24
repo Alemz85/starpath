@@ -10,6 +10,7 @@ import {
   Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X,
 } from 'lucide-react'
 import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
+import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { cn, deadlineUrgency, urgencyBadge } from '@/lib/utils'
@@ -75,6 +76,14 @@ export function ApplyingView() {
     return map
   }, [applications])
 
+  // Rejected + Discarded fall outside the five active kanban stages — collect
+  // them for the collapsed "Closed" strip below the board so they stay
+  // visible and reversible instead of silently disappearing.
+  const closedApps = useMemo(
+    () => applications.filter(a => a.status === 'Rejected' || a.status === 'Discarded'),
+    [applications],
+  )
+
   const totalApplied      = applications.filter(a => a.status === 'Applied').length
   const totalResponded    = applications.filter(a => a.status === 'Responded').length
   const totalInterviewing = applications.filter(a => a.status === 'Interview').length
@@ -106,6 +115,11 @@ export function ApplyingView() {
     void setApplicationStatus(pendingDiscard.company, pendingDiscard.role, 'Discarded' as AppStatus)
     setPendingDiscard(null)
   }
+
+  // Restore a closed-out row back onto the board. Evaluated is the board's
+  // entry column, so the card reappears in the first lane.
+  const handleRestore = (app: ApplicationEntry) =>
+    void setApplicationStatus(app.company, app.role, 'Evaluated' as AppStatus)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -188,6 +202,10 @@ export function ApplyingView() {
             ))}
           </div>
         </div>
+
+        {/* Closed-out applications (Rejected / Discarded) — collapsed strip so
+            they stay auditable and reversible without cluttering the board. */}
+        <ClosedApplicationsPanel apps={closedApps} onRestore={handleRestore} />
 
         {/* No inline activity panel — live logs live exclusively on the
             Scan tab. The footer pings the user there when anything is
