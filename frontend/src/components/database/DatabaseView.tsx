@@ -7,6 +7,7 @@ import { useDatabaseFilters } from '@/store/databaseFilters'
 import { FacetSidebar } from '@/components/shared/FacetSidebar'
 import { FilterBar } from './FilterBar'
 import { OffersTable } from './OffersTable'
+import { ExportMenu } from './ExportMenu'
 import { ReportSlideOver } from '../reports/ReportSlideOver'
 import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import { canonicalizeArchetype } from '@/lib/archetype'
@@ -281,6 +282,21 @@ export function DatabaseView() {
     return { companies, locations, archetypes, tiers, employmentTypes, liveness }
   }, [entities, livenessOf, filters, tokenFilters, freeText, showClosed])
 
+  // Flatten the grouped rows back to one entity per line for export — the
+  // table collapses a role's cities into a single parent, but the CSV
+  // should carry every evaluated city listing with its own score. The
+  // primary already has livenessState; resolve it for each sibling too.
+  const exportRows = useMemo(() => {
+    const out: ScoreEntry[] = []
+    for (const group of filtered) {
+      out.push(group)
+      for (const sib of group.siblings ?? []) {
+        out.push(sib.livenessState ? sib : { ...sib, livenessState: livenessOf(sib) })
+      }
+    }
+    return out
+  }, [filtered, livenessOf])
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex flex-col h-full min-h-0">
@@ -289,6 +305,7 @@ export function DatabaseView() {
           <h1 className="text-body text-text-1 font-medium">Database</h1>
           <span className="text-label text-text-4 font-mono">{loaded ? `${filtered.length} / ${scoreHistory.length}` : '…'}</span>
           <div className="flex-1" />
+          <ExportMenu rows={exportRows} />
           <label className="titlebar-no-drag flex items-center gap-1.5 text-label text-text-3 cursor-pointer">
             <input
               type="checkbox"
