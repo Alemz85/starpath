@@ -59,8 +59,9 @@ export interface DbGlobalContext {
   liveness: Record<string, Liveness>
 }
 
-// The full row context adds the "Untapped only" lens, which gates the rendered
-// rows but NOT the facet counts (see computeFacetCounts).
+// The full context adds the "Untapped only" lens (the set of already-engaged
+// company|role keys + the toggle). It gates both the rendered rows AND the
+// facet counts, so the two stay consistent.
 export interface DbFilterContext extends DbGlobalContext {
   untappedOnly: boolean
   actedKeys: Set<string>
@@ -183,16 +184,18 @@ export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterCont
 // level to match the option universe. Global constraints (search tokens, free
 // text, zero-score toggle, score range) gate every dimension.
 //
-// NB (preserved from the component): the "Untapped only" lens does NOT gate
-// these counts — only the rendered rows. So with that lens on, a facet count
-// can exceed the visible row count. Intentional carry-over, not a fix target
-// for this extraction.
-export function computeFacetCounts(entities: ScoreEntry[], ctx: DbGlobalContext): DbFacetCounts {
-  const { filters, tokenFilters, freeText, showClosed, liveness } = ctx
+// The "Untapped only" lens gates these counts too — like every faceted-search
+// UI, a count must agree with the rows the user actually sees, so an already-
+// engaged listing the row list hides is also excluded from the counts. (It's a
+// global gate, not a per-dimension one — toggling it shrinks every facet
+// equally rather than answering a what-if for one dimension.)
+export function computeFacetCounts(entities: ScoreEntry[], ctx: DbFilterContext): DbFacetCounts {
+  const { filters, tokenFilters, freeText, showClosed, untappedOnly, actedKeys, liveness } = ctx
   const lvOf = (e: ScoreEntry) => livenessOf(e, liveness)
 
   const passGlobal = (r: ScoreEntry): boolean => {
     if (!showClosed && !(r.overall > 0)) return false
+    if (untappedOnly && actedKeys.has(livenessKey(r.company, r.role))) return false
     if (r.overall < filters.scoreMin || r.overall > filters.scoreMax) return false
     return matchesTokenQuery(r, tokenFilters, freeText)
   }
