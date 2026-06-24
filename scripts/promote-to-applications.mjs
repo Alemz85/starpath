@@ -4,9 +4,14 @@
  *
  * Moves an entry from data/scouting.md to data/applications.md, changing the
  * status from a scouting observation to an "Evaluated" active application.
- * Preserves the report link. The scouting entry stays in data/scouting.md as
- * a frozen historical record (so positioning trajectory is not disrupted),
- * with the Promotion Hint column flipped to PROMOTED-{num}.
+ * Preserves the report link, the posting's deadline, and the scouting notes.
+ * The scouting entry stays in data/scouting.md as a frozen historical record
+ * (so positioning trajectory is not disrupted), with the Promotion Hint column
+ * flipped to PROMOTED-{num}.
+ *
+ * Scouting-row parsing lives in lib/scouting-core.mjs (pure + unit-tested) —
+ * which is deadline-column-aware, so the Report / Deadline / Hint / Notes cells
+ * map correctly on the current 11-column scouting.md format.
  *
  * Run: node career-ops/promote-to-applications.mjs <scouting-num> [--dry-run]
  *
@@ -19,6 +24,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { companyKey, parseScoutingRow, formatScoutingRow } from './lib/scouting-core.mjs';
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
@@ -48,28 +54,13 @@ if (!existsSync(APPS_FILE)) {
 const scoutingLines = readFileSync(SCOUTING_FILE, 'utf-8').split('\n');
 const appsLines = readFileSync(APPS_FILE, 'utf-8').split('\n');
 
-// Find the scouting entry
+// Find the scouting entry (deadline-aware parse → correct report/deadline/notes)
 let scoutingRow = null;
 let scoutingIdx = -1;
 for (let i = 0; i < scoutingLines.length; i++) {
-  const line = scoutingLines[i];
-  if (!line.startsWith('|') || line.includes('---') || /^\|\s*#\s*\|/.test(line)) continue;
-  const parts = line.split('|').map(s => s.trim());
-  if (parts.length < 11) continue;
-  const num = parseInt(parts[1]);
-  if (num === targetNum) {
-    scoutingRow = {
-      num,
-      date: parts[2],
-      company: parts[3],
-      role: parts[4],
-      score: parts[5],
-      tier: parts[6],
-      cfAf: parts[7],
-      report: parts[8],
-      hint: parts[9],
-      notes: parts[10] || '',
-    };
+  const row = parseScoutingRow(scoutingLines[i]);
+  if (row && row.num === targetNum) {
+    scoutingRow = row;
     scoutingIdx = i;
     break;
   }
@@ -92,14 +83,14 @@ for (const line of appsLines) {
   if (!isNaN(num) && num > maxAppNum) maxAppNum = num;
 }
 
-// Check for existing app with same company+role
-const normCompany = scoutingRow.company.toLowerCase().replace(/[^a-z0-9]/g, '');
+// Check for existing app with same company+role (company/role columns are
+// positionally fixed regardless of the deadline column, so this is safe).
+const normCompany = companyKey(scoutingRow.company);
 for (const line of appsLines) {
   if (!line.startsWith('|') || line.includes('---') || /^\|\s*#\s*\|/.test(line)) continue;
   const parts = line.split('|').map(s => s.trim());
   if (parts.length < 9) continue;
-  const c = (parts[3] || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (c === normCompany && parts[4] === scoutingRow.role) {
+  if (companyKey(parts[3] || '') === normCompany && parts[4] === scoutingRow.role) {
     console.error(`⚠️  Application already exists for ${scoutingRow.company} — ${scoutingRow.role}. Aborting.`);
     process.exit(1);
   }
@@ -107,9 +98,11 @@ for (const line of appsLines) {
 
 const newAppNum = maxAppNum + 1;
 const today = new Date().toISOString().slice(0, 10);
-const promotionNote = `Promoted from scouting #${targetNum} (${scoutingRow.tier}, CF/AF ${scoutingRow.cfAf}). ${scoutingRow.notes}`;
+const promotionNote = `Promoted from scouting #${targetNum} (${scoutingRow.tier}, CF/AF ${scoutingRow.cfAf}). ${scoutingRow.notes}`.trim();
 
-const newAppLine = `| ${newAppNum} | ${today} | ${scoutingRow.company} | ${scoutingRow.role} | ${scoutingRow.score} | Evaluated | ❌ | ${scoutingRow.report} | ${promotionNote} |`;
+// applications.md is 10-column: # date company role score status pdf deadline report notes
+// (matches what merge-tracker writes). Carry the posting's deadline forward.
+const newAppLine = `| ${newAppNum} | ${today} | ${scoutingRow.company} | ${scoutingRow.role} | ${scoutingRow.score} | Evaluated | ❌ | ${scoutingRow.deadline || 'n/d'} | ${scoutingRow.report} | ${promotionNote} |`;
 
 console.log(`\n➕ New applications.md entry #${newAppNum}:`);
 console.log(`   ${newAppLine}`);
@@ -128,13 +121,9 @@ if (insertIdx < 0) {
 }
 appsLines.splice(insertIdx, 0, newAppLine);
 
-// Update the scouting row's promotion hint
-const updatedScoutingRow = {
-  ...scoutingRow,
-  hint: `PROMOTED-${newAppNum}`,
-};
-const updatedLine = `| ${updatedScoutingRow.num} | ${updatedScoutingRow.date} | ${updatedScoutingRow.company} | ${updatedScoutingRow.role} | ${updatedScoutingRow.score} | ${updatedScoutingRow.tier} | ${updatedScoutingRow.cfAf} | ${updatedScoutingRow.report} | ${updatedScoutingRow.hint} | ${updatedScoutingRow.notes} |`;
-scoutingLines[scoutingIdx] = updatedLine;
+// Flip the scouting row's promotion hint, preserving every other column
+// (deadline + notes included — formatScoutingRow re-emits the canonical shape).
+scoutingLines[scoutingIdx] = formatScoutingRow({ ...scoutingRow, hint: `PROMOTED-${newAppNum}` });
 
 if (DRY_RUN) {
   console.log('\n(dry-run — no changes written)');
