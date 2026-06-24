@@ -94,10 +94,13 @@ export function DatabaseView() {
 
   // Per-option facet counts (Amazon-style): each dimension counted with every
   // OTHER active facet applied but its own selection ignored. Shares the token
-  // matcher with `filtered` so counts can't disagree with the visible rows.
+  // matcher AND the untapped-only lens with `filtered` so counts can't disagree
+  // with the visible rows.
   const facetCounts = useMemo(
-    () => computeFacetCounts(entities, { filters, tokenFilters, freeText, showClosed, liveness }),
-    [entities, filters, tokenFilters, freeText, showClosed, liveness],
+    () => computeFacetCounts(entities, {
+      filters, tokenFilters, freeText, showClosed, untappedOnly, actedKeys, liveness,
+    }),
+    [entities, filters, tokenFilters, freeText, showClosed, untappedOnly, actedKeys, liveness],
   )
 
   // Flatten grouped rows to one entity per line for export (every evaluated

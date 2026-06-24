@@ -239,6 +239,21 @@ test('computeFacetCounts respects the global score-range and zero-score gates', 
   assert.deepEqual(counts.companies, { A: 1 })  // B below range, C zero-score → excluded
 })
 
+test('computeFacetCounts excludes engaged listings under the untapped-only lens', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', overall: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'Analyst', overall: 8 }),
+  ])
+  const acted = buildActedKeys([makeApplication({ company: 'Acme', role: 'Engineer', status: 'Applied' })])
+  // Without the lens, both count; with it, the already-applied Acme row drops —
+  // so the counts agree with the rows filterAndGroupEntities would render.
+  assert.deepEqual(computeFacetCounts(entities, ctx()).companies, { Acme: 1, Globex: 1 })
+  assert.deepEqual(
+    computeFacetCounts(entities, ctx({ untappedOnly: true, actedKeys: acted })).companies,
+    { Globex: 1 },
+  )
+})
+
 // ─── flattenForExport ────────────────────────────────────────────────────────
 
 test('flattenForExport emits the parent then each sibling with a resolved livenessState', () => {
