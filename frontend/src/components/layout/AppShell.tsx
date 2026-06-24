@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { CmdK } from '@/components/shared/CmdK'
 import { useDataStore } from '@/store/data'
-import { useNavStore, type ViewId } from '@/store/nav'
+import { useNavStore, VIEW_LABELS } from '@/store/nav'
 import { useConfigDirty } from '@/store/configDirty'
 import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
 import { CommandCenter } from '@/components/command-center/CommandCenter'
@@ -16,27 +16,15 @@ import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
 import { ConfigurationView } from '@/components/configuration/ConfigurationView'
 import { ProfileView } from '@/components/profile/ProfileView'
+import { CompanyView } from '@/components/company/CompanyView'
 import { AddListingModal } from '@/components/scouting/AddListingModal'
 import { AuthBanner } from '@/components/shared/AuthBanner'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
 
-// Display labels for the cross-view nav guard's modal copy. Keep in
-// sync with the Sidebar's NavItem labels.
-const VIEW_LABELS: Record<ViewId, string> = {
-  scouting: 'Scouting',
-  applying: 'Applying',
-  database: 'Database',
-  reports:  'Reports',
-  trends:   'Trends',
-  scan:     'Activity',
-  config:   'Configuration',
-  settings: 'Settings',
-  profile:  'Profile',
-}
-
 export function AppShell() {
   const load = useDataStore(s => s.load)
   const view = useNavStore(s => s.view)
+  const companySlug = useNavStore(s => s.companySlug)
   const pendingView = useNavStore(s => s.pendingView)
   const confirmPendingNavigate = useNavStore(s => s.confirmPendingNavigate)
   const cancelPendingNavigate = useNavStore(s => s.cancelPendingNavigate)
@@ -91,6 +79,7 @@ export function AppShell() {
           {view === 'config'   && <ConfigurationView />}
           {view === 'settings' && <SettingsView />}
           {view === 'profile'  && <ProfileView />}
+          {view === 'company'  && <CompanyView slug={companySlug} />}
         </ErrorBoundary>
       </main>
       <CmdK />
