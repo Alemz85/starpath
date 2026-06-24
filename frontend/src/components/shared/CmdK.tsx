@@ -1,20 +1,23 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { Command } from 'cmdk'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus,
+  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
+import { toCompanySlug } from '@/components/shared/CompanyLink'
 
 export function CmdK() {
   const [open, setOpen] = useState(false)
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const scouting = useDataStore(s => s.scouting)
   const navigate = useNavStore(s => s.navigate)
+  const router = useRouter()
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -30,6 +33,13 @@ export function CmdK() {
 
   const go = (view: Parameters<typeof navigate>[0], filter?: string) => {
     navigate(view, filter)
+    setOpen(false)
+  }
+
+  // Companies open their dossier page (/company?slug=) — the per-company
+  // view with aggregate stats, application status, and the roles table.
+  const goCompany = (company: string) => {
+    router.push(`/company?slug=${toCompanySlug(company)}`)
     setOpen(false)
   }
 
@@ -111,10 +121,10 @@ export function CmdK() {
                   <Command.Item
                     key={company}
                     value={company}
-                    onSelect={() => go('database', company)}
+                    onSelect={() => goCompany(company)}
                     className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
                   >
-                    <Database size={14} className="text-text-3" />
+                    <Building2 size={14} className="text-text-3" />
                     {company}
                   </Command.Item>
                 ))}
