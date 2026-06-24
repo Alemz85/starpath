@@ -1,4 +1,4 @@
-import type { ViewId } from '@/store/nav'
+import { VIEW_LABELS, type ViewId } from '@/store/nav'
 
 // ─── Go-to navigation chords ─────────────────────────────────────────────────
 //
@@ -80,25 +80,12 @@ export interface ShortcutGroup {
   rows: ShortcutRow[]
 }
 
-// Display labels for the chordable views. Full ViewId map so adding a chord
-// for any view is a one-line change in NAV_CHORDS with a label already here.
-const VIEW_LABEL: Record<ViewId, string> = {
-  scouting: 'Scouting',
-  applying: 'Applying',
-  database: 'Database',
-  reports:  'Reports',
-  trends:   'Trends',
-  scan:     'Activity',
-  config:   'Configuration',
-  settings: 'Settings',
-  profile:  'Profile',
-}
-
-/** Navigate rows for the cheatsheet, derived straight from NAV_CHORDS. */
+/** Navigate rows for the cheatsheet, derived straight from NAV_CHORDS.
+ *  Labels come from the single source in store/nav.ts (VIEW_LABELS). */
 export function navShortcutRows(): ShortcutRow[] {
   return Object.entries(NAV_CHORDS).map(([key, view]) => ({
     keys: ['G', key.toUpperCase()],
-    label: VIEW_LABEL[view],
+    label: VIEW_LABELS[view],
     combo: 'then' as const,
   }))
 }
