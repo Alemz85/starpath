@@ -23,6 +23,12 @@ interface AppState {
   claudeInstalled: boolean
   models: ModelPrefs
 
+  // Claude auth health. `null` = session is good. A reason is set either at
+  // launch (expired/lost token detected) or at runtime when a spawned
+  // `claude -p` 401s mid-run. Drives the global AuthBanner.
+  authError: AuthErrorReason | null
+  reloginInProgress: boolean
+
   // Actions
   init: () => Promise<void>
   setRepoPath: (p: string) => Promise<void>
@@ -31,7 +37,16 @@ interface AppState {
   resetTailoring: () => Promise<void>
   setModel: (category: keyof ModelPrefs, model: ModelAlias) => Promise<void>
   recheckClaude: () => Promise<boolean>
+  checkAuth: () => Promise<void>
+  flagAuthError: (reason: AuthErrorReason) => void
+  clearAuthError: () => void
+  relogin: () => Promise<void>
 }
+
+export type AuthErrorReason = 'expired' | 'logged-out' | 'runtime-401'
+
+const RELOGIN_POLL_INTERVAL = 2500
+const RELOGIN_POLL_TIMEOUT = 5 * 60 * 1000
 
 export const useAppStore = create<AppState>((set, get) => ({
   repoPath: null,
@@ -39,6 +54,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   tailoringComplete: true,
   claudeInstalled: false,
   models: DEFAULT_MODEL_PREFS,
+  authError: null,
+  reloginInProgress: false,
 
   init: async () => {
     const cfg = await ipc.getConfig()
@@ -73,6 +90,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       claudeInstalled: claudeCheck?.installed ?? false,
       models:          cfg?.models ?? DEFAULT_MODEL_PREFS,
     })
+
+    // Surface an expired/lost Claude session at launch — before the user
+    // fires a scan and hits a 401 with no idea why. Fire-and-forget so it
+    // never blocks the first paint.
+    if (claudeCheck?.installed) void get().checkAuth()
   },
 
   setRepoPath: async (p: string) => {
@@ -109,6 +131,43 @@ export const useAppStore = create<AppState>((set, get) => ({
     const installed = claudeCheck?.installed ?? false
     set({ claudeInstalled: installed })
     return installed
+  },
+
+  checkAuth: async () => {
+    const res = await ipc.checkClaudeAuth()
+    if (res?.authenticated) set({ authError: null })
+    else set({ authError: res?.reason ?? 'logged-out' })
+  },
+
+  // Called by the spawns store the moment a `claude -p` run emits an
+  // auth-failure signature. We don't clobber an in-flight re-login.
+  flagAuthError: (reason) => {
+    if (get().reloginInProgress) return
+    set({ authError: reason })
+  },
+
+  clearAuthError: () => set({ authError: null }),
+
+  relogin: async () => {
+    if (get().reloginInProgress) return
+    set({ reloginInProgress: true })
+    await ipc.runClaudeLogin()
+    // The OAuth browser flow lands a fresh token back in the keychain; poll
+    // until checkClaudeAuth confirms it, then drop the banner.
+    const started = Date.now()
+    const poll = async () => {
+      const res = await ipc.checkClaudeAuth()
+      if (res?.authenticated) {
+        set({ authError: null, reloginInProgress: false })
+        return
+      }
+      if (Date.now() - started > RELOGIN_POLL_TIMEOUT) {
+        set({ reloginInProgress: false })
+        return
+      }
+      setTimeout(poll, RELOGIN_POLL_INTERVAL)
+    }
+    setTimeout(poll, RELOGIN_POLL_INTERVAL)
   },
 
   setModel: async (category, model) => {

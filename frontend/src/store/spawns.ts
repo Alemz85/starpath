@@ -9,6 +9,15 @@
 
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
+import { useAppStore } from './app'
+
+// Auth-failure signatures Claude prints when its token is dead. Deliberately
+// specific phrases — a bare `401` would false-positive on job-search content
+// like "401(k)". Matched against raw claude-spawn output to raise the global
+// re-login banner the moment a run dies on auth instead of letting it read as
+// a generic error.
+const AUTH_FAILURE_RE =
+  /oauth token has expired|authentication_error|invalid bearer token|invalid x-api-key|invalid api key|please run \/login|401 unauthorized|unauthorized[^a-z0-9]{0,12}401/i
 
 const OUTPUT_CAP = 1000
 
@@ -25,6 +34,14 @@ export interface SpawnRecord {
   /** Underlying executable — used by the activity panel to brand running
    *  Claude spawns with the Claude logo. Not all spawns are AI-driven. */
   tool: 'claude' | 'node' | 'shell'
+  /** Command + args captured at start so a failed run can be retried
+   *  verbatim from the activity panel without the originating view. */
+  cmd: string
+  args: string[]
+  /** Set once the user has seen this failure (visited the Activity tab).
+   *  Drives the sidebar's "N failed" badge so a run that dies in the
+   *  background gets noticed, then stops nagging once acknowledged. */
+  acked?: boolean
 }
 
 // Suffix appended to every `claude -p` prompt so the model knows there's no
@@ -180,10 +197,12 @@ function truncate(s: string, n: number): string {
 interface SpawnsState {
   spawns: Record<string, SpawnRecord>
   start:        (id: string, label: string, cmd: string, args: string[]) => void
+  retry:        (id: string) => void
   appendOutput: (id: string, chunk: string) => void
   finish:       (id: string, exitCode: number) => void
   kill:         (id: string) => void
   clear:        (id: string) => void
+  acknowledgeFailures: () => void
 }
 
 export const useSpawnsStore = create<SpawnsState>((set, get) => ({
@@ -193,6 +212,7 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     const tool: SpawnRecord['tool'] =
       cmd === 'claude' ? 'claude' :
       cmd === 'node'   ? 'node'   : 'shell'
+    delete jsonlLineBuffer[id]  // clear any stale partial line from a prior run of this id
     set(state => ({
       spawns: {
         ...state.spawns,
@@ -203,15 +223,33 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
           output: [],
           startedAt: Date.now(),
           tool,
+          cmd,
+          args,
         },
       },
     }))
     ipc.spawn(id, cmd, args)
   },
 
+  // Re-fire a finished spawn with its captured cmd/args, reusing the same id.
+  // Reusing the id means views that key off a fixed id (e.g. the Full Scan
+  // button) light back up automatically, and the activity panel swaps the
+  // failed record for the fresh running one in place.
+  retry: (id) => {
+    const rec = get().spawns[id]
+    if (!rec || rec.status === 'running') return
+    get().start(id, rec.label, rec.cmd, rec.args)
+  },
+
   appendOutput: (id, chunk) => {
     const cur = get().spawns[id]
     if (!cur) return
+    // Watch claude runs for an auth death and raise the global re-login
+    // banner. Checked on the raw chunk before humanizing — the 401 arrives
+    // as a plain-text error line, not a JSONL event.
+    if (cur.tool === 'claude' && AUTH_FAILURE_RE.test(chunk)) {
+      useAppStore.getState().flagAuthError('runtime-401')
+    }
     // Claude spawns produce JSONL — parse + humanize before appending so the
     // panel shows readable progress instead of raw `{"type":"assistant",…}`.
     // node/shell spawns pass through verbatim (already plain text).
@@ -250,6 +288,20 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     ipc.kill(id)
   },
 
+  // Mark every currently-failed run as seen. Called when the user opens the
+  // Activity tab — clears the sidebar failure badge without losing the rows.
+  acknowledgeFailures: () => {
+    set(state => {
+      let changed = false
+      const next: Record<string, SpawnRecord> = {}
+      for (const [id, rec] of Object.entries(state.spawns)) {
+        if (rec.status === 'error' && !rec.acked) { next[id] = { ...rec, acked: true }; changed = true }
+        else next[id] = rec
+      }
+      return changed ? { spawns: next } : state
+    })
+  },
+
   clear: (id) => {
     delete jsonlLineBuffer[id]
     set(state => {
@@ -267,6 +319,29 @@ export const isAnyRunning = (state: SpawnsState): boolean =>
 
 export const getSpawn = (id: string) =>
   (state: SpawnsState): SpawnRecord | undefined => state.spawns[id]
+
+// Count of failed runs the user hasn't seen yet — drives the sidebar badge.
+export const unackedFailureCount = (state: SpawnsState): number =>
+  Object.values(state.spawns).filter(s => s.status === 'error' && !s.acked).length
+
+// ─── Failure diagnosis ──────────────────────────────────────────────────────
+// Turn a failed run's raw output into a one-line, human-actionable cause so the
+// activity panel doesn't make the user scroll a log to figure out what broke.
+
+export function isAuthFailure(rec: SpawnRecord): boolean {
+  return rec.status === 'error' && AUTH_FAILURE_RE.test(rec.output.join('\n'))
+}
+
+export function diagnoseFailure(rec: SpawnRecord): string | null {
+  if (rec.status !== 'error') return null
+  const text = rec.output.join('\n')
+  if (AUTH_FAILURE_RE.test(text)) return 'Claude session expired — sign in again to retry.'
+  if (/rate limit|\b429\b|overloaded|too many requests/i.test(text)) return 'Claude is rate-limited right now — wait a moment, then retry.'
+  if (/\benoent\b|no such file|command not found|cannot find/i.test(text)) return 'A file or command was missing on this machine.'
+  if (/\beacces\b|permission denied|not permitted/i.test(text)) return 'Permission was denied while running the task.'
+  if (/\benotfound\b|\beconnrefused\b|\betimedout\b|getaddrinfo|fetch failed|socket hang up|network error|timed out/i.test(text)) return 'Network error — check your connection, then retry.'
+  return null  // no specific signal — the panel falls back to the exit code
+}
 
 // ─── Module-level IPC bridge ────────────────────────────────────────────────
 // Wired once at module load. Survives view mount/unmount.
