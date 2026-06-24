@@ -13,6 +13,7 @@ import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { parseCities, entityId } from '@/lib/entityId'
 import { parseTokenQuery, matchesTokenQuery } from '@/lib/databaseQuery'
+import { livenessKey } from '@/lib/scanHistory'
 import type { ScoreEntry } from '@/types'
 import { ENGAGED_STATUSES } from '@/types'
 
@@ -38,7 +39,7 @@ export function DatabaseView() {
   const scoreHistory = useMemo(
     () => discarded.size === 0
       ? scoreHistoryRaw
-      : scoreHistoryRaw.filter(r => !discarded.has(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`)),
+      : scoreHistoryRaw.filter(r => !discarded.has(livenessKey(r.company, r.role))),
     [scoreHistoryRaw, discarded],
   )
 
@@ -93,8 +94,7 @@ export function DatabaseView() {
   // Liveness lookup helper, applied identically by the filter, the
   // group's primary picker, and the historical-greying renderer.
   const livenessOf = useCallback((e: ScoreEntry): 'active' | 'stale' | 'closed' => {
-    const key = `${e.company.trim().toLowerCase()}|${e.role.trim().toLowerCase()}`
-    return liveness[key] ?? 'active'
+    return liveness[livenessKey(e.company, e.role)] ?? 'active'
   }, [liveness])
 
   // Keys (company|role) of listings already engaged — feeds the "Untapped
@@ -103,7 +103,7 @@ export function DatabaseView() {
   const actedKeys = useMemo(() => {
     const s = new Set<string>()
     for (const a of applications) {
-      if (ENGAGED_STATUSES.has(a.status)) s.add(`${a.company.trim().toLowerCase()}|${a.role.trim().toLowerCase()}`)
+      if (ENGAGED_STATUSES.has(a.status)) s.add(livenessKey(a.company, a.role))
     }
     return s
   }, [applications])
@@ -134,7 +134,7 @@ export function DatabaseView() {
     //    is applied at the GROUP level below so a group is visible if
     //    ANY of its siblings matches the liveness chip set).
     if (!showClosed) rows = rows.filter(r => r.overall > 0)
-    if (untappedOnly) rows = rows.filter(r => !actedKeys.has(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`))
+    if (untappedOnly) rows = rows.filter(r => !actedKeys.has(livenessKey(r.company, r.role)))
     if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
     if (filters.locations.size) {
       rows = rows.filter(r => {

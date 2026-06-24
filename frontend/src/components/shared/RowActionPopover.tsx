@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
+import { livenessKey } from '@/lib/scanHistory'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
@@ -50,8 +51,7 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
     : anchor.y + 12
 
   const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
-  const livenessKey = `${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`
-  const liveness = useDataStore(s => s.liveness[livenessKey])
+  const liveness = useDataStore(s => s.liveness[livenessKey(entry.company, entry.role)])
   // Does a report file already exist for this entry? If so, hide the
   // Generate-report option — re-running it would just rewrite what's there.
   const hasReport = useDataStore(s => s.reports).some(r =>
