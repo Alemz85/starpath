@@ -4,7 +4,7 @@
 // fills the rest with inert defaults and lets each test override what it
 // asserts on.
 
-import type { ScoreEntry } from '@/types'
+import type { ScoreEntry, ApplicationEntry } from '@/types'
 
 export function makeScoreEntry(overrides: Partial<ScoreEntry> = {}): ScoreEntry {
   return {
@@ -34,6 +34,24 @@ export function makeScoreEntry(overrides: Partial<ScoreEntry> = {}): ScoreEntry 
     duration: '',
     salary_raw: '',
     url: '',
+    ...overrides,
+  }
+}
+
+export function makeApplication(overrides: Partial<ApplicationEntry> = {}): ApplicationEntry {
+  return {
+    num: 1,
+    date: '2026-04-27',
+    company: 'Acme',
+    role: 'Analyst',
+    score: '8.0/10',
+    status: 'Evaluated',
+    pdf: false,
+    deadline: 'n/d',
+    report: '',
+    notes: '',
+    entityId: '',
+    cities: [],
     ...overrides,
   }
 }
