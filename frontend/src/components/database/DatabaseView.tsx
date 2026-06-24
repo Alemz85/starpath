@@ -12,6 +12,7 @@ import { ReportSlideOver } from '../reports/ReportSlideOver'
 import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { parseCities, entityId } from '@/lib/entityId'
+import { parseTokenQuery, matchesTokenQuery } from '@/lib/databaseQuery'
 import type { ScoreEntry } from '@/types'
 import { ENGAGED_STATUSES } from '@/types'
 
@@ -150,30 +151,9 @@ export function DatabaseView() {
     if (filters.scoreMin > 0 || filters.scoreMax < 10) {
       rows = rows.filter(r => r.overall >= filters.scoreMin && r.overall <= filters.scoreMax)
     }
-    if (tokenFilters.company)   rows = rows.filter(r => r.company.toLowerCase().includes(tokenFilters.company!.toLowerCase()))
-    if (tokenFilters.role)      rows = rows.filter(r => r.role.toLowerCase().includes(tokenFilters.role!.toLowerCase()))
-    if (tokenFilters.tier)      rows = rows.filter(r => r.tier.toLowerCase() === tokenFilters.tier!.toLowerCase())
-    if (tokenFilters.archetype) rows = rows.filter(r => {
-      const ta = tokenFilters.archetype!.toLowerCase()
-      return r.archetype.toLowerCase().includes(ta) ||
-             canonicalizeArchetype(r.archetype).toLowerCase().includes(ta)
-    })
-    if (tokenFilters.location) {
-      const needle = tokenFilters.location!.toLowerCase()
-      rows = rows.filter(r => {
-        if (r.location.toLowerCase().includes(needle)) return true
-        const cities = parseCities(r.location).cities
-        return cities.some(c => c.toLowerCase().includes(needle))
-      })
-    }
-    if (tokenFilters.type)      rows = rows.filter(r => r.employment_type.toLowerCase().includes(tokenFilters.type!.toLowerCase()))
-    if (tokenFilters.minScore)  rows = rows.filter(r => r.overall >= tokenFilters.minScore!)
-    if (freeText) {
-      const q = freeText.toLowerCase()
-      rows = rows.filter(r =>
-        r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q)
-      )
-    }
+    // Token search (`company:…`, `tier:…`, `min-score:…`) + free text, via the
+    // shared matcher so this and the facet-count predicate can't drift.
+    rows = rows.filter(r => matchesTokenQuery(r, tokenFilters, freeText))
 
     // 3. Group surviving entities by roleKey (entity_id minus the
     //    `::city` suffix) so PwC Data & AI Consultant - Roma + Milano
@@ -226,25 +206,9 @@ export function DatabaseView() {
     const passGlobal = (r: ScoreEntry): boolean => {
       if (!showClosed && !(r.overall > 0)) return false
       if (r.overall < filters.scoreMin || r.overall > filters.scoreMax) return false
-      if (tokenFilters.company && !r.company.toLowerCase().includes(tokenFilters.company.toLowerCase())) return false
-      if (tokenFilters.role && !r.role.toLowerCase().includes(tokenFilters.role.toLowerCase())) return false
-      if (tokenFilters.tier && r.tier.toLowerCase() !== tokenFilters.tier.toLowerCase()) return false
-      if (tokenFilters.archetype) {
-        const ta = tokenFilters.archetype.toLowerCase()
-        if (!(r.archetype.toLowerCase().includes(ta) || canonicalizeArchetype(r.archetype).toLowerCase().includes(ta))) return false
-      }
-      if (tokenFilters.location) {
-        const needle = tokenFilters.location.toLowerCase()
-        const hit = r.location.toLowerCase().includes(needle) || parseCities(r.location).cities.some(c => c.toLowerCase().includes(needle))
-        if (!hit) return false
-      }
-      if (tokenFilters.type && !r.employment_type.toLowerCase().includes(tokenFilters.type.toLowerCase())) return false
-      if (tokenFilters.minScore != null && !(r.overall >= tokenFilters.minScore)) return false
-      if (freeText) {
-        const q = freeText.toLowerCase()
-        if (!(r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q))) return false
-      }
-      return true
+      // Same shared matcher the table uses, so the counts can't disagree with
+      // the rows the user ends up seeing.
+      return matchesTokenQuery(r, tokenFilters, freeText)
     }
 
     // Per-dimension predicates — mirror the filter logic in `filtered`.
@@ -427,45 +391,3 @@ function DatabaseTable({
   )
 }
 
-// ─── Token query parser ───────────────────────────────────────────────────────
-
-interface TokenFilters {
-  company?: string
-  role?: string
-  tier?: string
-  archetype?: string
-  location?: string
-  type?: string
-  minScore?: number
-}
-
-// Token query parser. Supports both:
-//   - Bare values:    `company:Stripe tier:T1`
-//   - Quoted values:  `company:"JP Morgan" role:"Senior Engineer"`
-// Quoted values are required for multi-word matches (company names with
-// spaces, role titles, archetypes). The regex tries the quoted form
-// first, then falls back to the unquoted single-token form.
-function parseTokenQuery(q: string): { tokenFilters: TokenFilters; freeText: string } {
-  const tokenFilters: TokenFilters = {}
-  const tokenRe = /(\w+):(?:"([^"]+)"|(\S+))/g
-  let freeText = q
-  let match: RegExpExecArray | null
-
-  while ((match = tokenRe.exec(q)) !== null) {
-    const [full, key, quotedVal, plainVal] = match
-    const val = quotedVal ?? plainVal
-    freeText = freeText.replace(full, '').trim()
-    switch (key.toLowerCase()) {
-      case 'company':    tokenFilters.company   = val; break
-      case 'role':       tokenFilters.role      = val; break
-      case 'tier':       tokenFilters.tier      = val; break
-      case 'archetype':  tokenFilters.archetype = val; break
-      case 'location':   tokenFilters.location  = val; break
-      case 'type':       tokenFilters.type      = val; break
-      case 'min-score':
-      case 'minscore':   tokenFilters.minScore  = parseFloat(val); break
-    }
-  }
-
-  return { tokenFilters, freeText: freeText.trim() }
-}
