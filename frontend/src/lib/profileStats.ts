@@ -90,6 +90,35 @@ export function computeStreak(history: ScoreEntry[], now: Date = new Date()): nu
   return streak
 }
 
+// Longest run of consecutive evaluation days anywhere in history — the
+// all-time best, independent of `now`. This is what the streak BADGE keys
+// off: a badge is an achievement, so once you've strung 3 days together it
+// stays earned even after you skip a day (whereas `computeStreak` above is
+// the live "streak you're currently on", which the Profile header shows and
+// which resets on a gap). Operates on the distinct calendar days, UTC-anchored
+// so the day-gap math is timezone- and DST-proof.
+export function longestStreak(history: ScoreEntry[]): number {
+  const days = [...new Set(history.map(e => e.date.slice(0, 10)))]
+    .filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort()
+  if (days.length === 0) return 0
+
+  let best = 1
+  let run = 1
+  for (let i = 1; i < days.length; i++) {
+    const prev = Date.parse(days[i - 1] + 'T00:00:00Z')
+    const cur  = Date.parse(days[i] + 'T00:00:00Z')
+    const gap = Math.round((cur - prev) / 86_400_000)
+    if (gap === 1) {
+      run += 1
+      if (run > best) best = run
+    } else {
+      run = 1   // gap > 1 (a skipped day); duplicates are impossible (Set)
+    }
+  }
+  return best
+}
+
 // ─── Achievements ─────────────────────────────────────────────────────────────
 
 export interface Badge {
@@ -97,9 +126,11 @@ export interface Badge {
   unlocked: boolean; rarity: 'common' | 'rare' | 'epic'
 }
 
-export function badges(history: ScoreEntry[], apps: ApplicationEntry[], now: Date = new Date()): Badge[] {
+export function badges(history: ScoreEntry[], apps: ApplicationEntry[]): Badge[] {
   const t1 = history.filter(e => e.tier === 'T1').length
-  const streak = computeStreak(history, now)
+  // Badges are achievements → key off the all-time longest streak, not the
+  // live current streak, so the 3-Day-Streak badge doesn't re-lock on a day off.
+  const streak = longestStreak(history)
   const hasApplied  = apps.some(a => ['Applied','Responded','Interview','Offer'].includes(a.status))
   const hasInterview = apps.some(a => ['Interview','Offer'].includes(a.status))
   const hasOffer     = apps.some(a => a.status === 'Offer')
