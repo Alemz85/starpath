@@ -38,6 +38,10 @@ export interface SpawnRecord {
    *  verbatim from the activity panel without the originating view. */
   cmd: string
   args: string[]
+  /** Set once the user has seen this failure (visited the Activity tab).
+   *  Drives the sidebar's "N failed" badge so a run that dies in the
+   *  background gets noticed, then stops nagging once acknowledged. */
+  acked?: boolean
 }
 
 // Suffix appended to every `claude -p` prompt so the model knows there's no
@@ -198,6 +202,7 @@ interface SpawnsState {
   finish:       (id: string, exitCode: number) => void
   kill:         (id: string) => void
   clear:        (id: string) => void
+  acknowledgeFailures: () => void
 }
 
 export const useSpawnsStore = create<SpawnsState>((set, get) => ({
@@ -283,6 +288,20 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     ipc.kill(id)
   },
 
+  // Mark every currently-failed run as seen. Called when the user opens the
+  // Activity tab — clears the sidebar failure badge without losing the rows.
+  acknowledgeFailures: () => {
+    set(state => {
+      let changed = false
+      const next: Record<string, SpawnRecord> = {}
+      for (const [id, rec] of Object.entries(state.spawns)) {
+        if (rec.status === 'error' && !rec.acked) { next[id] = { ...rec, acked: true }; changed = true }
+        else next[id] = rec
+      }
+      return changed ? { spawns: next } : state
+    })
+  },
+
   clear: (id) => {
     delete jsonlLineBuffer[id]
     set(state => {
@@ -300,6 +319,10 @@ export const isAnyRunning = (state: SpawnsState): boolean =>
 
 export const getSpawn = (id: string) =>
   (state: SpawnsState): SpawnRecord | undefined => state.spawns[id]
+
+// Count of failed runs the user hasn't seen yet — drives the sidebar badge.
+export const unackedFailureCount = (state: SpawnsState): number =>
+  Object.values(state.spawns).filter(s => s.status === 'error' && !s.acked).length
 
 // ─── Failure diagnosis ──────────────────────────────────────────────────────
 // Turn a failed run's raw output into a one-line, human-actionable cause so the

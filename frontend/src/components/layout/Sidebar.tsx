@@ -16,8 +16,9 @@ import {
   ChevronRight,
   Activity,
   User,
+  AlertTriangle,
 } from 'lucide-react'
-import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
+import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawns'
 import { StarpathLogo } from '@/components/shared/Logos'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
 
@@ -62,6 +63,7 @@ export function Sidebar() {
   const currentView = useNavStore(s => s.view)
   const navigate = useNavStore(s => s.navigate)
   const anyRunning = useSpawnsStore(isAnyRunning)
+  const failedCount = useSpawnsStore(unackedFailureCount)
 
   const handleNav = (item: NavItem) => {
     navigate(item.view)
@@ -70,6 +72,9 @@ export function Sidebar() {
   const renderItem = (item: NavItem) => {
     const Icon = item.icon
     const showRunning = item.view === 'scan' && anyRunning
+    // Failure badge yields to the running indicator — once a run stops, any
+    // unacknowledged failures surface here so a background death gets noticed.
+    const showFailed = item.view === 'scan' && failedCount > 0 && !showRunning
     return (
       <button
         key={item.view}
@@ -87,7 +92,7 @@ export function Sidebar() {
         title={!expanded ? item.label : undefined}
       >
         <span className="relative shrink-0 inline-flex">
-          <Icon size={15} className={cn('relative', showRunning && 'text-accent')} />
+          <Icon size={15} className={cn('relative', showRunning && 'text-accent', showFailed && 'text-danger')} />
           {/* Running indicator — small two-ring orbital loader at the
               top-right corner of the icon. Replaces the prior box-shadow
               halo + Loader2 spinner combo, which read as the generic
@@ -99,11 +104,25 @@ export function Sidebar() {
               <OrbitalLoader size={14} rings={2} strokeClass="text-accent" />
             </span>
           )}
+          {/* Failure badge — danger dot at the icon corner, mirroring the
+              running indicator's placement. Shows the count when collapsed
+              so the signal survives a narrowed sidebar. */}
+          {showFailed && (
+            <span className="absolute -top-1.5 -right-1.5 z-10 min-w-[14px] h-[14px] px-1 rounded-full bg-danger text-white text-[9px] font-mono font-medium leading-none flex items-center justify-center tabular-nums">
+              {failedCount}
+            </span>
+          )}
         </span>
         {expanded && (
           <span className="flex-1 flex items-center justify-between">
             <span>{item.label}</span>
             {showRunning && <span className="text-[10px] font-mono text-accent">running</span>}
+            {showFailed && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono text-danger">
+                <AlertTriangle size={10} />
+                {failedCount} failed
+              </span>
+            )}
           </span>
         )}
       </button>
