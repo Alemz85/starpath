@@ -118,6 +118,25 @@ try {
   fail(`Liveness classification tests crashed: ${e.message}`);
 }
 
+// ── 3b. BACKEND UNIT TESTS (scoring core) ───────────────────────
+//
+// The scoring engine (scripts/lib/score-bands.mjs et al.) has a direct
+// node:test unit suite — band boundaries, the bottom-range penalty, the
+// intern carve-out, every tier branch. Section 10 below also exercises the
+// end-to-end scoring fixtures through score-listing.mjs; this catches
+// per-function regressions the fixtures don't.
+
+console.log('\n3b. Backend unit tests (scoring core)');
+
+{
+  const result = run('node', ['--test', 'scripts/**/*.test.mjs'], { stdio: ['pipe', 'pipe', 'pipe'], timeout: 60000 });
+  if (result !== null) {
+    pass('backend unit suite passes');
+  } else {
+    fail('backend unit suite has failures (run `npm test` for detail)');
+  }
+}
+
 // ── 4. FRONTEND UNIT TESTS ──────────────────────────────────────
 //
 // The renderer's pure logic (applications.md mutators, entity identity,
