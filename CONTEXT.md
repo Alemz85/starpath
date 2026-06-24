@@ -225,10 +225,10 @@ cd frontend && npm run package
 
 ## Company logo system
 
-`shared/CompanyLogo.tsx → guessDomain()` does the company name → domain heuristic:
+`lib/companyDomain.ts → guessDomain()` (pure + unit-tested; consumed by `shared/CompanyLogo.tsx`) does the company name → domain heuristic:
 
-1. ~60 hardcoded overrides in an `OVERRIDES` map (Amazon, Google, Klarna, Revolut, Celonis, …).
-2. Prefix matching ("Amazon Web Services" → "aws.amazon.com").
+1. Exact override against a ~60-entry `OVERRIDES` map (Amazon, Google, Klarna, Revolut, Celonis, …).
+2. **Word-boundary** prefix match against the same map ("Google Cloud" → google.com). The boundary guard matters: a bare letter-prefix must NOT match, or short keys hijack unrelated names ("Xero" → x.com, "Amdocs" → amd.com); those fall through to step 3 instead.
 3. Fallback: strip Inc/LLC/Ltd/Corp/GmbH/AG, remove non-alphanumeric, append `.com`.
 
 The actual fetch happens in the main process (`logo:fetch`) so no CSP applies. Cascade: Clearbit → unavatar.io → Google favicons (sz=128). Cached permanently on disk.
