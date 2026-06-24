@@ -118,6 +118,28 @@ try {
   fail(`Liveness classification tests crashed: ${e.message}`);
 }
 
+// ── 4. FRONTEND UNIT TESTS ──────────────────────────────────────
+//
+// The renderer's pure logic (applications.md mutators, entity identity,
+// score bands, export serialization, the parsers…) has its own zero-dep
+// node:test suite under frontend/. Run it as part of the gate so a renderer
+// regression is caught here too. Skips gracefully when the Electron app's
+// deps aren't installed (e.g. a backend-only checkout).
+
+console.log('\n4. Frontend unit tests');
+
+const frontendDir = join(ROOT, 'frontend');
+if (!existsSync(join(frontendDir, 'node_modules'))) {
+  warn('frontend/node_modules missing — `npm install` in frontend/ to enable renderer tests');
+} else {
+  const result = run('npm', ['--prefix', frontendDir, 'test'], { stdio: ['pipe', 'pipe', 'pipe'], timeout: 120000 });
+  if (result !== null) {
+    pass('frontend unit suite passes');
+  } else {
+    fail('frontend unit suite has failures (run `npm test` in frontend/ for detail)');
+  }
+}
+
 // ── 5. DATA CONTRACT ────────────────────────────────────────────
 
 console.log('\n5. Data contract validation');

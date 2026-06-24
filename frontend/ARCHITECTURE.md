@@ -93,3 +93,15 @@ dist-electron/
 ```
 
 `package.json:main` points to `dist-electron/electron/main.js`.
+
+## Testing
+
+The renderer's **pure logic layer** has a unit suite that runs with **zero extra dependencies** — Node's built-in `node:test` plus its native TypeScript type-stripping.
+
+- **Run:** `npm test` (or `npm run test:watch`). Requires **Node ≥ 23.5** (the runner uses `module.registerHooks`; type-stripping is on by default from 23.6).
+- **What's covered:** the string→string functions that are pure and high-blast-radius — `lib/applicationsDoc.ts` (the `applications.md` mutators), `lib/entityId.ts`, `lib/archetype.ts`, `lib/tier.ts`, `lib/export.ts`, `lib/companyStats.ts`, and the three `lib/parsers/*`. Tests live next to their module as `*.test.ts`.
+- **Alias shim:** `test/alias.mjs` (loaded via `--import`) registers a synchronous resolve hook that teaches the bare Node runner the `@/*` path alias and extensionless relative TS imports. It's test-only — Next/Webpack handle both at build time.
+- **What's deliberately *not* tested here:** anything that needs zustand/ipc/DOM (the store actions, IPC wrappers, React components). The pure logic is extracted *out* of those so it's testable in isolation — e.g. the `applications.md` table transforms were pulled from `store/data.ts` into `lib/applicationsDoc.ts`, which `store/data.ts` re-exports for API stability while owning only the file I/O around them.
+- **Boundaries:** test files are co-located under `src/` and typecheck under the strict app `tsconfig.json`, but they're never imported by a route so they never reach a bundle (`next build` confirms: no test chunk, unchanged sizes). Test fixtures live in `src/test-utils/`.
+
+CI (`.github/workflows/ci.yml`) runs the renderer typecheck, this suite, and the repo-root gate (`node scripts/test-all.mjs`, whose section 4 also invokes `npm test`) on every push and PR.
