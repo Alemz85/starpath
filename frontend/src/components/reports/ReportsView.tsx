@@ -16,6 +16,12 @@ import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import type { ReportFile, ScoreEntry } from '@/types'
 import { ReportSlideOver } from './ReportSlideOver'
 import { scoreColor } from '@/lib/tier'
+import {
+  getScoreBand, BAND_DETAILS, type ScoreBand,
+  filterReportRows, sortReportRows,
+  corpusBands as computeCorpusBands, bandCounts as computeBandCounts,
+  buildScoreIndex, matchScore,
+} from '@/lib/reportsList'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -39,33 +45,11 @@ const TOP5_PROMPT =
   '(7) Mark all scored URLs as [x] in pipeline.md. ' +
   'Goal: 5 deep, defensible reports the user can act on, instead of 8 shallow ones.'
 
-export type ScoreBand = 'stellar' | 'strong' | 'decent' | 'pass' | 'skip'
-
-export const BAND_DETAILS: Record<ScoreBand, { label: string; color: string; bg: string; text: string; border: string }> = {
-  stellar: { label: 'Stellar (≥9.0)', color: '#2EB8A8', bg: 'bg-[#2EB8A8]/12', text: 'text-[#2EB8A8]', border: 'border-[#2EB8A8]/35' },
-  strong:  { label: 'Strong (8.0-8.9)', color: '#3D2BB5', bg: 'bg-[#3D2BB5]/12', text: 'text-[#3D2BB5]', border: 'border-[#3D2BB5]/35' },
-  decent:  { label: 'Decent (7.0-7.9)', color: '#7C5CFF', bg: 'bg-[#7C5CFF]/12', text: 'text-[#7C5CFF]', border: 'border-[#7C5CFF]/35' },
-  pass:    { label: 'Pass (<7.0)', color: '#A89CD9', bg: 'bg-[#A89CD9]/12', text: 'text-[#A89CD9]', border: 'border-[#A89CD9]/35' },
-  skip:    { label: 'Skip', color: '#94A3B8', bg: 'bg-[#94A3B8]/12', text: 'text-[#94A3B8]', border: 'border-[#94A3B8]/35' },
-}
-
-export function getScoreBand(overall: number | null, tier: string): ScoreBand {
-  if (overall !== null && overall !== undefined && overall > 0) {
-    if (overall >= 9.0) return 'stellar'
-    if (overall >= 8.0) return 'strong'
-    if (overall >= 7.0) return 'decent'
-    if (overall >= 5.0) return 'pass'
-    return 'skip'
-  }
-  
-  // Fallback to tier mapping
-  const t = tier.toUpperCase()
-  if (t === 'T1') return 'stellar'
-  if (t === 'T2-HIGH') return 'strong'
-  if (t === 'T2') return 'decent'
-  if (t === 'T3') return 'pass'
-  return 'skip'
-}
+// Score-band classification + the filter/sort/match logic now live in the
+// pure, unit-tested `@/lib/reportsList`. Re-exported here for API stability —
+// nothing external imports them today, but the view's public surface stays put.
+export { getScoreBand, BAND_DETAILS }
+export type { ScoreBand }
 
 interface PositioningReportInfo {
   filename: string
@@ -303,43 +287,13 @@ export function ReportsView() {
     )
   }
 
-  const filteredFiles = useMemo(() => {
-    let rows = reportRows
-    
-    if (selectedBands.size > 0) {
-      rows = rows.filter(r => selectedBands.has(getScoreBand(r.overall, r.tier)))
-    }
-    
-    if (query) {
-      const q = query.toLowerCase()
-      rows = rows.filter(r =>
-        r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q)
-      )
-    }
-    
-    const tierOrder = ['T1', 'T2-high', 'T2', 'T3', 'T4']
-    
-    return [...rows].sort((a, b) => {
-      let comp = 0
-      if (sortBy === 'score') {
-        const sa = a.overall ?? 0
-        const sb = b.overall ?? 0
-        comp = sb - sa
-      } else if (sortBy === 'date') {
-        const da = a.mtime ?? 0
-        const db = b.mtime ?? 0
-        comp = db - da
-      } else if (sortBy === 'tier') {
-        const ai = tierOrder.indexOf(a.tier)
-        const bi = tierOrder.indexOf(b.tier)
-        const idxA = ai === -1 ? 99 : ai
-        const idxB = bi === -1 ? 99 : bi
-        comp = idxA - idxB
-      }
-      
-      return sortOrder === 'asc' ? -comp : comp
-    })
-  }, [reportRows, query, selectedBands, sortBy, sortOrder])
+  const filteredFiles = useMemo(
+    () => sortReportRows(
+      filterReportRows(reportRows, { query, bands: selectedBands }),
+      sortBy, sortOrder,
+    ),
+    [reportRows, query, selectedBands, sortBy, sortOrder],
+  )
 
   const toggleBand = (band: ScoreBand) => {
     const next = new Set(selectedBands)
@@ -351,26 +305,14 @@ export function ReportsView() {
   // T3/T4 listings never get a report written to disk, so 'pass'/'skip'
   // typically don't appear; computing this from the data keeps the chip row
   // honest instead of always rendering five chips, three of which match zero.
-  const corpusBands = useMemo(() => {
-    const present = new Set<ScoreBand>()
-    for (const r of reportRows) present.add(getScoreBand(r.overall, r.tier))
-    return (['stellar', 'strong', 'decent', 'pass', 'skip'] as const).filter(b => present.has(b))
-  }, [reportRows])
+  const corpusBands = useMemo(() => computeCorpusBands(reportRows), [reportRows])
 
   // Per-band report counts under the active search query but BEFORE the band
   // selection itself — bands are an OR multi-select, so each chip's count
   // shows how many reports it would add given the current search. This is the
   // same facet-count rule the Database filter sidebar uses (count a dimension
   // with every OTHER active filter applied, but not its own selection).
-  const bandCounts = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    const counts: Record<ScoreBand, number> = { stellar: 0, strong: 0, decent: 0, pass: 0, skip: 0 }
-    for (const r of reportRows) {
-      if (q && !(r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q))) continue
-      counts[getScoreBand(r.overall, r.tier)]++
-    }
-    return counts
-  }, [reportRows, query])
+  const bandCounts = useMemo(() => computeBandCounts(reportRows, query), [reportRows, query])
 
   const hasActiveFilters = query.trim() !== '' || selectedBands.size > 0
 
@@ -396,44 +338,19 @@ export function ReportsView() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const scoreIndex = useMemo(() => {
-    const byExact   = new Map<string, ScoreEntry>()
-    const byCompany = new Map<string, ScoreEntry[]>()
-    for (const s of scoreHistory) {
-      const c  = s.company.trim().toLowerCase()
-      const ro = s.role.trim().toLowerCase()
-      byExact.set(`${c}|${ro}`, s)
-      const list = byCompany.get(c)
-      if (list) list.push(s)
-      else byCompany.set(c, [s])
-    }
-    return { byExact, byCompany }
-  }, [scoreHistory])
+  const scoreIndex = useMemo(() => buildScoreIndex(scoreHistory), [scoreHistory])
 
-  const scoreFor = (r: { company: string; role: string }): ScoreEntry | null => {
-    const c  = r.company.trim().toLowerCase()
-    const ro = r.role.trim().toLowerCase()
-    const exact = scoreIndex.byExact.get(`${c}|${ro}`)
-    if (exact) return exact
-    const list = scoreIndex.byCompany.get(c)
-    if (!list || list.length === 0) return null
-    const prefix = list.find(s => {
-      const sr = s.role.trim().toLowerCase()
-      return sr.startsWith(ro) || ro.startsWith(sr)
-    })
-    if (prefix) return prefix
-    let best: ScoreEntry | null = null
-    for (const s of list) {
-      if (!best || s.overall > best.overall) best = s
-    }
-    return best
-  }
+  const scoreFor = (r: { company: string; role: string }): ScoreEntry | null =>
+    matchScore(scoreIndex, r)
 
   const selectedScore = selected ? scoreFor(selected) : null
 
+  // Rotate all three space icons across consecutive months. (Was `% 2`, which
+  // only ever yielded 0 or 1 — NebulaIcon was unreachable.)
   const renderPositioningIcon = (month: number) => {
-    if (month % 2 === 0) return <PulsarIcon />
-    if (month % 2 === 1) return <ConstellationIcon />
+    const i = month % 3
+    if (i === 0) return <PulsarIcon />
+    if (i === 1) return <ConstellationIcon />
     return <NebulaIcon />
   }
 
