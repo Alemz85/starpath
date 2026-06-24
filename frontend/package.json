@@ -9,6 +9,9 @@
     "build": "next build && tsc -p tsconfig.electron.json",
     "package": "npm run build && electron-builder",
     "lint": "next lint",
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/alias.mjs --test \"src/**/*.test.ts\"",
+    "test:watch": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./test/alias.mjs --test --watch \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "dependencies": {

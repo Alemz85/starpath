@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref so a fast follow-up push doesn't
+# queue behind a stale build.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24: the renderer test runner relies on `module.registerHooks`
+      # (≥23.5) and native TypeScript type-stripping (default ≥23.6), so the
+      # suite runs with zero transpile dependencies.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # `--ignore-scripts` skips the electron-rebuild / native postinstalls —
+      # the gate and the renderer unit suite are pure JS/TS and never touch
+      # better-sqlite3 or the Electron binary, so we keep CI fast.
+      - name: Install root deps (scripts gate)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install frontend deps (renderer tests)
+        working-directory: frontend
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Typecheck renderer
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Frontend unit tests
+        working-directory: frontend
+        run: npm test
+
+      # The project's existing gate: script syntax, liveness classification,
+      # data-contract checks, scoring fixtures — plus (section 4) the renderer
+      # suite again via npm. `--quick` skips the slow dashboard build.
+      - name: Project test gate
+        run: node scripts/test-all.mjs --quick
