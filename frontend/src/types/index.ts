@@ -237,3 +237,14 @@ export const STATUS_COLORS: Record<AppStatus, string> = {
   'Discarded': 'text-text-4',
   'SKIP':      'text-text-4',
 }
+
+// Statuses that mean "you've already engaged this listing" — applied, heard
+// back, interviewing, got an offer, or got rejected. Drives the Database's
+// per-row status badge and its "Untapped only" toggle (which hides these so
+// only scored-but-not-yet-pursued listings remain). 'Evaluated' is excluded —
+// it means promoted-to-tracker-but-not-sent, i.e. still untapped. 'Discarded'
+// rows are tombstoned out of the Database upstream, and 'SKIP' never reads as
+// engagement, so neither earns a badge.
+export const ENGAGED_STATUSES: ReadonlySet<AppStatus> = new Set<AppStatus>([
+  'Applied', 'Responded', 'Interview', 'Offer', 'Rejected',
+])
