@@ -31,7 +31,7 @@ export const ipc = {
 
   // Claude
   checkClaude:          ()                     => api().checkClaude() as Promise<{ installed: boolean }>,
-  checkClaudeAuth:      ()                     => api().checkClaudeAuth() as Promise<{ authenticated: boolean }>,
+  checkClaudeAuth:      ()                     => api().checkClaudeAuth() as Promise<{ authenticated: boolean; reason?: 'expired' | 'logged-out' }>,
   runClaudeLogin:       ()                     => api().runClaudeLogin(),
 
   // File system
