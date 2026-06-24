@@ -1,4 +1,4 @@
-import Link from 'next/link'
+import { useNavStore } from '@/store/nav'
 import { CompanyLogo } from './CompanyLogo'
 
 export function toCompanySlug(company: string): string {
@@ -13,16 +13,23 @@ interface CompanyLinkProps {
 }
 
 export function CompanyLink({ company, size = 20, className = '', showName = false }: CompanyLinkProps) {
-  const slug = toCompanySlug(company)
+  // A plain <button> that drives the in-app nav store rather than a Next.js
+  // <Link>. Under static export the AppShell decides what to render from
+  // useNavStore.view, so a real route navigation would full-reload and reset
+  // nav state back to the default tab. navigate('company', …) keeps us inside
+  // the shell and opens the dossier in place.
   return (
-    <Link 
-      href={`/company?slug=${slug}`} 
-      onClick={(e) => e.stopPropagation()}
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        useNavStore.getState().navigate('company', '', toCompanySlug(company))
+      }}
       className={`inline-flex items-center gap-2 hover:opacity-80 transition-opacity ${showName ? 'font-medium text-text-1 hover:underline' : ''} ${className}`}
       title={`View ${company} details`}
     >
       <CompanyLogo company={company} size={size} className="shrink-0" />
       {showName && <span className="truncate">{company}</span>}
-    </Link>
+    </button>
   )
 }

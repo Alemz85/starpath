@@ -13,7 +13,7 @@ import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, Fi
 import { cn } from '@/lib/utils'
 import type { ScoreEntry, AppStatus } from '@/types'
 import { STATUS_COLORS, ENGAGED_STATUSES } from '@/types'
-import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { CompanyLink } from '@/components/shared/CompanyLink'
 import { parseCities } from '@/lib/entityId'
 import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
@@ -379,7 +379,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const status = statusByKey.get(livenessKey(entry.company, entry.role))
         return (
           <div className="flex items-center gap-3 min-w-0">
-            <CompanyLogo company={company} size={28} className="shrink-0" />
+            <CompanyLink company={company} size={28} className="shrink-0" />
             <div className="min-w-0 flex-1 leading-tight">
               <div className="text-[13px] text-text-1 font-semibold truncate block">
                 {company}
