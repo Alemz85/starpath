@@ -18,6 +18,7 @@ import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
+import type { ScoreEntry, PipelineUrl } from '@/types'
 
 const ADD_LISTING_SPAWN_ID = 'add-listing-evaluate'
 
@@ -98,11 +99,46 @@ function isValidHttpUrl(s: string): boolean {
   }
 }
 
+// Tracking / analytics query params that don't identify a distinct listing.
+// Stripped before dedup comparison so the same posting pasted with different
+// campaign tags doesn't read as a brand-new evaluation. Conservative — only
+// well-known trackers; real listing params (jobId, lever's `lever-origin`,
+// Workday paths, etc.) are preserved.
+const TRACKING_PARAMS = new Set([
+  'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id',
+  'gh_src', 'src', 'source', 'ref', 'referrer', 'trk', 'trackingid',
+])
+
+// Canonical form used ONLY for dedup comparison — never written to disk (we
+// always store the user's original URL). Lowercases scheme + host, drops the
+// `www.` prefix and URL fragment, strips known tracking params, sorts the
+// rest so order can't defeat the match, and trims trailing slashes from the
+// path. So `https://Acme.com/jobs/42/?utm_source=x#top`,
+// `http://www.acme.com/jobs/42`, and `https://acme.com/jobs/42` all collapse
+// to one key (modulo scheme, which we keep — http vs https are kept distinct).
+function normalizeUrl(raw: string): string {
+  try {
+    const u = new URL(raw.trim())
+    const host = u.hostname.toLowerCase().replace(/^www\./, '')
+    const path = u.pathname.replace(/\/+$/, '') || '/'
+    const params = new URLSearchParams()
+    for (const [k, v] of u.searchParams) {
+      if (!TRACKING_PARAMS.has(k.toLowerCase())) params.append(k, v)
+    }
+    params.sort()
+    const qs = params.toString()
+    return `${u.protocol.toLowerCase()}//${host}${path}${qs ? '?' + qs : ''}`
+  } catch {
+    return raw.trim().toLowerCase()
+  }
+}
+
 export function AddListingModal() {
   const open = useAddListingStore(s => s.open)
   const hide = useAddListingStore(s => s.hide)
   const prefillUrl = useAddListingStore(s => s.prefillUrl)
   const scoreHistory = useDataStore(s => s.scoreHistory)
+  const pipeline = useDataStore(s => s.pipeline)
   const refresh = useDataStore(s => s.refresh)
   const repoPath = useAppStore(s => s.repoPath)
   const startSpawn = useSpawnsStore(s => s.start)
@@ -184,13 +220,29 @@ export function AddListingModal() {
   const valid = isValidHttpUrl(trimmedUrl)
   const guessedCompany = useMemo(() => valid ? guessCompanyFromUrl(trimmedUrl) : null, [trimmedUrl, valid])
 
-  // Smart-duplicate detection — surface a soft warning if this URL is
-  // already known to score-history (re-evaluating is fine, but the user
-  // should know they're spending tokens on a re-score, not a first eval).
-  const duplicate = useMemo(() => {
-    if (!valid) return null
-    return scoreHistory.find(r => r.url && r.url.trim() === trimmedUrl) ?? null
-  }, [scoreHistory, trimmedUrl, valid])
+  // Normalized index of everything already known, so a paste with a stray
+  // trailing slash or a utm tag still matches. Built once per data change;
+  // the per-keystroke lookups below are O(1) map gets.
+  const scoredByUrl = useMemo(() => {
+    const m = new Map<string, ScoreEntry>()
+    for (const r of scoreHistory) if (r.url) m.set(normalizeUrl(r.url), r)
+    return m
+  }, [scoreHistory])
+  const queuedByUrl = useMemo(() => {
+    const m = new Map<string, PipelineUrl>()
+    for (const p of pipeline) if (p.url) m.set(normalizeUrl(p.url), p)
+    return m
+  }, [pipeline])
+
+  const normUrl = valid ? normalizeUrl(trimmedUrl) : null
+
+  // Smart-duplicate detection — surface a soft warning if this URL is already
+  // known to score-history (re-evaluating is fine, but the user should know
+  // they're spending tokens on a re-score, not a first eval).
+  const duplicate = normUrl ? scoredByUrl.get(normUrl) ?? null : null
+  // Already queued in the inbox but not yet scored — re-queuing would just
+  // duplicate the line, so we steer the user to evaluate it instead.
+  const alreadyQueued = normUrl && !duplicate ? queuedByUrl.get(normUrl) ?? null : null
 
   // Primary action — evaluate this URL into the Database without writing
   // a prose report. Closes the modal after handing off; live progress
@@ -378,6 +430,18 @@ export function AddListingModal() {
               </div>
             )}
 
+            {/* Already-queued notice — the URL is in the inbox but not yet
+                scored. Re-queuing is a no-op, so point the user at evaluate. */}
+            {alreadyQueued && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-accent/25 bg-accent/[0.06] text-[11.5px] text-text-2">
+                <Inbox size={12} className="text-accent shrink-0 mt-0.5" />
+                <div className="leading-snug">
+                  Already in your inbox{alreadyQueued.addedDate ? <span className="text-text-4"> · queued {alreadyQueued.addedDate}</span> : null}.{' '}
+                  <span className="text-text-4">Evaluate it now, or the next <span className="font-medium text-text-3">Filter to Database</span> run will pick it up.</span>
+                </div>
+              </div>
+            )}
+
             {/* Inbox-only success confirmation */}
             {inboxStatus === 'done' && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-success/30 bg-success/5 text-[11.5px] text-text-2">
@@ -397,17 +461,19 @@ export function AddListingModal() {
             </button>
             <button
               onClick={handleAddToInbox}
-              disabled={!valid || submitting}
-              title="Append the URL to data/pipeline.md for the next filter pass (no tokens spent now)"
+              disabled={!valid || submitting || !!alreadyQueued}
+              title={alreadyQueued
+                ? 'This URL is already in your pipeline inbox'
+                : 'Append the URL to data/pipeline.md for the next filter pass (no tokens spent now)'}
               className={cn(
                 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12.5px] border transition-colors',
-                valid && !submitting
+                valid && !submitting && !alreadyQueued
                   ? 'border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong'
                   : 'border-border-default bg-bg-elevated text-text-4 opacity-60 cursor-not-allowed',
               )}
             >
-              <Inbox size={12} />
-              Add to inbox
+              {alreadyQueued ? <CheckCircle2 size={12} className="text-success" /> : <Inbox size={12} />}
+              {alreadyQueued ? 'In inbox' : 'Add to inbox'}
             </button>
             <button
               onClick={handleEvaluate}
@@ -439,10 +505,21 @@ export function AddListingModal() {
 // with the canonical template so the Pending section is in the right
 // shape for downstream parsers.
 
-async function appendToPipeline(url: string): Promise<void> {
+async function appendToPipeline(url: string): Promise<{ added: boolean }> {
   const path = 'data/pipeline.md'
   const current = (await ipc.readFile(path)) ?? ''
   let next: string
+
+  // Dedup against existing checklist lines using the same normalization the
+  // modal uses for its warnings — a URL pasted with a different tracking tag
+  // or a trailing slash must not create a second inbox entry. We match the
+  // first non-space token after a `- [ ]` / `- [x]` checkbox (the URL).
+  if (current.trim()) {
+    const target = normalizeUrl(url)
+    const exists = [...current.matchAll(/-\s*\[[ xX]\]\s*(\S+)/g)]
+      .some(m => normalizeUrl(m[1]) === target)
+    if (exists) return { added: false }
+  }
 
   if (!current.trim()) {
     next = [
@@ -470,4 +547,5 @@ async function appendToPipeline(url: string): Promise<void> {
   }
 
   await ipc.writeFile(path, next)
+  return { added: true }
 }
