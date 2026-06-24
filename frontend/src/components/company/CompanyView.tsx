@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { useDataStore } from '@/store/data'
+import { useNavStore, VIEW_LABELS } from '@/store/nav'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { OffersTable } from '@/components/database/OffersTable'
@@ -18,6 +18,8 @@ export function CompanyView({ slug }: { slug: string }) {
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const applications = useDataStore(s => s.applications)
   const loaded = useDataStore(s => s.loaded)
+  const navigate = useNavStore(s => s.navigate)
+  const returnView = useNavStore(s => s.companyReturnView)
   const [selectedEntry, setSelectedEntry] = useState<ScoreEntry | null>(null)
 
   // Resolve the display name from the slug — score-history first, then
@@ -46,13 +48,15 @@ export function CompanyView({ slug }: { slug: string }) {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome flex items-center">
-        <Link
-          href="/"
-          className="p-1.5 hover:bg-bg-elevated rounded-md text-text-3 hover:text-text-1 transition-colors"
-          title="Back to home"
+        <button
+          type="button"
+          onClick={() => navigate(returnView)}
+          className="flex items-center gap-1.5 py-1 pl-1.5 pr-2.5 hover:bg-bg-elevated rounded-md text-text-3 hover:text-text-1 transition-colors"
+          title={`Back to ${VIEW_LABELS[returnView]}`}
         >
           <ArrowLeft size={16} />
-        </Link>
+          <span className="text-label">{VIEW_LABELS[returnView]}</span>
+        </button>
         <CompanyLogo company={companyName} size={24} />
         <h1 className="text-body text-text-1 font-medium">{companyName}</h1>
         {loaded && stats.evalCount > 0 && (

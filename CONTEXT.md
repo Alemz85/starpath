@@ -160,7 +160,7 @@ T2-high is collapsed to T2 at the renderer boundary (`toScoutingEntry`, `toScore
 
 ## Views
 
-`AppShell.tsx` mounts the data store and renders one of nine views based on `useNavStore.view`. Sidebar groups them as **Primary** (mode-driving), **Secondary** (data lenses), and **Bottom** (settings).
+`AppShell.tsx` mounts the data store and renders one of ten views based on `useNavStore.view`. Sidebar groups them as **Primary** (mode-driving), **Secondary** (data lenses), and **Bottom** (settings).
 
 | View ID | Component | Group |
 |---------|-----------|-------|
@@ -173,8 +173,11 @@ T2-high is collapsed to T2 at the renderer boundary (`toScoutingEntry`, `toScore
 | `config` | `configuration/ConfigurationView` | Bottom — pipeline / portals / modes |
 | `settings` | `settings/SettingsView` | Bottom — candidate, target roles, models |
 | `profile` | `profile/ProfileView` | Bottom — stats dashboard |
+| `company` | `company/CompanyView` | Detail — per-company dossier, no sidebar tab |
 
 Primary tabs reflect *workflow stage* (Scouting = inventory, Applying = active applications). They don't change scoring behavior — that's controlled by `phase` in `user/profile.yml` and toggled separately via Settings or CmdK. Sidebar collapses 220px ↔ 56px.
+
+`company` is a **detail view**, not a sidebar destination: it's opened by clicking a `CompanyLink` (the company logo in the Database table) or a CmdK "Companies" entry, both of which call `navigate('company', '', slug)`. The slug rides on `useNavStore.companySlug`; `companyReturnView` records where the user came from so CompanyView's "← {origin}" back button returns there instead of resetting to the default tab. A static `app/company/page.tsx` route also exists for deep links, but in-app navigation never hits it (it would full-reload and reset nav state under static export). View display labels live in one place — `VIEW_LABELS` in `store/nav.ts` (consumed by AppShell's nav-guard modal, the error-boundary, and the Company back button).
 
 `ReportSlideOver` (720px panel) animates open via `requestAnimationFrame` after a one-tick mount (`translate-x-6 opacity-0` → `translate-x-0 opacity-100`, 260ms). On close, animation runs first, then `onClose` after the timeout — losing the timeout on early unmount cancels the close.
 
