@@ -6,12 +6,23 @@
  * Keeps entry with highest score. If discarded entry had more advanced status,
  * preserves that status. Merges notes.
  *
+ * Parsing/normalization lives in lib/tracker-core.mjs (pure + unit-tested);
+ * this script owns the file I/O and the dedup grouping.
+ *
  * Run: node career-ops/dedup-tracker.mjs [--dry-run]
  */
 
 import { readFileSync, writeFileSync, copyFileSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import {
+  STATUS_RANK,
+  companyKeyLoose,
+  roleMatchStrict,
+  parseScore,
+  parseAppRow,
+  serializeAppRow,
+} from './lib/tracker-core.mjs';
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
@@ -22,104 +33,6 @@ const DRY_RUN = process.argv.includes('--dry-run');
 
 // Ensure required directories exist (fresh setup)
 mkdirSync(join(CAREER_OPS, 'data'), { recursive: true });
-
-// Status advancement order (higher = more advanced in pipeline)
-// Aplicado > Rechazado because active application > terminal state
-// Note: scouting observations live in data/scouting.md and are not part of
-// applications.md status ranks anymore (see merge-scouting.mjs).
-const STATUS_RANK = {
-  // English canonicals (states.yml labels)
-  'skip': 0,
-  'discarded': 0,
-  'rejected': 1,
-  'evaluated': 3,
-  'applied': 4,
-  'responded': 5,
-  'interview': 6,
-  'offer': 7,
-  // Spanish aliases — kept for backwards compat with existing tracker data
-  'no_aplicar': 0,
-  'no aplicar': 0,
-  'descartado': 0,
-  'descartada': 0,
-  'rechazado': 1,  // Terminal — below active states
-  'rechazada': 1,
-  'evaluada': 3,
-  'aplicado': 4,
-  'respondido': 5,
-  'entrevista': 6,
-  'oferta': 7,
-};
-
-function normalizeCompany(name) {
-  return name.toLowerCase()
-    .replace(/[()]/g, '')
-    .replace(/\s+/g, ' ')
-    .replace(/[^a-z0-9 ]/g, '')
-    .trim();
-}
-
-function normalizeRole(role) {
-  return role.toLowerCase()
-    .replace(/[()]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/[^a-z0-9 /]/g, '')
-    .trim();
-}
-
-const ROLE_STOPWORDS = new Set([
-  'senior', 'junior', 'lead', 'staff', 'principal', 'head', 'chief',
-  'manager', 'director', 'associate', 'intern', 'contractor',
-  'remote', 'hybrid', 'onsite',
-  'engineer', 'engineering',
-]);
-
-const LOCATION_STOPWORDS = new Set([
-  'tokyo', 'japan', 'london', 'berlin', 'paris', 'singapore',
-  'york', 'francisco', 'angeles', 'seattle', 'austin', 'boston',
-  'chicago', 'denver', 'toronto', 'amsterdam', 'dublin', 'sydney',
-  'remote', 'global', 'emea', 'apac', 'latam',
-]);
-
-function roleMatch(a, b) {
-  const filterStopwords = (words) =>
-    words.filter(w => !ROLE_STOPWORDS.has(w) && !LOCATION_STOPWORDS.has(w));
-
-  const wordsA = filterStopwords(normalizeRole(a).split(/\s+/).filter(w => w.length > 2));
-  const wordsB = filterStopwords(normalizeRole(b).split(/\s+/).filter(w => w.length > 2));
-
-  if (wordsA.length === 0 || wordsB.length === 0) return false;
-
-  const overlap = wordsA.filter(w => wordsB.some(wb => wb === w));
-  const smaller = Math.min(wordsA.length, wordsB.length);
-  const ratio = overlap.length / smaller;
-
-  return overlap.length >= 2 && ratio >= 0.6;
-}
-
-function parseScore(s) {
-  const m = s.replace(/\*\*/g, '').match(/([\d.]+)/);
-  return m ? parseFloat(m[1]) : 0;
-}
-
-function parseAppLine(line) {
-  const parts = line.split('|').map(s => s.trim());
-  if (parts.length < 9) return null;
-  const num = parseInt(parts[1]);
-  if (isNaN(num)) return null;
-  return {
-    num,
-    date: parts[2],
-    company: parts[3],
-    role: parts[4],
-    score: parts[5],
-    status: parts[6],
-    pdf: parts[7],
-    report: parts[8],
-    notes: parts[9] || '',
-    raw: line,
-  };
-}
 
 // Read
 if (!existsSync(APPS_FILE)) {
@@ -135,7 +48,7 @@ const entryLineMap = new Map(); // num → line index
 
 for (let i = 0; i < lines.length; i++) {
   if (!lines[i].startsWith('|')) continue;
-  const app = parseAppLine(lines[i]);
+  const app = parseAppRow(lines[i]);
   if (app && app.num > 0) {
     entries.push(app);
     entryLineMap.set(app.num, i);
@@ -147,7 +60,7 @@ console.log(`📊 ${entries.length} entries loaded`);
 // Group by company+role
 const groups = new Map();
 for (const entry of entries) {
-  const key = normalizeCompany(entry.company);
+  const key = companyKeyLoose(entry.company);
   if (!groups.has(key)) groups.set(key, []);
   groups.get(key).push(entry);
 }
@@ -168,7 +81,7 @@ for (const [company, companyEntries] of groups) {
 
     for (let j = i + 1; j < companyEntries.length; j++) {
       if (processed.has(j)) continue;
-      if (roleMatch(companyEntries[i].role, companyEntries[j].role)) {
+      if (roleMatchStrict(companyEntries[i].role, companyEntries[j].role)) {
         cluster.push(companyEntries[j]);
         processed.add(j);
       }
@@ -195,9 +108,10 @@ for (const [company, companyEntries] of groups) {
     if (bestStatus !== keeper.status) {
       const lineIdx = entryLineMap.get(keeper.num);
       if (lineIdx !== undefined) {
-        const parts = lines[lineIdx].split('|').map(s => s.trim());
-        parts[6] = bestStatus;
-        lines[lineIdx] = '| ' + parts.slice(1, -1).join(' | ') + ' |';
+        // Status sits at a fixed column index in every row layout.
+        const cells = lines[lineIdx].split('|').map(s => s.trim());
+        cells[keeper.cols.status] = bestStatus;
+        lines[lineIdx] = serializeAppRow(cells);
         console.log(`  📝 #${keeper.num}: status promoted to "${bestStatus}" (from #${cluster.find(e => e.status === bestStatus)?.num})`);
       }
     }
