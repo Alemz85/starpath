@@ -20,11 +20,22 @@ import { Activity } from 'lucide-react'
 export function ScanView() {
   const refresh = useDataStore(s => s.refresh)
   const spawns = useSpawnsStore(s => s.spawns)
+  const acknowledgeFailures = useSpawnsStore(s => s.acknowledgeFailures)
   const anyRunning = useSpawnsStore(isAnyRunning)
   const runningCount = Object.values(spawns).filter(s => s.status === 'running').length
 
   const [focusedId, setFocusedId] = useState<string | null>(null)
   const focused = focusedId ? spawns[focusedId] : undefined
+
+  // This tab IS where failures are reviewed — clear the sidebar badge while
+  // it's open (on mount and whenever a new failure lands while watching).
+  const failureSignature = Object.values(spawns)
+    .filter(s => s.status === 'error')
+    .map(s => s.id)
+    .join('|')
+  useEffect(() => {
+    acknowledgeFailures()
+  }, [acknowledgeFailures, failureSignature])
 
   // Whenever any spawn finishes, give the data store a chance to resync —
   // otherwise newly-generated reports / scouting rows wouldn't appear in
