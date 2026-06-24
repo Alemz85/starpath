@@ -83,10 +83,14 @@ export const useDataStore = create<DataState>((set) => ({
   promoteToApplication: async ({ company, role, overall, tier, reportPath }) => {
     const path = 'data/applications.md'
     const raw = await ipc.readFile(path) ?? ''
-    const next = appendApplicationRow(raw, {
+    const next = upsertApplicationRow(raw, {
       company, role, overall, tier, reportPath,
     })
-    await ipc.writeFile(path, next)
+    // Only touch disk when something actually changed (the listing was new,
+    // or its score/report moved). When it's already tracked and unchanged we
+    // still refresh so a stale in-memory store re-syncs — the Apply affordance
+    // then flips to the status dropdown rather than offering a second Apply.
+    if (next !== raw) await ipc.writeFile(path, next)
     await useDataStore.getState().refresh()
   },
 
@@ -405,8 +409,10 @@ function toReportFile(row: DbReportRow): ReportFile {
 //   |---|------|---------|------|-------|--------|-----|----------|--------|-------|
 //   | 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Evaluated | ❌ | n/d | [#1](…) | … |
 //
-// We append a new row at the bottom on Apply, and rewrite the Status cell of
-// a matching row on status change. We never mutate other cells.
+// applications.md holds at most one row per (company, role) — see CLAUDE.md
+// "Pipeline Integrity". upsertApplicationRow refreshes an existing listing's
+// Score / Report in place (or appends when it's new); updateApplicationStatus
+// rewrites the Status cell of matching rows. Neither touches unrelated cells.
 
 function isTableSeparator(line: string): boolean {
   return /^\|\s*-+/.test(line)
@@ -425,6 +431,22 @@ function joinRow(cells: string[]): string {
   return `| ${cells.join(' | ')} |`
 }
 
+// Index of the first data row matching (company, role), case-insensitive —
+// the single identity key for a listing across applications.md. Shared by the
+// upsert (skip / refresh) and consistent with ApplyAction's findApplication.
+// Returns -1 when not present.
+function findApplicationRowIndex(lines: string[], company: string, role: string): number {
+  const c = company.trim().toLowerCase()
+  const r = role.trim().toLowerCase()
+  for (let i = 0; i < lines.length; i++) {
+    if (!isTableDataRow(lines[i])) continue
+    const cells = splitRow(lines[i])
+    if (cells.length < 6) continue
+    if (cells[2].toLowerCase() === c && cells[3].toLowerCase() === r) return i
+  }
+  return -1
+}
+
 function tierFolder(tier: string): string {
   if (tier === 'T1') return 'tier-1'
   if (tier === 'T2' || tier === 'T2-high') return 'tier-2'
@@ -432,7 +454,7 @@ function tierFolder(tier: string): string {
   return 'tier-4'
 }
 
-export function appendApplicationRow(raw: string, args: {
+export function upsertApplicationRow(raw: string, args: {
   company: string
   role: string
   overall: number
@@ -440,6 +462,22 @@ export function appendApplicationRow(raw: string, args: {
   reportPath?: string
 }): string {
   const lines = raw.split('\n')
+
+  // Upsert on (company, role): applications.md holds at most one row per
+  // listing. If it's already tracked, refresh the Score in place (and the
+  // Report link when a fresh path is given) — preserving Status / Date / PDF /
+  // Deadline / Notes — instead of appending a duplicate. The frontend Apply
+  // path used to append blindly, which is the documented source of same-listing
+  // dupes (CLAUDE.md "Pipeline Integrity"); `node scripts/dedup-tracker.mjs`
+  // cleans up any that already slipped in.
+  const existingIdx = findApplicationRowIndex(lines, args.company, args.role)
+  if (existingIdx !== -1) {
+    const cells = splitRow(lines[existingIdx])
+    if (args.overall > 0 && cells.length > 4) cells[4] = `${args.overall.toFixed(1)}/10`
+    if (args.reportPath && cells.length > 8) cells[8] = `[#${cells[0] || ''}](${args.reportPath})`
+    lines[existingIdx] = joinRow(cells)
+    return lines.join('\n')
+  }
 
   // Find the highest existing # so we can increment.
   let maxNum = 0
