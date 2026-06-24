@@ -19,6 +19,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawns'
+import { useDataStore } from '@/store/data'
 import { StarpathLogo } from '@/components/shared/Logos'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
 
@@ -65,6 +66,32 @@ export function Sidebar() {
   const anyRunning = useSpawnsStore(isAnyRunning)
   const failedCount = useSpawnsStore(unackedFailureCount)
 
+  // Live status counts for the nav badges. Each count has a single,
+  // unambiguous source that matches what the destination view shows:
+  //   Scouting → pending URLs awaiting a filter pass (data/pipeline.md)
+  //   Applying → applications still in flight
+  //   Reports  → prose report files on disk (same db:reports source the
+  //              Reports view counts)
+  // Database is deliberately unbadged — its view dedups score-history into
+  // entities, so no raw store count matches the visible row total honestly.
+  const loaded = useDataStore(s => s.loaded)
+  const pipeline = useDataStore(s => s.pipeline)
+  const applications = useDataStore(s => s.applications)
+  const reports = useDataStore(s => s.reports)
+
+  const activeCount = applications.filter(a =>
+    ['Applied', 'Responded', 'Interview', 'Offer'].includes(a.status)
+  ).length
+
+  // Scouting's pending count carries accent emphasis — it's the only number
+  // on the rail that means "act now" (mirrors the cockpit's pending dot)
+  // rather than "inventory size".
+  const badges: Partial<Record<ViewId, { count: number; accent?: boolean }>> = {
+    scouting: { count: pipeline.length, accent: true },
+    applying: { count: activeCount },
+    reports:  { count: reports.length },
+  }
+
   const handleNav = (item: NavItem) => {
     navigate(item.view)
   }
@@ -75,11 +102,13 @@ export function Sidebar() {
     // Failure badge yields to the running indicator — once a run stops, any
     // unacknowledged failures surface here so a background death gets noticed.
     const showFailed = item.view === 'scan' && failedCount > 0 && !showRunning
+    const badge = loaded ? badges[item.view] : undefined
+    const showBadge = !!badge && badge.count > 0 && !showRunning
     return (
       <button
         key={item.view}
         onClick={() => handleNav(item)}
-        aria-label={item.label}
+        aria-label={showBadge ? `${item.label}, ${badge!.count}` : item.label}
         aria-current={currentView === item.view ? 'page' : undefined}
         className={cn(
           'w-full flex items-center gap-3 px-2 py-2 rounded-md text-body',
@@ -112,17 +141,37 @@ export function Sidebar() {
               {failedCount}
             </span>
           )}
+          {/* Collapsed-state pending cue — when the rail is narrow there's
+              no room for the count pill, so the accent (act-now) badge
+              degrades to a small pulsing dot, matching the cockpit's
+              pending indicator. Muted badges get no collapsed cue. */}
+          {showBadge && badge!.accent && !expanded && (
+            <span
+              className="absolute -top-1 -right-1.5 w-1.5 h-1.5 rounded-full bg-accent animate-pulse z-10"
+              aria-hidden
+            />
+          )}
         </span>
         {expanded && (
-          <span className="flex-1 flex items-center justify-between">
+          <span className="flex-1 flex items-center justify-between gap-2">
             <span>{item.label}</span>
-            {showRunning && <span className="text-[10px] font-mono text-accent">running</span>}
-            {showFailed && (
+            {showRunning ? (
+              <span className="text-[10px] font-mono text-accent">running</span>
+            ) : showFailed ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-mono text-danger">
                 <AlertTriangle size={10} />
                 {failedCount} failed
               </span>
-            )}
+            ) : showBadge ? (
+              <span className={cn(
+                'shrink-0 min-w-[18px] text-center px-1.5 py-0.5 rounded-full text-[10px] font-mono font-medium tabular-nums leading-none',
+                badge!.accent
+                  ? 'bg-accent/15 text-accent'
+                  : 'bg-bg-elevated text-text-4 border border-border-default',
+              )}>
+                {badge!.count}
+              </span>
+            ) : null}
           </span>
         )}
       </button>
