@@ -7,9 +7,10 @@ import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import {
-  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X,
+  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X, ArrowRight,
 } from 'lucide-react'
 import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
+import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { cn, deadlineUrgency, urgencyBadge } from '@/lib/utils'
@@ -21,6 +22,44 @@ function getSpawnId(prefix: string, app: ApplicationEntry): string {
   const cleanCompany = app.company.toLowerCase().replace(/[^a-z0-9]/g, '-')
   const cleanRole = app.role.toLowerCase().replace(/[^a-z0-9]/g, '-')
   return `${prefix}-${cleanCompany}-${cleanRole}`
+}
+
+// Urgency bucket → sort rank (lower = more pressing, floats to the top of its
+// column). 'none' (Rolling / no deadline) and 'missed' sink below live dates.
+const URGENCY_RANK: Record<ReturnType<typeof deadlineUrgency>, number> = {
+  urgent: 0, month: 1, upcoming: 2, none: 3, missed: 4,
+}
+
+function deadlineTime(deadline: string): number {
+  const t = new Date(deadline).getTime()
+  return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t
+}
+
+// Order cards within a column so the nearest live deadline never sits buried
+// under months-out rows: by urgency bucket first, then the actual date.
+function compareByDeadline(a: ApplicationEntry, b: ApplicationEntry): number {
+  const ra = URGENCY_RANK[deadlineUrgency(a.deadline)]
+  const rb = URGENCY_RANK[deadlineUrgency(b.deadline)]
+  if (ra !== rb) return ra - rb
+  return deadlineTime(a.deadline) - deadlineTime(b.deadline)
+}
+
+// Precise, compact deadline read for a card — "Today" / "in 3d" / "Jun 30"
+// instead of the coarse "URGENT" word. Returns null when there's no real date
+// (caller falls back to the urgency badge label, e.g. for Rolling).
+function deadlineLabel(deadline: string): string | null {
+  const d = (deadline ?? '').trim()
+  if (!d || d.toLowerCase() === 'n/d' || d.toLowerCase() === 'rolling') return null
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return null
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const target = new Date(date); target.setHours(0, 0, 0, 0)
+  const days = Math.round((target.getTime() - today.getTime()) / 86_400_000)
+  if (days < 0)   return 'Closed'
+  if (days === 0) return 'Today'
+  if (days === 1) return 'Tomorrow'
+  if (days <= 14) return `in ${days}d`
+  return target.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 export function ApplyingView() {
@@ -72,8 +111,24 @@ export function ApplyingView() {
     for (const a of applications) {
       if (a.status in map) map[a.status].push(a)
     }
+    // Sort each column so the most pressing deadline rises to the top.
+    for (const s of STATUS_GROUPS) map[s].sort(compareByDeadline)
     return map
   }, [applications])
+
+  // Rejected + Discarded fall outside the five active kanban stages — collect
+  // them for the collapsed "Closed" strip below the board so they stay
+  // visible and reversible instead of silently disappearing.
+  const closedApps = useMemo(
+    () => applications.filter(a => a.status === 'Rejected' || a.status === 'Discarded'),
+    [applications],
+  )
+
+  // Cards across all five active stages — drives the board's empty state.
+  // Note: SKIP / Rejected / Discarded rows are intentionally NOT here (SKIP
+  // never enters the board; the closed two live in the Closed strip), so a
+  // user whose only rows are SKIP correctly sees the get-started guidance.
+  const activeCount = STATUS_GROUPS.reduce((n, s) => n + (grouped[s]?.length ?? 0), 0)
 
   const totalApplied      = applications.filter(a => a.status === 'Applied').length
   const totalResponded    = applications.filter(a => a.status === 'Responded').length
@@ -106,6 +161,11 @@ export function ApplyingView() {
     void setApplicationStatus(pendingDiscard.company, pendingDiscard.role, 'Discarded' as AppStatus)
     setPendingDiscard(null)
   }
+
+  // Restore a closed-out row back onto the board. Evaluated is the board's
+  // entry column, so the card reappears in the first lane.
+  const handleRestore = (app: ApplicationEntry) =>
+    void setApplicationStatus(app.company, app.role, 'Evaluated' as AppStatus)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -166,28 +226,38 @@ export function ApplyingView() {
 
         {/* Kanban — fills the remaining vertical space, columns scroll
             internally. Wider/taller than before, this is now the main canvas
-            of the Applying tab. */}
+            of the Applying tab. When there's nothing on the board yet, the
+            five empty columns read as "broken/loading" — swap in get-started
+            guidance instead. */}
         <div className="flex-1 min-h-[260px] overflow-x-auto -mx-1 px-1">
-          <div className="flex gap-3 h-full" style={{ minWidth: STATUS_GROUPS.length * 240 }}>
-            {STATUS_GROUPS.map(status => (
-              <KanbanColumn
-                key={status}
-                status={status}
-                items={grouped[status] ?? []}
-                spawns={spawns}
-                dragging={dragging}
-                onDragStart={(app) => setDragging({ company: app.company, role: app.role, from: status })}
-                onDragEnd={() => setDragging(null)}
-                onDropOnColumn={() => handleDropOnColumn(status)}
-                onTailorCV={handleTailorCV}
-                onDraftApp={handleDraftApp}
-                onPrepInt={handlePrepInt}
-                onRemove={handleRemove}
-                onViewReport={app => navigate('reports', `${app.company}|${app.role}`)}
-              />
-            ))}
-          </div>
+          {loaded && activeCount === 0 ? (
+            <EmptyBoard onBrowse={() => navigate('database')} />
+          ) : (
+            <div className="flex gap-3 h-full" style={{ minWidth: STATUS_GROUPS.length * 240 }}>
+              {STATUS_GROUPS.map(status => (
+                <KanbanColumn
+                  key={status}
+                  status={status}
+                  items={grouped[status] ?? []}
+                  spawns={spawns}
+                  dragging={dragging}
+                  onDragStart={(app) => setDragging({ company: app.company, role: app.role, from: status })}
+                  onDragEnd={() => setDragging(null)}
+                  onDropOnColumn={() => handleDropOnColumn(status)}
+                  onTailorCV={handleTailorCV}
+                  onDraftApp={handleDraftApp}
+                  onPrepInt={handlePrepInt}
+                  onRemove={handleRemove}
+                  onViewReport={app => navigate('reports', `${app.company}|${app.role}`)}
+                />
+              ))}
+            </div>
+          )}
         </div>
+
+        {/* Closed-out applications (Rejected / Discarded) — collapsed strip so
+            they stay auditable and reversible without cluttering the board. */}
+        <ClosedApplicationsPanel apps={closedApps} onRestore={handleRestore} />
 
         {/* No inline activity panel — live logs live exclusively on the
             Scan tab. The footer pings the user there when anything is
@@ -262,6 +332,39 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
             Remove
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Empty board ─────────────────────────────────────────────────────────────
+
+// Shown when no application sits in any of the five active stages. Replaces
+// the row of empty columns (which reads as broken) with a short, accurate
+// account of how rows get here — the Apply action lives on Database rows and
+// report slide-overs — plus the inbox path for a brand-new lead.
+function EmptyBoard({ onBrowse }: { onBrowse: () => void }) {
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="max-w-sm text-center px-6">
+        <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-accent/10 mb-4">
+          <Briefcase size={20} className="text-accent" />
+        </span>
+        <h3 className="text-[15px] font-semibold text-text-1">No active applications yet</h3>
+        <p className="text-[12.5px] text-text-3 leading-relaxed mt-1.5">
+          When you Apply to a listing from the Database or a report, it lands here and moves
+          through the stages — Evaluated to Offer — as you work it.
+        </p>
+        <button
+          onClick={onBrowse}
+          className="inline-flex items-center gap-1.5 mt-4 pl-3.5 pr-3 h-9 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[13px] font-medium transition-all shadow-pill hover:shadow-pill-hover"
+        >
+          Browse the Database
+          <ArrowRight size={14} />
+        </button>
+        <p className="text-[11px] text-text-4 mt-3">
+          or paste a job URL in the inbox above to start a new lead
+        </p>
       </div>
     </div>
   )
@@ -508,8 +611,11 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
         <span className="text-[10px] font-mono text-text-4 tabular-nums">{app.score}</span>
         <div className="flex items-center gap-1.5">
           {badge && (
-            <span className={cn('text-[10px] font-mono px-1 py-0.5 rounded border', badge.color)}>
-              {badge.label}
+            <span
+              className={cn('text-[10px] font-mono px-1 py-0.5 rounded border', badge.color)}
+              title={app.deadline}
+            >
+              {deadlineLabel(app.deadline) ?? badge.label}
             </span>
           )}
           <FilesStrip company={app.company} role={app.role} size="sm" />
