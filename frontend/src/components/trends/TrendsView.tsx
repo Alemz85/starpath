@@ -11,7 +11,7 @@ import { canonicalizeArchetype } from '@/lib/archetype'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { scoreColor as galaxyScoreColor } from '@/lib/tier'
-import type { ScoreEntry } from '@/types'
+import type { ScoreEntry, ApplicationEntry, AppStatus } from '@/types'
 
 // Multi-series chart palette — sourced from the documented categorical
 // chart tokens (DESIGN-meta.md § Data Viz palette). Aurora-tuned cousins
@@ -69,6 +69,7 @@ const TIME_RANGE_LABEL: Record<TimeRange, string> = {
 export function TrendsView() {
   const loaded = useDataStore(s => s.loaded)
   const scoreHistory = useDataStore(s => s.scoreHistory)
+  const applications = useDataStore(s => s.applications)
   const [activeDims, setActiveDims] = useState<Set<DimKey>>(new Set(['avg_overall', 'avg_current_fit', 'avg_aspirational_fit']))
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
 
@@ -102,6 +103,22 @@ export function TrendsView() {
   }, [filtered])
 
   const distribution = useMemo(() => buildDistribution(filtered), [filtered])
+
+  // Applications rolled into a cumulative conversion funnel, filtered to the
+  // same time window as the score-history views (by tracker-add date). Kept
+  // separate from `filtered` since this reads applications.md, not
+  // score-history — it answers "how is my pipeline converting", the
+  // downstream counterpart to the upstream score analytics above.
+  const filteredApps = useMemo(() => {
+    const days = TIME_RANGE_DAYS[timeRange]
+    if (days == null) return applications
+    const cutoff = new Date()
+    cutoff.setHours(0, 0, 0, 0)
+    cutoff.setDate(cutoff.getDate() - days)
+    const cutoffIso = cutoff.toISOString().slice(0, 10)
+    return applications.filter(a => (a.date ?? '') >= cutoffIso)
+  }, [applications, timeRange])
+  const funnel = useMemo(() => buildFunnel(filteredApps), [filteredApps])
 
   const toggleDim = (key: DimKey) => {
     setActiveDims(prev => {
@@ -235,6 +252,15 @@ export function TrendsView() {
             read is "what fraction of what I evaluate is worth applying to". */}
         {loaded && filtered.length > 0 && (
           <ScoreDistributionCard dist={distribution} />
+        )}
+
+        {/* Pipeline conversion — the downstream counterpart to the score
+            analytics: of everything you actually applied to, how far did it
+            get? Cumulative funnel (a status implies every earlier stage was
+            reached), gated on having sent at least one application so it
+            never shows an all-zero funnel. */}
+        {loaded && funnel.sent > 0 && (
+          <ConversionFunnelCard funnel={funnel} />
         )}
 
         {/* Top-X panels: separate rhythms for archetype (horizontal bars,
@@ -583,6 +609,89 @@ function ChartTooltip({ active, label, payload }: ChartTooltipProps) {
           )
         })}
       </ul>
+    </div>
+  )
+}
+
+// ─── Conversion funnel ───────────────────────────────────────────────────────
+//
+// Cumulative application funnel from current statuses. A status implies every
+// earlier stage was reached (you can't be Interviewing without having Applied),
+// so we count "reached at least stage X". Rejected counts as having Applied
+// but — conservatively — NOT as having got a real response, since most
+// rejections are pre-interview auto-replies; surfacing it separately keeps the
+// response rate honest rather than inflating it.
+
+const REACHED_APPLIED   = new Set<AppStatus>(['Applied', 'Responded', 'Interview', 'Offer', 'Rejected'])
+const REACHED_RESPONDED = new Set<AppStatus>(['Responded', 'Interview', 'Offer'])
+const REACHED_INTERVIEW = new Set<AppStatus>(['Interview', 'Offer'])
+const REACHED_OFFER     = new Set<AppStatus>(['Offer'])
+
+interface Funnel {
+  sent: number
+  responded: number
+  interview: number
+  offer: number
+  rejected: number
+}
+
+function buildFunnel(apps: ApplicationEntry[]): Funnel {
+  let sent = 0, responded = 0, interview = 0, offer = 0, rejected = 0
+  for (const a of apps) {
+    if (REACHED_APPLIED.has(a.status))   sent++
+    if (REACHED_RESPONDED.has(a.status)) responded++
+    if (REACHED_INTERVIEW.has(a.status)) interview++
+    if (REACHED_OFFER.has(a.status))     offer++
+    if (a.status === 'Rejected')         rejected++
+  }
+  return { sent, responded, interview, offer, rejected }
+}
+
+// Stage colours track the kanban / STATUS_COLORS semantics: Applied + Responded
+// in the violet family (deepening as you advance), Interview amber, Offer green.
+function ConversionFunnelCard({ funnel }: { funnel: Funnel }) {
+  const { sent, responded, interview, offer, rejected } = funnel
+  const pct = (n: number) => (sent ? Math.round((n / sent) * 100) : 0)
+  const stages: Array<{ label: string; count: number; color: string }> = [
+    { label: 'Applied',   count: sent,      color: '#7C5CFF' },
+    { label: 'Responded', count: responded, color: '#5B3FE8' },
+    { label: 'Interview', count: interview, color: '#F7B928' },
+    { label: 'Offer',     count: offer,     color: '#007D1E' },
+  ]
+  return (
+    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
+      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
+        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Pipeline Conversion</span>
+        <span className="text-[11px] font-mono tabular-nums text-text-4">
+          <span className="text-accent-text font-semibold">{pct(responded)}%</span>
+          <span> response rate · {sent} sent</span>
+          {rejected > 0 && <span> · {rejected} rejected</span>}
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {stages.map(s => {
+          const barPct = sent ? Math.max((s.count / sent) * 100, s.count > 0 ? 3 : 0) : 0
+          return (
+            <div key={s.label} className="flex items-center gap-3">
+              <span className="w-[68px] shrink-0 text-[11px] text-text-2">{s.label}</span>
+              <div className="flex-1 h-5 rounded-pill bg-bg-elevated overflow-hidden">
+                <div
+                  className="h-full rounded-pill"
+                  style={{ width: `${barPct}%`, background: s.color, transition: 'width 320ms ease' }}
+                />
+              </div>
+              <span className="w-6 text-right text-[11px] font-mono tabular-nums text-text-2">{s.count}</span>
+              <span
+                className="w-10 text-right text-[11px] font-mono tabular-nums"
+                style={{ color: s.count > 0 ? s.color : '#8595A4' }}
+              >
+                {pct(s.count)}%
+              </span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
