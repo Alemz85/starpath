@@ -11,7 +11,8 @@ import {
 } from '@tanstack/react-table'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { ScoreEntry } from '@/types'
+import type { ScoreEntry, AppStatus } from '@/types'
+import { STATUS_COLORS, ENGAGED_STATUSES } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { parseCities } from '@/lib/entityId'
 import { useDataStore } from '@/store/data'
@@ -112,6 +113,27 @@ function CfAfBlock({ cf, af }: { cf: number; af: number }) {
         <span className="text-text-2 font-semibold">{hasAf ? af.toFixed(1) : '—'}</span>
       </div>
     </div>
+  )
+}
+
+// ─── Application-status badge ───────────────────────────────────────────────
+//
+// A small pill on a listing the user has already engaged (applied / heard back
+// / interviewing / offer / rejected). Colour comes from the shared
+// STATUS_COLORS map so it reads the same as the Applying-tab statuses. Sits
+// next to the role so the Database doubles as an "what have I already chased?"
+// view, not just a scored inventory.
+function StatusBadge({ status }: { status: AppStatus }) {
+  return (
+    <span
+      className={cn(
+        'shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-pill border border-border-default bg-bg-elevated',
+        'text-[9px] font-mono font-semibold uppercase tracking-[0.06em]',
+        STATUS_COLORS[status],
+      )}
+    >
+      {status}
+    </span>
   )
 }
 
@@ -259,6 +281,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   // (liveness was used for the row-fading rule that's now gone — kept the
   // store unsubscribed since nothing in this table needs it anymore.)
   const reports = useDataStore(s => s.reports)
+  const applications = useDataStore(s => s.applications)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   // Refs that always mirror the latest state so the column-cell closures
@@ -301,6 +324,17 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     return reportSet.byPair.has(`${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`)
   }
 
+  // Listing → application status, keyed company|role (same key the liveness /
+  // discard maps use). Drives the per-row StatusBadge. Last row wins if the
+  // same listing somehow appears twice in applications.md.
+  const statusByKey = useMemo(() => {
+    const m = new Map<string, AppStatus>()
+    for (const a of applications) {
+      m.set(`${a.company.trim().toLowerCase()}|${a.role.trim().toLowerCase()}`, a.status)
+    }
+    return m
+  }, [applications])
+
   const columns = useMemo(() => [
     col.display({
       id: 'breakdown',
@@ -339,7 +373,9 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       size: 320,
       cell: info => {
         const company = info.getValue()
-        const role = info.row.original.role
+        const entry = info.row.original
+        const role = entry.role
+        const status = statusByKey.get(`${entry.company.trim().toLowerCase()}|${entry.role.trim().toLowerCase()}`)
         return (
           <div className="flex items-center gap-3 min-w-0">
             <CompanyLogo company={company} size={28} className="shrink-0" />
@@ -347,7 +383,10 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
               <div className="text-[13px] text-text-1 font-semibold truncate block">
                 {company}
               </div>
-              <div className="text-[11.5px] text-text-3 truncate mt-0.5">{role}</div>
+              <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                <span className="text-[11.5px] text-text-3 truncate">{role}</span>
+                {status != null && ENGAGED_STATUSES.has(status) && <StatusBadge status={status} />}
+              </div>
             </div>
           </div>
         )
@@ -460,7 +499,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         )
       },
     }),
-  ], [reportSet, onOpenReport])
+  ], [reportSet, onOpenReport, statusByKey])
 
   const table = useReactTable({
     data: rows,

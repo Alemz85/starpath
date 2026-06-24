@@ -12,13 +12,21 @@ import { RowActionPopover } from '@/components/shared/RowActionPopover'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { parseCities, entityId } from '@/lib/entityId'
 import type { ScoreEntry } from '@/types'
+import { ENGAGED_STATUSES } from '@/types'
 
 export function DatabaseView() {
   const scoreHistoryRaw = useDataStore(s => s.scoreHistory)
   const liveness = useDataStore(s => s.liveness)
   const loaded = useDataStore(s => s.loaded)
   const discarded = useDataStore(s => s.discarded)
+  const applications = useDataStore(s => s.applications)
   const databaseFilter = useNavStore(s => s.databaseFilter)
+
+  // "Untapped only" — hide listings already engaged (applied / interviewing /
+  // rejected …) so the table shows only scored-but-not-yet-pursued roles.
+  // Local UI state (not persisted like the facet store) — it's a transient
+  // "help me find what's left to chase" lens, reset on relaunch.
+  const [untappedOnly, setUntappedOnly] = useState(false)
 
   // Drop tombstoned rows up-front. The tombstone set is keyed by
   // livenessKey(company, role) — identical to the key used for the
@@ -87,6 +95,17 @@ export function DatabaseView() {
     return liveness[key] ?? 'active'
   }, [liveness])
 
+  // Keys (company|role) of listings already engaged — feeds the "Untapped
+  // only" filter below. Built from applications.md, lowercased to match the
+  // entity rows (same keying as the liveness / discard maps).
+  const actedKeys = useMemo(() => {
+    const s = new Set<string>()
+    for (const a of applications) {
+      if (ENGAGED_STATUSES.has(a.status)) s.add(`${a.company.trim().toLowerCase()}|${a.role.trim().toLowerCase()}`)
+    }
+    return s
+  }, [applications])
+
   // Dedupe scoreHistory → one entity per (company, role, city), latest
   // evaluation wins (max date). Lifted out of the `filtered` memo so the
   // faceted counts below count the same units the table renders, without
@@ -113,6 +132,7 @@ export function DatabaseView() {
     //    is applied at the GROUP level below so a group is visible if
     //    ANY of its siblings matches the liveness chip set).
     if (!showClosed) rows = rows.filter(r => r.overall > 0)
+    if (untappedOnly) rows = rows.filter(r => !actedKeys.has(`${r.company.trim().toLowerCase()}|${r.role.trim().toLowerCase()}`))
     if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
     if (filters.locations.size) {
       rows = rows.filter(r => {
@@ -192,7 +212,7 @@ export function DatabaseView() {
 
     // 5. Sort by overall desc — same as the pre-grouping table.
     return grouped.sort((a, b) => b.overall - a.overall)
-  }, [entities, livenessOf, filters, tokenFilters, freeText, showClosed])
+  }, [entities, livenessOf, filters, tokenFilters, freeText, showClosed, untappedOnly, actedKeys])
 
   // Per-option facet counts (Amazon-style): each dimension is counted with
   // every OTHER active facet applied but its own selection ignored, so a
