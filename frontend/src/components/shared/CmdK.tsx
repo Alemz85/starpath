@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Command } from 'cmdk'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
@@ -17,7 +16,6 @@ export function CmdK() {
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const scouting = useDataStore(s => s.scouting)
   const navigate = useNavStore(s => s.navigate)
-  const router = useRouter()
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -36,10 +34,12 @@ export function CmdK() {
     setOpen(false)
   }
 
-  // Companies open their dossier page (/company?slug=) — the per-company
-  // view with aggregate stats, application status, and the roles table.
+  // Companies open their dossier — the per-company view with aggregate
+  // stats, application status, and the roles table. navigate('company', …)
+  // keeps it inside the AppShell (a real /company route navigation would
+  // full-reload and reset nav state under static export).
   const goCompany = (company: string) => {
-    router.push(`/company?slug=${toCompanySlug(company)}`)
+    navigate('company', '', toCompanySlug(company))
     setOpen(false)
   }
 
