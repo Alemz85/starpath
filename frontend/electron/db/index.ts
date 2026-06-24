@@ -32,6 +32,22 @@ export function closeDb(): void {
   db = null
 }
 
+// Await-able teardown for the app-quit path. chokidar's close() returns a
+// Promise, and on macOS the underlying native fsevents handle MUST be fully
+// released before the Node/Electron runtime tears down — otherwise
+// fse_instance_destroy aborts (SIGABRT → "quit unexpectedly") while
+// napi_release_threadsafe_function runs during node::Stop. closeDb() above
+// fires-and-forgets the watcher close, which is fine where the process keeps
+// running (rebuild / window-close on macOS); this one is for real exit.
+export async function shutdownDb(): Promise<void> {
+  const w = watcher
+  watcher = null
+  watchedRepoPath = null
+  try { await w?.close() } catch { /* already gone */ }
+  try { db?.close() } catch { /* already gone */ }
+  db = null
+}
+
 // Drop everything (including the file) and reopen. Use after a hard reset.
 export function rebuildDb(userDataDir: string): Database {
   closeDb()

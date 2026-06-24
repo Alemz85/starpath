@@ -14,7 +14,7 @@ import http from 'http'
 import { exec, spawn, ChildProcess, execFile } from 'child_process'
 import { promisify } from 'util'
 import {
-  openDb, closeDb, rebuildDb, startWatcher, ensureSynced, resync,
+  openDb, closeDb, shutdownDb, rebuildDb, startWatcher, ensureSynced, resync,
   queryApplications, queryScouting, queryScoreHistory, queryPipeline,
   queryReports, queryApplicationsWithScores, queryTrends,
 } from './db'
@@ -640,6 +640,29 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   closeDb()
   if (process.platform !== 'darwin') app.quit()
+})
+
+// Graceful shutdown on quit (Cmd+Q / app.quit). The chokidar watcher uses the
+// native fsevents module on macOS; if the process exits while it's still
+// alive, fse_instance_destroy aborts (SIGABRT — the "quit unexpectedly"
+// dialog) during runtime teardown. So on the first quit request we cancel the
+// default quit, kill any running child processes, tear down the watcher + db
+// (awaited), then exit hard once cleanup is actually done.
+let isCleaningUp = false
+app.on('before-quit', async (event) => {
+  if (isCleaningUp) return
+  event.preventDefault()
+  isCleaningUp = true
+  for (const proc of spawnedProcesses.values()) {
+    try { proc.kill() } catch { /* already gone */ }
+  }
+  spawnedProcesses.clear()
+  try {
+    await shutdownDb()
+  } catch (e) {
+    console.error('[shutdown] cleanup failed:', e)
+  }
+  app.exit(0)
 })
 
 app.on('activate', () => {
