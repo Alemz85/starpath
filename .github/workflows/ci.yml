@@ -27,8 +27,11 @@ jobs:
       # `--ignore-scripts` skips the electron-rebuild / native postinstalls —
       # the gate and the renderer unit suite are pure JS/TS and never touch
       # better-sqlite3 or the Electron binary, so we keep CI fast.
+      # `npm install`, not `npm ci`: lockfiles are gitignored project-wide
+      # (.gitignore § package-lock.json), so there's no committed lock for
+      # `npm ci` to read — it errors EUSAGE. Matches the frontend step below.
       - name: Install root deps (scripts gate)
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm install --ignore-scripts --no-audit --no-fund
 
       - name: Install frontend deps (renderer tests)
         working-directory: frontend
