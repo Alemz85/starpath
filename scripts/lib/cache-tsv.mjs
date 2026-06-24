@@ -45,16 +45,22 @@ export async function appendTsv(relativePath, headers, row) {
   await appendFile(path, cells.join('\t') + '\n')
 }
 
-/** Returns true if `iso` (YYYY-MM-DD) is within `days` of today. */
-export function isFresh(iso, days) {
+/**
+ * Returns true if `iso` (YYYY-MM-DD) is within `days` of today.
+ *
+ * `now` is injectable (defaults to the wall clock) so the freshness
+ * boundary is deterministically testable — the same pattern the renderer
+ * libs use for clock-dependent pure functions.
+ */
+export function isFresh(iso, days, now = new Date()) {
   if (!iso) return false
   const then = new Date(iso)
   if (Number.isNaN(then.getTime())) return false
-  const ageDays = (Date.now() - then.getTime()) / (1000 * 60 * 60 * 24)
+  const ageDays = (now.getTime() - then.getTime()) / (1000 * 60 * 60 * 24)
   return ageDays <= days
 }
 
-/** Today as ISO date (YYYY-MM-DD). */
-export function todayIso() {
-  return new Date().toISOString().slice(0, 10)
+/** Today as ISO date (YYYY-MM-DD). `now` injectable for testing. */
+export function todayIso(now = new Date()) {
+  return now.toISOString().slice(0, 10)
 }
