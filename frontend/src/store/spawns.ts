@@ -34,6 +34,10 @@ export interface SpawnRecord {
   /** Underlying executable — used by the activity panel to brand running
    *  Claude spawns with the Claude logo. Not all spawns are AI-driven. */
   tool: 'claude' | 'node' | 'shell'
+  /** Command + args captured at start so a failed run can be retried
+   *  verbatim from the activity panel without the originating view. */
+  cmd: string
+  args: string[]
 }
 
 // Suffix appended to every `claude -p` prompt so the model knows there's no
@@ -189,6 +193,7 @@ function truncate(s: string, n: number): string {
 interface SpawnsState {
   spawns: Record<string, SpawnRecord>
   start:        (id: string, label: string, cmd: string, args: string[]) => void
+  retry:        (id: string) => void
   appendOutput: (id: string, chunk: string) => void
   finish:       (id: string, exitCode: number) => void
   kill:         (id: string) => void
@@ -202,6 +207,7 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     const tool: SpawnRecord['tool'] =
       cmd === 'claude' ? 'claude' :
       cmd === 'node'   ? 'node'   : 'shell'
+    delete jsonlLineBuffer[id]  // clear any stale partial line from a prior run of this id
     set(state => ({
       spawns: {
         ...state.spawns,
@@ -212,10 +218,22 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
           output: [],
           startedAt: Date.now(),
           tool,
+          cmd,
+          args,
         },
       },
     }))
     ipc.spawn(id, cmd, args)
+  },
+
+  // Re-fire a finished spawn with its captured cmd/args, reusing the same id.
+  // Reusing the id means views that key off a fixed id (e.g. the Full Scan
+  // button) light back up automatically, and the activity panel swaps the
+  // failed record for the fresh running one in place.
+  retry: (id) => {
+    const rec = get().spawns[id]
+    if (!rec || rec.status === 'running') return
+    get().start(id, rec.label, rec.cmd, rec.args)
   },
 
   appendOutput: (id, chunk) => {
@@ -282,6 +300,25 @@ export const isAnyRunning = (state: SpawnsState): boolean =>
 
 export const getSpawn = (id: string) =>
   (state: SpawnsState): SpawnRecord | undefined => state.spawns[id]
+
+// ─── Failure diagnosis ──────────────────────────────────────────────────────
+// Turn a failed run's raw output into a one-line, human-actionable cause so the
+// activity panel doesn't make the user scroll a log to figure out what broke.
+
+export function isAuthFailure(rec: SpawnRecord): boolean {
+  return rec.status === 'error' && AUTH_FAILURE_RE.test(rec.output.join('\n'))
+}
+
+export function diagnoseFailure(rec: SpawnRecord): string | null {
+  if (rec.status !== 'error') return null
+  const text = rec.output.join('\n')
+  if (AUTH_FAILURE_RE.test(text)) return 'Claude session expired — sign in again to retry.'
+  if (/rate limit|\b429\b|overloaded|too many requests/i.test(text)) return 'Claude is rate-limited right now — wait a moment, then retry.'
+  if (/\benoent\b|no such file|command not found|cannot find/i.test(text)) return 'A file or command was missing on this machine.'
+  if (/\beacces\b|permission denied|not permitted/i.test(text)) return 'Permission was denied while running the task.'
+  if (/\benotfound\b|\beconnrefused\b|\betimedout\b|getaddrinfo|fetch failed|socket hang up|network error|timed out/i.test(text)) return 'Network error — check your connection, then retry.'
+  return null  // no specific signal — the panel falls back to the exit code
+}
 
 // ─── Module-level IPC bridge ────────────────────────────────────────────────
 // Wired once at module load. Survives view mount/unmount.
