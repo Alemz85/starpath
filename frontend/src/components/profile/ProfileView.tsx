@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { MapPin, Briefcase, Zap, Award, Target, Calendar, TrendingUp, Flame } from 'lucide-react'
+import { MapPin, Briefcase, Zap, Award, Target, Calendar, TrendingUp, Flame, Sparkles } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
@@ -180,6 +180,44 @@ function badges(history: ScoreEntry[], apps: ApplicationEntry[]): Badge[] {
   ]
 }
 
+// ─── Highlights ───────────────────────────────────────────────────────────────
+
+interface Highlight { label: string; value: string; sub: string }
+
+// Personal-records pulled from the evaluation corpus — the proudest find, the
+// company you've dug into hardest, and your busiest scouting day. Aggregates
+// (averages, tier mix) already live in the cards above; these are the single
+// standout facts that fit Profile's showcase-and-badges theme. Counts use raw
+// score-history rows (re-evaluations included) so "most explored" reflects
+// actual digging, not deduped entities.
+function buildHighlights(history: ScoreEntry[]): Highlight[] | null {
+  const scored = history.filter(e => typeof e.overall === 'number' && e.overall > 0)
+  if (scored.length < 3) return null  // too thin to celebrate
+
+  const top = scored.reduce((best, e) => (e.overall > best.overall ? e : best))
+
+  const byCompany = new Map<string, number>()
+  for (const e of history) if (e.company) byCompany.set(e.company, (byCompany.get(e.company) ?? 0) + 1)
+  let topCompany = ''; let topCompanyN = 0
+  for (const [c, n] of byCompany) if (n > topCompanyN) { topCompany = c; topCompanyN = n }
+
+  const byDay = new Map<string, number>()
+  for (const e of history) { const d = e.date.slice(0, 10); if (d) byDay.set(d, (byDay.get(d) ?? 0) + 1) }
+  let peakDay = ''; let peakN = 0
+  for (const [d, n] of byDay) if (n > peakN) { peakDay = d; peakN = n }
+
+  const shortDate = (iso: string) => {
+    const t = new Date(iso)
+    return Number.isNaN(t.getTime()) ? iso : t.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  }
+
+  return [
+    { label: 'Top score',     value: top.overall.toFixed(1), sub: top.company || 'a listing' },
+    { label: 'Most explored', value: topCompany || '—',      sub: `${topCompanyN} evaluation${topCompanyN === 1 ? '' : 's'}` },
+    { label: 'Busiest day',   value: shortDate(peakDay),     sub: `${peakN} in one day` },
+  ]
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function ProfileView() {
@@ -223,6 +261,7 @@ export function ProfileView() {
     [...scoreHistory].sort((a, b) => a.date.localeCompare(b.date)).slice(-20).map(e => e.overall),
     [scoreHistory])
   const badgeList = useMemo(() => badges(scoreHistory, applications), [scoreHistory, applications])
+  const highlights = useMemo(() => buildHighlights(scoreHistory), [scoreHistory])
 
   const initials = profile?.name
     ? profile.name.split(' ').slice(0, 2).map((n: string) => n[0]).join('').toUpperCase()
@@ -406,6 +445,25 @@ export function ProfileView() {
             )}
           </div>
         </div>
+
+        {/* ── Highlights — personal records from the corpus ── */}
+        {highlights && (
+          <div className="rounded-xl bg-bg-panel border border-border-default p-4">
+            <h2 className="text-label font-medium text-text-2 flex items-center gap-1.5 mb-3">
+              <Sparkles size={11} className="text-text-4" />
+              Highlights
+            </h2>
+            <div className="grid grid-cols-3 gap-2.5">
+              {highlights.map(h => (
+                <div key={h.label} className="rounded-lg bg-bg-elevated border border-border-default px-3 py-2.5">
+                  <div className="text-micro text-text-4 uppercase tracking-wider">{h.label}</div>
+                  <div className="text-[15px] font-semibold text-text-1 tabular-nums mt-1 truncate" title={h.value}>{h.value}</div>
+                  <div className="text-micro text-text-4 mt-0.5 truncate" title={h.sub}>{h.sub}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* ── Target roles + Superpowers ── */}
         {((profile?.roles?.length ?? 0) > 0 || (profile?.powers?.length ?? 0) > 0) && (
