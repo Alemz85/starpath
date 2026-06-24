@@ -7,7 +7,7 @@ import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import {
-  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X,
+  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X, ArrowRight,
 } from 'lucide-react'
 import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
 import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
@@ -124,6 +124,12 @@ export function ApplyingView() {
     [applications],
   )
 
+  // Cards across all five active stages — drives the board's empty state.
+  // Note: SKIP / Rejected / Discarded rows are intentionally NOT here (SKIP
+  // never enters the board; the closed two live in the Closed strip), so a
+  // user whose only rows are SKIP correctly sees the get-started guidance.
+  const activeCount = STATUS_GROUPS.reduce((n, s) => n + (grouped[s]?.length ?? 0), 0)
+
   const totalApplied      = applications.filter(a => a.status === 'Applied').length
   const totalResponded    = applications.filter(a => a.status === 'Responded').length
   const totalInterviewing = applications.filter(a => a.status === 'Interview').length
@@ -220,27 +226,33 @@ export function ApplyingView() {
 
         {/* Kanban — fills the remaining vertical space, columns scroll
             internally. Wider/taller than before, this is now the main canvas
-            of the Applying tab. */}
+            of the Applying tab. When there's nothing on the board yet, the
+            five empty columns read as "broken/loading" — swap in get-started
+            guidance instead. */}
         <div className="flex-1 min-h-[260px] overflow-x-auto -mx-1 px-1">
-          <div className="flex gap-3 h-full" style={{ minWidth: STATUS_GROUPS.length * 240 }}>
-            {STATUS_GROUPS.map(status => (
-              <KanbanColumn
-                key={status}
-                status={status}
-                items={grouped[status] ?? []}
-                spawns={spawns}
-                dragging={dragging}
-                onDragStart={(app) => setDragging({ company: app.company, role: app.role, from: status })}
-                onDragEnd={() => setDragging(null)}
-                onDropOnColumn={() => handleDropOnColumn(status)}
-                onTailorCV={handleTailorCV}
-                onDraftApp={handleDraftApp}
-                onPrepInt={handlePrepInt}
-                onRemove={handleRemove}
-                onViewReport={app => navigate('reports', `${app.company}|${app.role}`)}
-              />
-            ))}
-          </div>
+          {loaded && activeCount === 0 ? (
+            <EmptyBoard onBrowse={() => navigate('database')} />
+          ) : (
+            <div className="flex gap-3 h-full" style={{ minWidth: STATUS_GROUPS.length * 240 }}>
+              {STATUS_GROUPS.map(status => (
+                <KanbanColumn
+                  key={status}
+                  status={status}
+                  items={grouped[status] ?? []}
+                  spawns={spawns}
+                  dragging={dragging}
+                  onDragStart={(app) => setDragging({ company: app.company, role: app.role, from: status })}
+                  onDragEnd={() => setDragging(null)}
+                  onDropOnColumn={() => handleDropOnColumn(status)}
+                  onTailorCV={handleTailorCV}
+                  onDraftApp={handleDraftApp}
+                  onPrepInt={handlePrepInt}
+                  onRemove={handleRemove}
+                  onViewReport={app => navigate('reports', `${app.company}|${app.role}`)}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Closed-out applications (Rejected / Discarded) — collapsed strip so
@@ -320,6 +332,39 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
             Remove
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Empty board ─────────────────────────────────────────────────────────────
+
+// Shown when no application sits in any of the five active stages. Replaces
+// the row of empty columns (which reads as broken) with a short, accurate
+// account of how rows get here — the Apply action lives on Database rows and
+// report slide-overs — plus the inbox path for a brand-new lead.
+function EmptyBoard({ onBrowse }: { onBrowse: () => void }) {
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="max-w-sm text-center px-6">
+        <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-accent/10 mb-4">
+          <Briefcase size={20} className="text-accent" />
+        </span>
+        <h3 className="text-[15px] font-semibold text-text-1">No active applications yet</h3>
+        <p className="text-[12.5px] text-text-3 leading-relaxed mt-1.5">
+          When you Apply to a listing from the Database or a report, it lands here and moves
+          through the stages — Evaluated to Offer — as you work it.
+        </p>
+        <button
+          onClick={onBrowse}
+          className="inline-flex items-center gap-1.5 mt-4 pl-3.5 pr-3 h-9 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[13px] font-medium transition-all shadow-pill hover:shadow-pill-hover"
+        >
+          Browse the Database
+          <ArrowRight size={14} />
+        </button>
+        <p className="text-[11px] text-text-4 mt-3">
+          or paste a job URL in the inbox above to start a new lead
+        </p>
       </div>
     </div>
   )
