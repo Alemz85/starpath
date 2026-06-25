@@ -21,7 +21,7 @@
    - US/Canada → `letter`
    - Resto del mundo → `a4`
 6. Detecta arquetipo del rol → adapta framing
-7. Reescribe Professional Summary inyectando keywords del JD + exit narrative bridge ("Built and sold a business. Now applying systems thinking to [domain del JD].")
+7. Reescribe Professional Summary inyectando keywords del JD + el *narrative bridge* del candidato — tómalo de `user/_profile.md` / `user/cv.md` (su narrativa de transición/posicionamiento), p.ej. "{tu narrativa de origen}. Now applying {tu fortaleza central} to {domain del JD}." NUNCA inventes una narrativa que no esté en los archivos del usuario.
 8. Selecciona top 3-4 proyectos más relevantes para la oferta
 9. Reordena bullets de experiencia por relevancia al JD
 10. Construye competency grid desde requisitos del JD (6-8 keyword phrases)
