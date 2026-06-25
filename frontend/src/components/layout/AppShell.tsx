@@ -8,6 +8,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore, VIEW_LABELS } from '@/store/nav'
 import { useConfigDirty } from '@/store/configDirty'
 import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
+import { TodayView } from '@/components/today/TodayView'
 import { CommandCenter } from '@/components/command-center/CommandCenter'
 import { ApplyingView } from '@/components/applying/ApplyingView'
 import { DatabaseView } from '@/components/database/DatabaseView'
@@ -71,6 +72,7 @@ export function AppShell() {
             is transparent when healthy — it returns its children directly, so
             the view stays a direct flex child of <main>. */}
         <ErrorBoundary key={view} label={VIEW_LABELS[view]}>
+          {view === 'today'    && <TodayView />}
           {view === 'scouting' && <CommandCenter />}
           {view === 'applying' && <ApplyingView />}
           {view === 'database' && <DatabaseView />}

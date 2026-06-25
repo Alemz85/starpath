@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useNavStore, type ViewId } from '@/store/nav'
 import {
+  Sun,
   Map,
   Briefcase,
   Database,
@@ -20,6 +21,7 @@ import {
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawns'
 import { useDataStore } from '@/store/data'
+import { buildCockpitFeed } from '@/lib/todayCockpit'
 import { StarpathLogo } from '@/components/shared/Logos'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
 
@@ -29,15 +31,18 @@ interface NavItem {
   icon: React.ElementType
 }
 
-// Primary tabs — workflow-stage entry points. Scouting = inventory of
-// every evaluation, Applying = active applications. They sit above a
-// subtle divider in the sidebar to read as the "command" tier.
+// Primary tabs — workflow-stage entry points. Today = the cross-pipeline
+// "what should I do next?" cockpit (deadlines, follow-ups, outreach nudges,
+// fresh hits), Scouting = inventory of every evaluation, Applying = active
+// applications. They sit above a subtle divider in the sidebar to read as the
+// "command" tier.
 //
 // These tabs are about the user's data state, NOT about which evaluation
 // runs. There's only one evaluation mode (`modes/scouting.md`); the
 // CF/AF rollup weights are controlled by `phase` (Settings/CmdK), which
 // is independent from this navigation.
 const PRIMARY_NAV: NavItem[] = [
+  { view: 'today',    label: 'Today',    icon: Sun        },
   { view: 'scouting', label: 'Scouting', icon: Map        },
   { view: 'applying', label: 'Applying', icon: Briefcase  },
 ]
@@ -77,16 +82,26 @@ export function Sidebar() {
   const loaded = useDataStore(s => s.loaded)
   const pipeline = useDataStore(s => s.pipeline)
   const applications = useDataStore(s => s.applications)
+  const scouting = useDataStore(s => s.scouting)
+  const liveness = useDataStore(s => s.liveness)
   const reports = useDataStore(s => s.reports)
 
   const activeCount = applications.filter(a =>
     ['Applied', 'Responded', 'Interview', 'Offer'].includes(a.status)
   ).length
 
+  // Today's badge = the number of "act now" (critical/high) items the cockpit
+  // would surface. Computed from the same aggregation lib the view uses, minus
+  // the outreach log (not loaded into the store) — so the rail count is a
+  // floor; the Today view is the exact total. Outreach nudges are a small
+  // share, so the rail still reads honestly as "you have N pressing things".
+  const todayActionable = buildCockpitFeed({ applications, scouting, liveness }).actionable
+
   // Scouting's pending count carries accent emphasis — it's the only number
   // on the rail that means "act now" (mirrors the cockpit's pending dot)
-  // rather than "inventory size".
+  // rather than "inventory size". Today shares that accent — both mean "act".
   const badges: Partial<Record<ViewId, { count: number; accent?: boolean }>> = {
+    today:    { count: todayActionable, accent: true },
     scouting: { count: pipeline.length, accent: true },
     applying: { count: activeCount },
     reports:  { count: reports.length },
