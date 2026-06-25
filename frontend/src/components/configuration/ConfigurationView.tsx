@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { ProfileEditPanel } from '@/components/profile/ProfileEditPanel'
 import { RolesTab, PortalsTab } from '@/components/settings/SettingsView'
@@ -25,26 +25,51 @@ const TABS: { key: ConfigTab; label: string; sub: string }[] = [
   { key: 'portals',  label: 'Portals',      sub: 'Title filters, tracked companies, language blocklist.' },
 ]
 
+const PANEL_ID = (key: ConfigTab) => `config-panel-${key}`
+
 export function ConfigurationView() {
   const [tab, setTab] = useState<ConfigTab>('identity')
   // pendingTab is set when the user clicks a different tab while the
   // current tab is dirty. The modal asks them to discard or stay.
   const [pendingTab, setPendingTab] = useState<ConfigTab | null>(null)
+  const tabRefs = useRef<Partial<Record<ConfigTab, HTMLButtonElement>>>({})
 
-  // The store holds Set<sourceId> per tab. The active tab is dirty if
-  // its set is non-empty. We subscribe to the right slice so re-renders
-  // only fire when the active tab's dirty state actually flips.
-  const dirtySet = useConfigDirty(s => s[tab])
-  const isDirty = dirtySet.size > 0
+  // Subscribe to all three dirty sets so the dot appears on whichever tab
+  // has unsaved changes — including the inactive ones.
+  const identityDirty = useConfigDirty(s => s.identity.size > 0)
+  const rolesDirty    = useConfigDirty(s => s.roles.size > 0)
+  const portalsDirty  = useConfigDirty(s => s.portals.size > 0)
+  const dirtyByTab: Record<ConfigTab, boolean> = {
+    identity: identityDirty,
+    roles:    rolesDirty,
+    portals:  portalsDirty,
+  }
+  const isDirty = dirtyByTab[tab]
 
-  const requestSwitch = (next: ConfigTab) => {
+  const requestSwitch = useCallback((next: ConfigTab) => {
     if (next === tab) return
     if (isDirty) {
       setPendingTab(next)
     } else {
       setTab(next)
     }
-  }
+  }, [tab, isDirty])
+
+  // Arrow-key navigation within the tablist (ARIA authoring practices).
+  const handleTabKeyDown = useCallback((e: React.KeyboardEvent, key: ConfigTab) => {
+    const idx = TABS.findIndex(t => t.key === key)
+    let nextIdx: number | null = null
+    if (e.key === 'ArrowRight') nextIdx = (idx + 1) % TABS.length
+    else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + TABS.length) % TABS.length
+    else if (e.key === 'Home') nextIdx = 0
+    else if (e.key === 'End') nextIdx = TABS.length - 1
+    if (nextIdx !== null) {
+      e.preventDefault()
+      const nextKey = TABS[nextIdx].key
+      tabRefs.current[nextKey]?.focus()
+      requestSwitch(nextKey)
+    }
+  }, [requestSwitch])
 
   const discardAndSwitch = () => {
     if (!pendingTab) return
@@ -75,34 +100,57 @@ export function ConfigurationView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Title bar — subtitle cross-fades when the tab changes */}
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Configuration</h1>
-        <span className="text-label text-text-4">·</span>
-        <span className="text-label text-text-3">{active.sub}</span>
+        <span className="text-label text-text-4" aria-hidden="true">·</span>
+        <span
+          key={active.key}
+          className="text-label text-text-3 transition-opacity duration-150"
+        >
+          {active.sub}
+        </span>
       </div>
 
-      <div className="flex items-center border-b border-border-default bg-bg-chrome shrink-0 px-2">
+      {/* Tab navigation */}
+      <div
+        role="tablist"
+        aria-label="Configuration sections"
+        className="flex items-center border-b border-border-default bg-bg-chrome shrink-0 px-2"
+      >
         {TABS.map(({ key, label }) => {
           const isActive = tab === key
-          // Show a small dot next to the active tab's label when it has
-          // unsaved changes — a passive cue without being noisy.
-          const showDot = isActive && isDirty
+          const hasDot = dirtyByTab[key]
           return (
             <button
               key={key}
+              ref={el => { if (el) tabRefs.current[key] = el }}
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={PANEL_ID(key)}
+              id={`config-tab-${key}`}
+              tabIndex={isActive ? 0 : -1}
               onClick={() => requestSwitch(key)}
+              onKeyDown={e => handleTabKeyDown(e, key)}
               className={cn(
                 'flex items-center gap-1.5 px-4 py-2.5 text-label border-b-2 transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset',
                 isActive
                   ? 'border-accent text-text-1'
                   : 'border-transparent text-text-4 hover:text-text-2',
               )}
             >
               {label}
-              {showDot && (
+              {hasDot && (
                 <span
+                  aria-label="Unsaved changes"
                   title="Unsaved changes"
-                  className="w-1.5 h-1.5 rounded-full bg-accent"
+                  className={cn(
+                    'w-1.5 h-1.5 rounded-full bg-accent shrink-0',
+                    // Dim slightly on inactive tabs so it reads as a
+                    // passive indicator rather than a loud warning.
+                    !isActive && 'opacity-60',
+                  )}
                 />
               )}
             </button>
@@ -110,14 +158,39 @@ export function ConfigurationView() {
         })}
       </div>
 
+      {/* Tab panels — one panel per tab, hidden when not active */}
       <div className="flex-1 overflow-y-auto">
-        {tab === 'identity' && (
-          <div className="max-w-[820px] mx-auto w-full px-5 pt-4 pb-10">
-            <ProfileEditPanel />
-          </div>
-        )}
-        {tab === 'roles'   && <RolesTab />}
-        {tab === 'portals' && <PortalsTab />}
+        <div
+          role="tabpanel"
+          id={PANEL_ID('identity')}
+          aria-labelledby="config-tab-identity"
+          hidden={tab !== 'identity'}
+          className="h-full"
+        >
+          {tab === 'identity' && (
+            <div className="max-w-[820px] mx-auto w-full px-5 pt-4 pb-10">
+              <ProfileEditPanel />
+            </div>
+          )}
+        </div>
+        <div
+          role="tabpanel"
+          id={PANEL_ID('roles')}
+          aria-labelledby="config-tab-roles"
+          hidden={tab !== 'roles'}
+          className="h-full"
+        >
+          {tab === 'roles' && <RolesTab />}
+        </div>
+        <div
+          role="tabpanel"
+          id={PANEL_ID('portals')}
+          aria-labelledby="config-tab-portals"
+          hidden={tab !== 'portals'}
+          className="h-full"
+        >
+          {tab === 'portals' && <PortalsTab />}
+        </div>
       </div>
 
       {pendingTab && (
