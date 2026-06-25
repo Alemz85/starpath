@@ -13,6 +13,7 @@ import {
   Database,
   FileText,
   TrendingUp,
+  Route,
   Scale,
   Search,
   Settings,
@@ -59,9 +60,10 @@ const PRIMARY_NAV: NavItem[] = [
 const SECONDARY_NAV: NavItem[] = [
   { view: 'offers',   label: 'Offers',   icon: Scale      },
   { view: 'database', label: 'Database', icon: Database   },
-  { view: 'reports',  label: 'Reports',  icon: FileText   },
-  { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-  { view: 'scan',     label: 'Activity', icon: Activity   },
+  { view: 'reports',    label: 'Reports',     icon: FileText   },
+  { view: 'trends',     label: 'Trends',      icon: TrendingUp },
+  { view: 'scoretrend', label: 'Score Trend', icon: Route      },
+  { view: 'scan',       label: 'Activity',    icon: Activity   },
 ]
 
 const BOTTOM_ITEMS: NavItem[] = [
