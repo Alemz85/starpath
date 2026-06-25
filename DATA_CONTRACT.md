@@ -24,6 +24,7 @@ These files contain your personal data, customizations, and work product. Update
 | `data/outreach.md` | Your outreach log (who you contacted, channel, cadence) |
 | `data/companies/*.md` | Your cached deep-research dossiers (one per company; written by `deep` mode, read by `interview-prep` / `contacto`) |
 | `reports/*` | Your evaluation reports |
+| `reports/briefs/{date}-brief.md` | Your dated daily/weekly "what to do now" briefs (written by `scripts/daily-brief.mjs --write`; read-only over all canonical data) |
 | `output/*` | Your generated PDFs |
 | `jds/*` | Your saved job descriptions |
 
