@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo } from 'react'
-import { CheckCircle2, X as XIcon, AlertTriangle, RotateCw, Trash2 } from 'lucide-react'
+import { CheckCircle2, X as XIcon, AlertTriangle, RotateCw, Trash2, Zap } from 'lucide-react'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import { cn } from '@/lib/utils'
 import { useSpawnsStore, isAuthFailure, type SpawnRecord, type SpawnStatus } from '@/store/spawns'
@@ -57,29 +57,40 @@ export function ActiveProcessesBar({ focusedId, onFocus }: Props) {
   return (
     <div className="shrink-0 rounded-lg border border-border-default bg-bg-panel">
       <div className="flex items-center justify-between px-4 h-8 border-b border-border-default">
-        <span className="text-micro text-text-4 uppercase tracking-wider">
+        <span className="text-micro text-text-4 uppercase tracking-wider" aria-hidden="true">
           Active processes
           <span className="ml-1.5 font-mono text-text-3">{ordered.length}</span>
+        </span>
+        {/* Hidden but accessible count for screen readers */}
+        <span className="sr-only">
+          {ordered.length === 0
+            ? 'No active processes'
+            : `${ordered.length} process${ordered.length === 1 ? '' : 'es'}`}
         </span>
         {finishedIds.length > 0 && (
           <button
             onClick={() => finishedIds.forEach(clear)}
             title="Dismiss every finished, errored, or stopped process row"
+            aria-label={`Clear ${finishedIds.length} finished process${finishedIds.length === 1 ? '' : 'es'}`}
             className="inline-flex items-center gap-1 text-micro text-text-4 hover:text-text-2 transition-colors"
           >
-            <Trash2 size={10} />
+            <Trash2 size={10} aria-hidden="true" />
             Clear finished
           </button>
         )}
       </div>
       {ordered.length === 0 ? (
-        <div className="px-4 py-4 text-[11.5px] text-text-4 italic">
-          Nothing running. Anything you fire from Scouting or Applying shows up here.
-        </div>
+        <EmptyState />
       ) : (
         // Two-line rows (~42px) — cap the visible window near 4.5 rows so a
-        // longer tail hints that it scrolls.
-        <div className="max-h-[200px] overflow-y-auto p-1.5 space-y-0.5">
+        // longer tail hints that it scrolls. role="log" tells screen readers
+        // this region accumulates status messages over time.
+        <div
+          role="log"
+          aria-label="Process list"
+          aria-live="polite"
+          className="max-h-[200px] overflow-y-auto p-1.5 space-y-0.5"
+        >
           {ordered.map(rec => (
             <ProcessRow
               key={rec.id}
@@ -91,6 +102,26 @@ export function ActiveProcessesBar({ focusedId, onFocus }: Props) {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Empty state — shown when no spawns exist yet. Replaces the bare italic
+// placeholder with a structured hint that surfaces the right affordance
+// (scan buttons live in the Scouting tab).
+function EmptyState() {
+  return (
+    <div
+      className="px-4 py-5 flex flex-col items-center gap-1.5 text-center"
+      aria-label="No active processes. Start a scan or generate reports from the Scouting tab."
+    >
+      <span className="inline-flex items-center justify-center w-7 h-7 rounded-md bg-bg-elevated text-text-4 mb-0.5">
+        <Zap size={14} aria-hidden="true" />
+      </span>
+      <p className="text-label font-medium text-text-3">No processes running</p>
+      <p className="text-micro text-text-4 max-w-[220px] leading-relaxed normal-case tracking-normal font-normal">
+        Scans and report runs from Scouting or Applying will appear here.
+      </p>
     </div>
   )
 }
@@ -110,6 +141,8 @@ function ProcessRow({
   })
   const isError = rec.status === 'error'
   const sub = subline(rec)
+  const statusLabel = statusWord(rec.status)
+
   // The label region is the only row-level button so the right-side action
   // buttons (retry / sign-in / dismiss) aren't nested inside another
   // interactive element. Outer is a plain div; clicking the label focuses.
@@ -122,23 +155,27 @@ function ProcessRow({
     >
       <button
         onClick={onClick}
+        aria-pressed={focused}
+        aria-label={`${rec.label} — ${statusLabel}${sub.text ? `, ${sub.text}` : ''}. Click to view log.`}
         className={cn(
           'flex items-start gap-2.5 flex-1 min-w-0 text-left',
           focused ? 'text-text-1' : 'text-text-2',
         )}
       >
-        <span className="mt-0.5">
+        <span className="mt-0.5" aria-hidden="true">
           <StatusIcon status={rec.status} />
         </span>
         <div className="flex-1 min-w-0">
-          <span className="block truncate font-medium">{rec.label}</span>
+          <span className="block truncate font-medium" aria-hidden="true">{rec.label}</span>
           {/* Live "last action" subline — the freshest humanized output line.
-              Keeps a fixed height so the row doesn't jitter when text swaps. */}
+              aria-hidden because the full text is surfaced in the button's
+              aria-label above; this is visual-only reinforcement. */}
           <div
             className={cn(
               'truncate font-mono text-[10.5px] leading-[1.5] mt-0.5',
               isError ? 'text-danger/80' : 'text-text-4',
             )}
+            aria-hidden="true"
             title={sub.title}
           >
             {sub.text}
@@ -154,10 +191,10 @@ function ProcessRow({
           <RowRetry rec={rec} />
         ) : (
           <>
-            <span className="text-[10.5px] text-text-4 font-mono tabular-nums">
+            <span className="text-[10.5px] text-text-4 font-mono tabular-nums" aria-hidden="true">
               started {startedHHMM}
             </span>
-            <span className="inline-flex items-center w-px h-3 bg-border-default" aria-hidden />
+            <span className="inline-flex items-center w-px h-3 bg-border-default" aria-hidden="true" />
             <ElapsedChipInline record={rec} />
           </>
         )}
@@ -165,10 +202,10 @@ function ProcessRow({
           <button
             onClick={onClear}
             title="Dismiss this row"
-            aria-label="Dismiss process"
+            aria-label={`Dismiss ${rec.label}`}
             className="-mr-0.5 p-0.5 rounded text-text-4 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition-all"
           >
-            <XIcon size={11} />
+            <XIcon size={11} aria-hidden="true" />
           </button>
         )}
       </div>
@@ -189,9 +226,10 @@ function RowRetry({ rec }: { rec: SpawnRecord }) {
       <button
         onClick={() => relogin()}
         disabled={reloginInProgress}
+        aria-label={reloginInProgress ? 'Waiting for sign-in' : 'Sign in again to retry'}
         className="shrink-0 inline-flex items-center gap-1.5 pl-1 pr-2.5 h-6 rounded-pill bg-accent hover:bg-accent-hover text-white text-[10.5px] font-medium transition-colors disabled:opacity-70"
       >
-        <span className="bg-white rounded-full p-0.5"><ClaudeLogo size={9} /></span>
+        <span className="bg-white rounded-full p-0.5" aria-hidden="true"><ClaudeLogo size={9} /></span>
         {reloginInProgress ? 'Waiting…' : 'Sign in'}
       </button>
     )
@@ -199,9 +237,10 @@ function RowRetry({ rec }: { rec: SpawnRecord }) {
   return (
     <button
       onClick={() => retry(rec.id)}
+      aria-label={`Retry ${rec.label}`}
       className="shrink-0 inline-flex items-center gap-1 px-2.5 h-6 rounded-pill bg-bg-elevated hover:bg-accent/10 text-text-3 hover:text-accent text-[10.5px] font-medium transition-colors"
     >
-      <RotateCw size={10} />
+      <RotateCw size={10} aria-hidden="true" />
       Retry
     </button>
   )
@@ -222,6 +261,13 @@ function subline(rec: SpawnRecord): { text: string; title: string } {
   return { text: word, title: word }
 }
 
+function statusWord(status: SpawnStatus): string {
+  if (status === 'running') return 'running'
+  if (status === 'done')    return 'finished'
+  if (status === 'error')   return 'failed'
+  return 'stopped'
+}
+
 function lastOutputLine(output: string[]): string | null {
   for (let i = output.length - 1; i >= 0; i--) {
     const line = output[i]?.trim()
@@ -240,7 +286,7 @@ function StatusIcon({ status }: { status: SpawnStatus }) {
 // Wrapper that styles ElapsedChip for the in-row context (smaller, muted).
 function ElapsedChipInline({ record }: { record: SpawnRecord }) {
   return (
-    <span className="shrink-0 text-[10.5px]">
+    <span className="shrink-0 text-[10.5px]" aria-hidden="true">
       <ElapsedChip record={record} />
     </span>
   )
