@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { useConfigDirty } from './configDirty'
 
 export type ViewId =
+  | 'today'
   | 'scouting'
   | 'applying'
   | 'database'
@@ -17,6 +18,7 @@ export type ViewId =
 // the error-boundary label, and the Company view's "back to …" affordance.
 // Keep in sync with the Sidebar's NavItem labels.
 export const VIEW_LABELS: Record<ViewId, string> = {
+  today:    'Today',
   scouting: 'Scouting',
   applying: 'Applying',
   database: 'Database',
