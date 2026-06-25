@@ -7,6 +7,7 @@ import {
   buildDistribution, SCORE_BANDS,
   buildFunnel,
   buildDimensionProfile, PROFILE_DIMENSIONS, MIN_WINNERS_FOR_DELTA, APPLY_THRESHOLD,
+  buildTargetingMomentum, MIN_PER_HALF_FOR_MOMENTUM, MOMENTUM_DEADBAND,
   isoToFlag, locationFlag,
 } from '@/lib/trendsAnalytics'
 import { makeScoreEntry, makeApplication } from '@/test-utils/fixtures'
@@ -286,6 +287,134 @@ test('PROFILE_DIMENSIONS and APPLY_THRESHOLD stay aligned with the documented sc
   for (const { field } of PROFILE_DIMENSIONS) {
     assert.equal(typeof probe[field], 'number', String(field))
   }
+})
+
+// ─── buildTargetingMomentum ──────────────────────────────────────────────────
+
+// A clean two-half corpus: an EARLIER block of low scores followed (by date) by
+// a RECENT block of high scores. With MIN_PER_HALF_FOR_MOMENTUM rows on each
+// side the split clears low-signal, so the verdict is live.
+function risingCorpus() {
+  const earlier = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, (_, i) =>
+    makeScoreEntry({ date: `2026-01-0${i + 1}`, overall: 5, current_fit: 5, brand_value: 6 }),
+  )
+  const recent = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, (_, i) =>
+    makeScoreEntry({ date: `2026-06-0${i + 1}`, overall: 8, current_fit: 8, brand_value: 6 }),
+  )
+  return [...earlier, ...recent]
+}
+
+test('buildTargetingMomentum splits chronologically into equal halves (earlier gets the extra row on odd n)', () => {
+  // 5 rows by date → ceil(5/2)=3 earlier, 2 recent. Input is deliberately
+  // shuffled to prove the split sorts by date first.
+  const rows = [
+    makeScoreEntry({ date: '2026-03-01', overall: 7 }),
+    makeScoreEntry({ date: '2026-01-01', overall: 5 }),
+    makeScoreEntry({ date: '2026-05-01', overall: 9 }),
+    makeScoreEntry({ date: '2026-02-01', overall: 6 }),
+    makeScoreEntry({ date: '2026-04-01', overall: 8 }),
+  ]
+  const m = buildTargetingMomentum(rows)
+  assert.equal(m.scoredCount, 5)
+  assert.equal(m.earlier.count, 3)               // ceil(5/2)
+  assert.equal(m.recent.count, 2)
+  assert.equal(m.earlier.dateFrom, '2026-01-01') // sorted ascending
+  assert.equal(m.earlier.dateTo, '2026-03-01')
+  assert.equal(m.recent.dateFrom, '2026-04-01')
+  assert.equal(m.recent.dateTo, '2026-05-01')
+})
+
+test('buildTargetingMomentum reads a rising recent half as "improving"', () => {
+  const m = buildTargetingMomentum(risingCorpus())
+  assert.equal(m.lowSignal, false)
+  assert.equal(m.earlier.medianOverall, 5)
+  assert.equal(m.recent.medianOverall, 8)
+  assert.equal(m.medianDelta, 3)
+  assert.equal(m.direction, 'improving')
+  // earlier half is all below the 7.0 bar, recent half all above it.
+  assert.equal(m.earlier.applyPct, 0)
+  assert.equal(m.recent.applyPct, 100)
+  assert.equal(m.applyPctDelta, 100)
+})
+
+test('buildTargetingMomentum reads a falling recent half as "declining"', () => {
+  // Reverse the rising corpus's dates so the high scores are the EARLIER half.
+  const high = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, (_, i) =>
+    makeScoreEntry({ date: `2026-01-0${i + 1}`, overall: 8 }),
+  )
+  const low = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, (_, i) =>
+    makeScoreEntry({ date: `2026-06-0${i + 1}`, overall: 5 }),
+  )
+  const m = buildTargetingMomentum([...high, ...low])
+  assert.equal(m.lowSignal, false)
+  assert.equal(m.medianDelta, -3)
+  assert.equal(m.direction, 'declining')
+})
+
+test('buildTargetingMomentum treats a sub-deadband wobble as "steady"', () => {
+  // medianDelta below MOMENTUM_DEADBAND in magnitude → steady, not a trend.
+  const wobble = MOMENTUM_DEADBAND / 2
+  const earlier = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, (_, i) =>
+    makeScoreEntry({ date: `2026-01-0${i + 1}`, overall: 7 }),
+  )
+  const recent = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, (_, i) =>
+    makeScoreEntry({ date: `2026-06-0${i + 1}`, overall: 7 + wobble }),
+  )
+  const m = buildTargetingMomentum([...earlier, ...recent])
+  assert.equal(m.lowSignal, false)
+  assert.ok(Math.abs(m.medianDelta) < MOMENTUM_DEADBAND)
+  assert.equal(m.direction, 'steady')
+})
+
+test('buildTargetingMomentum flags low signal and forces "steady" when a half is too thin', () => {
+  // Only 2 rows per half — under MIN_PER_HALF_FOR_MOMENTUM (3). Even with a big
+  // score jump the verdict must not assert a direction.
+  const m = buildTargetingMomentum([
+    makeScoreEntry({ date: '2026-01-01', overall: 4 }),
+    makeScoreEntry({ date: '2026-01-02', overall: 4 }),
+    makeScoreEntry({ date: '2026-06-01', overall: 9 }),
+    makeScoreEntry({ date: '2026-06-02', overall: 9 }),
+  ])
+  assert.equal(m.lowSignal, true)
+  assert.equal(m.direction, 'steady')   // forced flat under low signal
+  assert.ok(m.medianDelta > 0)          // the raw delta is still reported…
+})
+
+test('buildTargetingMomentum drops undated and non-positive rows from the split', () => {
+  const m = buildTargetingMomentum([
+    makeScoreEntry({ date: '', overall: 9 }),          // undated — can't place on timeline
+    makeScoreEntry({ date: '2026-01-01', overall: 0 }), // unscored — dropped
+    makeScoreEntry({ date: '2026-02-01', overall: 6 }),
+    makeScoreEntry({ date: '2026-03-01', overall: 8 }),
+  ])
+  assert.equal(m.scoredCount, 2)        // only the two dated, positive rows
+  assert.equal(m.earlier.count, 1)
+  assert.equal(m.recent.count, 1)
+})
+
+test('buildTargetingMomentum dimShifts are recent-minus-earlier, sorted by absolute movement', () => {
+  // current_fit climbs +3 (the big mover); brand_value is flat across halves.
+  const m = buildTargetingMomentum(risingCorpus())
+  assert.equal(m.dimShifts[0].field, 'current_fit')
+  assert.ok(Math.abs(m.dimShifts[0].delta - 3) < 1e-9)
+  for (const s of m.dimShifts) {
+    assert.ok(Math.abs(s.delta - (s.recent - s.earlier)) < 1e-9, s.label)
+  }
+  const brand = m.dimShifts.find(s => s.field === 'brand_value')!
+  assert.ok(Math.abs(brand.delta) < 1e-9)                    // flat dimension
+  // Every dimShift covers a real profile dimension.
+  assert.equal(m.dimShifts.length, PROFILE_DIMENSIONS.length)
+})
+
+test('buildTargetingMomentum over an empty corpus is all-zero, not NaN', () => {
+  const m = buildTargetingMomentum([])
+  assert.equal(m.scoredCount, 0)
+  assert.equal(m.lowSignal, true)
+  assert.equal(m.direction, 'steady')
+  assert.equal(m.medianDelta, 0)
+  assert.equal(m.applyPctDelta, 0)
+  assert.equal(m.earlier.count, 0)
+  assert.equal(m.recent.count, 0)
 })
 
 // ─── location flags ──────────────────────────────────────────────────────────
