@@ -13,10 +13,10 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { scoreColor as galaxyScoreColor } from '@/lib/tier'
 import {
   type TimeRange, type DateBucket, type TopRow, type Distribution, type Funnel,
-  type DimensionProfile,
+  type DimensionProfile, type TargetingMomentum, type MomentumDirection,
   TIME_RANGE_LABEL, filterByDateWindow,
   avg, buildByDate, buildTopBy, buildDistribution, buildFunnel,
-  buildDimensionProfile, APPLY_THRESHOLD, locationFlag,
+  buildDimensionProfile, buildTargetingMomentum, APPLY_THRESHOLD, locationFlag,
 } from '@/lib/trendsAnalytics'
 
 // Multi-series chart palette — sourced from the documented categorical
@@ -97,6 +97,14 @@ export function TrendsView() {
   // scored rows so the user can see which dimensions actually *drive* a high
   // score vs which are flat noise for targeting. Pure derivation in lib/.
   const profile = useMemo(() => buildDimensionProfile(filtered), [filtered])
+
+  // Targeting momentum — splits the windowed corpus chronologically into an
+  // earlier vs recent half and contrasts their quality (median overall, apply
+  // rate, per-dimension means). Answers "is the stuff I evaluate getting
+  // better-fit over time?" — the trend *direction* the noisy daily line and the
+  // static snapshots above can't show. Pure derivation in lib/; honest about
+  // small samples (forces a "steady" verdict + a hint under the per-half floor).
+  const momentum = useMemo(() => buildTargetingMomentum(filtered), [filtered])
 
   // Applications rolled into a cumulative conversion funnel, filtered to the
   // same time window as the score-history views (by tracker-add date). Kept
@@ -247,6 +255,15 @@ export function TrendsView() {
             cheat-sheet: chase roles strong on the high-delta dimensions. */}
         {loaded && profile.scoredCount > 0 && (
           <DimensionProfileCard profile={profile} />
+        )}
+
+        {/* Targeting momentum — the only panel about the *direction* of pipeline
+            quality. Splits the window into an earlier vs recent half and asks
+            whether the roles you evaluate are getting better-fit as you refine
+            targeting. Needs at least two scored rows to split; the card itself
+            falls back to a hint when either half is too thin for a verdict. */}
+        {loaded && momentum.scoredCount >= 2 && (
+          <TargetingMomentumCard momentum={momentum} />
         )}
 
         {/* Pipeline conversion — the downstream counterpart to the score
@@ -446,6 +463,151 @@ function DeltaBadge({ delta }: { delta: number }) {
       {flat ? '±0.0' : `${sign}${Math.abs(delta).toFixed(1)}`}
     </span>
   )
+}
+
+// ─── Targeting momentum card ─────────────────────────────────────────────────
+//
+// Two stat blocks (earlier half · recent half) sit either side of a verdict
+// pill, so the headline reads at a glance: "median 6.2 → 7.4, improving". The
+// verdict uses the SEMANTIC scale (success / danger / muted) because "is my
+// targeting getting better or worse" is a state, not a categorical series —
+// green = improving, red = declining, slate = steady/flat. Below the stats, a
+// compact strip shows the dimensions that moved most between the two halves so
+// the user can see *where* the shift came from (e.g. "Skills Match climbed,
+// Brand Value slipped"). Under the per-half floor the whole verdict layer
+// collapses to a single honest hint instead of asserting a trend on noise.
+
+// Verdict vocabulary, keyed to the semantic palette (DESIGN-meta § Status scale).
+// `arrow` is the glyph in the pill; `color` drives pill text/tint and the recent-
+// median figure. Steady is intentionally muted text-4 so a flat trend recedes.
+const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string; color: string }> = {
+  improving: { label: 'Improving', arrow: '↑', color: '#007D1E' },   // success green
+  declining: { label: 'Declining', arrow: '↓', color: '#C80A28' },   // danger red
+  steady:    { label: 'Steady',    arrow: '→', color: '#8595A4' },   // muted slate
+}
+
+function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
+  const { earlier, recent, medianDelta, applyPctDelta, direction, dimShifts, lowSignal } = momentum
+  const verdict = MOMENTUM_VERDICT[direction]
+  // Lead with the dimensions that actually moved; a flat-everything corpus
+  // shows nothing here rather than a row of ±0.0 badges.
+  const movers = lowSignal ? [] : dimShifts.filter(s => Math.abs(s.delta) >= 0.05).slice(0, 3)
+
+  return (
+    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
+      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
+        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Targeting Momentum</span>
+        <span className="text-[11px] font-mono tabular-nums text-text-4">
+          {lowSignal
+            ? <span>recent vs earlier · {momentum.scoredCount} scored</span>
+            : <span>{earlier.count} earlier · {recent.count} recent</span>}
+        </span>
+      </div>
+
+      {lowSignal ? (
+        <p className="text-[11px] text-text-4 leading-snug py-1">
+          Not enough scored evaluations on each side of the timeline to read a trend yet.
+          Evaluate a few more and this will show whether your recent picks are scoring higher than your earlier ones.
+        </p>
+      ) : (
+        <>
+          {/* Earlier → verdict → recent. The two halves use the same metric
+              rows; the centre pill carries the direction. */}
+          <div className="flex items-stretch gap-3">
+            <HalfBlock title="Earlier" median={earlier.medianOverall} applyPct={earlier.applyPct} from={earlier.dateFrom} to={earlier.dateTo} muted />
+            <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 px-1">
+              <span
+                className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-semibold"
+                style={{ color: verdict.color, background: `${verdict.color}1f` }}
+              >
+                <span aria-hidden>{verdict.arrow}</span>{verdict.label}
+              </span>
+              <span className="text-[10px] font-mono tabular-nums text-text-4">
+                {medianDelta > 0 ? '+' : medianDelta < 0 ? '−' : '±'}{Math.abs(medianDelta).toFixed(1)} median
+              </span>
+            </div>
+            <HalfBlock title="Recent" median={recent.medianOverall} applyPct={recent.applyPct} from={recent.dateFrom} to={recent.dateTo} accent={verdict.color} />
+          </div>
+
+          {/* Apply-rate movement — the share clearing the 7.0 bar, earlier→recent. */}
+          <div className="flex items-baseline justify-between gap-3 mt-3 pt-2.5 border-t border-border-default/60 text-[11px]">
+            <span className="text-text-3">Apply-worthy share (≥{APPLY_THRESHOLD.toFixed(0)})</span>
+            <span className="font-mono tabular-nums">
+              <span className="text-text-4">{earlier.applyPct}%</span>
+              <span className="text-text-4 px-1">→</span>
+              <span className="text-text-2 font-semibold">{recent.applyPct}%</span>
+              {applyPctDelta !== 0 && (
+                <span className="ml-1.5" style={{ color: applyPctDelta > 0 ? '#007D1E' : '#C80A28' }}>
+                  ({applyPctDelta > 0 ? '+' : '−'}{Math.abs(applyPctDelta)}pt)
+                </span>
+              )}
+            </span>
+          </div>
+
+          {/* Biggest dimension movers between the halves — where the shift came
+              from. Hidden entirely when nothing moved meaningfully. */}
+          {movers.length > 0 && (
+            <div className="mt-2.5">
+              <div className="text-[10px] text-text-4 uppercase tracking-[0.06em] mb-1.5">Biggest shifts</div>
+              <ul className="flex flex-wrap gap-1.5">
+                {movers.map(s => (
+                  <li
+                    key={String(s.field)}
+                    className="inline-flex items-center gap-1.5 rounded-pill border border-border-default/70 bg-bg-elevated px-2 py-0.5 text-[11px]"
+                  >
+                    <span className="text-text-2">{s.label}</span>
+                    <span
+                      className="font-mono tabular-nums font-semibold"
+                      style={{ color: s.delta > 0 ? '#7C5CFF' : '#5D6C7B' }}
+                    >
+                      {s.delta > 0 ? '+' : '−'}{Math.abs(s.delta).toFixed(1)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// One half of the momentum comparison: median overall (the headline figure) with
+// the apply-worthy share and the date span beneath. The recent block tints its
+// median to the verdict colour; the earlier block stays muted so the eye reads
+// left→right as "from → to".
+function HalfBlock({
+  title, median, applyPct, from, to, muted, accent,
+}: {
+  title: string; median: number; applyPct: number; from: string; to: string
+  muted?: boolean; accent?: string
+}) {
+  const span = from && to ? (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`) : '—'
+  return (
+    <div className="flex-1 min-w-0 rounded-md border border-border-default/70 bg-bg-elevated/60 px-3 py-2.5">
+      <div className="text-[10px] text-text-4 uppercase tracking-[0.06em] mb-1">{title}</div>
+      <div className="flex items-baseline gap-1.5">
+        <span
+          className="text-[22px] leading-none font-mono tabular-nums font-semibold"
+          style={{ color: muted ? '#5D6C7B' : (accent ?? '#050505') }}
+        >
+          {median.toFixed(1)}
+        </span>
+        <span className="text-[10px] text-text-4">median</span>
+      </div>
+      <div className="text-[10.5px] font-mono tabular-nums text-text-4 mt-1.5 truncate" title={span}>{span}</div>
+    </div>
+  )
+}
+
+// "2026-06-25" → "Jun 25". Score-history dates are always YYYY-MM-DD ISO, so a
+// UTC parse is exact and TZ-stable (no local-midnight drift).
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function fmtDay(iso: string): string {
+  const [, m, d] = iso.split('-')
+  const mi = Number(m) - 1
+  return mi >= 0 && mi < 12 ? `${MONTHS[mi]} ${Number(d)}` : iso
 }
 
 // ─── Chart tooltip ───────────────────────────────────────────────────────────
