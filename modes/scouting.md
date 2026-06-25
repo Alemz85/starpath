@@ -82,6 +82,17 @@ Follow the lookup flow defined in `modes/_shared.md` § Comp cache. Single rule 
 - **Dream-company floor:** If the company is in the user's dream list (`user/profile.yml` → `target_roles.dream_companies` or `_profile.md` → Dream Companies), floor **Brand Value at 10** AND **Aspirational Fit at 8.0** regardless of function match. The user wants their foot in the door.
 - **Sales-Trap Risk reminder:** Sales-Trap Risk is scored (10 = well protected, 1 = high risk) and displayed in the table, but is **not included in the Aspirational Fit rollup**. It serves as a decision-support signal — a score of 1-2 should be flagged prominently as a red flag.
 
+### Report consistency gate (run AFTER scoring, BEFORE writing prose)
+
+The most common scouting-quality failure is not a wrong score — it's a report whose **prose contradicts its own table**. The dimensional table and the `## Why this score` block are computed and deterministic; the prose sections (Gaps, Comp, Recommendation, Career-path) are written. When the two disagree, the reader can't trust either. Before writing any prose section, confirm all four:
+
+1. **One blocker, named once.** The gap that `explanation.bindingConstraints[0]` names is the *same* gap that leads § B (Gaps), § D (Recommendation), and — for short reports — Fit/gaps. Do not introduce a second, different "biggest blocker" in prose that the table never surfaced.
+2. **Verdict = band.** The Recommendation's action word matches the score band the table produced (Stellar→apply now, Strong→apply with prep, Decent→apply if pipeline thin, Pass/Growth→track, Skip→skip). A verdict that's softer or harder than the band means you disagree with the *scores* — fix the scores and their reasoning cells, don't paper over it in prose.
+3. **One comp figure.** The gross quoted in § C (Comp) is the gross that fed the Salary Adj for City math in the table. Not a rounder number, not a different source.
+4. **No fabricated timelines.** No prose section invents a calendar ("close in 6 weeks", "by Q3", "in 3 months"). Effort *shape* (weekend reframe / short course / from-scratch build) and capability *triggers* (once your CV shows X) are allowed; made-up dates are not.
+
+If any check fails, the fix is upstream (the score / reasoning cell), not a prose patch. This gate is what makes the explainability the rest of the mode leans on actually load-bearing.
+
 ## Output Behavior — Framed by Score Bands
 
 The report format depends on which **Score Band** the listing falls into based on its Overall and dimensional scores. **Always compute the full dimensional table first**, then determine the score band — the same table appears in every format so positioning can read it.
@@ -127,13 +138,14 @@ Generate a **short summary report**. Universal header (with `**Tier:** T2` to ma
 (Why-this-score block — render `explanation.headline` + the binding constraint + closest lever from score-listing.mjs. See modes/_shared.md § Why-this-score block.)
 
 ## Fit / gaps
-{2 bullets max — strongest match + biggest gap}
+- **Strongest match:** {one dimension that carries the score + the JD line or CV proof point behind it — not "strong analytical fit", but *why*.}
+- **Biggest gap:** {the dimension `explanation.bindingConstraints[0]` named + its JD quote. Must be the same blocker the Why-this-score block surfaced, not a different one.}
 
 ## Verdict
-{One line — "Apply with prep" for Strong (Overall 8.0–8.9) | "Apply if pipeline thin" for Decent (Overall 7.0–7.9) | "Track company only"}
+{One line — the verdict must match the band: "Apply with prep" for Strong (Overall 8.0–8.9) | "Apply if pipeline thin" for Decent (Overall 7.0–7.9). Use "Track company only" only when a hard constraint (work-rights gate, deadline passed, scheduling conflict) overrides the band — and name that constraint in the same line.}
 
 ## Path forward
-{ONE sentence, concrete next step. No multi-step plans, no bullets.}
+{ONE sentence, concrete next step tied to the biggest gap — the one thing to do before submitting (e.g. "Lead with proof point X and secure an alumni referral before applying"). No fabricated timelines, no multi-step plans, no bullets.}
 ```
 
 Strong (Overall 8.0–8.9) → "Apply with prep" verdict. Decent (Overall 7.0–7.9) → "Apply if pipeline thin" verdict. Both write `Tier: T2` to scouting.md, report headers, and score-history.tsv (no `T2-high` or other sub-tiers).
@@ -150,9 +162,11 @@ Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal hea
 (Why-this-score block — render `explanation.headline` + binding constraint + closest lever from score-listing.mjs. On a Growth Target this is the most important section: the lever IS the roadmap. See modes/_shared.md § Why-this-score block.)
 
 ## Gaps and opportunities
-- **Gap:** {1 bullet — the single biggest CF blocker + dimension}
-- **Revisit when:** {one line, concrete trigger}
+- **Gap:** {the single biggest CF blocker + its dimension — same one `explanation.bindingConstraints[0]` named. Quote the JD requirement; don't paraphrase.}
+- **Revisit when:** {a concrete *capability* trigger, not a calendar date — "once your CV shows a shipped {domain} project" or "after you clear the {N}-year mark this JD gates on". The trigger is the milestone that flips the binding dimension above its gate, phrased so the user knows it's met when they see it.}
 ```
+
+On a Growth Target the Why-this-score block's lever **is** the roadmap — the Gap bullet should restate that lever's dimension, and the Revisit trigger is the point at which that lever clears. If the script returned no lever (no single dimension crosses a band), say so honestly rather than inventing a revisit trigger.
 
 **Exception — language wall:** if the binding gap is a foreign-language requirement the candidate doesn't have (and isn't learning), force the Skip band instead. See `_shared.md` § "Language-barrier exception" — language acquisition is multi-year, so a Gap & Growth roadmap would be misleading.
 
@@ -192,31 +206,51 @@ The Stellar report leads with the dimensional table — it's the load-bearing ar
 | TL;DR | {1 sentence, plain language} |
 
 ## B) Gaps and opportunities
-For each gap closeable on a 6–12 month horizon: name it, cite the JD evidence, say how to close it. Skip generic advice. Max 3 bullets.
+This section is the *actionable* counterpart to the Why-this-score block: that block names the one dimension gating the tier (deterministically); this section enumerates the closeable gaps under it. **The first bullet MUST address the same dimension as `explanation.bindingConstraints[0]`** — if the binding constraint is Ease of Entry but your top gap bullet is a Skills Match nit, the report contradicts itself. Lead with the gap that moves the binding dimension.
 
-- **{Gap}** — JD requires {verbatim quote}; CV doesn't show it. **Close in {X weeks/months}** via {cert / project / proof point}.
-- **{Gap 2}** — same shape.
+Each gap is a **closeable skill / proof-point gap** — something a cert, project, or reframing closes. Max 3 bullets. Each bullet:
+1. **Names the dimension** it sits under (so the reader maps it back to the table).
+2. **Quotes the JD** requirement verbatim or near-verbatim.
+3. **Cites the silent CV section** — name the `user/cv.md` section that should show it but doesn't (Skills / Projects / Experience), so "CV doesn't show it" is verifiable, not asserted.
+4. **States the closing move** — the concrete artifact that closes it (a named cert, a portfolio piece, a reframed bullet) plus its *effort shape*. Describe the move and its size (a weekend reframe vs. a short course vs. a from-scratch build), NOT a fabricated calendar — do not invent "close in 6 weeks / by Q3" horizons. Effort shape is decision-grade; a made-up date is not.
 
-If there are no meaningful gaps: *"No structural gaps — your profile maps directly onto the JD's stated requirements."*
+```
+- **Skills Match — {tool/domain}:** JD requires {verbatim quote}; your `cv.md` § {section} shows {closest adjacent skill you DO have} but not this. Closing move: {named cert / portfolio piece / reframe of existing proof point} ({weekend reframe | short course | from-scratch build}).
+```
+
+**Structural gaps are NOT closeable gaps.** A multi-year YoE wall, a foreign-language requirement, or a citizenship gate does not belong here as a "gap to close" — it is a *constraint*, already surfaced by the Why-this-score block (`eoe_gate`) and, when verdict-changing, restated in the Recommendation. Listing "gain 2 years of experience" as a near-term action item is exactly the misleading-roadmap failure mode. If the binding constraint is structural, say so in one line here (*"The binding constraint is structural (multi-year experience wall) — see Why this score; no skill build closes it in the near term"*) and stop.
+
+If there are no meaningful closeable gaps: *"No structural gaps — your profile maps directly onto the JD's stated requirements."*
 
 ## C) Comp & demand
-One row. If estimated, mark it.
+One row. The Note must state the **savings-power read**, not just "competitive" — the Salary Adj for City dimension already scored *what the package saves after cost of living* (see `_shared.md` § savings-power rubric), so the comp row should echo that, not re-answer "is the gross competitive for this city". Provenance and freshness are mandatory.
+
 | Source | Band | Note |
 |--------|------|------|
-| {JD disclosed / Glassdoor estimate / comp-cache (cached YYYY-MM-DD)} | {€XX–YYK or €X/mo} | {1 line: vs. user threshold + posting freshness} |
+| {JD disclosed / Glassdoor estimate / Levels.fyi / comp-cache (cached YYYY-MM-DD)} | {€XX–YYK or €X/mo gross} | {savings read tied to the Salary Adj score (e.g. "≈€{X}/mo saved after {city} baseline → Salary Adj {N}/10") + freshness flag} |
+
+- **Provenance:** if not JD-disclosed, tag the source inline (`[estimated from Levels.fyi]`, `[comp-cache, cached 2026-04-28]`). A bare number with no source is not allowed — it must trace to the same source the Salary Adj cell used.
+- **Staleness:** if the comp came from a comp-cache row older than 60 days, flag it (`[cache stale — refresh on next eval]`) rather than presenting it as current.
+- **Consistency:** the band here must be consistent with the gross that fed the Salary Adj for City math in the dimensional table — don't quote a different figure in prose than the one the score was computed from.
 
 ## D) Recommendation
-{2–3 lines max. The verdict (act / monitor / skip), the single biggest lever or blocker, and one growth pointer.}
+2–4 lines, in this fixed order — each line earns its place; cut any that would be filler:
 
-If a hard constraint exists (scheduling conflict, work-rights gate, language wall, deadline already passed) that materially changes the verdict, surface it as a sentence in the Recommendation — `"Hard constraint: your next degree program starts before this role's start window and isn't deferrable."` Don't bury it in the Gaps section.
+1. **Verdict + why, in one sentence.** State the action (**apply now** / **apply with prep** / **apply if pipeline thin** / **track company only** / **skip**) and tie it to the *score band the table produced* — the verdict must match the band, never soften or harden it. ("Apply with prep — Strong band (Overall 8.4); brand + analytical fit carry it.")
+2. **The single binding lever or blocker** — the same one `explanation.bindingConstraints[0]` named. Don't introduce a new blocker the table never surfaced. If applying, name the one thing to do *before submitting* (lead with proof point X; secure an alumni referral). If tracking, name the one dimension that has to move to make it applyable.
+3. **One forward pointer** (optional) — the nearest adjacent role or the growth lever, only if it adds something Gaps/Career-path didn't.
+
+**Decision integrity:** the verdict is downstream of the math, not a separate opinion. If you find yourself wanting to recommend "apply" on a Pass/Growth-band role (or "skip" on a Strong one), the disagreement is with the dimensional scores — go fix the score and its reasoning cell, don't override it in prose. Per the Ethical Use rule, Overall < 7.0 means recommend against applying unless the user has a stated override reason.
+
+**Hard constraints lead.** If a hard constraint exists (scheduling conflict, work-rights gate, language wall, deadline already passed) that materially changes the verdict, it becomes the **first sentence** of the Recommendation — `"Hard constraint: your next degree program starts before this role's start window and isn't deferrable — track only."` It must not be buried in the Gaps section, and it overrides an otherwise-positive verdict.
 
 ## E) Career path impact
-**Read `user/profile.yml → profile.dream_companies` at render time.**
+**Read `user/profile.yml → profile.dream_companies` (and `_profile.md` → Dream Companies / archetypes) at render time** — name the candidate's *actual* targets, not generic "top-tier companies". This section is grounded in the Optionality/Exit and Growth/Mobility cells; it should expand on them, not restate them.
 
-- **Accelerates toward:** {dream targets / archetypes}
-- **Detours from:** {targets — often "none"}
-- **Optionality:** {what exits/pivots this opens or closes}
-- **Key gap to close:** {single most impactful gap + directional action}
+- **Accelerates toward:** {the specific dream targets / archetypes from the user's list this role is a stepping-stone to, and the mechanism — brand signal, skill build, or network. If it doesn't move any named target, say which adjacent capability it does build instead.}
+- **Detours from:** {a named target this role moves *away* from, if any — e.g. "pulls toward ops, away from your analytics archetype". **Omit this bullet entirely if there's no real detour** — never write "none" as filler (no-generic-fallback rule).}
+- **Optionality:** {the concrete exits this opens or forecloses in 2-3 years — name the destinations, consistent with the Optionality/Exit score.}
+- **Key lever to close:** {the single most impactful gap from § B, with the directional action — not a new gap.}
 
 ## Calibration note (optional — include only when this evaluation reveals a NEW generalizable pattern)
 
