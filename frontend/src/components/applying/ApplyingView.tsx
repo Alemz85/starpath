@@ -7,7 +7,7 @@ import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import {
-  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X, ArrowRight, Bell,
+  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X, ArrowRight, ArrowUpRight, Bell,
 } from 'lucide-react'
 import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
 import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
@@ -16,7 +16,8 @@ import { FilesStrip } from '@/components/shared/FilesStrip'
 import { cn, deadlineLabel, deadlineUrgency, urgencyBadge } from '@/lib/utils'
 import {
   STATUS_GROUPS, getSpawnId, groupByStatus, countActNow,
-  cardAttention, type CardAttention, type FollowUpState,
+  cardAttention, stageProgress, nextStep,
+  type CardAttention, type FollowUpState, type NextStep,
 } from '@/lib/applyingBoard'
 import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
 
@@ -106,6 +107,14 @@ export function ApplyingView() {
   const handleTailorCV = (a: ApplicationEntry) => launch(getSpawnId('app-tailor-cv', a), 'Tailor CV',         a, 'modes/pdf.md',            models.tailorCv)
   const handleDraftApp = (a: ApplicationEntry) => launch(getSpawnId('app-draft', a),     'Draft Application', a, 'modes/apply.md',          models.draftApp)
   const handlePrepInt  = (a: ApplicationEntry) => launch(getSpawnId('app-interview', a), 'Prep Application', a, 'modes/interview-prep.md', models.interviewPrep)
+
+  // Advance a card one stage up the funnel via the same status writeback the
+  // drag-to-column path uses — the one-click target of a 'next step' of kind
+  // 'advance'. No-ops on an unexpected null target.
+  const handleAdvance = (a: ApplicationEntry, to: AppStatus | null) => {
+    if (!to) return
+    void setApplicationStatus(a.company, a.role, to)
+  }
 
   const handleDropOnColumn = (target: AppStatus) => {
     if (!dragging) return
@@ -213,6 +222,7 @@ export function ApplyingView() {
                   onTailorCV={handleTailorCV}
                   onDraftApp={handleDraftApp}
                   onPrepInt={handlePrepInt}
+                  onAdvance={handleAdvance}
                   onRemove={handleRemove}
                   onViewReport={app => navigate('reports', `${app.company}|${app.role}`)}
                 />
@@ -446,11 +456,12 @@ interface ColumnProps {
   onTailorCV: (a: ApplicationEntry) => void
   onDraftApp: (a: ApplicationEntry) => void
   onPrepInt:  (a: ApplicationEntry) => void
+  onAdvance:  (a: ApplicationEntry, to: AppStatus | null) => void
   onRemove:   (a: ApplicationEntry) => void
   onViewReport: (a: ApplicationEntry) => void
 }
 
-function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd, onDropOnColumn, onTailorCV, onDraftApp, onPrepInt, onRemove, onViewReport }: ColumnProps) {
+function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd, onDropOnColumn, onTailorCV, onDraftApp, onPrepInt, onAdvance, onRemove, onViewReport }: ColumnProps) {
   const textColor = STATUS_COLORS[status]
   const [hover, setHover] = useState(false)
   // How many cards in THIS column want action today — drives the header pip so
@@ -517,6 +528,7 @@ function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd,
                 onTailorCV={() => onTailorCV(app)}
                 onDraftApp={() => onDraftApp(app)}
                 onPrepInt={() => onPrepInt(app)}
+                onAdvance={(to) => onAdvance(app, to)}
                 onRemove={() => onRemove(app)}
                 onViewReport={() => onViewReport(app)}
               />
@@ -528,7 +540,7 @@ function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd,
   )
 }
 
-function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTailorCV, onDraftApp, onPrepInt, onRemove, onViewReport }: {
+function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTailorCV, onDraftApp, onPrepInt, onAdvance, onRemove, onViewReport }: {
   app: ApplicationEntry
   spawns: Record<string, SpawnRecord>
   isDragging: boolean
@@ -537,6 +549,7 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
   onTailorCV: () => void
   onDraftApp: () => void
   onPrepInt:  () => void
+  onAdvance:  (to: AppStatus | null) => void
   onRemove:   () => void
   onViewReport: () => void
 }) {
@@ -549,6 +562,13 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
   const attention = useMemo<CardAttention>(() => cardAttention(app), [app])
   const followUp = attention.followUp
 
+  // The single recommended next move for this card, and how far it's travelled
+  // down the funnel. Both pure (lib/applyingBoard); memoised so drag re-renders
+  // don't re-derive. nextStep folds status + the two clocks into one concrete,
+  // one-click action; stageProgress drives the journey strip.
+  const step = useMemo<NextStep>(() => nextStep(app), [app])
+  const progress = useMemo(() => stageProgress(app.status), [app.status])
+
   const tailorSpawnId = getSpawnId('app-tailor-cv', app)
   const draftSpawnId = getSpawnId('app-draft', app)
   const prepSpawnId = getSpawnId('app-interview', app)
@@ -556,6 +576,26 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
   const tailorRunning = spawns[tailorSpawnId]?.status === 'running'
   const draftRunning  = spawns[draftSpawnId]?.status === 'running'
   const prepRunning   = spawns[prepSpawnId]?.status === 'running'
+
+  // Whether the recommended step's underlying spawn is already in flight — so
+  // the primary button can reflect a running action rather than re-launch it.
+  const stepRunning =
+    step.kind === 'tailor-cv' ? tailorRunning :
+    step.kind === 'draft'     ? draftRunning  :
+    step.kind === 'prep'      ? prepRunning   : false
+
+  // Bind the recommended step to the affordance that performs it. 'advance'
+  // writes the status back (same path as drag-to-column); the spawn kinds reuse
+  // the existing per-card launchers; 'review' opens the report.
+  const runStep = () => {
+    switch (step.kind) {
+      case 'advance':   onAdvance(step.toStage); break
+      case 'tailor-cv': onTailorCV(); break
+      case 'draft':     onDraftApp(); break
+      case 'prep':      onPrepInt(); break
+      case 'review':    onViewReport(); break
+    }
+  }
 
   return (
     <div
@@ -627,13 +667,90 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
           <FilesStrip company={app.company} role={app.role} size="sm" />
         </div>
       </div>
-      <div className="flex items-center gap-1 mt-2 -mb-0.5">
-        <CardAction label="Tailor CV" running={tailorRunning} onClick={onTailorCV} />
-        <CardAction label="Draft"     running={draftRunning}  onClick={onDraftApp} />
-        <CardAction label="Prep"      running={prepRunning}   onClick={onPrepInt} />
+
+      {/* Funnel progress strip — five segments tracing Evaluated → Offer.
+          Cleared segments fill in the status hue; the rest stay hairline.
+          Gives the card's *journey* at a glance, the context the status word
+          alone can't ("Interview" tells you where, not how far it came). */}
+      <StageProgressStrip cleared={progress.cleared} total={progress.total} status={app.status} />
+
+      {/* Recommended next move — the single highest-value action for this card,
+          one click. Tone tracks the pressure (danger = urgent close/overdue,
+          warning = coming due, accent = the natural next step). The secondary
+          row below keeps every action reachable. */}
+      <NextStepButton step={step} running={stepRunning} onClick={runStep} />
+
+      <div className="flex items-center gap-1 mt-1.5 -mb-0.5">
+        <CardAction label="Tailor CV" running={tailorRunning} onClick={onTailorCV} active={step.kind === 'tailor-cv'} />
+        <CardAction label="Draft"     running={draftRunning}  onClick={onDraftApp} active={step.kind === 'draft'} />
+        <CardAction label="Prep"      running={prepRunning}   onClick={onPrepInt}  active={step.kind === 'prep'} />
         <CardAction label="Report"    running={false}         onClick={onViewReport} />
       </div>
     </div>
+  )
+}
+
+// ─── Funnel progress strip ──────────────────────────────────────────────────
+// Five thin segments tracing the funnel (Evaluated → Applied → Responded →
+// Interview → Offer). The first `cleared` segments fill in the card's status
+// hue; the rest stay a faint hairline. Quiet by design — it reads as a progress
+// meter, not a control, so it never competes with the next-step button.
+function StageProgressStrip({ cleared, total, status }: { cleared: number; total: number; status: AppStatus }) {
+  // Offer (complete) fills success-green; every other live stage fills with the
+  // status' own text hue so the strip agrees with the column header colour.
+  const fill = status === 'Offer' ? 'bg-success' : STATUS_COLORS[status].replace('text-', 'bg-')
+  return (
+    <div
+      className="flex items-center gap-0.5 mt-2"
+      role="img"
+      aria-label={`Stage ${Math.max(cleared, 0)} of ${total}: ${status}`}
+      title={`${status} — stage ${Math.max(cleared, 0)} of ${total}`}
+    >
+      {Array.from({ length: total }, (_, i) => (
+        <span
+          key={i}
+          className={cn(
+            'h-[3px] flex-1 rounded-full transition-colors',
+            i < cleared ? fill : 'bg-border-default',
+          )}
+        />
+      ))}
+    </div>
+  )
+}
+
+// ─── Next-step button ───────────────────────────────────────────────────────
+// The card's recommended one-click action (see lib/applyingBoard.nextStep).
+// Full-width and tinted by tone so the eye lands on it first; an 'advance' step
+// shows a ↗ to signal it bumps the stage, a launch step shows a running state.
+function NextStepButton({ step, running, onClick }: { step: NextStep; running: boolean; onClick: () => void }) {
+  const tone =
+    step.tone === 'urgent'
+      ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
+      : step.tone === 'due'
+        ? 'border-warning/40 bg-warning/10 text-warning hover:bg-warning/15'
+        : 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/15'
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick() }}
+      onPointerDown={(e) => e.stopPropagation()}
+      title={step.reason || step.label}
+      aria-label={step.reason || step.label}
+      className={cn(
+        'mt-2 w-full inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border',
+        'text-[11px] font-medium leading-none transition-colors',
+        running ? 'border-danger/40 bg-danger/10 text-danger' : tone,
+      )}
+    >
+      {running ? (
+        <>Running…</>
+      ) : (
+        <>
+          {step.label}
+          {step.kind === 'advance' && <ArrowUpRight size={12} className="shrink-0" />}
+        </>
+      )}
+    </button>
   )
 }
 
@@ -664,15 +781,21 @@ function FollowUpChip({ state }: { state: FollowUpState }) {
   )
 }
 
-function CardAction({ label, running, onClick }: { label: string; running: boolean; onClick: () => void }) {
+function CardAction({ label, running, onClick, active = false }: { label: string; running: boolean; onClick: () => void; active?: boolean }) {
   return (
     <button
-      onClick={onClick}
+      onClick={(e) => { e.stopPropagation(); onClick() }}
+      onPointerDown={(e) => e.stopPropagation()}
       className={cn(
         'flex-1 px-1.5 py-1 rounded text-[10px] leading-none border transition-colors text-center',
         running
           ? 'border-danger/40 bg-danger/10 text-danger'
-          : 'border-border-default text-text-3 hover:text-accent hover:border-accent/40 hover:bg-accent/5',
+          // When this action is already the recommended next step (shown above
+          // as the primary button), keep the duplicate quiet — a faint accent
+          // outline marks it as "that one", without competing for the eye.
+          : active
+            ? 'border-accent/30 text-accent/70 hover:bg-accent/5'
+            : 'border-border-default text-text-3 hover:text-accent hover:border-accent/40 hover:bg-accent/5',
       )}
     >
       {running ? '…' : label}
