@@ -7,14 +7,17 @@ import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import {
-  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X, ArrowRight,
+  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X, ArrowRight, Bell,
 } from 'lucide-react'
 import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
 import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { cn, deadlineLabel, deadlineUrgency, urgencyBadge } from '@/lib/utils'
-import { STATUS_GROUPS, getSpawnId, groupByStatus } from '@/lib/applyingBoard'
+import {
+  STATUS_GROUPS, getSpawnId, groupByStatus, countActNow,
+  cardAttention, type CardAttention, type FollowUpState,
+} from '@/lib/applyingBoard'
 import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
 
 export function ApplyingView() {
@@ -82,7 +85,15 @@ export function ApplyingView() {
   const totalResponded    = applications.filter(a => a.status === 'Responded').length
   const totalInterviewing = applications.filter(a => a.status === 'Interview').length
   const totalOffers       = applications.filter(a => a.status === 'Offer').length
-  const urgentCount       = applications.filter(a => deadlineUrgency(a.deadline) === 'urgent').length
+
+  // How many cards across the five active stages want action today — a fused
+  // count of urgent deadlines AND overdue follow-up nudges. This is the single
+  // number the user should read off the hero: "what do I touch right now?".
+  // Recomputed once per data change; `cardAttention` is cheap and pure.
+  const actNowCount = useMemo(
+    () => STATUS_GROUPS.reduce((n, s) => n + countActNow(grouped[s] ?? []), 0),
+    [grouped],
+  )
 
   const launch = (id: string, label: string, app: ApplicationEntry, modeFile: string, model: 'sonnet' | 'opus' | 'haiku') => {
     if (spawns[id]?.status === 'running') { kill(id); return }
@@ -138,10 +149,17 @@ export function ApplyingView() {
         <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
           <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
             <h1 className="text-display-2 text-text-1">Applying</h1>
-            {loaded && urgentCount > 0 && (
-              <span className="text-label text-danger font-medium">
-                {urgentCount} urgent {urgentCount === 1 ? 'deadline' : 'deadlines'}
-              </span>
+            {loaded && (
+              actNowCount > 0 ? (
+                <span className="inline-flex items-center gap-1.5 text-label text-danger font-medium">
+                  <Bell size={13} className="shrink-0" />
+                  {actNowCount} {actNowCount === 1 ? 'needs' : 'need'} action today
+                </span>
+              ) : activeCount > 0 ? (
+                <span className="text-label text-success font-medium">
+                  All caught up
+                </span>
+              ) : null
             )}
           </div>
 
@@ -435,6 +453,10 @@ interface ColumnProps {
 function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd, onDropOnColumn, onTailorCV, onDraftApp, onPrepInt, onRemove, onViewReport }: ColumnProps) {
   const textColor = STATUS_COLORS[status]
   const [hover, setHover] = useState(false)
+  // How many cards in THIS column want action today — drives the header pip so
+  // a collapsed/scrolled column still signals "there's something pressing in
+  // here" without the user opening it.
+  const columnActNow = useMemo(() => countActNow(items), [items])
   // Drop is meaningful only when something's being dragged AND it isn't
   // already in this column. Empty-column hover state stays even if the same
   // card is dragged over its own column — we just won't act on it.
@@ -459,7 +481,18 @@ function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd,
       )}
     >
       <div className="flex items-center justify-between px-3 py-2 border-b border-border-default bg-bg-chrome shrink-0">
-        <span className={cn('text-micro font-medium uppercase tracking-wider', textColor)}>{status}</span>
+        <span className={cn('text-micro font-medium uppercase tracking-wider flex items-center gap-1.5', textColor)}>
+          {status}
+          {columnActNow > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 px-1 py-px rounded-full bg-danger/10 text-danger text-[9px] font-mono leading-none normal-case tracking-normal"
+              title={`${columnActNow} ${columnActNow === 1 ? 'card needs' : 'cards need'} action today`}
+            >
+              <Bell size={8} className="shrink-0" />
+              {columnActNow}
+            </span>
+          )}
+        </span>
         <span className="text-micro font-mono text-text-4">{items.length}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
@@ -509,7 +542,13 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
 }) {
   const urgency = deadlineUrgency(app.deadline)
   const badge = urgencyBadge(urgency)
-  
+
+  // Fused attention verdict (deadline clock + follow-up cadence). Drives the
+  // left rail accent and the follow-up nudge chip. Memoised so the per-frame
+  // drag re-renders don't recompute the date math.
+  const attention = useMemo<CardAttention>(() => cardAttention(app), [app])
+  const followUp = attention.followUp
+
   const tailorSpawnId = getSpawnId('app-tailor-cv', app)
   const draftSpawnId = getSpawnId('app-draft', app)
   const prepSpawnId = getSpawnId('app-interview', app)
@@ -531,10 +570,28 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
       }}
       onDragEnd={onDragEnd}
       className={cn(
-        'group relative p-2.5 rounded-md bg-bg-elevated border border-border-default hover:border-border-strong transition-colors cursor-grab active:cursor-grabbing',
+        'group relative p-2.5 rounded-md bg-bg-elevated border transition-colors cursor-grab active:cursor-grabbing',
+        // Lift the border to the attention hue so a pressing card is legible
+        // even before the eye reaches the rail / chip. Calm cards keep the
+        // default hairline.
+        attention.level === 'act-now' ? 'border-danger/30 hover:border-danger/50'
+          : attention.level === 'soon' ? 'border-warning/30 hover:border-warning/50'
+          : 'border-border-default hover:border-border-strong',
         isDragging && 'opacity-40',
       )}
     >
+      {/* Attention rail — a thin rounded strip hugging the card's left edge.
+          Red = act now (urgent deadline or overdue nudge), amber = soon. The
+          one signal that survives a glance down a dense column. */}
+      {attention.level !== 'calm' && (
+        <span
+          aria-hidden
+          className={cn(
+            'absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full',
+            attention.level === 'act-now' ? 'bg-danger' : 'bg-warning',
+          )}
+        />
+      )}
       {/* Remove button — top-right, fades in on hover. Confirms before
           marking the row Discarded so the card can't disappear by accident. */}
       <button
@@ -558,6 +615,7 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
       <div className="flex items-center justify-between mt-2 gap-2">
         <span className="text-[10px] font-mono text-text-4 tabular-nums">{app.score}</span>
         <div className="flex items-center gap-1.5">
+          <FollowUpChip state={followUp} />
           {badge && (
             <span
               className={cn('text-[10px] font-mono px-1 py-0.5 rounded border', badge.color)}
@@ -576,6 +634,33 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
         <CardAction label="Report"    running={false}         onClick={onViewReport} />
       </div>
     </div>
+  )
+}
+
+// Follow-up nudge chip — only shows when a card has an actionable cadence
+// (due-soon / overdue). A waiting or no-cadence card stays silent so the chip
+// reads as "act on this", not decoration. Amber when it comes due, red once
+// overdue — matching the attention rail's hue scale. The Bell + the
+// `state.reason` tooltip tell the user exactly what nudge is owed.
+function FollowUpChip({ state }: { state: FollowUpState }) {
+  if (state.kind !== 'overdue' && state.kind !== 'due-soon') return null
+  const overdue = state.kind === 'overdue'
+  const label = overdue
+    ? (state.dueInDays != null ? `${-state.dueInDays}d late` : 'Overdue')
+    : (state.dueInDays === 0 ? 'Today' : 'Soon')
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.5 rounded border',
+        overdue
+          ? 'text-danger bg-danger/10 border-danger/30'
+          : 'text-warning bg-warning/10 border-warning/30',
+      )}
+      title={state.reason}
+    >
+      <Bell size={9} className="shrink-0" />
+      {label}
+    </span>
   )
 }
 
