@@ -18,6 +18,7 @@
     "research": "node scripts/company-research.mjs",
     "scan": "node scripts/scan.mjs",
     "compare-offers": "node scripts/compare-offers.mjs",
+    "comp-bench": "node scripts/comp-bench.mjs",
     "calibrate": "node scripts/calibration-advisor.mjs",
     "whats-new": "node scripts/whats-new.mjs",
     "brief": "node scripts/daily-brief.mjs",
