@@ -9,21 +9,27 @@
  * Run: node scripts/analyze-patterns.mjs          (JSON to stdout)
  *      node scripts/analyze-patterns.mjs --summary (human-readable table)
  *      node scripts/analyze-patterns.mjs --min-threshold 3
+ *      node scripts/analyze-patterns.mjs --scouting (targeting intel from
+ *        score-history.tsv — works before any outcomes exist)
+ *      node scripts/analyze-patterns.mjs --scouting --summary
  */
 
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { parseScoreHistory, analyzeScouting } from './lib/targeting-core.mjs';
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
   : join(CAREER_OPS, 'applications.md');
+const SCORE_HISTORY_FILE = join(CAREER_OPS, 'data/score-history.tsv');
 const REPORTS_DIR = join(CAREER_OPS, 'reports');
 
 // --- CLI args ---
 const args = process.argv.slice(2);
 const summaryMode = args.includes('--summary');
+const scoutingMode = args.includes('--scouting');
 const minThresholdIdx = args.indexOf('--min-threshold');
 const MIN_THRESHOLD = minThresholdIdx !== -1 && args[minThresholdIdx + 1] !== undefined
   ? (Number.isNaN(parseInt(args[minThresholdIdx + 1])) ? 5 : parseInt(args[minThresholdIdx + 1]))
@@ -539,11 +545,69 @@ function printSummary(result) {
   console.log('');
 }
 
+// --- Scouting targeting summary (human-readable) ---
+function printScoutingSummary(result) {
+  if (result.error) {
+    console.log(`\n${result.error}\n`);
+    return;
+  }
+  const { metadata, landscape, archetypePerformance, dimensionDrag, cityExposure, recommendations } = result;
+
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`  Targeting Intelligence — ${metadata.analysisDate}`);
+  console.log(`  ${metadata.evaluated} scouting evaluations (${metadata.dateRange.from} to ${metadata.dateRange.to})`);
+  console.log(`${'='.repeat(60)}\n`);
+
+  console.log('LANDSCAPE');
+  console.log('-'.repeat(40));
+  console.log(`  avg Overall ${landscape.avgOverall}  ·  median ${landscape.medianOverall}`);
+  const b = landscape.bands;
+  console.log(`  strong ${b.strong || 0} · solid ${b.solid || 0} · pass ${b.pass || 0} · weak ${b.weak || 0}`);
+  console.log(`  ${landscape.wastedShare}% of evaluations are weak (< 6.0)`);
+
+  console.log('\nARCHETYPE PERFORMANCE (best avg first)');
+  console.log('-'.repeat(40));
+  for (const a of archetypePerformance.slice(0, 10)) {
+    console.log(`  ${a.archetype.slice(0, 32).padEnd(33)} avg ${String(a.avgOverall).padStart(4)}  ${String(a.count).padStart(3)} roles  ${a.strongRate}% strong/solid`);
+  }
+
+  console.log('\nDIMENSION DRAG (weakest first — fix the top one)');
+  console.log('-'.repeat(40));
+  for (const d of dimensionDrag) {
+    console.log(`  ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  (low in ${d.lowShare}% of evals)`);
+  }
+
+  if (cityExposure.length > 0) {
+    console.log('\nWHERE STRONG MATCHES CLUSTER (solid+ roles)');
+    console.log('-'.repeat(40));
+    for (const c of cityExposure.slice(0, 8)) {
+      console.log(`  ${c.city.padEnd(24)} ${c.count}x`);
+    }
+  }
+
+  if (recommendations.length > 0) {
+    console.log(`\nTARGETING MOVES`);
+    console.log('='.repeat(60));
+    recommendations.forEach((r, i) => {
+      console.log(`  ${i + 1}. [${r.impact.toUpperCase()}] ${r.action}`);
+      console.log(`     ${r.reasoning}`);
+    });
+  }
+  console.log('');
+}
+
 // --- Run ---
-const result = analyze();
+let result;
+if (scoutingMode) {
+  const tsv = existsSync(SCORE_HISTORY_FILE) ? readFileSync(SCORE_HISTORY_FILE, 'utf-8') : '';
+  result = analyzeScouting(parseScoreHistory(tsv));
+} else {
+  result = analyze();
+}
 
 if (summaryMode) {
-  printSummary(result);
+  if (scoutingMode) printScoutingSummary(result);
+  else printSummary(result);
 } else {
   console.log(JSON.stringify(result, null, 2));
 }
