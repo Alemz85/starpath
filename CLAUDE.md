@@ -127,6 +127,7 @@ There is **one evaluation mode** (`scouting`). Per-listing follow-up actions (Ta
 | Wants to rehearse / predict likely interview questions for a role | `mock-interview` |
 | Wants to find a referral / warm-intro path into a target company | `network` |
 | Asks whether an application is ready to send / what's still missing | `apply-kit` |
+| Wants to benchmark comp for their target roles vs the evaluated landscape | `comp-bench` |
 | Wants scoring feedback — are calibration weights producing reliable results? | `calibrate` — reads `data/score-history.tsv` + `user/profile.yml`; surfaces mis-calibrated weights as read-only advisory (no score edits) |
 | Wants to know what the CV is missing vs. the roles being evaluated | `cv-gap` — aggregates keyword demand across all scouting reports and flags systematic CV gaps |
 
