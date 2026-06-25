@@ -21,6 +21,16 @@ import {
   coverageGaps,
   findStoryByTitle,
   bankHealth,
+  // competency taxonomy + validator + coverage index (interview-prep Step 5)
+  COMPETENCIES,
+  normalizeCompetency,
+  storyCompetencies,
+  validateStory,
+  findDuplicateTitles,
+  buildCompetencyIndex,
+  competencyGaps,
+  rankStoriesByCompetency,
+  validateBank,
 } from './story-bank.mjs';
 
 const SAMPLE = `# Story Bank
@@ -231,4 +241,228 @@ test('bankHealth flags a complete-but-unquantified result', () => {
   const h = bankHealth(parseStoryBank(md));
   assert.equal(h.complete, 1);
   assert.deepEqual(h.unquantified, ['No numbers']);
+});
+
+/* ════════════════════════════════════════════════════════════════════
+ * Competency taxonomy + validator + coverage index (interview-prep Step 5)
+ * ════════════════════════════════════════════════════════════════════ */
+
+// A complete, well-formed story in the canonical `### {Title}` + `**Themes:**`
+// format. Themes use natural language that should resolve to canonical
+// competencies (ownership, conflict, impact). Fictional candidate — never real
+// user data (CLAUDE.md § System Layer Hygiene).
+const GOOD_STORY = `### Rescued the migration deadline
+**Themes:** ownership, conflict, impact
+**Situation:** The data-platform migration was three weeks behind and two teams blamed each other.
+**Task:** I owned the integration layer and had to unblock both teams before the quarter close.
+**Action:** I mapped the dependency graph, called a joint working session, and proposed a phased cutover.
+**Result:** We shipped two days before the deadline; error rate dropped 40%.
+**Reflection:** I'd surface the cross-team dependency earlier — the conflict was a planning gap, not a people problem.`;
+
+/* ───── normalizeCompetency ───────────────────────────────────────── */
+
+test('normalizeCompetency resolves ids, aliases, substrings, and theme-style dashes', () => {
+  assert.equal(normalizeCompetency('ownership'), 'ownership');         // exact id
+  assert.equal(normalizeCompetency('Bias for Action'), 'ownership');   // alias, case-insensitive
+  assert.equal(normalizeCompetency('led a team'), 'leadership');       // alias
+  assert.equal(normalizeCompetency('we had a big disagreement'), 'conflict'); // substring
+  assert.equal(normalizeCompetency('teamwork'), 'collaboration');
+  // dashed theme tags (the bank writes "delivery-under-pressure") normalize too
+  assert.equal(normalizeCompetency('delivery-under-pressure'), 'ownership');
+  assert.equal(normalizeCompetency('data-driven'), 'analytical');
+});
+
+test('normalizeCompetency prefers the longest matching alias', () => {
+  assert.equal(normalizeCompetency('stakeholder management with execs'), 'leadership');
+});
+
+test('normalizeCompetency returns null for unknown/empty tags', () => {
+  assert.equal(normalizeCompetency('xyzzy'), null);
+  assert.equal(normalizeCompetency(''), null);
+  assert.equal(normalizeCompetency(null), null);
+  assert.equal(normalizeCompetency(undefined), null);
+});
+
+/* ───── storyCompetencies ─────────────────────────────────────────── */
+
+test('storyCompetencies resolves a story\'s themes, splitting known from unknown', () => {
+  const [s] = parseStoryBank(GOOD_STORY);
+  const { competencies, unknownThemes } = storyCompetencies(s);
+  assert.deepEqual(competencies, ['ownership', 'conflict', 'impact']);
+  assert.deepEqual(unknownThemes, []);
+});
+
+test('storyCompetencies dedups when two themes map to the same competency', () => {
+  const md = `### Doubled
+**Themes:** leadership, led a team, telepathy
+**Situation:** s long enough here
+**Task:** t long enough here
+**Action:** a long enough here
+**Result:** 10x long enough here
+**Reflection:** r long enough here`;
+  const [s] = parseStoryBank(md);
+  const { competencies, unknownThemes } = storyCompetencies(s);
+  assert.deepEqual(competencies, ['leadership']); // both leadership themes collapse
+  assert.deepEqual(unknownThemes, ['telepathy']);
+});
+
+/* ───── validateStory ─────────────────────────────────────────────── */
+
+test('validateStory passes a complete, competency-tagged story', () => {
+  const [s] = parseStoryBank(GOOD_STORY);
+  const v = validateStory(s);
+  assert.equal(v.ok, true);
+  assert.deepEqual(v.errors, []);
+});
+
+test('validateStory errors on a missing STAR+R beat (the +R differentiator)', () => {
+  const md = `### No reflection
+**Themes:** impact
+**Situation:** A real situation that is long enough.
+**Task:** A real task that is long enough.
+**Action:** A real action that is long enough.
+**Result:** A real result with 5 numbers.`;
+  const [s] = parseStoryBank(md);
+  const v = validateStory(s);
+  assert.equal(v.ok, false);
+  assert.ok(v.errors.some((e) => /reflection/i.test(e)));
+});
+
+test('validateStory errors when no theme maps to a recognized competency', () => {
+  const md = `### Untagged
+**Themes:** telepathy
+**Situation:** A real situation that is long enough.
+**Task:** A real task that is long enough.
+**Action:** A real action that is long enough.
+**Result:** A real result with 7 numbers.
+**Reflection:** A real reflection that is long enough.`;
+  const [s] = parseStoryBank(md);
+  const v = validateStory(s);
+  assert.equal(v.ok, false);
+  assert.ok(v.errors.some((e) => /competency/i.test(e)));
+  assert.ok(v.warnings.some((w) => /telepathy/.test(w)));
+});
+
+test('validateStory warns on placeholder-length beats and unquantified Result', () => {
+  const md = `### Stub
+**Themes:** ownership
+**Situation:** TODO
+**Task:** A real task that is long enough.
+**Action:** A real action that is long enough.
+**Result:** It went really well overall and the team was happy
+**Reflection:** A real reflection that is long enough.`;
+  const [s] = parseStoryBank(md);
+  const v = validateStory(s);
+  assert.ok(v.warnings.some((w) => /placeholder/.test(w)));
+  assert.ok(v.warnings.some((w) => /Result has no number/.test(w)));
+});
+
+/* ───── findDuplicateTitles ───────────────────────────────────────── */
+
+test('findDuplicateTitles catches normalized title collisions (dedup rule)', () => {
+  const md = `${GOOD_STORY}\n\n### **rescued the MIGRATION deadline.**
+**Themes:** impact
+**Situation:** Another telling of the same story.
+**Task:** Same task here, long enough.
+**Action:** Same action here, long enough.
+**Result:** Same 40% result here.
+**Reflection:** Same reflection here, long enough.`;
+  const stories = parseStoryBank(md);
+  const dups = findDuplicateTitles(stories);
+  assert.equal(dups.length, 1);
+  assert.equal(dups[0].count, 2);
+  assert.deepEqual(dups[0].indices, [0, 1]);
+});
+
+test('findDuplicateTitles returns empty when titles are unique', () => {
+  const stories = parseStoryBank(GOOD_STORY);
+  assert.deepEqual(findDuplicateTitles(stories), []);
+});
+
+/* ───── buildCompetencyIndex / competencyGaps ─────────────────────── */
+
+test('buildCompetencyIndex maps competencies to covering story titles', () => {
+  const stories = parseStoryBank(GOOD_STORY);
+  const idx = buildCompetencyIndex(stories);
+  assert.deepEqual(idx.ownership, ['Rescued the migration deadline']);
+  assert.deepEqual(idx.conflict, ['Rescued the migration deadline']);
+  assert.deepEqual(idx.leadership, []); // not covered
+  for (const c of COMPETENCIES) assert.ok(Array.isArray(idx[c.id]));
+});
+
+test('competencyGaps lists exactly the uncovered competencies, with labels', () => {
+  const stories = parseStoryBank(GOOD_STORY);
+  const gaps = competencyGaps(stories);
+  const gapIds = gaps.map((g) => g.id);
+  assert.ok(!gapIds.includes('ownership'));
+  assert.ok(!gapIds.includes('conflict'));
+  assert.ok(!gapIds.includes('impact'));
+  assert.ok(gapIds.includes('leadership'));
+  assert.ok(gaps.find((g) => g.id === 'leadership').label.length > 0);
+});
+
+/* ───── rankStoriesByCompetency ───────────────────────────────────── */
+
+test('rankStoriesByCompetency boosts the story that covers the target competency', () => {
+  const md = `${GOOD_STORY}\n\n### Led the analytics redesign
+**Themes:** leadership, ambiguity
+**Situation:** The dashboard nobody trusted.
+**Task:** Rebuild the metric definitions.
+**Action:** Interviewed 8 stakeholders and rewrote the semantic layer.
+**Result:** Adoption went from 20% to 75% in one quarter.
+**Reflection:** Trust is rebuilt by transparency, not by a prettier chart.`;
+  const stories = parseStoryBank(md);
+  // Ask a conflict question pre-classified to the conflict competency.
+  const ranked = rankStoriesByCompetency(stories, 'tell me about a disagreement', 'conflict');
+  assert.equal(ranked[0].story.title, 'Rescued the migration deadline');
+  assert.equal(ranked[0].viaCompetency, true);
+  assert.equal(ranked[0].fit, 'strong');
+});
+
+test('rankStoriesByCompetency falls back to text scoring when no competency given', () => {
+  const stories = parseStoryBank(GOOD_STORY);
+  const ranked = rankStoriesByCompetency(stories, 'the migration cutover');
+  assert.ok(ranked.length >= 1);
+  assert.equal(ranked[0].viaCompetency, false);
+  assert.ok(ranked[0].score > 0);
+});
+
+/* ───── validateBank rollup ───────────────────────────────────────── */
+
+test('validateBank ok=true for a clean single-story bank', () => {
+  const r = validateBank(parseStoryBank(GOOD_STORY));
+  assert.equal(r.ok, true);
+  assert.equal(r.storyCount, 1);
+  assert.equal(r.duplicates.length, 0);
+  assert.ok(r.gaps.length > 0); // one story can't cover all competencies
+  assert.equal(r.perStory[0].ok, true);
+});
+
+test('validateBank ok=false when any story is incomplete', () => {
+  const bad = `### Incomplete
+**Themes:** impact
+**Situation:** Only a situation here, nothing else.`;
+  const r = validateBank(parseStoryBank(bad));
+  assert.equal(r.ok, false);
+  assert.equal(r.perStory[0].ok, false);
+});
+
+test('validateBank ok=false when titles collide even if each story is complete', () => {
+  const md = `${GOOD_STORY}\n\n### Rescued the migration deadline
+**Themes:** impact
+**Situation:** A duplicate-title telling, long enough.
+**Task:** Same task, long enough here.
+**Action:** Same action, long enough here.
+**Result:** Same 40% drop result here.
+**Reflection:** Same reflection, long enough here.`;
+  const r = validateBank(parseStoryBank(md));
+  assert.equal(r.ok, false);
+  assert.equal(r.duplicates.length, 1);
+});
+
+test('validateBank empty bank: ok with zero stories and all competencies as gaps', () => {
+  const r = validateBank(parseStoryBank(''));
+  assert.equal(r.ok, true);
+  assert.equal(r.storyCount, 0);
+  assert.equal(r.gaps.length, COMPETENCIES.length);
 });
