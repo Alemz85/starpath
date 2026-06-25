@@ -207,3 +207,202 @@ export function cardAttention(app: ApplicationEntry, now: Date = new Date()): Ca
 export function countActNow(apps: ApplicationEntry[], now: Date = new Date()): number {
   return apps.reduce((n, a) => n + (cardAttention(a, now).level === 'act-now' ? 1 : 0), 0)
 }
+
+// ─── Stage flow + progress ────────────────────────────────────────────────────
+// The linear funnel a healthy application walks: Evaluated → Applied →
+// Responded → Interview → Offer. This is the *same* ordering as STATUS_GROUPS
+// (the board columns) but named separately because it carries a different
+// meaning — STATUS_GROUPS is "which lanes exist", STAGE_FLOW is "the path a
+// card travels". Keeping them as one constant would conflate layout with
+// progression; an alias keeps them in lockstep without duplicating the list.
+export const STAGE_FLOW = STATUS_GROUPS
+
+// Zero-based position of a status in the funnel, or -1 for the closed/non-flow
+// statuses (Rejected / Discarded / SKIP) that never sit on the path.
+export function stageIndex(status: AppStatus): number {
+  return STAGE_FLOW.indexOf(status)
+}
+
+// The next stage up the funnel from `status`, or null when there's nowhere
+// further to advance (already at Offer, or a closed/non-flow status). Drives
+// the card's one-click "advance" affordance — the writeback target.
+export function nextStage(status: AppStatus): AppStatus | null {
+  const i = stageIndex(status)
+  if (i === -1 || i >= STAGE_FLOW.length - 1) return null
+  return STAGE_FLOW[i + 1]
+}
+
+export interface StageProgress {
+  /** Zero-based index of the current stage in STAGE_FLOW, or -1 if off-flow. */
+  index: number
+  /** How many stages of the funnel are cleared INCLUDING the current one
+   *  (1…STAGE_FLOW.length). 0 when the card is off-flow. */
+  cleared: number
+  /** Total stages in the funnel — the denominator for a progress read. */
+  total: number
+  /** True once the card has reached the terminal Offer stage. */
+  complete: boolean
+}
+
+// How far an application has travelled down the funnel — drives the compact
+// progress strip on the card (e.g. ●●●○○ for a card that reached Responded).
+// An off-flow status (closed/SKIP) reports zero cleared so the strip stays
+// empty rather than implying progress on a dead row.
+export function stageProgress(status: AppStatus): StageProgress {
+  const index = stageIndex(status)
+  const total = STAGE_FLOW.length
+  return {
+    index,
+    cleared: index === -1 ? 0 : index + 1,
+    total,
+    complete: status === 'Offer',
+  }
+}
+
+// ─── Next-step recommendation ─────────────────────────────────────────────────
+// "What is the single highest-value thing to do on this card right now?" The
+// board already surfaces two raw signals — a deadline clock and a follow-up
+// cadence (see cardAttention) — but the user still has to translate "3d
+// overdue" into an action and find the right button. This engine closes that
+// gap: it folds status + both clocks into ONE concrete, ranked recommendation
+// the card can render as a single primary button.
+//
+// It maps onto affordances the board already has, so the recommendation is
+// always actionable:
+//   - 'advance'   → bump status to the next funnel stage (the drag-to-column
+//                   writeback, one-click). Carries `toStage`.
+//   - 'tailor-cv' → launch the Tailor CV spawn (modes/pdf.md).
+//   - 'draft'     → launch the Draft Application spawn (modes/apply.md).
+//   - 'prep'      → launch the Prep Application spawn (modes/interview-prep.md).
+//   - 'review'    → open the report (read + decide; used at the Offer terminal
+//                   and as the calm fallback).
+// The view binds each kind to its existing handler — this module owns only the
+// decision, never the side effect, so it stays pure and unit-testable.
+
+export type NextStepKind = 'advance' | 'tailor-cv' | 'draft' | 'prep' | 'review'
+
+// Visual weight the card should give the step. 'urgent' = a hard close date or
+// an overdue nudge is forcing the issue (render in danger); 'due' = it's coming
+// due (warning); 'normal' = the natural next move with no clock pressure.
+export type NextStepTone = 'urgent' | 'due' | 'normal'
+
+export interface NextStep {
+  kind: NextStepKind
+  /** Short button label, e.g. "Apply", "Send follow-up", "Thank-you note". */
+  label: string
+  /** One-line rationale for the tooltip / aria-label. */
+  reason: string
+  tone: NextStepTone
+  /** For kind='advance': the status to write back. null for non-advance kinds. */
+  toStage: AppStatus | null
+}
+
+// Resolve the recommended next step. Pure: clock-dependent only through `now`.
+// Off-flow rows (Rejected / Discarded / SKIP) never reach this in the UI (they
+// live in the Closed strip, not the board), but we still return a safe 'review'
+// so callers can't crash on one.
+export function nextStep(app: ApplicationEntry, now: Date = new Date()): NextStep {
+  const urgency = deadlineUrgency(app.deadline, now)
+  const fu = followUpState(app, now)
+  const advanceTo = nextStage(app.status)
+
+  switch (app.status) {
+    // Evaluated → the move is to apply. A closing deadline makes it urgent and
+    // the label sharpens to "Apply now"; otherwise it's the natural next step.
+    // When the row has no CV yet, nudge toward tailoring first — a tailored CV
+    // is what makes the application worth sending (funnel → conversion).
+    case 'Evaluated': {
+      if (urgency === 'urgent') {
+        return {
+          kind: 'advance', toStage: advanceTo, tone: 'urgent',
+          label: 'Apply now',
+          reason: 'Deadline within a week — apply before it closes',
+        }
+      }
+      if (!app.pdf) {
+        return {
+          kind: 'tailor-cv', toStage: null, tone: urgency === 'month' ? 'due' : 'normal',
+          label: 'Tailor CV',
+          reason: 'Tailor your CV to this role before applying',
+        }
+      }
+      return {
+        kind: 'advance', toStage: advanceTo, tone: urgency === 'month' ? 'due' : 'normal',
+        label: 'Apply',
+        reason: urgency === 'month' ? 'Deadline this month — apply soon' : 'CV ready — mark applied once sent',
+      }
+    }
+
+    // Applied → you're waiting on the company. The action is a follow-up, gated
+    // by the cadence clock: overdue / due → surface it; still waiting → the calm
+    // move is to draft the application answers while you wait.
+    case 'Applied': {
+      if (fu.kind === 'overdue' || fu.kind === 'due-soon') {
+        return {
+          kind: 'draft', toStage: null,
+          tone: fu.kind === 'overdue' ? 'urgent' : 'due',
+          label: 'Send follow-up',
+          reason: fu.reason,
+        }
+      }
+      return {
+        kind: 'advance', toStage: advanceTo, tone: 'normal',
+        label: 'Log reply',
+        reason: 'Heard back? Move it to Responded',
+      }
+    }
+
+    // Responded → the company is engaging; the cadence wants a prompt reply.
+    // Past that, the natural next move is to advance into the interview loop.
+    case 'Responded': {
+      if (fu.kind === 'overdue' || fu.kind === 'due-soon') {
+        return {
+          kind: 'draft', toStage: null,
+          tone: fu.kind === 'overdue' ? 'urgent' : 'due',
+          label: 'Reply now',
+          reason: fu.reason,
+        }
+      }
+      return {
+        kind: 'advance', toStage: advanceTo, tone: 'normal',
+        label: 'Move to interview',
+        reason: 'Interview scheduled? Advance the stage',
+      }
+    }
+
+    // Interview → two beats: prep before it, thank-you note right after. The
+    // cadence (1-day thank-you window) flips to urgent the day after the move;
+    // otherwise the high-value action is to prep with the story bank.
+    case 'Interview': {
+      if (fu.kind === 'overdue' || fu.kind === 'due-soon') {
+        return {
+          kind: 'draft', toStage: null,
+          tone: fu.kind === 'overdue' ? 'urgent' : 'due',
+          label: 'Thank-you note',
+          reason: fu.reason,
+        }
+      }
+      return {
+        kind: 'prep', toStage: null, tone: 'normal',
+        label: 'Prep interview',
+        reason: 'Prep answers from your story bank before the round',
+      }
+    }
+
+    // Offer → the ball is in your court; the move is to review and decide.
+    case 'Offer':
+      return {
+        kind: 'review', toStage: null, tone: 'normal',
+        label: 'Review offer',
+        reason: 'Offer in hand — open the report to weigh it',
+      }
+
+    // Off-flow (closed) rows: safe, inert fallback.
+    default:
+      return {
+        kind: 'review', toStage: null, tone: 'normal',
+        label: 'Open report',
+        reason: '',
+      }
+  }
+}

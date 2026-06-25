@@ -4,12 +4,17 @@ import {
   STATUS_GROUPS,
   URGENCY_RANK,
   FOLLOWUP_CADENCE_DAYS,
+  STAGE_FLOW,
   compareByDeadline,
   groupByStatus,
   getSpawnId,
   followUpState,
   cardAttention,
   countActNow,
+  stageIndex,
+  nextStage,
+  stageProgress,
+  nextStep,
 } from '@/lib/applyingBoard'
 import { makeApplication } from '@/test-utils/fixtures'
 import type { AppStatus } from '@/types'
@@ -212,4 +217,131 @@ test('countActNow tallies only the cards that need action today', () => {
     makeApplication({ status: 'Evaluated', date: ymd(0), deadline: 'n/d' }),  // calm
   ]
   assert.equal(countActNow(apps, NOW), 2)
+})
+
+// ─── stage flow / progress ─────────────────────────────────────────────────────
+
+test('STAGE_FLOW mirrors the board lane order exactly', () => {
+  assert.deepEqual(STAGE_FLOW, STATUS_GROUPS)
+  assert.deepEqual(STAGE_FLOW, ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer'])
+})
+
+test('stageIndex locates funnel stages and rejects off-flow statuses', () => {
+  assert.equal(stageIndex('Evaluated'), 0)
+  assert.equal(stageIndex('Interview'), 3)
+  assert.equal(stageIndex('Offer'), 4)
+  for (const off of ['Rejected', 'Discarded', 'SKIP'] as AppStatus[]) {
+    assert.equal(stageIndex(off), -1, `${off} is off the funnel`)
+  }
+})
+
+test('nextStage walks the funnel and terminates at Offer', () => {
+  assert.equal(nextStage('Evaluated'), 'Applied')
+  assert.equal(nextStage('Applied'), 'Responded')
+  assert.equal(nextStage('Responded'), 'Interview')
+  assert.equal(nextStage('Interview'), 'Offer')
+  assert.equal(nextStage('Offer'), null, 'Offer is terminal — nowhere to advance')
+  // Off-flow statuses have no next stage.
+  for (const off of ['Rejected', 'Discarded', 'SKIP'] as AppStatus[]) {
+    assert.equal(nextStage(off), null)
+  }
+})
+
+test('stageProgress counts cleared stages including the current one', () => {
+  assert.deepEqual(stageProgress('Evaluated'), { index: 0, cleared: 1, total: 5, complete: false })
+  assert.deepEqual(stageProgress('Responded'), { index: 2, cleared: 3, total: 5, complete: false })
+  assert.deepEqual(stageProgress('Offer'),     { index: 4, cleared: 5, total: 5, complete: true })
+})
+
+test('stageProgress reports zero cleared for an off-flow row (no false progress)', () => {
+  const p = stageProgress('Rejected')
+  assert.equal(p.index, -1)
+  assert.equal(p.cleared, 0)
+  assert.equal(p.complete, false)
+})
+
+// ─── nextStep recommendation ────────────────────────────────────────────────────
+
+test('nextStep: Evaluated with no CV nudges toward tailoring first', () => {
+  const s = nextStep(makeApplication({ status: 'Evaluated', pdf: false, deadline: 'n/d' }), NOW)
+  assert.equal(s.kind, 'tailor-cv')
+  assert.equal(s.tone, 'normal')
+  assert.equal(s.toStage, null)
+})
+
+test('nextStep: Evaluated with a CV ready recommends advancing to Applied', () => {
+  const s = nextStep(makeApplication({ status: 'Evaluated', pdf: true, deadline: 'n/d' }), NOW)
+  assert.equal(s.kind, 'advance')
+  assert.equal(s.toStage, 'Applied')
+  assert.equal(s.label, 'Apply')
+})
+
+test('nextStep: Evaluated with an urgent deadline forces "Apply now" even without a CV', () => {
+  // A closing deadline outranks the tailor-first nudge — you apply before it shuts.
+  const s = nextStep(makeApplication({ status: 'Evaluated', pdf: false, deadline: ymd(3) }), NOW)
+  assert.equal(s.kind, 'advance')
+  assert.equal(s.toStage, 'Applied')
+  assert.equal(s.tone, 'urgent')
+  assert.match(s.label, /Apply now/)
+})
+
+test('nextStep: Evaluated with a this-month deadline reads as "due" tone', () => {
+  const s = nextStep(makeApplication({ status: 'Evaluated', pdf: true, deadline: ymd(20) }), NOW)
+  assert.equal(s.kind, 'advance')
+  assert.equal(s.tone, 'due')
+})
+
+test('nextStep: Applied still waiting recommends logging a reply (calm advance)', () => {
+  const s = nextStep(makeApplication({ status: 'Applied', date: ymd(-2), deadline: 'n/d' }), NOW)
+  assert.equal(s.kind, 'advance')
+  assert.equal(s.toStage, 'Responded')
+  assert.equal(s.tone, 'normal')
+})
+
+test('nextStep: Applied past the cadence surfaces an urgent follow-up', () => {
+  const s = nextStep(makeApplication({ status: 'Applied', date: ymd(-14), deadline: 'n/d' }), NOW)
+  assert.equal(s.kind, 'draft')
+  assert.equal(s.tone, 'urgent')
+  assert.equal(s.label, 'Send follow-up')
+  assert.match(s.reason, /overdue/)
+})
+
+test('nextStep: Responded within the reply window surfaces a due reply', () => {
+  // Responded cadence is 3d; day 3 is due-soon (due today).
+  const s = nextStep(makeApplication({ status: 'Responded', date: ymd(-3), deadline: 'n/d' }), NOW)
+  assert.equal(s.kind, 'draft')
+  assert.equal(s.tone, 'due')
+  assert.equal(s.label, 'Reply now')
+})
+
+test('nextStep: Responded with the reply handled recommends moving to interview', () => {
+  const s = nextStep(makeApplication({ status: 'Responded', date: ymd(0), deadline: 'n/d' }), NOW)
+  assert.equal(s.kind, 'advance')
+  assert.equal(s.toStage, 'Interview')
+})
+
+test('nextStep: Interview defaults to prep, flips to thank-you once the note is due', () => {
+  const prep = nextStep(makeApplication({ status: 'Interview', date: ymd(0), deadline: 'n/d' }), NOW)
+  // Interview cadence is 1d → day 0 is due-soon (thank-you due today).
+  assert.equal(prep.kind, 'draft')
+  assert.equal(prep.label, 'Thank-you note')
+
+  // A future-dated interview row (moved tomorrow) has no due note yet → prep.
+  const future = nextStep(makeApplication({ status: 'Interview', date: ymd(5), deadline: 'n/d' }), NOW)
+  assert.equal(future.kind, 'prep')
+  assert.equal(future.tone, 'normal')
+})
+
+test('nextStep: Offer recommends reviewing the offer', () => {
+  const s = nextStep(makeApplication({ status: 'Offer', deadline: 'n/d' }), NOW)
+  assert.equal(s.kind, 'review')
+  assert.equal(s.toStage, null)
+})
+
+test('nextStep: an off-flow row falls back to a safe review, never crashes', () => {
+  for (const off of ['Rejected', 'Discarded', 'SKIP'] as AppStatus[]) {
+    const s = nextStep(makeApplication({ status: off }), NOW)
+    assert.equal(s.kind, 'review')
+    assert.equal(s.toStage, null)
+  }
 })
