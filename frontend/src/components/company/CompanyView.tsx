@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, TrendingUp, TrendingDown, Minus, FileText, Send } from 'lucide-react'
 import { useDataStore } from '@/store/data'
 import { useNavStore, VIEW_LABELS } from '@/store/nav'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
@@ -10,6 +10,14 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { OffersTable } from '@/components/database/OffersTable'
 import { ReportSlideOver } from '@/components/reports/ReportSlideOver'
 import { computeCompanyStats, type CompanyStats } from '@/lib/companyStats'
+import {
+  computeScoreTrajectory,
+  buildEngagementTimeline,
+  sparklinePath,
+  trajectoryLabel,
+  type ScoreTrajectory,
+  type TimelineEvent,
+} from '@/lib/companyTimeline'
 import { scoreColor, tierHex } from '@/lib/tier'
 import { cn } from '@/lib/utils'
 import { STATUS_COLORS } from '@/types'
@@ -43,6 +51,8 @@ export function CompanyView({ slug }: { slug: string }) {
     [slug, applications],
   )
   const stats = useMemo(() => computeCompanyStats(history), [history])
+  const trajectory = useMemo(() => computeScoreTrajectory(history), [history])
+  const timeline = useMemo(() => buildEngagementTimeline(history, apps), [history, apps])
 
   const selectedId = selectedEntry ? `${selectedEntry.company}-${selectedEntry.role}` : null
 
@@ -108,6 +118,22 @@ export function CompanyView({ slug }: { slug: string }) {
               <section aria-labelledby="stats-heading">
                 <h2 id="stats-heading" className="sr-only">Company snapshot</h2>
                 <StatStrip stats={stats} appCount={apps.length} />
+              </section>
+            )}
+
+            {/* Score trajectory + engagement timeline — how this company's
+                roles have scored over evaluations, and the chronological feed
+                of evaluations + applications. Only worth showing once there's
+                more than a single data point to read direction from. */}
+            {(trajectory.points.length >= 2 || timeline.length > 1) && (
+              <section aria-labelledby="trajectory-heading" className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+                <h2 id="trajectory-heading" className="sr-only">Score trajectory and engagement timeline</h2>
+                {trajectory.points.length >= 2 && <TrajectoryCard trajectory={trajectory} />}
+                {timeline.length > 0 && (
+                  <div className={cn(trajectory.points.length < 2 && 'lg:col-span-2')}>
+                    <TimelineCard events={timeline} />
+                  </div>
+                )}
               </section>
             )}
 
@@ -252,6 +278,168 @@ function StatTile({
         {value}
       </div>
     </div>
+  )
+}
+
+// ─── Score trajectory ─────────────────────────────────────────────────────────
+
+// Direction → icon + the same galaxy-token color the verdict text uses.
+// improving → success green, declining → danger red, steady → text-3 slate.
+const TRAJECTORY_META: Record<
+  ScoreTrajectory['direction'],
+  { Icon: typeof TrendingUp; color: string; tone: string }
+> = {
+  improving: { Icon: TrendingUp,   color: '#007D1E', tone: 'text-success' },
+  declining: { Icon: TrendingDown, color: '#C80A28', tone: 'text-danger' },
+  steady:    { Icon: Minus,        color: '#5D6C7B', tone: 'text-text-3' },
+  flat:      { Icon: Minus,        color: '#5D6C7B', tone: 'text-text-3' },
+}
+
+function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
+  const { direction, delta, latestScore, points } = trajectory
+  const meta = TRAJECTORY_META[direction]
+  const W = 260
+  const H = 56
+  const path = sparklinePath(points, W, H, 4)
+  const deltaSign = delta > 0 ? '+' : ''
+  const lineColor = scoreColor(latestScore)
+
+  return (
+    <div className="rounded-lg border border-border-default bg-bg-elevated p-4 flex flex-col">
+      <div className="flex items-center justify-between">
+        <h3 className="text-micro text-text-4 uppercase">Score trajectory</h3>
+        <span
+          className={cn('inline-flex items-center gap-1 text-label font-medium', meta.tone)}
+          aria-label={`${trajectoryLabel(direction)}${delta !== 0 ? `, ${deltaSign}${delta.toFixed(1)} since first evaluation` : ''}`}
+        >
+          <meta.Icon size={14} aria-hidden />
+          {trajectoryLabel(direction)}
+        </span>
+      </div>
+
+      <div className="mt-3 flex items-end gap-3">
+        <div
+          className="text-page font-mono tabular-nums leading-none"
+          style={{ color: lineColor }}
+          aria-hidden
+        >
+          {latestScore.toFixed(1)}
+        </div>
+        {delta !== 0 && (
+          <div className="text-label font-mono tabular-nums text-text-4 pb-0.5" aria-hidden>
+            {deltaSign}{delta.toFixed(1)} vs first
+          </div>
+        )}
+      </div>
+
+      {/* Sparkline — score over evaluations, oldest→newest, left→right. */}
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="mt-3 w-full h-14"
+        role="img"
+        aria-label={`Score over ${points.length} evaluations, from ${points[0].score.toFixed(1)} to ${latestScore.toFixed(1)}`}
+        preserveAspectRatio="none"
+      >
+        <polyline
+          points={path}
+          fill="none"
+          stroke={lineColor}
+          strokeWidth={1.75}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+        {points.map((p, i) => {
+          const [cx, cy] = path.split(' ')[i].split(',').map(Number)
+          const isLast = i === points.length - 1
+          return (
+            <circle
+              key={`${p.date}-${i}`}
+              cx={cx}
+              cy={cy}
+              r={isLast ? 2.6 : 1.6}
+              fill={isLast ? lineColor : '#fff'}
+              stroke={lineColor}
+              strokeWidth={1.25}
+              vectorEffect="non-scaling-stroke"
+            />
+          )
+        })}
+      </svg>
+
+      <div className="mt-1.5 flex items-center justify-between text-micro text-text-4 font-mono tabular-nums">
+        <span>{points[0].date}</span>
+        <span>{points[points.length - 1].date}</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── Engagement timeline ──────────────────────────────────────────────────────
+
+function TimelineCard({ events }: { events: TimelineEvent[] }) {
+  return (
+    <div className="rounded-lg border border-border-default bg-bg-elevated p-4">
+      <h3 className="text-micro text-text-4 uppercase mb-3">Engagement timeline</h3>
+      <ol className="relative" role="list">
+        {events.map((ev, i) => (
+          <TimelineRow key={`${ev.date}-${ev.kind}-${ev.role}-${i}`} ev={ev} last={i === events.length - 1} />
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+function TimelineRow({ ev, last }: { ev: TimelineEvent; last: boolean }) {
+  const isApp = ev.kind === 'application'
+  const Icon = isApp ? Send : FileText
+  const label = isApp
+    ? (ev.status ?? 'Application')
+    : 'Evaluated'
+
+  return (
+    <li className="relative flex gap-3 pb-3 last:pb-0" role="listitem">
+      {/* Connector rail + node */}
+      <div className="relative flex flex-col items-center">
+        <span
+          className={cn(
+            'flex items-center justify-center w-6 h-6 rounded-full border shrink-0',
+            isApp
+              ? 'border-accent/40 bg-accent/10 text-accent'
+              : 'border-border-strong bg-bg-base text-text-3',
+          )}
+          aria-hidden
+        >
+          <Icon size={12} />
+        </span>
+        {!last && <span className="w-px flex-1 bg-border-default mt-1" aria-hidden />}
+      </div>
+
+      <div className="min-w-0 flex-1 -mt-0.5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-body text-text-1 truncate">{ev.role || '—'}</span>
+          {ev.score != null && (
+            <span
+              className="text-label font-mono tabular-nums shrink-0"
+              style={{ color: scoreColor(ev.score) }}
+            >
+              {ev.score.toFixed(1)}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5 text-label text-text-4">
+          <span
+            className={cn(
+              'inline-flex items-center px-1.5 py-px rounded-pill text-[11px] font-medium',
+              isApp ? STATUS_COLORS[ev.status ?? 'Applied'] : 'text-text-3 bg-bg-panel',
+            )}
+          >
+            {label}
+          </span>
+          <span className="font-mono tabular-nums">{ev.date}</span>
+        </div>
+      </div>
+    </li>
   )
 }
 
