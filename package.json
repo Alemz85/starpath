@@ -17,6 +17,7 @@
     "research": "node scripts/company-research.mjs",
     "scan": "node scripts/scan.mjs",
     "compare-offers": "node scripts/compare-offers.mjs",
+    "calibrate": "node scripts/calibration-advisor.mjs",
     "whats-new": "node scripts/whats-new.mjs",
     "brief": "node scripts/daily-brief.mjs",
     "test": "node --test \"scripts/**/*.test.mjs\"",
