@@ -240,3 +240,223 @@ export function freshnessBucket(firstSeen, { now = new Date(), freshDays = 14, s
   if (age <= staleDays) return 'recent';
   return 'stale';
 }
+
+// ── Relevance ranking ─────────────────────────────────────────────────────────
+//
+// Once a posting clears the 4-pass filter funnel it's a *binary* keep — but not
+// all keeps are equal. A title that matches three of the user's positive
+// keywords, names a target city, hits a seniority-boost token, and was first
+// seen today is a far better use of the user's evaluation time than one that
+// barely scraped a single positive in an unknown location. Yet scan.mjs used to
+// append survivors in raw fetch order, so the strongest match could sit at the
+// bottom of the pipeline behind dozens of marginal ones.
+//
+// scoreRelevance() turns each surviving posting into a transparent, additive
+// score plus a `reasons[]` trail explaining how it got there. It is intentionally
+// simple and deterministic (no ML, no opaque weights): every point is traceable
+// to a signal the user can see and tune via portals.yml. rankOffers() then orders
+// a batch best-first and stamps the score on each offer.
+//
+// Design choices:
+//   • Multi-word positive phrases ("Strategy & Operations") score higher than a
+//     single token ("Operations") — a phrase match signals far more specific
+//     topical intent than a lone common word.
+//   • seniority_boost finally gets wired up. It's been a defined-but-unread field
+//     in portals.yml; the user's whole target band (Junior / Intern / Associate /
+//     Entry Level) lives there, so a hit is a strong positive signal.
+//   • Freshness leans on the same buckets the Database view uses, so "new and
+//     high-fit" means the same thing across the scanner and the cockpit.
+//   • A named target city outranks a bare "remote" / unknown location — physical
+//     presence in a target hub is the user's strongest geographic signal.
+//
+// All weights are overridable via portals.yml › relevance_weights (see
+// resolveRelevanceWeights) so this is system-layer scaffolding, not a hardcoded
+// one-user policy.
+
+export const DEFAULT_RELEVANCE_WEIGHTS = Object.freeze({
+  positivePhrase: 2.0, // each matched multi-word positive keyword
+  positiveWord: 1.0,   // each matched single-word positive keyword
+  seniorityBoost: 2.5, // any seniority_boost token present (counted once)
+  freshFresh: 1.5,     // first seen within the fresh window
+  freshRecent: 0.5,    // first seen within the recent window
+  cityMatch: 1.0,      // location names a specific allowlisted city (not just country/remote)
+});
+
+/**
+ * A small, curated set of generic "anywhere" location tokens. A posting whose
+ * location is only one of these (e.g. "Remote") still passed the location gate,
+ * but it earns no city-specificity bonus — it's not tied to a target hub.
+ * This is system-layer reference data, not user preference.
+ */
+const GENERIC_LOCATION_TOKENS = new Set(['remote', 'europe', 'emea', 'hybrid', 'anywhere']);
+
+/**
+ * Country-level allowlist tokens (as opposed to city-level). A location that only
+ * names a country ("Spain") is less specific than one naming a city ("Barcelona"),
+ * so it doesn't earn the city bonus. Derived from the default allowlist; this is
+ * the generic EU country set, not one user's targets.
+ */
+const COUNTRY_TOKENS = new Set([
+  'spain', 'ireland', 'netherlands', 'denmark', 'united kingdom', 'uk',
+  'italy', 'germany', 'france', 'portugal', 'belgium', 'sweden',
+  'switzerland', 'austria', 'finland', 'norway', 'poland',
+]);
+
+/**
+ * Merge user-supplied relevance weights (portals.yml › relevance_weights) over
+ * the system defaults. Unknown keys are ignored; non-finite/negative values fall
+ * back to the default for that key (fail-safe — a typo can't zero out scoring).
+ * @param {Record<string, number>} [overrides]
+ * @returns {typeof DEFAULT_RELEVANCE_WEIGHTS}
+ */
+export function resolveRelevanceWeights(overrides) {
+  const out = { ...DEFAULT_RELEVANCE_WEIGHTS };
+  if (overrides && typeof overrides === 'object') {
+    for (const key of Object.keys(DEFAULT_RELEVANCE_WEIGHTS)) {
+      const v = overrides[key];
+      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[key] = v;
+    }
+  }
+  return out;
+}
+
+/**
+ * Is a single keyword a multi-word phrase (after trimming/collapsing space)?
+ */
+function isPhrase(keyword) {
+  return /\s/.test(keyword.trim());
+}
+
+/**
+ * Score a single surviving posting for relevance. Higher = better match.
+ *
+ * Pure and deterministic. Returns the numeric score plus a `reasons[]` trail and
+ * a `signals` breakdown, so callers (and the user) can see exactly why a posting
+ * ranked where it did. Assumes the posting already passed the filter funnel —
+ * this ranks keeps, it does not re-filter.
+ *
+ * @param {{title?:string, location?:string, firstSeen?:string}} posting
+ * @param {{positive?:string[], seniority_boost?:string[]}} titleFilter
+ * @param {object} [opts]
+ * @param {Record<string,number>} [opts.weights] resolved relevance weights
+ * @param {string[]} [opts.locationAllowlist] effective location allowlist
+ * @param {Date|string} [opts.now] reference time for freshness
+ * @param {number} [opts.freshDays]
+ * @param {number} [opts.staleDays]
+ * @returns {{score:number, reasons:string[], signals:object}}
+ */
+export function scoreRelevance(posting, titleFilter, opts = {}) {
+  const weights = opts.weights || DEFAULT_RELEVANCE_WEIGHTS;
+  const title = posting?.title || '';
+  const lowerTitle = title.toLowerCase();
+  const reasons = [];
+  let score = 0;
+
+  // ── 1. Positive keyword matches (phrases weigh more than lone words) ──
+  const positives = (titleFilter?.positive || []).map((k) => k.trim()).filter(Boolean);
+  const matchedPhrases = [];
+  const matchedWords = [];
+  for (const kw of positives) {
+    if (compileKeyword(kw)(lowerTitle)) {
+      (isPhrase(kw) ? matchedPhrases : matchedWords).push(kw);
+    }
+  }
+  if (matchedPhrases.length) {
+    score += matchedPhrases.length * weights.positivePhrase;
+    reasons.push(`matches ${matchedPhrases.length} target phrase${matchedPhrases.length > 1 ? 's' : ''} (${matchedPhrases.join(', ')})`);
+  }
+  if (matchedWords.length) {
+    score += matchedWords.length * weights.positiveWord;
+    reasons.push(`matches ${matchedWords.length} target keyword${matchedWords.length > 1 ? 's' : ''} (${matchedWords.join(', ')})`);
+  }
+
+  // ── 2. Seniority-boost tokens (the user's actual target band) ──
+  const boosts = (titleFilter?.seniority_boost || []).map((k) => k.trim()).filter(Boolean);
+  const matchedBoosts = boosts.filter((b) => compileKeyword(b)(lowerTitle));
+  if (matchedBoosts.length) {
+    // Counted once — presence of the band matters, not how many synonyms hit.
+    score += weights.seniorityBoost;
+    reasons.push(`right seniority band (${matchedBoosts.join(', ')})`);
+  }
+
+  // ── 3. Freshness ──
+  const bucket = freshnessBucket(posting?.firstSeen, {
+    now: opts.now || new Date(),
+    freshDays: opts.freshDays,
+    staleDays: opts.staleDays,
+  });
+  if (bucket === 'fresh') {
+    score += weights.freshFresh;
+    reasons.push('freshly posted');
+  } else if (bucket === 'recent') {
+    score += weights.freshRecent;
+    reasons.push('recently posted');
+  }
+
+  // ── 4. Location specificity (named target city > country/remote/unknown) ──
+  const loc = (posting?.location || '').trim().toLowerCase();
+  let cityMatched = false;
+  if (loc) {
+    const allowlist = (opts.locationAllowlist && opts.locationAllowlist.length
+      ? opts.locationAllowlist
+      : DEFAULT_LOCATION_ALLOWLIST
+    ).map((t) => t.trim().toLowerCase());
+    for (const token of allowlist) {
+      if (GENERIC_LOCATION_TOKENS.has(token) || COUNTRY_TOKENS.has(token)) continue;
+      if (compileKeyword(token)(loc)) { cityMatched = true; break; }
+    }
+  }
+  if (cityMatched) {
+    score += weights.cityMatch;
+    reasons.push('in a target city');
+  }
+
+  const signals = {
+    positivePhrases: matchedPhrases.length,
+    positiveWords: matchedWords.length,
+    seniorityBoost: matchedBoosts.length > 0,
+    freshness: bucket,
+    cityMatch: cityMatched,
+  };
+
+  // Round to one decimal to keep the pipeline annotation tidy.
+  return { score: Math.round(score * 10) / 10, reasons, signals };
+}
+
+/**
+ * Rank a batch of surviving offers best-first by relevance score, stamping each
+ * with `relevance` ({score, reasons, signals}). Stable for equal scores
+ * (preserves input/fetch order), so ties read predictably.
+ *
+ * @param {Array<object>} offers postings that already cleared the filter funnel
+ * @param {{positive?:string[], seniority_boost?:string[], relevance_weights?:object}} config
+ *        the parsed portals.yml title_filter (+ optional relevance_weights)
+ * @param {object} [opts] forwarded to scoreRelevance (now/freshDays/locationAllowlist…)
+ * @returns {Array<object>} new array, sorted, each offer carrying `.relevance`
+ */
+export function rankOffers(offers, config = {}, opts = {}) {
+  const weights = resolveRelevanceWeights(config?.relevance_weights);
+  const scoreOpts = { ...opts, weights };
+  const scored = (offers || []).map((offer, i) => ({
+    offer,
+    i,
+    relevance: scoreRelevance(offer, config, scoreOpts),
+  }));
+  scored.sort((a, b) => (b.relevance.score - a.relevance.score) || (a.i - b.i));
+  return scored.map(({ offer, relevance }) => ({ ...offer, relevance }));
+}
+
+/**
+ * Compact one-line relevance annotation for the pipeline.md tail, e.g.
+ *   "relevance 6.5 — matches 1 target phrase (Strategy & Operations), right
+ *    seniority band (Intern), freshly posted, in a target city"
+ * Returns '' when there's no signal worth showing.
+ * @param {{score:number, reasons:string[]}} relevance
+ */
+export function formatRelevanceNote(relevance) {
+  if (!relevance || typeof relevance.score !== 'number') return '';
+  const reasons = relevance.reasons && relevance.reasons.length
+    ? ` — ${relevance.reasons.join(', ')}`
+    : '';
+  return `relevance ${relevance.score.toFixed(1)}${reasons}`;
+}
