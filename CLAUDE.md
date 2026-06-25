@@ -109,6 +109,7 @@ There is **one evaluation mode** (`scouting`). Per-listing follow-up actions (Ta
 | Wants a holistic career review across all data | `positioning` |
 | Asks to compare offers | `ofertas` |
 | Wants LinkedIn outreach | `contacto` |
+| A recruiter replied (screening Qs, comp/availability ask, take-home, scheduling, soft rejection) and wants a drafted reply | `respond` (drafts a grounded reply; always stops before send) |
 | Asks for company research | `deep` |
 | Preps for interview / drafts application content for a specific role | `interview-prep` (writes `interview-prep/{Company} - {Role}.md`) |
 | Wants to generate CV/PDF | `pdf` |
