@@ -229,7 +229,7 @@ export function buildPatterns(pd) {
   }
 
   // Graduation dates: months + years extracted from CV shouldn't appear as
-  // hardcoded examples in system files (e.g. "you finish the [redacted degree/date]").
+  // hardcoded examples in system files (e.g. "you finish the <School> MSc in <Month YYYY>").
   //
   // To avoid false positives from generic year references in code comments
   // (e.g. "// year suffixes: '(2025-2026)', 'Spring 2026', 'Start September 2026'"),
