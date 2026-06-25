@@ -2,7 +2,7 @@
 
 A local-first AI job-search workspace — a desktop app, a markdown-driven evaluation engine, and a small fleet of Claude Code skills working together.
 
-You scan job portals, score every listing across ten dimensions, get tier-bucketed reports, track applications across a kanban, and watch your trajectory in dimensional trends — all running on your own laptop, against your own data, with your own Claude account doing the heavy lifting.
+You scan job portals, score every listing across ten dimensions, get tier-bucketed reports, track applications across a kanban, reach out to contacts, and watch your trajectory in dimensional trends — all running on your own laptop, against your own data, with your own Claude account doing the heavy lifting.
 
 > Started as a fork of [`santifer/career-ops`](https://github.com/santifer/career-ops); now an independent project that's diverged in scope and direction.
 
@@ -14,7 +14,10 @@ You scan job portals, score every listing across ten dimensions, get tier-bucket
 - **Score honestly.** Every listing gets a 1–10 score across 10 dimensions (Skills, Ease of Entry, Strategic Fit, Growth, Optionality, Brand, WLB, Salary, etc.) with JD-grounded reasoning you can audit.
 - **Generate tailored CVs and applications.** When you decide to apply, the same workspace tailors a CV to the JD and drafts the application form answers from your CV + profile.
 - **Track applications.** Drag-and-drop kanban (Evaluated → Applied → Responded → Interview → Offer) with persisted writebacks to `data/applications.md`.
+- **Manage outreach.** Draft referral and LinkedIn messages, track sent threads, and get nudge reminders when a thread goes cold.
+- **Know what to do next.** The Today cockpit aggregates deadlines, due follow-ups, outreach nudges, and fresh high-fit hits into one ranked action list — no tab scanning needed.
 - **See your trajectory.** Time-series of how your scores trend per dimension. Top companies (with logos), top locations (with country flags), top archetypes — at a glance.
+- **Calibrate continuously.** The calibration advisor checks whether your scoring rubric (dream companies, comp targets, brand bonuses) still matches the evidence in your data, and suggests concrete edits to your profile.
 - **Stay in control.** Quality over quantity is wired into the system: a relevance gate filters off-archetype listings *before* scoring, the rubric demands JD-quoted evidence, and the app never auto-submits an application.
 
 ---
@@ -79,19 +82,79 @@ When the wizard finishes it runs the `career-ops-setup` skill once — Claude re
 The sidebar is split into three tiers — primary (workflow stage), secondary (read-only data lenses), and bottom (your config):
 
 **Primary**
-- **Scouting** — *Filter to Database* scores every URL in the inbox. *Top Reports* generates full prose reports for the top 8. The Full Scan and API Only buttons now also fire the JobSpy aggregator (Indeed + Google) in parallel as a zero-token sibling.
-- **Applying** — kanban for active applications. Drag cards across columns to update status. Inbox at the top for pasting new URLs.
+- **Today** — a single ranked action list: deadlines coming up, follow-ups due, outreach nudges, and fresh high-fit hits from the last scan. The quickest answer to "what should I work on now?" Badge shows the number of critical/high items.
+- **Scouting** — landscape inventory. *Filter to Database* scores every URL in the inbox. *Top Reports* generates full prose reports for the top 8. Full Scan and API Only buttons fire the JobSpy aggregator (Indeed + Google) in parallel alongside the ATS scanner.
+- **Applying** — kanban for active applications. Drag cards across columns (Applied → Responded → Interview → Offer) to update status. Paste new URLs into the Inbox to fast-track them.
+- **Outreach** — manage referral and LinkedIn threads. Track sent messages, log replies, and see at a glance which contacts are due a nudge.
 
 **Secondary**
-- **Database** — every scored listing in one filterable table. Click any row for the action menu (View report / Apply / Tailor CV / Prep interview / Open URL / Discard).
-- **Reports** — every full prose report. Click any to open the slide-over with the dimensional table + Fit/gaps + Verdict + Path forward.
+- **Database** — every scored listing in one filterable, searchable table. Filterable by tier, liveness (active / stale / closed), archetype, location, min score. Click any row for the action menu (View report / Apply / Tailor CV / Prep interview / Open URL / Discard). Includes a **Fixability** column: near-miss listings show the cheapest lever to push their score to the next tier.
+- **Reports** — every full prose report. Sortable by score, date, tier, or fixability. Click any to open the slide-over with the dimensional table + Fit/gaps + Verdict + Path forward. Reports are decorated with a fixability badge when a score upgrade is within reach.
 - **Trends** — time-series of your dimensional scores + top companies / locations / archetypes panels.
-- **Activity** — the live log for every Claude run happening anywhere in the app.
+- **Activity** — the live log for every Claude run happening anywhere in the app (scans, evaluations, tailoring, company research, etc.).
 
 **Bottom**
 - **Profile** — read-only career-constellation view of your CV, archetypes, and proof points.
 - **Configuration** — edit identity, comp, languages, target roles, portals.
 - **Settings** — repository path, model picks, and other app-level toggles.
+
+---
+
+## Skill modes
+
+Claude Code skills are the evaluation and action engine. Each maps to a markdown file under `modes/` loaded as a Claude skill.
+
+| What you want to do | Mode | Notes |
+|---------------------|------|-------|
+| Evaluate a listing (paste JD or URL) | `scouting` | Tier 1–4 report: header + dimensional table + role summary + gaps + comp + recommendation + career path impact |
+| Holistic career review across all data | `positioning` | Mines `data/score-history.tsv`; produces targeting intelligence |
+| Compare 2+ live offers | `ofertas` | End-of-funnel decision engine; reuses the same scoring math as scouting |
+| Draft outreach (referral / LinkedIn) | `contacto` | Find the right contact, draft a message worth reading, log the thread |
+| Draft a reply to a recruiter message | `respond` | Grounds the reply in your CV, profile, and negotiation scripts; always stops before send |
+| Deep-dive on a company | `deep` | Produces `data/companies/{slug}.md` — a structured artifact consumed by interview-prep and contacto |
+| Prep for interview / draft application content | `interview-prep` | Writes `interview-prep/{Company} - {Role}.md`; mines and extends the STAR story bank |
+| Generate tailored CV / PDF | `pdf` | Tailors `templates/cv-template.html` to the JD; renders via Playwright |
+| Evaluate a course or certification | `training` | ROI verdict grounded in your measured dimension drag; not in the abstract |
+| Evaluate a portfolio project | `project` | Maps the project to your target archetypes and proof-point gaps |
+| Check application status | `tracker` | Reads `data/applications.md` |
+| Fill out an application form | `apply` | Always stops before submit |
+| Scan for new listings | `scan` | Runs ATS + JobSpy scrapers; zero token cost |
+| Process the pending URL inbox | `pipeline` | Scores every URL in `data/pipeline.md` |
+| Batch-evaluate many listings | `batch` | `claude -p` workers; headless |
+| Diagnose rejection patterns / improve targeting | `patterns` | Mines `data/score-history.tsv` and `data/applications.md` |
+| Review follow-up cadence | `followup` | Which threads need action |
+| Check deadlines and urgency | `deadlines` | Which open roles are closing soon |
+| Browse all evaluated offers as a table | `db` | CLI query interface to the scored landscape |
+| CV vs. target-landscape gap analysis | `cv-gap` | Compares `user/cv.md` against the recurring demand across all evaluated roles |
+| Scoring calibration check | `calibrate` | Are your dream-company bonuses, comp targets, and scoring weights still accurate? |
+
+---
+
+## npm run scripts
+
+All scripts are in `scripts/`. Run them from the repo root:
+
+| Command | What it does |
+|---------|-------------|
+| `npm run doctor` | End-to-end health check: file presence, YAML validity, pipeline consistency |
+| `npm run verify` | Verify `data/applications.md` — status consistency, missing URLs, canonical states |
+| `npm run normalize` | Normalize non-canonical status values in `data/applications.md` |
+| `npm run dedup` | Deduplicate `data/applications.md` by company + role |
+| `npm run merge` | Merge pending `batch/tracker-additions/*.tsv` into `data/applications.md` |
+| `npm run pdf` | Generate a PDF from the tailored HTML CV (`output/cv.html` → `output/cv.pdf`) |
+| `npm run ats-coverage` | Check CV keyword coverage against a single JD |
+| `npm run sync-check` | Check CV sync state: are all proof points in `user/cv.md` reflected in evaluated reports? |
+| `npm run cv-gap` | CV vs. landscape gap analysis (keyword gaps, weak proof points, dimension drag) |
+| `npm run story-bank` | Audit `interview-prep/story-bank.md` — coverage across archetypes and dimensions |
+| `npm run liveness` | Check which tracked listings are still live (Playwright-based) |
+| `npm run research` | Company research CLI: `check`, `path`, `list --stale` (wraps `scripts/lib/company-research-core.mjs`) |
+| `npm run scan` | Run the ATS portal scanner (Greenhouse / Ashby / Lever / SmartRecruiters / Workday) |
+| `npm run compare-offers` | Compare two or more offers side-by-side (CLI wrapper for `modes/ofertas`) |
+| `npm run calibrate` | Run the scoring-calibration advisor |
+| `npm run whats-new` | Fresh-hit digest: what's new and worth your time since the last scan |
+| `npm run brief` | Daily "what should I do now?" brief (deadlines + follow-ups + outreach + fresh hits) |
+| `npm test` | Unit tests for all `scripts/**/*.test.mjs` files |
+| `npm run test:all` | Full test suite including integration fixtures |
 
 ---
 
