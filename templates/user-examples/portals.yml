@@ -15,6 +15,13 @@
 
 # ─── Title filter ────────────────────────────────────────────────────────────
 # At least 1 positive must match AND 0 negatives must match (case-insensitive).
+#
+# Matching is WORD-AWARE: a keyword like "Lead" matches the standalone word
+# "Lead" anywhere in the title ("Operations Lead", "Lead, Strategy") but never
+# inside another word ("Leadership", "Leading"). You do NOT need the old
+# trailing-space trick ("Lead ", "Senior ") — bare words ("Lead", "Senior")
+# are correct and safe. Trailing/leading spaces are trimmed before matching.
+# Multi-word phrases ("Strategy & Operations", "Head of") match as a whole.
 
 search_templates:
   roles_default: '"Analyst" OR "Operations" OR "Strategy" OR "Graduate" OR "Intern" OR "Working Student"'
@@ -134,6 +141,20 @@ lang_blocklist: []
   # - "Alternance"
   # - "Développeur"
   # - "Ingénieur"
+
+# ─── Location allowlist (optional) ───────────────────────────────────────────
+# A posting passes the location gate if its location matches ANY token here
+# (word-aware, case-insensitive) OR if the ATS returns no location at all
+# (location is a SOFT filter — unknown locations are kept, not dropped).
+#
+# Leave this out to use the built-in generic EU/UK hub list (Spain, Ireland,
+# Netherlands, UK, Germany, France, the Nordics, "remote", …). Set it to
+# narrow to your own target geographies, e.g.:
+#
+# location_allowlist:
+#   - "remote"
+#   - "City, Country"     # add your preferred cities / countries
+#   - "Another City"
 
 # ─── Search queries ──────────────────────────────────────────────────────────
 # Board-wide searches for discovery across ALL companies on each platform.

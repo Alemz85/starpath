@@ -1,0 +1,233 @@
+/**
+ * scan-core.test.mjs — suite for the portal scanner's pure matching logic.
+ *
+ * Pins the funnel contract (title → language → location) and the freshness
+ * helpers. The headline cases are the regression tests for the trailing-space
+ * negative-keyword leak that let senior roles ("Operations Lead") slip into
+ * the pipeline under the old String.includes() matcher.
+ *
+ * Run: node --test scripts/scan-core.test.mjs
+ */
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  keywordMatches,
+  buildTitleFilter,
+  buildLangFilter,
+  buildLocationFilter,
+  isAllowedLocation,
+  ageInDays,
+  freshnessBucket,
+  DEFAULT_LOCATION_ALLOWLIST,
+} from './scan-core.mjs';
+
+// ── keywordMatches: word-boundary semantics ───────────────────────────────
+
+test('keywordMatches: standalone word matches at start/middle/end', () => {
+  assert.equal(keywordMatches('Operations Lead', 'Lead'), true);
+  assert.equal(keywordMatches('Lead, Strategy', 'Lead'), true);
+  assert.equal(keywordMatches('Engineering Lead Role', 'Lead'), true);
+  assert.equal(keywordMatches('Lead', 'Lead'), true);
+});
+
+test('keywordMatches: does NOT match inside another word', () => {
+  assert.equal(keywordMatches('Leadership Analyst', 'Lead'), false);
+  assert.equal(keywordMatches('Leading Indicators PM', 'Lead'), false);
+  assert.equal(keywordMatches('Ambitious Analyst', 'BI'), false); // "BI" not inside "ambitious"
+});
+
+test('keywordMatches: case-insensitive', () => {
+  assert.equal(keywordMatches('SENIOR ANALYST', 'senior'), true);
+  assert.equal(keywordMatches('senior analyst', 'Senior'), true);
+});
+
+test('keywordMatches: trailing/leading spaces in the keyword are trimmed', () => {
+  // The old portals.yml convention wrote "Senior " / "Lead " with trailing
+  // spaces. After trimming, both keyword forms behave identically.
+  assert.equal(keywordMatches('Operations Lead', 'Lead '), true);
+  assert.equal(keywordMatches('Senior Analyst', ' Senior'), true);
+});
+
+test('keywordMatches: punctuation counts as a boundary (R&D, Pre-Sales, m/w/d)', () => {
+  assert.equal(keywordMatches('R&D Analyst', 'R&D'), true);
+  assert.equal(keywordMatches('Pre-Sales Engineer', 'Pre-Sales'), true);
+  assert.equal(keywordMatches('Sales Manager (m/w/d)', '(m/w/d)'), true);
+});
+
+test('keywordMatches: multi-word phrase matched as a whole, whitespace-tolerant', () => {
+  assert.equal(keywordMatches('Strategy & Operations Associate', 'Strategy & Operations'), true);
+  // collapsed/extra internal whitespace still matches (\\s+ in the matcher)
+  assert.equal(keywordMatches('Head  of   Growth', 'Head of'), true);
+  assert.equal(keywordMatches('Heads of State', 'Head of'), false);
+});
+
+test('keywordMatches: empty inputs are safe', () => {
+  assert.equal(keywordMatches('', 'Lead'), false);
+  assert.equal(keywordMatches('Lead', ''), false);
+  assert.equal(keywordMatches('Lead', '   '), false);
+});
+
+// ── buildTitleFilter: the regression for the senior-role leak ──────────────
+
+test('REGRESSION: trailing-space negatives now catch end-of-title seniority', () => {
+  const filter = buildTitleFilter({
+    positive: ['Operations', 'Analyst', 'Engineer'],
+    negative: ['Senior ', 'Lead ', 'Staff ', 'Head of'], // legacy trailing-space form
+  });
+  // These ALL leaked through under String.includes() — they must drop now.
+  assert.equal(filter('Operations Lead'), false);
+  assert.equal(filter('Lead, Strategy & Operations'), false);
+  assert.equal(filter('Engineering Lead'), false);
+  assert.equal(filter('Head of Operations'), false);
+});
+
+test('buildTitleFilter: legitimate junior titles still pass', () => {
+  const filter = buildTitleFilter({
+    positive: ['Operations', 'Analyst', 'Engineer'],
+    negative: ['Senior ', 'Lead ', 'Staff '],
+  });
+  assert.equal(filter('Operations Analyst'), true);
+  assert.equal(filter('Junior Data Analyst'), true);
+  assert.equal(filter('Solutions Engineer'), true);
+  // "Leadership" must NOT be killed by the "Lead" negative (no false positive)
+  assert.equal(filter('Leadership Operations Analyst'), true);
+});
+
+test('buildTitleFilter: empty positive list means "any title with no negative"', () => {
+  const filter = buildTitleFilter({ positive: [], negative: ['Senior'] });
+  assert.equal(filter('Random Title'), true);
+  assert.equal(filter('Senior Random'), false);
+});
+
+test('buildTitleFilter: a positive is required when the list is non-empty', () => {
+  const filter = buildTitleFilter({ positive: ['Analyst'], negative: [] });
+  assert.equal(filter('Marketing Manager'), false);
+  assert.equal(filter('Data Analyst'), true);
+});
+
+test('buildTitleFilter: audit stats record drop reasons', () => {
+  const auditStats = { negativeHits: {}, noPositiveMatch: 0 };
+  const filter = buildTitleFilter(
+    { positive: ['Analyst'], negative: ['Senior'] },
+    auditStats,
+  );
+  filter('Marketing Manager');   // no positive
+  filter('Senior Analyst');      // negative hit
+  filter('Data Analyst');        // pass
+  assert.equal(auditStats.noPositiveMatch, 1);
+  assert.equal(auditStats.negativeHits['Senior'], 1);
+});
+
+test('buildTitleFilter: audit pre-seeds every negative keyword to 0', () => {
+  const auditStats = { negativeHits: {}, noPositiveMatch: 0 };
+  buildTitleFilter({ positive: [], negative: ['Tax', 'Audit'] }, auditStats);
+  assert.equal(auditStats.negativeHits['Tax'], 0);
+  assert.equal(auditStats.negativeHits['Audit'], 0);
+});
+
+test('buildTitleFilter: handles missing/undefined filter config', () => {
+  const filter = buildTitleFilter(undefined);
+  assert.equal(filter('Anything'), true); // no positives, no negatives → keep
+  assert.equal(filter(''), true);
+});
+
+// ── buildLangFilter ────────────────────────────────────────────────────────
+
+test('buildLangFilter: empty blocklist keeps everything', () => {
+  const filter = buildLangFilter({ lang_blocklist: [] });
+  assert.equal(filter('Werkstudent Analyst'), true);
+  const filter2 = buildLangFilter({});
+  assert.equal(filter2('anything'), true);
+});
+
+test('buildLangFilter: drops titles containing a blocklist token', () => {
+  const filter = buildLangFilter({ lang_blocklist: ['werkstudent', 'alternance', '(m/w/d)'] });
+  assert.equal(filter('Werkstudent Marketing'), false);
+  assert.equal(filter('Analyst Alternance'), false);
+  assert.equal(filter('Sales Manager (m/w/d)'), false);
+  assert.equal(filter('Operations Analyst'), true);
+});
+
+test('buildLangFilter: word-aware — a token does not nuke an English substring', () => {
+  // "stage" (FR/NL internship) should not kill "Staged Rollout Manager".
+  const filter = buildLangFilter({ lang_blocklist: ['stage'] });
+  assert.equal(filter('Staged Rollout Manager'), true);
+  assert.equal(filter('Stage Marketing Paris'), false);
+});
+
+// ── buildLocationFilter ──────────────────────────────────────────────────────
+
+test('buildLocationFilter: empty/unknown location passes (soft filter)', () => {
+  const filter = buildLocationFilter();
+  assert.equal(filter(''), true);
+  assert.equal(filter('   '), true);
+  assert.equal(filter(undefined), true);
+});
+
+test('buildLocationFilter: target geographies pass, others drop', () => {
+  const filter = buildLocationFilter();
+  assert.equal(filter('Barcelona, Spain'), true);
+  assert.equal(filter('London, UK'), true);
+  assert.equal(filter('Remote - Europe'), true);
+  assert.equal(filter('Singapore'), false);
+  assert.equal(filter('New York, NY'), false);
+});
+
+test('buildLocationFilter: "uk" is word-aware (no Paducah false positive)', () => {
+  const filter = buildLocationFilter();
+  assert.equal(filter('London, UK'), true);
+  assert.equal(filter('Paducah, KY, USA'), false); // "uk" not inside "Paducah"
+});
+
+test('buildLocationFilter: user override replaces the default list', () => {
+  const filter = buildLocationFilter(['dublin', 'remote']);
+  assert.equal(filter('Dublin, Ireland'), true);
+  assert.equal(filter('Remote'), true);
+  assert.equal(filter('Berlin, Germany'), false); // not in the override list
+});
+
+test('isAllowedLocation back-compat wrapper matches the default filter', () => {
+  assert.equal(isAllowedLocation('Madrid'), true);
+  assert.equal(isAllowedLocation('Tokyo'), false);
+  assert.equal(isAllowedLocation(''), true);
+});
+
+test('DEFAULT_LOCATION_ALLOWLIST is a non-empty generic EU/UK list', () => {
+  assert.ok(Array.isArray(DEFAULT_LOCATION_ALLOWLIST));
+  assert.ok(DEFAULT_LOCATION_ALLOWLIST.length > 10);
+  assert.ok(DEFAULT_LOCATION_ALLOWLIST.includes('remote'));
+});
+
+// ── Freshness ────────────────────────────────────────────────────────────────
+
+const NOW = new Date('2026-06-25T12:00:00Z');
+
+test('ageInDays: counts whole days since first_seen', () => {
+  assert.equal(ageInDays('2026-06-25', NOW), 0);
+  assert.equal(ageInDays('2026-06-20', NOW), 5);
+  assert.equal(ageInDays('2026-05-26', NOW), 30);
+});
+
+test('ageInDays: unparseable input → null', () => {
+  assert.equal(ageInDays('', NOW), null);
+  assert.equal(ageInDays('not-a-date', NOW), null);
+  assert.equal(ageInDays(undefined, NOW), null);
+});
+
+test('freshnessBucket: fresh / recent / stale boundaries', () => {
+  assert.equal(freshnessBucket('2026-06-25', { now: NOW }), 'fresh');   // 0d
+  assert.equal(freshnessBucket('2026-06-11', { now: NOW }), 'fresh');   // 14d (inclusive)
+  assert.equal(freshnessBucket('2026-06-10', { now: NOW }), 'recent');  // 15d
+  assert.equal(freshnessBucket('2026-03-27', { now: NOW }), 'recent');  // 90d (inclusive)
+  assert.equal(freshnessBucket('2026-03-26', { now: NOW }), 'stale');   // 91d
+});
+
+test('freshnessBucket: future-dated → fresh, unparseable → unknown', () => {
+  assert.equal(freshnessBucket('2026-07-01', { now: NOW }), 'fresh');
+  assert.equal(freshnessBucket('garbage', { now: NOW }), 'unknown');
+});
+
+test('freshnessBucket: custom thresholds respected', () => {
+  assert.equal(freshnessBucket('2026-06-18', { now: NOW, freshDays: 7 }), 'fresh');   // 7d
+  assert.equal(freshnessBucket('2026-06-17', { now: NOW, freshDays: 7 }), 'recent');  // 8d
+});
