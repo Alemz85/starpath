@@ -203,6 +203,24 @@ Nuevas añadidas a pipeline.md: N
 → Ejecuta /career-ops pipeline para evaluar las nuevas ofertas.
 ```
 
+## Digest «¿qué hay nuevo y vale mi tiempo?»
+
+Después de un scan, para un resumen rápido de **lo realmente nuevo vs. ruido**:
+
+```
+node scripts/whats-new.mjs            # nuevo desde el último scan
+node scripts/whats-new.mjs --days 7   # nuevo en los últimos 7 días
+node scripts/whats-new.mjs --json     # salida estructurada
+```
+
+Es **solo-lectura** sobre `data/scan-history.tsv` + `data/score-history.tsv`
+(nunca muta los ficheros canónicos). Une cada posting nuevo con su señal de fit
+ya disponible (el `overall` de scouting, cuando existe) y los ordena por
+prioridad: **Prioritize** (scored ≥7.0), **Worth a look** (6.0–6.9),
+**Needs eval** (nuevo sin evaluar → candidato directo para `pipeline`/`scouting`),
+**Low fit** (<6.0). La lógica pura vive en `scripts/lib/whats-new-core.mjs`
+(con tests).
+
 ## Gestión de careers_url
 
 Cada empresa en `tracked_companies` debe tener `careers_url` — la URL directa a su página de ofertas. Esto evita buscarlo cada vez.
