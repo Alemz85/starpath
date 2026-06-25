@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun,
+  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun, Users,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
@@ -75,6 +75,7 @@ export function CmdK() {
                 { view: 'today',    label: 'Today',    icon: Sun        },
                 { view: 'scouting', label: 'Scouting', icon: Map        },
                 { view: 'applying', label: 'Applying', icon: Briefcase  },
+                { view: 'outreach', label: 'Outreach', icon: Users      },
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
@@ -105,6 +106,14 @@ export function CmdK() {
               >
                 <Plus size={14} className="text-accent" />
                 Add listing (paste URL)
+              </Command.Item>
+              <Command.Item
+                value="log a touch outreach contact nudge"
+                onSelect={() => go('outreach')}
+                className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+              >
+                <Users size={14} className="text-accent" />
+                Log outreach touch
               </Command.Item>
               <Command.Item
                 value="open activity"
