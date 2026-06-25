@@ -66,12 +66,19 @@ HISTORY_HEADER = (
 # ── Filter logic — mirrors scripts/scan.mjs ──────────────────────────────
 
 # Copy of scan.mjs:273-289 ALLOWED_LOCATIONS — kept in sync with the Node version.
+# This list is EU city/country names used for substring matching against the
+# location field returned by JobSpy.  Entries are lowercase; matching is also
+# done in lowercase so case doesn't matter.
 ALLOWED_LOCATIONS = [
     "spain", "barcelona", "madrid",
     "ireland", "dublin",
     "netherlands", "amsterdam", "rotterdam",
     "denmark", "copenhagen",
-    "united kingdom", " uk", "london",
+    # "united kingdom" covers "United Kingdom"; "uk" (bare, word-boundary aware)
+    # catches "UK", "uk", "UK," etc.  The old entry " uk" (with leading space)
+    # was fragile — it missed "UK" at string start and bare "UK" strings.
+    "united kingdom", "uk",
+    "london",
     "italy", "milan", "rome",
     "germany", "munich", "berlin", "hamburg", "frankfurt",
     "france", "paris",
@@ -82,7 +89,15 @@ ALLOWED_LOCATIONS = [
     "austria", "vienna",
     "finland", "helsinki",
     "norway", "oslo",
+    # EU-scoped remote/EMEA phrases — EU companies often use these for positions
+    # that are technically open to the candidate's target cities.
+    "europe", "emea",
 ]
+
+# Regex that matches a standalone "UK" token (not part of a longer word like
+# "bulk", "duke").  Used in is_allowed_location() for precision when the bare
+# "uk" entry in ALLOWED_LOCATIONS could create false positives via substring.
+_UK_TOKEN_RE = re.compile(r"\buk\b", re.IGNORECASE)
 
 
 def build_title_filter(positive_kw, negative_kw):
@@ -117,11 +132,31 @@ def build_lang_filter(blocklist):
 
 
 def is_allowed_location(loc: str) -> bool:
-    # Empty/unknown locations pass through — mirrors scan.mjs:296
+    """Return True if the location field indicates an EU/allowed city or is empty/unknown.
+
+    Pass-through cases (return True):
+    - Empty / whitespace-only strings (location unknown → don't reject)
+    - Any string containing an allowed city, country name, or EU-scoped region
+
+    Special handling:
+    - "uk" uses a word-boundary regex to avoid false matches on unrelated
+      substrings like "duke" or "truck".
+    - "europe" / "emea" catch EU-scoped remote postings.
+    """
     if not loc or not loc.strip():
         return True
     lower = loc.lower()
-    return any(l in lower for l in ALLOWED_LOCATIONS)
+
+    for token in ALLOWED_LOCATIONS:
+        if token == "uk":
+            # Word-boundary match for bare "UK" to avoid false positives
+            # on substrings like "duke", "truck", "bulk".
+            if _UK_TOKEN_RE.search(lower):
+                return True
+        else:
+            if token in lower:
+                return True
+    return False
 
 
 # ── Dedup — read URLs from canonical files ──────────────────────────────
@@ -129,29 +164,122 @@ def is_allowed_location(loc: str) -> bool:
 URL_RE = re.compile(r"https?://[^\s|)]+")
 PIPELINE_URL_RE = re.compile(r"-\s*\[[ x]\]\s*(https?://\S+)")
 
+# Patterns that appear at the end of company names but don't distinguish the
+# company (e.g. "Stripe, Inc." vs "Stripe").  Stripped before building the
+# intra-run company::role dedup key.
+_COMPANY_SUFFIX_RE = re.compile(
+    r",?\s*(?:inc\.?|ltd\.?|llc\.?|gmbh|s\.?a\.?|s\.?l\.?|b\.?v\.?|n\.?v\.?|plc\.?|corp\.?|co\.?)$",
+    re.IGNORECASE,
+)
+
+# Location-style suffixes appended to role titles by some aggregators:
+# "Business Analyst - London", "Business Analyst, Amsterdam", etc.
+# Stripped before building the intra-run company::role dedup key.
+_TITLE_LOCATION_SUFFIX_RE = re.compile(
+    r"[\s,\-–—|]+(?:remote|hybrid|on.site|"
+    + "|".join([
+        "spain", "barcelona", "madrid",
+        "ireland", "dublin",
+        "netherlands", "amsterdam",
+        "denmark", "copenhagen",
+        "london", "united kingdom", "uk",
+        "italy", "milan", "rome",
+        "germany", "munich", "berlin", "hamburg", "frankfurt",
+        "france", "paris",
+        "portugal", "lisbon",
+        "belgium", "brussels",
+        "sweden", "stockholm",
+        "switzerland", "zurich", "geneva",
+        "austria", "vienna",
+        "finland", "helsinki",
+        "norway", "oslo",
+    ])
+    + r")[\s,\-–—|]*$",
+    re.IGNORECASE,
+)
+
+
+def _normalize_company(name: str) -> str:
+    """Normalise a company name for dedup key purposes.
+
+    Strips legal-entity suffixes (Inc., Ltd., GmbH …) and trims whitespace.
+    Does NOT lowercase — caller is responsible.
+    """
+    return _COMPANY_SUFFIX_RE.sub("", name.strip()).strip(" ,.")
+
+
+def _normalize_title(title: str) -> str:
+    """Normalise a job title for dedup key purposes.
+
+    Strips trailing location annotations added by aggregators
+    (e.g. "Business Analyst - London") so the same role posted under two
+    search-city queries deduplicates correctly.
+    """
+    return _TITLE_LOCATION_SUFFIX_RE.sub("", title.strip()).strip()
+
+
+def make_company_role_key(company: str, title: str) -> str:
+    """Return a normalised 'company::role' string for intra-run dedup."""
+    return (
+        _normalize_company(company).lower()
+        + "::"
+        + _normalize_title(title).lower()
+    )
+
+
+def _load_tsv_urls(path: Path) -> set:
+    """Extract the first tab-separated column (URL) from a TSV file."""
+    urls = set()
+    if not path.exists():
+        return urls
+    with path.open(encoding="utf-8") as f:
+        for i, line in enumerate(f):
+            if i == 0:
+                continue  # header
+            if not line.strip():
+                continue
+            url = line.split("\t", 1)[0].strip()
+            if url:
+                urls.add(url)
+    return urls
+
 
 def load_seen_urls() -> set:
+    """Load all previously-seen URLs from canonical + staging files.
+
+    Reading the staging files (scan-history.jobspy.tsv, pipeline.jobspy.md)
+    means a partial previous run that was never merged won't produce duplicate
+    rows — the same URLs are simply skipped again.
+    """
     seen = set()
-    if SCAN_HISTORY_PATH.exists():
-        with SCAN_HISTORY_PATH.open(encoding="utf-8") as f:
-            for i, line in enumerate(f):
-                if i == 0:
-                    continue
-                if not line.strip():
-                    continue
-                url = line.split("\t", 1)[0]
-                if url:
-                    seen.add(url)
+
+    # Canonical scan history (merged results from all previous runs)
+    seen |= _load_tsv_urls(SCAN_HISTORY_PATH)
+
+    # Staging TSV from a previous JobSpy run that may not have been merged yet
+    seen |= _load_tsv_urls(STAGING_HISTORY)
+
+    # Canonical pipeline inbox
     if PIPELINE_PATH.exists():
         for m in PIPELINE_URL_RE.finditer(
             PIPELINE_PATH.read_text(encoding="utf-8")
         ):
-            seen.add(m.group(1))
+            seen.add(m.group(1).strip())
+
+    # Staging pipeline from a previous run
+    if STAGING_PIPELINE.exists():
+        for m in PIPELINE_URL_RE.finditer(
+            STAGING_PIPELINE.read_text(encoding="utf-8")
+        ):
+            seen.add(m.group(1).strip())
+
+    # Active applications tracker
     if APPLICATIONS_PATH.exists():
         for m in URL_RE.finditer(
             APPLICATIONS_PATH.read_text(encoding="utf-8")
         ):
-            seen.add(m.group(0))
+            seen.add(m.group(0).strip())
+
     return seen
 
 
@@ -188,15 +316,10 @@ CITY_TO_COUNTRY_INDEED = {
 
 # Fallback keyword list — used only if profile.yml.target_roles.primary
 # is missing or yields no usable terms after the transformation below.
-FALLBACK_KEYWORDS = [
-    "Strategy Analyst",
-    "Business Analyst",
-    "Operations Analyst",
-    "Data Analyst",
-    "Solutions Consultant",
-    "Graduate Program",
-    "Customer Engineer",
-]
+# These are deliberately generic role families (not the current user's specific
+# targets) so the system layer stays user-agnostic per the Data Contract.
+# Populate user/profile.yml → target_roles.primary for personalised keywords.
+FALLBACK_KEYWORDS: list[str] = []  # fail-closed: prompt user to set profile.yml
 
 DEFAULT_RESULTS_PER_QUERY = 20
 DEFAULT_HOURS_OLD = 168   # 7 days
@@ -298,9 +421,16 @@ def main() -> int:
         if derived:
             keywords = derived
             keyword_source = "profile.yml target_roles.primary"
-        else:
+        elif FALLBACK_KEYWORDS:
             keywords = FALLBACK_KEYWORDS
-            keyword_source = "fallback (profile.yml empty or unreadable)"
+            keyword_source = "built-in fallback list"
+        else:
+            print(
+                "[JobSpy] Error: no keywords found. "
+                "Set target_roles.primary in user/profile.yml or pass --keywords.",
+                file=sys.stderr,
+            )
+            return 1
 
     today = _date.today().isoformat()
     seen = load_seen_urls()
@@ -333,7 +463,9 @@ def main() -> int:
         for city in cities:
             if capped:
                 break
-            country_indeed = CITY_TO_COUNTRY_INDEED.get(city.lower(), "spain")
+            # Use the known mapping; fall back to "worldwide" (Indeed accepts it)
+            # rather than silently defaulting to a specific country.
+            country_indeed = CITY_TO_COUNTRY_INDEED.get(city.lower(), "worldwide")
             print(f"[JobSpy] → {keyword!r} in {city} "
                   f"(indeed/{country_indeed} + google)", flush=True)
             try:
@@ -380,7 +512,7 @@ def main() -> int:
                 if url in seen or url in intra_run_seen_urls:
                     total_dupes += 1
                     continue
-                role_key = f"{company.lower()}::{title.lower()}"
+                role_key = make_company_role_key(company, title)
                 if role_key in intra_run_seen_company_role:
                     total_dupes += 1
                     continue
