@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  CalendarClock, MessageSquareReply, Users, Sparkles, ArrowRight, Sun, CheckCircle2,
+  CalendarClock, MessageSquareReply, Users, Sparkles, ArrowRight,
+  Sun, CheckCircle2, Database, ScanSearch,
 } from 'lucide-react'
 import { useDataStore } from '@/store/data'
-import { useNavStore } from '@/store/nav'
+import { useNavStore, type ViewId } from '@/store/nav'
 import { useAppStore } from '@/store/app'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
@@ -123,22 +124,38 @@ export function TodayView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
+      {/* Title bar — landmark header for screen readers */}
+      <header className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome" aria-label="Today cockpit">
         <h1 className="text-body text-text-1 font-medium">Today</h1>
-        <span className="text-label text-text-4 font-mono">
+        {/* Live region so screen readers announce the count when it updates */}
+        <span
+          className="text-label text-text-4 font-mono"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {loaded ? `${feed.actionable} to act on` : '…'}
         </span>
-      </div>
+      </header>
 
-      <div className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0">
+      <div
+        className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0"
+        aria-busy={!loaded}
+      >
         {/* Editorial hero — the single "what should I do next?" headline plus a
             four-column breakdown of the signal mix. Mirrors the Applying hero
             (galaxy-bg card, display title, divided funnel strip). */}
-        <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
+        <section
+          className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos"
+          aria-label="Pipeline summary"
+        >
           <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
-            <h1 className="text-display-2 text-text-1">What's next</h1>
+            {/* h2 here so the page hierarchy is h1 (title bar) → h2 (section) */}
+            <h2 className="text-display-2 text-text-1">What's next</h2>
             {loaded && feed.actionable > 0 && (
-              <span className="text-label text-danger font-medium">
+              <span
+                className="text-label text-danger font-medium"
+                aria-label={`${feed.actionable} ${feed.actionable === 1 ? 'action needs' : 'actions need'} you now`}
+              >
                 {feed.actionable} {feed.actionable === 1 ? 'action needs' : 'actions need'} you now
               </span>
             )}
@@ -174,26 +191,45 @@ export function TodayView() {
               />
             </div>
           ) : (
-            <div className="h-14 shimmer rounded-lg" />
-          )}
-        </div>
-
-        {/* The ranked feed — one scrolling column, highest-value action first. */}
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
-          {!loaded ? (
-            <div className="space-y-2">
-              {[0, 1, 2].map(i => <div key={i} className="h-[68px] shimmer rounded-lg" />)}
-            </div>
-          ) : feed.items.length === 0 ? (
-            <AllClear />
-          ) : (
-            <div className="space-y-2 max-w-3xl">
-              {feed.items.map(item => (
-                <ActionRow key={item.id} item={item} onAct={() => runAction(item.action)} />
+            /* Skeleton — four columns matching the real stat strip layout */
+            <div className="grid grid-cols-4 gap-4" aria-hidden="true">
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="space-y-2 px-5 first:pl-0">
+                  <div className="h-7 w-10 shimmer rounded" />
+                  <div className="h-3.5 w-20 shimmer rounded" />
+                  <div className="h-3 w-16 shimmer rounded" />
+                </div>
               ))}
             </div>
           )}
-        </div>
+        </section>
+
+        {/* The ranked feed — one scrolling column, highest-value action first. */}
+        <main
+          className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1"
+          aria-label="Priority actions"
+        >
+          {!loaded ? (
+            /* Loading skeletons at the real action-row height */
+            <div className="space-y-2" aria-hidden="true">
+              {[0, 1, 2].map(i => <div key={i} className="h-[72px] shimmer rounded-lg" />)}
+            </div>
+          ) : feed.items.length === 0 ? (
+            <AllClear onNavigate={navigate} />
+          ) : (
+            <ul
+              className="space-y-2 max-w-3xl list-none p-0 m-0"
+              role="feed"
+              aria-label={`${feed.items.length} prioritised action${feed.items.length === 1 ? '' : 's'}`}
+            >
+              {feed.items.map(item => (
+                <li key={item.id}>
+                  <ActionRow item={item} onAct={() => runAction(item.action)} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </main>
 
         <RunningInScanFooter />
       </div>
@@ -214,33 +250,43 @@ function ActionRow({ item, onAct }: { item: CockpitItem; onAct: () => void }) {
         tone.ring,
       )}
     >
-      <CompanyLogo company={item.company} size={32} className="shrink-0" />
+      {/* Company logo — decorative; company name appears in the text below */}
+      <CompanyLogo company={item.company} size={32} className="shrink-0" aria-hidden />
 
       <div className="min-w-0 flex-1">
+        {/* Title + kind chip */}
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[13px] font-medium text-text-1 leading-tight">{item.title}</span>
-          <span className={cn(
-            'inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full border',
-            tone.chip,
-          )}>
-            <KindIcon size={9} />
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full border',
+              tone.chip,
+            )}
+            aria-label={KIND_META[item.kind].label}
+          >
+            <KindIcon size={9} aria-hidden />
             {KIND_META[item.kind].label}
           </span>
         </div>
-        <div className="text-[12px] text-text-2 truncate mt-0.5">
+        {/* Company · role/contact */}
+        <p className="text-[12px] text-text-2 truncate mt-0.5">
           <span className="font-medium">{item.company}</span>
-          <span className="text-text-4"> · </span>
+          <span className="text-text-4 mx-0.5" aria-hidden="true"> · </span>
           <span className="text-text-3">{item.subtitle}</span>
-        </div>
+        </p>
+        {/* Supporting detail */}
         <p className="text-[11px] text-text-4 leading-snug mt-1 line-clamp-1">{item.detail}</p>
       </div>
 
+      {/* aria-label identifies company + action so the button is self-describing
+          without relying on adjacent visual context */}
       <button
         onClick={onAct}
+        aria-label={`${item.actionLabel}: ${item.company} — ${item.subtitle}`}
         className="shrink-0 inline-flex items-center gap-1.5 pl-3.5 pr-3 h-8 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[12px] font-medium transition-all shadow-pill hover:shadow-pill-hover"
       >
         {item.actionLabel}
-        <ArrowRight size={13} />
+        <ArrowRight size={13} aria-hidden />
       </button>
     </div>
   )
@@ -251,22 +297,50 @@ function ActionRow({ item, onAct }: { item: CockpitItem; onAct: () => void }) {
 // Shown when the pipeline is fully on-track: no closing deadlines, no quiet
 // threads, no due nudges, no unpursued fresh hits. A genuine "you're caught up"
 // rather than a "nothing here" — the cockpit's whole point is that an empty
-// feed is a *good* outcome.
-function AllClear() {
+// feed is a *good* outcome. Two shortcut buttons let the user keep momentum
+// without having to manually navigate to another tab.
+function AllClear({ onNavigate }: { onNavigate: (view: ViewId) => void }) {
   return (
-    <div className="h-full flex items-center justify-center">
-      <div className="max-w-sm text-center px-6">
-        <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-success/10 mb-4">
-          <CheckCircle2 size={20} className="text-success" />
+    <div className="h-full flex items-center justify-center py-4">
+      <div className="max-w-sm w-full px-6 text-center">
+        {/* Success icon in a soft green wash */}
+        <span
+          className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-success/10 mb-4"
+          aria-hidden="true"
+        >
+          <CheckCircle2 size={22} className="text-success" />
         </span>
-        <h3 className="text-[15px] font-semibold text-text-1">You're all caught up</h3>
-        <p className="text-[12.5px] text-text-3 leading-relaxed mt-1.5">
-          No closing deadlines, quiet applications, due nudges, or unpursued fresh hits right now.
-          Run a scan or browse the database to keep the funnel fed.
+
+        <h2 className="text-[15px] font-semibold text-text-1">You're all caught up</h2>
+        <p className="text-[12.5px] text-text-3 leading-relaxed mt-2">
+          No closing deadlines, quiet applications, due nudges, or unpursued fresh hits — the
+          pipeline is healthy right now.
         </p>
-        <div className="flex items-center justify-center gap-2 mt-4">
-          <Sun size={13} className="text-text-4" />
-          <span className="text-[11px] text-text-4">The cockpit refreshes as your pipeline moves.</span>
+
+        {/* Shortcut buttons — secondary outlined pill per DESIGN-meta */}
+        <div className="flex items-center justify-center gap-3 mt-5">
+          <button
+            onClick={() => onNavigate('scan')}
+            aria-label="Go to Scan to run a new scan"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-pill border border-border-strong text-text-2 text-[12px] font-medium hover:bg-bg-elevated transition-colors"
+          >
+            <ScanSearch size={13} aria-hidden className="text-text-4" />
+            Run a scan
+          </button>
+          <button
+            onClick={() => onNavigate('database')}
+            aria-label="Open the database to browse all evaluated listings"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-pill border border-border-strong text-text-2 text-[12px] font-medium hover:bg-bg-elevated transition-colors"
+          >
+            <Database size={13} aria-hidden className="text-text-4" />
+            Browse database
+          </button>
+        </div>
+
+        {/* Ambient refresh note — quiet, doesn't compete with the CTAs */}
+        <div className="flex items-center justify-center gap-2 mt-5">
+          <Sun size={12} className="text-text-4 shrink-0" aria-hidden />
+          <span className="text-[11px] text-text-4">Refreshes automatically as your pipeline moves.</span>
         </div>
       </div>
     </div>
