@@ -9,6 +9,9 @@ import assert from 'node:assert/strict';
 import {
   HISTORY_HEADER,
   companyRoleKey,
+  canonicalizeUrl,
+  canonicalizeRole,
+  isLowQualityRow,
   dataLines,
   indexHistory,
   appendScanDate,
@@ -225,6 +228,184 @@ test('filterPipelineLines does not mutate the caller-provided seen sets', () => 
   filterPipelineLines(['- [ ] https://x.com/2 | Globex | Engineer'], { seenUrls, seenKeys });
   assert.equal(seenUrls.size, 1, 'seenUrls untouched');
   assert.equal(seenKeys.size, 1, 'seenKeys untouched');
+});
+
+// ── canonicalizeUrl ─────────────────────────────────────────────────────────
+test('canonicalizeUrl strips tracking params, keeps functional ones', () => {
+  assert.equal(
+    canonicalizeUrl('https://boards.greenhouse.io/acme/jobs/123?utm_source=indeed&gh_jid=9'),
+    'https://boards.greenhouse.io/acme/jobs/123?gh_jid=9'
+  );
+});
+
+test('canonicalizeUrl collapses tracking-param twins to one key', () => {
+  assert.equal(
+    canonicalizeUrl('https://x.com/job?gclid=abc'),
+    canonicalizeUrl('https://x.com/job?fbclid=zzz&utm_medium=cpc')
+  );
+});
+
+test('canonicalizeUrl lowercases host, drops www and fragment, trims slash', () => {
+  assert.equal(
+    canonicalizeUrl('https://WWW.Example.com/Job/#apply'),
+    'https://example.com/Job'
+  );
+});
+
+test('canonicalizeUrl unwraps a Google-Jobs style redirect wrapper', () => {
+  assert.equal(
+    canonicalizeUrl('https://www.google.com/search?q=https%3A%2F%2Femployer.com%2Fj%2F7&utm_source=x'),
+    'https://employer.com/j/7'
+  );
+});
+
+test('canonicalizeUrl sorts kept params so order does not split the key', () => {
+  assert.equal(
+    canonicalizeUrl('https://x.com/job?b=2&a=1'),
+    canonicalizeUrl('https://x.com/job?a=1&b=2')
+  );
+});
+
+test('canonicalizeUrl is fail-open on an unparseable string', () => {
+  assert.equal(canonicalizeUrl('not a url'), 'not a url');
+  assert.equal(canonicalizeUrl(''), '');
+});
+
+// ── canonicalizeRole ────────────────────────────────────────────────────────
+test('canonicalizeRole strips (m/f/d)-style gender tags', () => {
+  assert.equal(canonicalizeRole('Data Analyst (m/f/d)'), 'data analyst');
+  assert.equal(canonicalizeRole('Data Analyst (w/m/x)'), 'data analyst');
+});
+
+test('canonicalizeRole strips trailing modality/location after a separator', () => {
+  assert.equal(canonicalizeRole('Data Analyst - Remote'), 'data analyst');
+  assert.equal(canonicalizeRole('Data Analyst | Dublin'), 'data analyst');
+  assert.equal(canonicalizeRole('Data Analyst – Hybrid'), 'data analyst');
+});
+
+test('canonicalizeRole strips parenthetical modality and req-ids', () => {
+  assert.equal(canonicalizeRole('Data Analyst (Full-time)'), 'data analyst');
+  assert.equal(canonicalizeRole('Data Analyst (JR0099)'), 'data analyst');
+  assert.equal(canonicalizeRole('Data Analyst #12345'), 'data analyst');
+});
+
+test('canonicalizeRole collapses stacked suffixes to one canonical role', () => {
+  assert.equal(
+    canonicalizeRole('Data Analyst (m/f/d) - Remote'),
+    canonicalizeRole('Data Analyst')
+  );
+});
+
+test('canonicalizeRole is fail-open: never returns empty for a real title', () => {
+  // A title that is ONLY a stripped clause must not collapse to '' (would lose the row).
+  assert.equal(canonicalizeRole('Remote'), 'remote');
+  assert.equal(canonicalizeRole(''), '');
+});
+
+test('canonicalizeRole keeps genuinely different roles distinct', () => {
+  assert.notEqual(
+    canonicalizeRole('Data Analyst'),
+    canonicalizeRole('Strategy Analyst')
+  );
+});
+
+// ── companyRoleKey with canonicalization ─────────────────────────────────────
+test('companyRoleKey collapses title boilerplate to one key', () => {
+  assert.equal(
+    companyRoleKey('Acme', 'Data Analyst (m/f/d)'),
+    companyRoleKey('Acme', 'Data Analyst - Remote')
+  );
+});
+
+// ── isLowQualityRow ──────────────────────────────────────────────────────────
+test('isLowQualityRow flags empty / junk titles', () => {
+  assert.equal(isLowQualityRow({ title: '', company: 'Acme' }), true);
+  assert.equal(isLowQualityRow({ title: 'Apply now', company: 'Acme' }), true);
+  assert.equal(isLowQualityRow({ title: 'Multiple positions', company: 'Acme' }), true);
+  assert.equal(isLowQualityRow({ title: '-', company: 'Acme' }), true);
+});
+
+test('isLowQualityRow flags placeholder companies', () => {
+  assert.equal(isLowQualityRow({ title: 'Data Analyst', company: 'Confidential' }), true);
+  assert.equal(isLowQualityRow({ title: 'Data Analyst', company: 'Company Name' }), true);
+});
+
+test('isLowQualityRow passes a real posting', () => {
+  assert.equal(isLowQualityRow({ title: 'Data Analyst', company: 'Acme' }), false);
+  assert.equal(isLowQualityRow({ title: 'Data Analyst', company: '' }), false);
+});
+
+// ── mergeHistory: URL canonicalization + new counters ────────────────────────
+test('mergeHistory treats a tracking-param URL variant as a re-seen row', () => {
+  const existing = [row('https://x.com/job', 'Analyst', 'Acme', '2026-06-01')];
+  const staging = [row('https://x.com/job?utm_source=indeed', 'Analyst', 'Acme')];
+  const r = mergeHistory(existing, staging, '2026-06-10');
+  assert.equal(r.updatedScanDates, 1, 'matched existing row despite tracking param');
+  assert.equal(r.appended, 0);
+  assert.equal(r.rows.length, 1);
+});
+
+test('mergeHistory drops intra-batch tracking-param URL twins', () => {
+  const staging = [
+    row('https://x.com/job', 'Analyst', 'Acme'),
+    row('https://x.com/job?gclid=zzz', 'Analyst', 'Acme'),
+  ];
+  const r = mergeHistory([], staging, '2026-06-10');
+  assert.equal(r.appended, 1, 'only the first survives');
+  assert.equal(r.droppedDuplicateUrl, 1, 'second counted as URL twin, not role dup');
+  assert.equal(r.droppedDuplicateRole, 0);
+});
+
+test('mergeHistory collapses title-boilerplate variants of the same job', () => {
+  // Same posting, two aggregator titles, two URLs → one row.
+  const staging = [
+    row('https://indeed.com/v?jk=1', 'Data Analyst (m/f/d)', 'Globex'),
+    row('https://google.com/r?u=2', 'Data Analyst - Remote', 'Globex'),
+  ];
+  const r = mergeHistory([], staging, '2026-06-10');
+  assert.equal(r.appended, 1);
+  assert.equal(r.droppedDuplicateRole, 1);
+});
+
+test('mergeHistory acceptedUrls are canonical', () => {
+  const r = mergeHistory([], [row('https://x.com/job?utm_source=x', 'Analyst', 'Acme')], '2026-06-10');
+  assert.ok(r.acceptedUrls.has('https://x.com/job'), 'stored canonical, not raw');
+});
+
+// ── filterPipelineLines: canonicalization + low-quality guard ────────────────
+test('filterPipelineLines drops a tracking-param twin of a pipeline URL', () => {
+  const r = filterPipelineLines(
+    ['- [ ] https://x.com/1?utm_source=x | Acme | Analyst'],
+    { seenUrls: new Set(['https://x.com/1']) }
+  );
+  assert.equal(r.appended, 0);
+  assert.equal(r.droppedUrl, 1);
+});
+
+test('filterPipelineLines collapses title-boilerplate variants within a batch', () => {
+  const r = filterPipelineLines([
+    '- [ ] https://indeed.com/1 | Globex | Data Analyst (m/f/d)',
+    '- [ ] https://google.com/2 | Globex | Data Analyst - Remote',
+  ]);
+  assert.equal(r.appended, 1);
+  assert.equal(r.droppedDuplicateRole, 1);
+});
+
+test('filterPipelineLines drops low-quality rows out of the inbox', () => {
+  const r = filterPipelineLines([
+    '- [ ] https://x.com/1 | Acme | Apply now',
+    '- [ ] https://x.com/2 | Confidential | Data Analyst',
+    '- [ ] https://x.com/3 | Acme | Data Analyst',
+  ]);
+  assert.equal(r.appended, 1, 'only the real posting survives');
+  assert.equal(r.droppedLowQuality, 2);
+  assert.deepEqual(r.toAppend, ['- [ ] https://x.com/3 | Acme | Data Analyst']);
+});
+
+test('filterPipelineLines reports droppedLowQuality:0 when all rows are real', () => {
+  const r = filterPipelineLines(['- [ ] https://x.com/1 | Acme | Data Analyst']);
+  assert.equal(r.droppedLowQuality, 0);
+  assert.equal(r.appended, 1);
 });
 
 // ── header contract ────────────────────────────────────────────────────────
