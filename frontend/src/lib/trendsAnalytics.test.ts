@@ -6,6 +6,7 @@ import {
   buildByDate, buildTopBy, isNoiseLabel,
   buildDistribution, SCORE_BANDS,
   buildFunnel,
+  buildDimensionProfile, PROFILE_DIMENSIONS, MIN_WINNERS_FOR_DELTA, APPLY_THRESHOLD,
   isoToFlag, locationFlag,
 } from '@/lib/trendsAnalytics'
 import { makeScoreEntry, makeApplication } from '@/test-utils/fixtures'
@@ -200,6 +201,91 @@ test('buildFunnel does not count a rejection as a real response', () => {
   assert.equal(f.sent, 1)
   assert.equal(f.responded, 0)   // conservative: pre-interview auto-rejects aren't "responses"
   assert.equal(f.rejected, 1)
+})
+
+// ─── buildDimensionProfile ───────────────────────────────────────────────────
+
+// Enough winners (overall >= 7) to clear MIN_WINNERS_FOR_DELTA so delta ranking
+// is active. We make current_fit the strongest *driver*: high in winners, low
+// in losers. brand_value is flat across both groups (a non-discriminator).
+function profileCorpus() {
+  const winners = Array.from({ length: MIN_WINNERS_FOR_DELTA }, () =>
+    makeScoreEntry({ overall: 9, current_fit: 9, brand_value: 6, skills_match: 8 }),
+  )
+  const losers = [
+    makeScoreEntry({ overall: 4, current_fit: 3, brand_value: 6, skills_match: 5 }),
+    makeScoreEntry({ overall: 5, current_fit: 4, brand_value: 6, skills_match: 5 }),
+  ]
+  return [...winners, ...losers]
+}
+
+test('buildDimensionProfile counts scored rows and the apply-worthy subset', () => {
+  const p = buildDimensionProfile(profileCorpus())
+  assert.equal(p.scoredCount, MIN_WINNERS_FOR_DELTA + 2)
+  assert.equal(p.winnerCount, MIN_WINNERS_FOR_DELTA)
+  assert.equal(p.lowSignal, false)
+})
+
+test('buildDimensionProfile excludes non-positive overalls from both groups', () => {
+  const rows = [
+    makeScoreEntry({ overall: 0, current_fit: 9 }),   // unscored — dropped entirely
+    makeScoreEntry({ overall: 8, current_fit: 8 }),
+  ]
+  const p = buildDimensionProfile(rows)
+  assert.equal(p.scoredCount, 1)
+  assert.equal(p.winnerCount, 1)
+})
+
+test('buildDimensionProfile ranks the strongest driver (highest winners-minus-all delta) first', () => {
+  const p = buildDimensionProfile(profileCorpus())
+  // current_fit separates winners from losers the most → top of the list.
+  assert.equal(p.dims[0].field, 'current_fit')
+  assert.ok(p.dims[0].delta > 0, 'driver delta should be positive')
+  // brand_value is identical (6) across every row → ~zero delta, ranks below.
+  const brand = p.dims.find(d => d.field === 'brand_value')!
+  assert.ok(Math.abs(brand.delta) < 1e-9, 'a flat dimension has no discriminating power')
+  assert.ok(p.dims.indexOf(brand) > 0)
+})
+
+test('buildDimensionProfile delta = winners-avg minus all-avg, exactly', () => {
+  const p = buildDimensionProfile(profileCorpus())
+  for (const d of p.dims) {
+    assert.ok(Math.abs(d.delta - (d.avgWinners - d.avgAll)) < 1e-9, d.label)
+  }
+})
+
+test('buildDimensionProfile flags low signal and falls back to avg-rank below the winner floor', () => {
+  // Only 1 winner — under MIN_WINNERS_FOR_DELTA, so delta is untrustworthy.
+  const rows = [
+    makeScoreEntry({ overall: 9, current_fit: 5, brand_value: 9 }),  // winner, but brand_value is its top dim
+    makeScoreEntry({ overall: 4, current_fit: 5, brand_value: 2 }),
+  ]
+  const p = buildDimensionProfile(rows)
+  assert.equal(p.lowSignal, true)
+  // Ranking falls back to raw average: brand_value avg (5.5) > current_fit avg (5).
+  assert.equal(p.dims[0].field, 'brand_value')
+})
+
+test('buildDimensionProfile over an empty corpus is all-zero, not NaN', () => {
+  const p = buildDimensionProfile([])
+  assert.equal(p.scoredCount, 0)
+  assert.equal(p.winnerCount, 0)
+  assert.equal(p.lowSignal, true)
+  for (const d of p.dims) {
+    assert.equal(d.avgAll, 0)
+    assert.equal(d.avgWinners, 0)
+    assert.equal(d.delta, 0)
+  }
+})
+
+test('PROFILE_DIMENSIONS and APPLY_THRESHOLD stay aligned with the documented scale', () => {
+  assert.equal(APPLY_THRESHOLD, 7.0)
+  assert.equal(PROFILE_DIMENSIONS.length, 6)
+  // Every profile dimension must be a real numeric ScoreEntry field.
+  const probe = makeScoreEntry()
+  for (const { field } of PROFILE_DIMENSIONS) {
+    assert.equal(typeof probe[field], 'number', String(field))
+  }
 })
 
 // ─── location flags ──────────────────────────────────────────────────────────

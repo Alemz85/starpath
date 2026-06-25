@@ -13,8 +13,10 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { scoreColor as galaxyScoreColor } from '@/lib/tier'
 import {
   type TimeRange, type DateBucket, type TopRow, type Distribution, type Funnel,
+  type DimensionProfile,
   TIME_RANGE_LABEL, filterByDateWindow,
-  avg, buildByDate, buildTopBy, buildDistribution, buildFunnel, locationFlag,
+  avg, buildByDate, buildTopBy, buildDistribution, buildFunnel,
+  buildDimensionProfile, APPLY_THRESHOLD, locationFlag,
 } from '@/lib/trendsAnalytics'
 
 // Multi-series chart palette — sourced from the documented categorical
@@ -89,6 +91,12 @@ export function TrendsView() {
   }, [filtered])
 
   const distribution = useMemo(() => buildDistribution(filtered), [filtered])
+
+  // Dimension profile — averages each scoring dimension across the corpus and,
+  // crucially, contrasts the apply-worthy subset (overall >= 7) against all
+  // scored rows so the user can see which dimensions actually *drive* a high
+  // score vs which are flat noise for targeting. Pure derivation in lib/.
+  const profile = useMemo(() => buildDimensionProfile(filtered), [filtered])
 
   // Applications rolled into a cumulative conversion funnel, filtered to the
   // same time window as the score-history views (by tracker-add date). Kept
@@ -232,6 +240,15 @@ export function TrendsView() {
           <ScoreDistributionCard dist={distribution} />
         )}
 
+        {/* Dimension profile — the only panel that explains *why* a role
+            scores well for this user. Ranks the seven scoring dimensions by
+            how much they separate an apply-worthy role (overall ≥ 7) from the
+            full corpus, turning the raw score columns into a targeting
+            cheat-sheet: chase roles strong on the high-delta dimensions. */}
+        {loaded && profile.scoredCount > 0 && (
+          <DimensionProfileCard profile={profile} />
+        )}
+
         {/* Pipeline conversion — the downstream counterpart to the score
             analytics: of everything you actually applied to, how far did it
             get? Cumulative funnel (a status implies every earlier stage was
@@ -320,6 +337,114 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
         </div>
       </div>
     </div>
+  )
+}
+
+// ─── Dimension profile card ──────────────────────────────────────────────────
+//
+// Each row is a scoring dimension. The grey track shows the full-corpus average
+// (the baseline "what every role offers"); the violet inner bar shows the
+// apply-worthy subset's average for the same dimension. When the violet bar
+// overshoots the grey one, that dimension *lifts* a role into apply-worthy
+// territory — a positive delta, badged in violet on the right. A negative delta
+// (winners score lower here) badges in slate: it's a tradeoff the user accepts.
+// Both bars are on the same 0–10 scale so the eye reads magnitude directly.
+
+function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
+  const { dims, scoredCount, winnerCount, lowSignal } = profile
+  return (
+    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
+      <div className="flex items-baseline justify-between gap-3 mb-1 pb-2 border-b border-border-default/60">
+        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">What drives your fit</span>
+        <span className="text-[11px] font-mono tabular-nums text-text-4">
+          {lowSignal
+            ? <span>{scoredCount} scored · ranked by average</span>
+            : <><span className="text-accent-text font-semibold">{winnerCount}</span><span> apply-worthy of {scoredCount}</span></>}
+        </span>
+      </div>
+
+      {/* Legend — names the two bars so the magnitudes are unambiguous. The
+          delta column is only meaningful with enough winners, so its legend
+          entry hides under the low-signal fallback. */}
+      <div className="flex items-center gap-3.5 mb-3 mt-2">
+        <LegendDot color="#CED0D4" label="All scored" />
+        {!lowSignal && <LegendDot color="#7C5CFF" label={`Apply-worthy (≥${APPLY_THRESHOLD.toFixed(0)})`} />}
+      </div>
+
+      <ul className="space-y-2.5">
+        {dims.map(d => {
+          const allPct     = Math.max(0, Math.min(d.avgAll, 10)) * 10
+          const winnersPct = Math.max(0, Math.min(d.avgWinners, 10)) * 10
+          // Below the winner floor the winners-bar is statistical noise — show
+          // only the all-corpus track so we never imply a delta we can't trust.
+          const showWinners = !lowSignal && winnerCount > 0
+          return (
+            <li key={String(d.field)}>
+              <div className="flex items-baseline justify-between gap-2 mb-1">
+                <span className="text-[12px] text-text-1">{d.label}</span>
+                <span className="flex items-baseline gap-2 text-[11px] font-mono tabular-nums shrink-0">
+                  <span className="text-text-3">{d.avgAll.toFixed(1)}</span>
+                  {showWinners && <DeltaBadge delta={d.delta} />}
+                </span>
+              </div>
+              {/* Track = all-scored average. Overlaid inner bar = apply-worthy
+                  average, drawn on the same 0–10 scale so the gap is the delta. */}
+              <div className="relative h-2 rounded-pill bg-bg-elevated overflow-hidden">
+                <div
+                  className="absolute inset-y-0 left-0 rounded-pill"
+                  style={{ width: `${allPct}%`, background: '#CED0D4' }}
+                />
+                {showWinners && (
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-pill"
+                    style={{
+                      width: `${winnersPct}%`,
+                      background: d.delta >= 0
+                        ? 'linear-gradient(90deg, #7C5CFF 0%, #5B3FE8 100%)'
+                        : 'linear-gradient(90deg, #A89CD9 0%, #94A3B8 100%)',
+                      transition: 'width 320ms ease',
+                    }}
+                  />
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      {lowSignal && (
+        <p className="text-[10.5px] text-text-4 mt-3 leading-snug">
+          Evaluate a few more apply-worthy roles to compare what separates a strong fit from the rest.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-[10.5px] text-text-4">
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+      {label}
+    </span>
+  )
+}
+
+// Signed delta badge — violet for "this dimension lifts a role into apply-
+// worthy territory", slate for "winners are weaker here (a tradeoff)". Near-
+// zero deltas read as flat so they don't masquerade as a signal.
+function DeltaBadge({ delta }: { delta: number }) {
+  const flat = Math.abs(delta) < 0.05
+  const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±'
+  const color = flat ? '#8595A4' : delta > 0 ? '#7C5CFF' : '#5D6C7B'
+  return (
+    <span
+      className="inline-flex items-center rounded-pill px-1.5 py-px text-[10px] font-semibold tabular-nums"
+      style={{ color, background: flat ? 'transparent' : `${color}1f` }}
+      title="Apply-worthy average minus the full-corpus average for this dimension"
+    >
+      {flat ? '±0.0' : `${sign}${Math.abs(delta).toFixed(1)}`}
+    </span>
   )
 }
 
