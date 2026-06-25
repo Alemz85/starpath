@@ -251,6 +251,36 @@ export function parseWhyThisScore(md: string): WhyThisScore {
   return { headline, bindingConstraint, lever, present: true }
 }
 
+// Carve the `## Why this score` section out of a markdown blob so the
+// slide-over can render it as a structured callout (headline + binding
+// constraint + lever) instead of leaving it as generic prose bullets.
+//
+// `ReportBody` feeds this the `after` content from `parseDimensionalScoring`
+// (the markdown that trails the dimensional table — Why-this-score lives
+// there, immediately after the table). We return:
+//   - `why`:  the parsed WhyThisScore (present:false when no block exists)
+//   - `rest`: the same markdown with the Why-this-score heading + body
+//             removed, so it can be rendered as ordinary prose without the
+//             block showing up twice.
+//
+// The heading-to-heading slice mirrors `extractWhyThisScoreSection` exactly,
+// so whatever that parser scopes as "the block" is what we strip from `rest`.
+export function splitWhyThisScore(md: string): { why: WhyThisScore; rest: string } {
+  const headingRe = /^##\s+Why\s+this\s+score\s*$/im
+  const m = headingRe.exec(md)
+  if (!m) return { why: EMPTY_WHY, rest: md }
+
+  const why = parseWhyThisScore(md)
+  const head = md.slice(0, m.index)
+  const tail = md.slice(m.index + m[0].length)
+  const nextHeading = /\n##\s+\S/m.exec(tail)
+  const afterBlock = nextHeading ? tail.slice(nextHeading.index + 1) : ''
+  // Re-join the prose around the removed block and collapse the blank-line
+  // run the excision leaves behind (same treatment as extractMetadata).
+  const rest = `${head.trimEnd()}\n\n${afterBlock}`.replace(/\n{3,}/g, '\n\n').trim()
+  return { why, rest }
+}
+
 export function parseRow(line: string) {
   // "| a | b | c |" → ['', ' a ', ' b ', ' c ', ''] → ['a','b','c']
   const cells = line.split('|').slice(1, -1).map(c => c.trim())
