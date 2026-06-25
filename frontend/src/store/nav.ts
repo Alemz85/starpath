@@ -10,6 +10,7 @@ export type ViewId =
   | 'database'
   | 'reports'
   | 'trends'
+  | 'scoretrend'
   | 'scan'
   | 'config'
   | 'settings'
@@ -28,6 +29,7 @@ export const VIEW_LABELS: Record<ViewId, string> = {
   database: 'Database',
   reports:  'Reports',
   trends:   'Trends',
+  scoretrend: 'Score Trend',
   scan:     'Activity',
   config:   'Configuration',
   settings: 'Settings',
