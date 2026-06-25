@@ -392,3 +392,161 @@ test('analyzeTrend errors on empty or score-less input', () => {
   const noScores = parseScoreHistory(tsv(row({ overall: 'x' })))
   assert.ok(analyzeTrend(noScores).error)
 })
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Additional edge-case coverage (extension round)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+// ─── listingTrajectories: rows missing date or non-finite overall ──────────
+
+test('listingTrajectories skips rows that have no date', () => {
+  // A row without a date field is not eligible for trajectories.
+  const rows = parseScoreHistory(tsv(
+    row({ company: 'Nodater', role: 'X', overall: 7.0, date: '' }),
+    row({ company: 'Nodater', role: 'X', overall: 7.5, date: '' }),
+  ))
+  // Both rows parsed with empty date → filtered out → no trajectory.
+  assert.deepEqual(listingTrajectories(rows), [])
+})
+
+test('listingTrajectories skips rows with non-finite overall (NaN / string)', () => {
+  const rows = parseScoreHistory(tsv(
+    row({ company: 'BadScore', role: 'Y', overall: 'TBD', date: '2026-05-01' }),
+    row({ company: 'BadScore', role: 'Y', overall: 7.0,   date: '2026-05-10' }),
+  ))
+  // Only 1 row is scoreable → no trajectory (need ≥2 distinct-date scored rows).
+  assert.deepEqual(listingTrajectories(rows), [])
+})
+
+// ─── trajectorySummary: empty input + all-stable ──────────────────────────
+
+test('trajectorySummary on empty trajectories returns zero-state', () => {
+  const sum = trajectorySummary([])
+  assert.equal(sum.reevaluated, 0)
+  assert.equal(sum.avgDelta, 0)
+  assert.equal(sum.medianDelta, 0)
+  assert.equal(sum.bandUpgrades, 0)
+  assert.equal(sum.bandDowngrades, 0)
+  assert.deepEqual(sum.verdicts, { improving: 0, declining: 0, stable: 0 })
+})
+
+test('trajectorySummary with all-stable trajectories has zero band moves', () => {
+  const rows = parseScoreHistory(tsv(
+    row({ company: 'P', role: 'q', date: '2026-05-01', overall: 7.0 }),
+    row({ company: 'P', role: 'q', date: '2026-05-10', overall: 7.1 }),
+    row({ company: 'Q', role: 'r', date: '2026-05-01', overall: 8.0 }),
+    row({ company: 'Q', role: 'r', date: '2026-05-10', overall: 8.1 }),
+  ))
+  const sum = trajectorySummary(listingTrajectories(rows))
+  assert.equal(sum.verdicts.stable, 2)
+  assert.equal(sum.bandUpgrades, 0)
+  assert.equal(sum.bandDowngrades, 0)
+})
+
+// ─── classifyDelta: Infinity / -Infinity ──────────────────────────────────
+
+test('classifyDelta handles Infinity as improving (finite check is already in guard)', () => {
+  // Infinity IS finite? No — Number.isFinite(Infinity) is false → 'unknown'.
+  assert.equal(classifyDelta(Infinity), 'unknown')
+  assert.equal(classifyDelta(-Infinity), 'unknown')
+})
+
+// ─── landscapeTrend: custom minPerWindow ──────────────────────────────────
+
+test('landscapeTrend respects a custom minPerWindow=1', () => {
+  // With minPerWindow=1, even a 2-row dataset with 2 distinct dates qualifies.
+  const rows = parseScoreHistory(tsv(
+    row({ date: '2026-05-01', overall: 6.0 }),
+    row({ date: '2026-05-20', overall: 8.0 }),
+  ))
+  const t = landscapeTrend(rows, { minPerWindow: 1 })
+  assert.equal(t.insufficientData, false)
+  assert.equal(t.older.count, 1)
+  assert.equal(t.recent.count, 1)
+  assert.equal(t.delta, 2.0)
+})
+
+// ─── landscapeTrend: the "stable" verdict uses a ±0.15 dead-band ─────────
+
+test('landscapeTrend stable verdict at exactly ±0.15 boundary', () => {
+  // Use values that produce delta = exactly 0.15 (or -0.15) — should be 'stable'.
+  const rows = parseScoreHistory(tsv(
+    row({ date: '2026-05-01', overall: 7.0 }),
+    row({ date: '2026-05-02', overall: 7.0 }),
+    row({ date: '2026-05-03', overall: 7.0 }),
+    row({ date: '2026-05-20', overall: 7.15 }),
+    row({ date: '2026-05-21', overall: 7.15 }),
+    row({ date: '2026-05-22', overall: 7.15 }),
+  ))
+  const t = landscapeTrend(rows)
+  // delta = 0.15 which is NOT strictly > 0.15 → should be 'stable' per classifyDelta(_, {stableBand:0.15}).
+  assert.equal(t.verdict, 'stable')
+})
+
+// ─── trendRecommendations: declining landscape verdict ───────────────────
+
+test('trendRecommendations emits a declining-landscape verdict', () => {
+  const trend = {
+    insufficientData: false, verdict: 'declining',
+    recent: { avgOverall: 6.2 }, older: { avgOverall: 7.5 },
+    delta: -1.3, strongSolidShareDelta: -20,
+  }
+  const recs = trendRecommendations([], trend)
+  assert.ok(recs.some(r => /quality is sliding/.test(r.action)))
+  const rec = recs.find(r => /quality is sliding/.test(r.action))
+  assert.equal(rec.impact, 'high')
+})
+
+test('trendRecommendations is silent when trend is insufficient data', () => {
+  const trend = { insufficientData: true }
+  const recs = trendRecommendations([], trend)
+  // No landscape-level rec when there is no usable trend.
+  assert.ok(!recs.some(r => /sharpening|sliding/.test(r.action)))
+})
+
+// ─── listingTrajectories: topMover is null when no dimension changed ───────
+
+test('listingTrajectories topMover is null when all dimensions are identical across evals', () => {
+  // Both evaluations have every dimension the same — only overall differs (forced).
+  const rows = parseScoreHistory(tsv(
+    row({ company: 'Flat', role: 'Z', date: '2026-05-01', overall: 6.5 }),
+    row({ company: 'Flat', role: 'Z', date: '2026-05-10', overall: 7.5 }),
+  ))
+  const [t] = listingTrajectories(rows)
+  // Every base dimension in the row() helper is the same across both evals,
+  // so no dim delta is non-zero → topMover is null.
+  assert.equal(t.topMover, null)
+})
+
+// ─── listingTrajectories: sequence has all eval dates in order ────────────
+
+test('listingTrajectories sequence is chronological even if rows arrived out of order', () => {
+  // Feed rows in reverse-chronological order; the output sequence must be sorted.
+  const rows = parseScoreHistory(tsv(
+    row({ company: 'OutOfOrder', role: 'A', date: '2026-05-20', overall: 8.0 }),
+    row({ company: 'OutOfOrder', role: 'A', date: '2026-05-01', overall: 6.0 }),
+    row({ company: 'OutOfOrder', role: 'A', date: '2026-05-10', overall: 7.0 }),
+  ))
+  const [t] = listingTrajectories(rows)
+  const dates = t.sequence.map(s => s.date)
+  assert.deepEqual(dates, ['2026-05-01', '2026-05-10', '2026-05-20'])
+  // first and latest should reflect the true chronological endpoints.
+  assert.equal(t.firstOverall, 6.0)
+  assert.equal(t.latestOverall, 8.0)
+})
+
+// ─── analyzeTrend: passes custom stableBand through ──────────────────────
+
+test('analyzeTrend passes a custom stableBand to listingTrajectories', () => {
+  // A delta of 0.3 is improving under the default 0.25 band but stable under 0.5.
+  const rows = parseScoreHistory(tsv(
+    row({ company: 'Tight', role: 'A', date: '2026-05-01', overall: 7.0 }),
+    row({ company: 'Tight', role: 'A', date: '2026-05-10', overall: 7.3 }),
+  ))
+  const defaultOut = analyzeTrend(rows, {})
+  const wideOut    = analyzeTrend(rows, { stableBand: 0.5 })
+  const defaultT = defaultOut.listingTrajectories[0]
+  const wideT    = wideOut.listingTrajectories[0]
+  assert.equal(defaultT.verdict, 'improving') // 0.3 > 0.25 default → improving
+  assert.equal(wideT.verdict, 'stable')       // 0.3 ≤ 0.5 wide band → stable
+})
