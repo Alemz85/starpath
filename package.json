@@ -16,6 +16,7 @@
     "research": "node scripts/company-research.mjs",
     "scan": "node scripts/scan.mjs",
     "compare-offers": "node scripts/compare-offers.mjs",
+    "whats-new": "node scripts/whats-new.mjs",
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "test:all": "node scripts/test-all.mjs"
   },
