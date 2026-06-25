@@ -1,12 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { ipc } from '@/lib/ipc'
+import { buildOutreachBoard } from '@/lib/outreachDoc'
 import { useNavStore, type ViewId } from '@/store/nav'
 import {
   Sun,
   Map,
   Briefcase,
+  Users,
   Database,
   FileText,
   TrendingUp,
@@ -45,6 +48,7 @@ const PRIMARY_NAV: NavItem[] = [
   { view: 'today',    label: 'Today',    icon: Sun        },
   { view: 'scouting', label: 'Scouting', icon: Map        },
   { view: 'applying', label: 'Applying', icon: Briefcase  },
+  { view: 'outreach', label: 'Outreach', icon: Users      },
 ]
 
 // Secondary tabs — supporting views (data, analytics, activity).
@@ -97,6 +101,23 @@ export function Sidebar() {
   // share, so the rail still reads honestly as "you have N pressing things".
   const todayActionable = buildCockpitFeed({ applications, scouting, liveness }).actionable
 
+  // Outreach's badge = contacts due a nudge. The log isn't in the SQLite cache
+  // (it's a contacto-mode artifact), so read it off disk and recompute whenever
+  // the store data shifts — the chokidar watcher bumps applications/scouting on
+  // any data/* write, which is our cue the log may have changed too.
+  const [outreachRaw, setOutreachRaw] = useState<string | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    ipc.readFile('data/outreach.md')
+      .then(raw => { if (!cancelled) setOutreachRaw(raw) })
+      .catch(() => { if (!cancelled) setOutreachRaw(null) })
+    return () => { cancelled = true }
+  }, [applications, scouting])
+  const outreachNudges = useMemo(
+    () => buildOutreachBoard(outreachRaw).filter(c => c.action === 'nudge').length,
+    [outreachRaw],
+  )
+
   // Scouting's pending count carries accent emphasis — it's the only number
   // on the rail that means "act now" (mirrors the cockpit's pending dot)
   // rather than "inventory size". Today shares that accent — both mean "act".
@@ -104,6 +125,7 @@ export function Sidebar() {
     today:    { count: todayActionable, accent: true },
     scouting: { count: pipeline.length, accent: true },
     applying: { count: activeCount },
+    outreach: { count: outreachNudges, accent: true },
     reports:  { count: reports.length },
   }
 
