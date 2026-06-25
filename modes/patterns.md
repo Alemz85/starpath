@@ -4,9 +4,17 @@
 
 Analyze all tracked applications to find patterns in outcomes and surface actionable insights. Identifies what's working (archetypes, remote policies, score ranges) and what's wasting time (geo-restricted roles, stack mismatches, low-score applications).
 
+**Two complementary lenses:**
+
+1. **Outcome patterns** (default) — reasons over *outcomes* in `data/applications.md` (Applied → Rejected → Offer …). Answers "why are applications failing?". Needs ≥5 entries that have progressed beyond `Evaluated`.
+2. **Targeting intelligence** (`--scouting`) — reasons over the *scouting landscape* in `data/score-history.tsv` (every evaluation's archetype + 6-dimension fingerprint + Overall). Answers "where am I finding strong matches, and what's dragging the rest down?". **Works from day one** — it needs no outcomes, only evaluations, so it's the right lens early in a search when `applications.md` is still thin.
+
+Pick the lens that matches the question. "Why am I getting rejected?" → outcome lens. "How do I sharpen targeting / what should I scan for / where are my best matches?" → `--scouting`. When outcome data is too thin (the default lens returns an `error`), fall back to `--scouting` — `score-history.tsv` is almost always populated.
+
 ## Inputs
 
-- `data/applications.md` — Application tracker
+- `data/applications.md` — Application tracker (outcome lens)
+- `data/score-history.tsv` — Per-evaluation score log (targeting lens, `--scouting`)
 - `reports/` — Individual evaluation reports
 - `user/profile.yml` — User profile (for recommendation context)
 - `user/_profile.md` — User archetypes and framing
@@ -141,6 +149,33 @@ If the user agrees:
 - For portal filter changes: edit `user/portals.yml`
 - For profile/archetype changes: edit `user/_profile.md` (NEVER `_shared.md`)
 - For score threshold: add to `user/profile.yml` under a `patterns` key
+
+## Targeting Intelligence (`--scouting`)
+
+When the user wants to sharpen *targeting* rather than diagnose *outcomes* — or whenever the outcome lens errors out for lack of data — run:
+
+```bash
+node scripts/analyze-patterns.mjs --scouting          # JSON
+node scripts/analyze-patterns.mjs --scouting --summary # human-readable table
+```
+
+This reads `data/score-history.tsv` (not `applications.md`) and emits:
+
+| Key | Contents |
+|-----|----------|
+| `metadata` | Evaluations analyzed, date range, analysis date |
+| `landscape` | Avg/median Overall, band mix (strong ≥7.5 / solid ≥7.0 / pass ≥6.0 / weak <6.0), `wastedShare` (% of evals that are weak) |
+| `archetypePerformance` | Per archetype (labels de-duplicated): count, avg/median/max Overall, `strongRate` (% strong+solid), `share` of all evals |
+| `dimensionDrag` | The six Current/Aspirational Fit dims, **weakest first** — the top entry is the systemic blocker most often holding Overall down, with `lowShare` (% of evals where it scores ≤4) |
+| `cityExposure` | Where strong/solid matches geographically cluster (from the posting `location`) |
+| `recommendations` | Concrete targeting moves: lean into the strongest archetype, pull back on the weakest, fix the dragging dimension, raise the bar if too much effort is wasted |
+
+**How to read it for the user:**
+- The **best archetype** (top of `archetypePerformance` with `count ≥ 4`) is what to source MORE of — feed it into scan keywords in `user/portals.yml`.
+- The **weakest dimension** (top of `dimensionDrag`) is the one targeting fix with the most leverage. A low `Ease of Entry` means the user keeps evaluating roles above their level (tighten seniority filters); a low `Skills Match` means a recurring stack/skill gap; a low `Brand Value` means the companies surfacing are weak (add stronger targets to portals).
+- A high `wastedShare` means the scan is surfacing too many low-fit roles — tighten the upstream filters so evaluation effort isn't spent on roles that can't clear the apply bar.
+
+Recommendations from `--scouting` map to the same Step 4 actions below (portal keyword changes, archetype targeting, score threshold), so offer to apply them the same way.
 
 ## Outcome Classification
 
