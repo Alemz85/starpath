@@ -186,6 +186,88 @@ export function buildDistribution(rows: ScoreEntry[]): Distribution {
   }
 }
 
+// ─── Dimension profile ───────────────────────────────────────────────────────
+//
+// The time-series plots each dimension over time and the top-X panels rank
+// companies/locations — but neither answers "across everything I've evaluated,
+// which scoring dimensions are my market's strengths, and which actually
+// separate an apply-worthy role from a dud?".
+//
+// For each of the 7 dimensions we compute two averages over the scored corpus
+// (overall > 0): the average across ALL scored rows, and the average across the
+// apply-worthy subset (overall >= 7.0). The DELTA between them is the signal —
+// a dimension with a large positive delta is one that high-scoring roles have
+// and low-scoring roles lack, i.e. a *driver* of fit. A dimension that's flat
+// across both groups doesn't discriminate (it's noise for targeting), and a
+// negative delta means apply-worthy roles are actually WEAKER on it (a tradeoff
+// the user accepts to land the win). Ranking by delta turns the raw score
+// columns into a targeting cheat-sheet: chase roles strong on the high-delta
+// dimensions.
+
+// The dimensions in display order. `field` is the ScoreEntry column; `label`
+// is the human name (matches the Trends time-series legend so the two views
+// speak the same language).
+export interface DimensionDef { field: keyof ScoreEntry; label: string }
+
+export const PROFILE_DIMENSIONS: DimensionDef[] = [
+  { field: 'current_fit',       label: 'Current Fit'      },
+  { field: 'aspirational_fit',  label: 'Aspirational Fit' },
+  { field: 'skills_match',      label: 'Skills Match'     },
+  { field: 'brand_value',       label: 'Brand Value'      },
+  { field: 'growth_mobility',   label: 'Growth'           },
+  { field: 'work_life_balance', label: 'Work-Life'        },
+]
+
+// The overall score that splits "apply-worthy" from the rest — mirrors the
+// 7.0 apply threshold used by SCORE_BANDS / `_shared.md` § Score interpretation.
+export const APPLY_THRESHOLD = 7.0
+
+export interface DimensionStat {
+  field: keyof ScoreEntry
+  label: string
+  avgAll: number        // mean over every scored row
+  avgWinners: number    // mean over the apply-worthy subset (overall >= 7)
+  delta: number         // avgWinners - avgAll; the discriminating signal
+}
+
+export interface DimensionProfile {
+  dims: DimensionStat[]      // sorted by delta desc (strongest driver first)
+  scoredCount: number        // rows with overall > 0
+  winnerCount: number        // rows with overall >= APPLY_THRESHOLD
+  /** True when there aren't enough winners to make the delta meaningful.
+   *  The component greys the delta column and shows a hint instead of
+   *  reading noise as signal. */
+  lowSignal: boolean
+}
+
+// Minimum apply-worthy rows before the winners-vs-all delta is worth trusting.
+// Below this the split is too small to separate signal from sampling noise, so
+// the profile reports `lowSignal` and the view falls back to plain averages.
+export const MIN_WINNERS_FOR_DELTA = 4
+
+export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
+  const scored = rows.filter(r => typeof r.overall === 'number' && r.overall > 0)
+  const winners = scored.filter(r => r.overall >= APPLY_THRESHOLD)
+
+  const dims: DimensionStat[] = PROFILE_DIMENSIONS.map(({ field, label }) => {
+    const avgAll = avg(scored, field)
+    const avgWinners = avg(winners, field)
+    return { field, label, avgAll, avgWinners, delta: avgWinners - avgAll }
+  })
+
+  // Rank by discriminating power (delta) when we have enough winners to trust
+  // it; otherwise fall back to ranking by raw average so the panel still leads
+  // with the corpus's strongest dimension instead of a noisy delta.
+  const lowSignal = winners.length < MIN_WINNERS_FOR_DELTA
+  dims.sort((a, b) =>
+    lowSignal
+      ? b.avgAll - a.avgAll
+      : b.delta - a.delta || b.avgWinners - a.avgWinners,
+  )
+
+  return { dims, scoredCount: scored.length, winnerCount: winners.length, lowSignal }
+}
+
 // ─── Conversion funnel ───────────────────────────────────────────────────────
 //
 // Cumulative application funnel from current statuses. A status implies every
