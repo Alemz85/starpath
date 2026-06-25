@@ -1,53 +1,216 @@
-# Modo: contacto -- LinkedIn Power Move
+# Mode: contacto — Outreach (referrals & the LinkedIn power move)
 
-1. **Identificar targets** via WebSearch:
-   - Hiring manager del equipo
-   - Recruiter asignado
-   - 2-3 peers del equipo (gente con rol similar)
-   - Interviewer (si el candidato ya tiene entrevista programada)
+## Purpose
 
-2. **Clasificar tipo de contacto** -- preguntar al candidato o inferir del contexto:
-   - **Recruiter** -- persona cuyo rol es talent acquisition, sourcing, o recruiting
-   - **Hiring Manager** -- la persona que lidera el equipo que contrata
-   - **Peer** -- alguien con un rol similar en el equipo (referral indirecto)
-   - **Interviewer** -- alguien que va a entrevistar al candidato (fecha conocida)
+A warm referral or a message to the right person raises response rates far more
+than another cold application. This mode does three things:
 
-3. **Seleccionar target primario**: la persona que mas se beneficiaria de que el candidato estuviera alli
+1. **Find** the right person to reach at a target company.
+2. **Draft** a message genuinely worth reading — personalized, specific, grounded
+   in *this* candidate's profile and *this* role.
+3. **Track** what was sent and tell the user when a nudge is due, so good
+   threads don't go cold from neglect.
 
-4. **Generar mensaje** con framework de 3 frases adaptado al tipo de contacto:
+It works for both an active application (you applied, now build a human bridge)
+and speculative outreach (no posting yet, but you want in).
 
-   ### Recruiter
-   - **Frase 1 (Fit)**: Criterios de match directo -- rol, experiencia relevante, disponibilidad o ubicacion
-   - **Frase 2 (Prueba)**: Dato que responda sus preguntas de screening antes de que las hagan (ej: "5 years building ML pipelines, currently in Berlin, available immediately")
-   - **Frase 3 (CTA)**: "Happy to share my CV if this aligns with what you're looking for"
+## Inputs (read at runtime — never hardcode candidate specifics)
 
-   ### Hiring Manager
-   - **Frase 1 (Gancho)**: Reto especifico que enfrenta su equipo (extraido del JD, company blog, o noticias)
-   - **Frase 2 (Prueba)**: Mayor logro cuantificable del candidato que demuestre que ha resuelto problemas similares
-   - **Frase 3 (CTA)**: "Would love to hear how your team is approaching [reto especifico]"
+- `user/cv.md` — proof points, current location, headline experience. **The
+  message's "proof" sentence comes from here.** Read it every time; do not carry
+  remembered numbers between runs.
+- `user/profile.yml` — candidate name, target roles, availability, visa/location,
+  preferred cities. Use the real name in signatures and the real location in any
+  "currently in {city}" line.
+- `user/_profile.md` — archetypes, narrative, positioning. Pull the *angle* (how
+  this candidate frames themselves) from here, not from assumptions.
+- `user/article-digest.md` — published work / portfolio proof points (optional).
+- `data/applications.md`, `data/scouting.md` — to resolve `company + role` if the
+  user names a company you've already evaluated (links outreach to the pipeline).
+- `reports/tier-*/{Company} - {Role}.md` — if a report exists, mine its company
+  context (the specific challenge / hook) instead of re-researching from scratch.
+- `data/companies/{slug}.md` — cached deep research, if present (see `modes/deep.md`).
+- `data/outreach.md` — the outreach log (created on first send). Drives cadence.
 
-   ### Peer (referral)
-   - **Frase 1 (Interes)**: Referencia genuina a su trabajo -- blog post, charla, proyecto open source, o publicacion
-   - **Frase 2 (Conexion)**: Algo que el candidato esta haciendo en el mismo espacio (NO un pitch de empleo)
-   - **Frase 3 (CTA)**: "I've been working on similar problems at [empresa], would love to hear your take on [tema]"
-   - **Nota**: NO pedir empleo. La referral ocurre naturalmente si la conversacion fluye.
+> **System-layer hygiene:** this file must stay generic. Every example below uses
+> a placeholder ("your main production project", "your top-school MSc"). At
+> runtime you substitute the candidate's *actual* specifics from the files above.
+> Never write a real school, employer, metric, city, or company into this mode.
 
-   ### Interviewer (pre-entrevista)
-   - **Frase 1 (Research)**: Referencia a algo especifico de su trabajo o trayectoria
-   - **Frase 2 (Contexto)**: Conexion ligera con la experiencia del candidato en ese tema
-   - **Frase 3 (CTA)**: "Looking forward to our conversation on [fecha]"
-   - **Nota**: Tono ligero, no desesperado. El objetivo es que sepan que te preparaste.
+## Step 1 — Resolve the target company + role
 
-5. **Versiones**:
-   - EN (default)
-   - ES (si empresa espanola)
+If the user said `/career-ops contacto {company}`, that's the company. Check
+`data/applications.md` / `data/scouting.md` for a matching `company + role`:
+- **Match found** → use that role and, if a report exists, its company context.
+- **No match** → ask the user for the role (or treat it as speculative outreach
+  for one of their target roles from `user/profile.yml`).
 
-6. **Targets alternativos** con justificacion de por que son buenos second choices
+## Step 2 — Find the right person (WebSearch / LinkedIn)
 
-**Reglas del mensaje:**
-- Maximo 300 caracteres (LinkedIn connection request limit)
-- NO corporate-speak
-- NO "I'm passionate about..."
-- Algo que haga que quieran responder
-- NUNCA compartir telefono
-- El tipo de contacto cambia el ENFASIS, no la estructura
+Identify candidates for outreach, in rough priority order:
+
+1. **Hiring Manager** — leads the team that's hiring. Highest leverage: they own
+   the req and feel the pain the role is meant to solve.
+2. **Peer** — someone already doing a similar role on the team. Best *referral*
+   path; a peer who likes you can drop your name internally.
+3. **Recruiter / Talent** — owns the funnel; good for logistics and a fast read
+   on fit, weaker as a referral.
+4. **Interviewer** — only if the candidate already has an interview scheduled.
+
+Search patterns (adapt to the company): `site:linkedin.com/in "{company}"
+"{team or function}"`, the company's team/about page, engineering or product blog
+authorship, conference talk speaker lists, GitHub org members.
+
+Pick **one primary target** — the person who would most benefit from this
+candidate being on their team — and note **2–3 alternates** with a one-line reason
+each (so the user has a fallback without re-running).
+
+> **Verification:** before asserting a specific person works there *now*, sanity-
+> check the profile is current (recent activity, title still matches). If you
+> can't confirm, say so and offer the role/team as the target instead of a name.
+
+## Step 3 — Classify the contact type
+
+The contact type changes the **emphasis**, not the structure. Infer it from who
+you found, or ask if ambiguous: **Hiring Manager · Peer · Recruiter · Interviewer.**
+
+## Step 4 — Draft the message
+
+Pull the **proof** from `user/cv.md` and the **angle** from `user/_profile.md`.
+Pull the **hook** from the role/company (the report's company context, the JD, a
+blog post, recent news). Frameworks below — 3 sentences each, substitute real
+specifics at runtime:
+
+### Hiring Manager
+- **Hook** — a specific challenge their team faces (from the JD / company blog /
+  news). Show you understand *their* problem, not that you want *a* job.
+- **Proof** — the candidate's most relevant quantified result that shows they've
+  solved something similar (read the exact metric from `user/cv.md`).
+- **CTA** — *"Would love to hear how your team is approaching {specific challenge}."*
+
+### Peer (the referral path)
+- **Interest** — a genuine reference to their work: a blog post, talk, OSS project,
+  or publication. Real, specific, recent.
+- **Connection** — something the candidate is doing in the same space (from
+  `user/cv.md` / `user/article-digest.md`). **Not** a job pitch.
+- **CTA** — *"I've been working on similar problems — would love your take on {topic}."*
+- **Rule:** do NOT ask for a job. The referral happens naturally if the
+  conversation flows. A peer who enjoys talking to you refers you on their own.
+
+### Recruiter
+- **Fit** — direct match criteria: role, relevant experience, availability/location
+  (read availability + location from `user/profile.yml`).
+- **Proof** — answer a screening question before they ask it (e.g. years in the
+  relevant stack, current city, notice period — all from the candidate's files).
+- **CTA** — *"Happy to share my CV if this lines up with what you're looking for."*
+
+### Interviewer (pre-interview)
+- **Research** — reference something specific from their work or background.
+- **Context** — a light connection to the candidate's experience on that topic.
+- **CTA** — *"Looking forward to our conversation on {date}."*
+- **Rule:** light tone, not eager. The goal is to signal you prepared.
+
+### Versions
+- **EN** by default.
+- **ES** if the company is Spanish-speaking, or whichever language the candidate's
+  `profile.yml` / the posting indicates.
+
+### Message rules (hard constraints)
+- **≤ 300 characters** for a LinkedIn *connection request* (the platform limit). A
+  direct message / InMail / email can be longer but stay tight (≤ 5 sentences).
+- NO corporate-speak. NO *"I'm passionate about…"*. NO *"just reaching out"*,
+  *"touching base"*, *"picking your brain"*.
+- Lead with *them* or with value, never with the ask.
+- **Never** share a phone number in a first message.
+- Specific enough that they *want* to reply. If you can't name something concrete
+  about them or their team, find it before sending.
+
+## Step 5 — Present the draft(s)
+
+For the primary target, show:
+
+```
+## Outreach: {Company} — {Role}
+
+**Target:** {Name} · {Title}  ({contact type})
+**Channel:** Connection request · Message · InMail · Email
+**Why them:** {one line}
+
+{message text}
+
+**Alternates:** {Name} ({reason}) · {Name} ({reason})
+```
+
+If a connection request and a follow-up message are both warranted (connect now,
+message after they accept), draft both and label which is which.
+
+## Step 6 — Log the touch (persistence)
+
+**Only after the user confirms they actually sent it** — never log a draft as sent.
+
+1. If `data/outreach.md` doesn't exist, create it:
+   ```markdown
+   # Outreach Log
+
+   | # | Date | Company | Role | Contact | Title | Channel | Touch | Outcome | Notes |
+   |---|------|---------|------|---------|-------|---------|-------|---------|-------|
+   ```
+2. Append one row:
+   - `#` — next sequential id
+   - `Date` — today (`YYYY-MM-DD`)
+   - `Company` / `Role` — the resolved target (Role may be blank for speculative)
+   - `Contact` — the person's name
+   - `Title` — Hiring Manager / Peer / Recruiter / Interviewer
+   - `Channel` — `Connection` (request) · `Message` · `InMail` · `Email`
+   - `Touch` — `1` for the first touch; `2`, `3`… for subsequent nudges to the
+     **same person** (the cadence script folds these together)
+   - `Outcome` — `Pending` initially. Update later to `Accepted`, `Replied`,
+     `Declined`, or e.g. `No response after 10d`.
+   - `Notes` — the angle used / what to say next
+3. If this outreach maps to an entry in `data/applications.md`, you may note it in
+   that entry's Notes (e.g. "Reached out to {Name} on {date}") — but **do not**
+   change the application's canonical `Status` here. Proactive outreach is tracked
+   in this log, not by mutating the pipeline status.
+
+## Step 7 — Cadence check (who needs a nudge?)
+
+When the user asks "who should I follow up with?" or after logging touches, run:
+
+```bash
+node scripts/outreach-cadence.mjs --summary
+```
+
+It reads `data/outreach.md`, folds touches per contact, and classifies each as:
+
+| Action | Meaning |
+|--------|---------|
+| **NUDGE** | A follow-up is due now — draft one (Step 8) |
+| **waiting** | On track; `Next nudge` date shown |
+| **COLD** | Hit the touch ceiling or declined — stop; suggest a different contact |
+| **replied** | They answered — hand off; the user takes the conversation from here |
+
+JSON for programmatic use: `node scripts/outreach-cadence.mjs` (or `--due` for
+just the nudges). The cadence windows live in `scripts/outreach-core.mjs`
+(`CADENCE`): a LinkedIn connection request gets a longer leash (it's silent until
+accepted); a sent message/InMail/email gets a tighter, value-add nudge.
+
+## Step 8 — Draft a nudge (for NUDGE-state contacts)
+
+Take a **new angle** — never resend the first message:
+- **Connection still pending** → a short note that adds value (share a relevant
+  insight or a quick observation about their work), or suggest the user withdraw
+  and try an alternate from Step 2.
+- **Accepted but silent** → a tight value-add message (a useful link, a sharp
+  question about their problem space) — not "did you see my request?".
+- Keep it shorter than the first touch. Reference the role/company specifically.
+
+Then loop back to Step 6 to log the nudge as `Touch = N+1`.
+
+## Quick reference
+
+| Situation | Do |
+|-----------|----|
+| `/career-ops contacto {company}` | Steps 1–6 for that company |
+| "who should I follow up with?" | `node scripts/outreach-cadence.mjs --summary` → Step 8 for NUDGE rows |
+| Contact replied | Mark `Outcome` → `Replied`; stop the cadence; move to a real conversation |
+| 2 touches, no reply | It goes COLD — switch to an alternate contact, don't pester |
