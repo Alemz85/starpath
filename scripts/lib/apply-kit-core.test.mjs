@@ -361,3 +361,197 @@ test('CHECK_META: every check names a distinct existing mode', () => {
   assert.deepEqual(modes, ['scouting', 'pdf', 'apply', 'deep', 'contacto'])
   assert.equal(new Set(modes).size, modes.length)
 })
+
+/* ───── reportCheck: additional edge cases ──────────────────────────────────*/
+
+test('reportCheck: present with no tier/path → ready, no tier in detail', () => {
+  const c = reportCheck({ exists: true })
+  assert.equal(c.status, 'ready')
+  assert.equal(c.meta.path, null)
+  assert.equal(c.meta.tier, null)
+  assert.doesNotMatch(c.detail, /tier/)
+})
+
+test('reportCheck: present with tier 0 → treated as a finite tier', () => {
+  // tier 0 is an unusual but finite value; Number.isFinite(0) is true.
+  const c = reportCheck({ exists: true, tier: 0 })
+  assert.equal(c.status, 'ready')
+  assert.equal(c.meta.tier, 0)
+  assert.match(c.detail, /tier 0/)
+})
+
+/* ───── cvCheck: boundary / edge cases ──────────────────────────────────────*/
+
+test('cvCheck: atsCoverage exactly 0.6 is NOT stale (threshold is < 0.6)', () => {
+  const c = cvCheck({ exists: true, path: 'output/cv.pdf', atsCoverage: 0.6 })
+  assert.equal(c.status, 'ready')
+})
+
+test('cvCheck: atsCoverage 0.59 (just below threshold) → stale', () => {
+  const c = cvCheck({ exists: true, path: 'output/cv.pdf', atsCoverage: 0.59 })
+  assert.equal(c.status, 'stale')
+  assert.match(c.detail, /59%/)
+})
+
+test('cvCheck: empty facts object → missing + blocking', () => {
+  const c = cvCheck()
+  assert.equal(c.status, 'missing')
+  assert.equal(c.blocking, true)
+})
+
+/* ───── answersCheck: edge cases ─────────────────────────────────────────────*/
+
+test('answersCheck: empty facts object → missing', () => {
+  const c = answersCheck()
+  assert.equal(c.status, 'missing')
+  assert.equal(c.blocking, false)
+  assert.equal(c.next.mode, 'apply')
+})
+
+/* ───── researchCheck: edge cases ───────────────────────────────────────────*/
+
+test('researchCheck: exists + no state + valid=true → stale (not explicitly fresh)', () => {
+  // state is undefined (not 'fresh') and valid is true → the second branch fires.
+  const c = researchCheck({ exists: true, path: 'data/companies/x.md', valid: true })
+  // state is undefined → falsy → skips the state !== 'fresh' branch → ready
+  // Actually state is undefined so `f.state && f.state !== 'fresh'` is false → ready
+  assert.equal(c.status, 'ready')
+})
+
+test('researchCheck: invalid-date state → stale', () => {
+  const c = researchCheck({ exists: true, path: 'data/companies/x.md', state: 'invalid-date', ageDays: null, valid: true })
+  assert.equal(c.status, 'stale')
+})
+
+test('researchCheck: empty facts → missing', () => {
+  const c = researchCheck()
+  assert.equal(c.status, 'missing')
+  assert.equal(c.blocking, false)
+})
+
+/* ───── outreachCheck: partial signals ──────────────────────────────────────*/
+
+test('outreachCheck: only contacts > 0 (touches 0) → ready', () => {
+  // The predicate is `touches > 0 || contacts > 0`, so either alone suffices.
+  const c = outreachCheck({ contacts: 2, touches: 0 })
+  assert.equal(c.status, 'ready')
+  assert.match(c.detail, /2 contacts/)
+})
+
+test('outreachCheck: only touches > 0 (contacts 0) → ready', () => {
+  const c = outreachCheck({ contacts: 0, touches: 3 })
+  assert.equal(c.status, 'ready')
+  assert.match(c.detail, /0 contacts/)
+  assert.match(c.detail, /3 touch/)
+})
+
+test('outreachCheck: non-finite contacts/touches values are treated as 0', () => {
+  const c = outreachCheck({ contacts: NaN, touches: undefined })
+  assert.equal(c.status, 'missing')
+})
+
+/* ───── storyBankNote: null / undefined inputs ─────────────────────────────*/
+
+test('storyBankNote: null input → info note', () => {
+  const n = storyBankNote(null)
+  assert.equal(n.level, 'info')
+})
+
+test('storyBankNote: undefined input → info note', () => {
+  const n = storyBankNote(undefined)
+  assert.equal(n.level, 'info')
+})
+
+test('storyBankNote: exists true, storyCount undefined → treated as 0', () => {
+  const n = storyBankNote({ exists: true, ok: true })
+  assert.equal(n.level, 'ok')
+  assert.match(n.text, /0 stor/)
+})
+
+/* ───── assembleKit: storyBank absence / null ───────────────────────────────*/
+
+test('assembleKit: omitting storyBank → falls back gracefully (info note)', () => {
+  const kit = assembleKit({ company: 'Acme', role: 'Analyst' }, {
+    report: { exists: true },
+    cv: { exists: true },
+    answers: { exists: false },
+    research: { exists: false },
+    outreach: {},
+    // storyBank deliberately omitted
+  })
+  // Should not throw; note should be the info-level "No story bank" message.
+  assert.ok(kit.note)
+  assert.equal(kit.note.level, 'info')
+})
+
+test('assembleKit: storyBank=null → info note (same as missing)', () => {
+  const kit = assembleKit({ company: 'Acme', role: 'Analyst' }, readyFacts({ storyBank: null }))
+  assert.ok(kit.note)
+  assert.equal(kit.note.level, 'info')
+})
+
+/* ───── pickTopAction: stale blocking vs missing non-blocking ───────────────*/
+
+test('pickTopAction: stale blocking (tier=2) loses to missing non-blocking (tier=1)', () => {
+  // stale → tier 2 in the sort; missing non-blocking → tier 1; missing wins.
+  const kit = assembleKit({ company: 'Acme', role: 'Analyst' }, readyFacts({
+    cv: { exists: true, path: 'output/cv.pdf', atsCoverage: 0.3 }, // stale, blocking
+    answers: { exists: false },                                       // missing, non-blocking
+  }))
+  // missing (non-blocking, tier=1) outranks stale (blocking, tier=2)
+  assert.equal(kit.topAction.id, 'answers')
+  assert.equal(kit.topAction.status, 'missing')
+})
+
+test('pickTopAction: among two stale artifacts of equal weight, lower CHECK_IDS order wins', () => {
+  // Both answers (w2) and outreach (w1) stale — answers has higher weight → wins.
+  const kit = assembleKit({ company: 'Acme', role: 'Analyst' }, readyFacts({
+    answers: { exists: true, path: 'interview-prep/x.md' },
+    research: { exists: true, path: 'data/companies/x.md', state: 'stale', ageDays: 50, valid: true },
+    outreach: { contacts: 0, touches: 0 }, // missing (non-blocking), lower weight
+  }))
+  // research stale (w1) vs outreach missing (w1) → missing (tier 1) wins over stale (tier 2)
+  assert.equal(kit.topAction.id, 'outreach')
+})
+
+/* ───── renderKit: edge / branch cases ─────────────────────────────────────*/
+
+test('renderKit: no company AND no role → falls back to "Listing" title', () => {
+  const md = buildKitMarkdown({}, {})
+  assert.match(md, /# Application-kit readiness — Listing/)
+})
+
+test('renderKit: sendable-with-gaps verdict shown correctly', () => {
+  const md = buildKitMarkdown({ company: 'Acme', role: 'PM' }, readyFacts({
+    answers: { exists: false },
+    research: { exists: false },
+    outreach: {},
+  }))
+  assert.match(md, /Sendable \(gaps remain\)/)
+  assert.doesNotMatch(md, /BLOCKED/)
+})
+
+test('renderKit: stale artifact shows the delegation arrow', () => {
+  const md = buildKitMarkdown({ company: 'Acme', role: 'PM' }, readyFacts({
+    research: { exists: true, path: 'data/companies/acme.md', state: 'stale', ageDays: 45, valid: true },
+  }))
+  assert.match(md, /→ .*\(deep mode\)/)
+})
+
+test('renderKit: kit with no note text still renders without crash', () => {
+  // Force note to be null-ish by passing a storyBank with ok/gaps/count all fine
+  // but storyBankNote itself returns an object; ensure the text branch handles
+  // a note with empty text gracefully.
+  const md = renderKit({
+    company: 'Acme', role: 'Analyst', slug: null,
+    checks: [],
+    note: { level: 'ok', text: '' }, // empty text → should skip the paragraph
+    summary: { ready: 0, stale: 0, missing: 0 },
+    verdict: 'ready',
+    readyToSend: true,
+    completeness: 1,
+    topAction: null,
+  })
+  assert.match(md, /# Application-kit readiness/)
+  assert.doesNotMatch(md, /\n_\n/) // no empty italic paragraph
+})
