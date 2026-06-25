@@ -196,9 +196,22 @@ for (const f of userFiles) {
 }
 
 // ── 6. PERSONAL DATA LEAK CHECK ─────────────────────────────────
+//
+// Two layers:
+//
+// 6a. Static legacy patterns (hardcoded prior-user strings still checked for
+//     belt-and-suspenders — these don't depend on user/profile.yml being present).
+//
+// 6b. Dynamic hygiene guard (scripts/lib/hygiene-guard.mjs) — reads the
+//     current user's actual profile.yml + cv.md at test time and asserts
+//     that none of those values appear in the system layer (modes/, scripts/,
+//     templates/, frontend/src/). Catches newly-added personal data that the
+//     static list wouldn't know about. Skips gracefully when user data is
+//     absent (e.g. a clean checkout or a worktree without the gitignored files).
 
 console.log('\n6. Personal data leak check');
 
+// 6a — static legacy strings -------------------------------------------------
 const leakPatterns = [
   'Santiago', 'santifer.io', 'Santifer iRepair', 'Zinkee', 'ALMAS',
   'hi@santifer.io', '688921377', '/Users/santifer/',
@@ -242,7 +255,45 @@ for (const pattern of leakPatterns) {
   }
 }
 if (!leakFound) {
-  pass('No personal data leaks outside allowed files');
+  pass('No static-pattern personal data leaks outside allowed files');
+}
+
+// 6b — dynamic hygiene guard (reads real user data at test time) -------------
+{
+  const userProfilePath = join(ROOT, 'user', 'profile.yml');
+  const userCvPath = join(ROOT, 'user', 'cv.md');
+
+  if (!existsSync(userProfilePath) && !existsSync(userCvPath)) {
+    // No user data present (clean checkout / worktree without gitignored files)
+    // — skip gracefully rather than false-passing or erroring.
+    warn('Skipping dynamic hygiene guard: user/profile.yml + user/cv.md not found (expected in gitignored-only checkout)');
+  } else {
+    try {
+      const { runHygieneGuard } = await import(
+        pathToFileURL(join(SCRIPTS_DIR, 'lib', 'hygiene-guard.mjs')).href
+      );
+      const { violations, warnings } = await runHygieneGuard({ root: ROOT });
+
+      if (violations.length === 0 && warnings.length === 0) {
+        pass('Dynamic hygiene guard: no personal data in system layer');
+      } else {
+        for (const v of violations) {
+          fail(
+            `Hygiene violation — ${v.file}:${v.line} (${v.pattern.description})\n` +
+            `    → "${v.lineText.slice(0, 100)}"`
+          );
+        }
+        for (const w of warnings) {
+          warn(
+            `Hygiene warning — ${w.file}:${w.line} (${w.pattern.description})\n` +
+            `    → "${w.lineText.slice(0, 100)}"`
+          );
+        }
+      }
+    } catch (e) {
+      fail(`Dynamic hygiene guard crashed: ${e.message}`);
+    }
+  }
 }
 
 // ── 7. ABSOLUTE PATH CHECK ──────────────────────────────────────
