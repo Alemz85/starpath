@@ -12,14 +12,42 @@ When the user asks to prep for an interview at a specific company+role, or when 
 ## Inputs
 
 1. **Company name** and **role title** (required)
-2. **Evaluation report** in `reports/` (if exists) — read for archetype, gaps, matched proof points
-3. **Story bank** at `interview-prep/story-bank.md` — read for existing prepared stories
-4. **CV** at `user/cv.md` + `user/article-digest.md` — read for proof points
-5. **Profile** at `user/profile.yml` + `user/_profile.md` — read for candidate context
+2. **Company research artifact** at `data/companies/{slug}.md` (if fresh) — the deep-research cache written by `modes/deep.md`. Mine **Interview Style** (process scaffold), **Recent Signals** (freshest hooks for "questions to ask them"), and **Team & Role Context** (who you'd report to, what the team owns) before spending WebSearch budget. Access it via `scripts/company-research.mjs` — never re-derive the slug/path/freshness in prose.
+3. **Evaluation report** in `reports/` (if exists) — read for archetype, gaps, matched proof points
+4. **Story bank** at `interview-prep/story-bank.md` — read for existing prepared stories
+5. **CV** at `user/cv.md` + `user/article-digest.md` — read for proof points
+6. **Profile** at `user/profile.yml` + `user/_profile.md` — read for candidate context
+
+## Step 0 — Cache check (before any WebSearch)
+
+`modes/deep.md` may have already done the heavy company research and cached it at
+`data/companies/{slug}.md`. Check for a fresh artifact **before** burning WebSearch
+budget — don't re-derive what's already on disk.
+
+```bash
+node scripts/company-research.mjs check "{Company}" --json
+```
+
+Read the `state` field (and the process exit code):
+
+| Verdict (exit code) | Action |
+|---------------------|--------|
+| `fresh` + valid (0) | **Consume it.** Read `data/companies/{slug}.md` and pull three sections forward: **Interview Style** seeds Steps 2–3 (process shape, round formats, difficulty, known quirks — you still go deeper on *specific questions* in Step 4, which deep mode deliberately doesn't fabricate); **Recent Signals** feeds Step 7's "questions to ask them"; **Team & Role Context** sharpens Step 4's role-specific questions and the reporting-line framing. Then run a **targeted, gap-filling** Step 1 only — skip queries the artifact already answered. |
+| `stale` (2) | The artifact exists but is ≥ 30 days old. Use it as a **starting scaffold** (org shape rarely changes monthly) but treat **Recent Signals** as suspect — re-verify any signal you lean on, and run the full Step 1. Suggest the user re-run `deep` mode to refresh the cache. |
+| missing file (1) | No cached research. Run the full Step 1 below from scratch. Optionally tell the user that running `deep` mode first would build a reusable artifact (so the next prep + any outreach share one research pass). |
+| invalid schema (3) | The file is malformed — ignore it and run the full Step 1. |
+
+The CLI does the slug → path → freshness math (30-day window) so this mode stays
+in sync with `deep` and `contacto`. Do **not** eyeball dates or hand-roll the path.
+**Candidate specifics still come from `user/*` at runtime** — the artifact's
+*Candidate Angle* section is a convenience, but re-read `user/cv.md` for the actual
+proof points you map in Steps 4–5; never trust a remembered metric.
 
 ## Step 1 — Research
 
-Run these WebSearch queries. Extract structured data, not summaries. Cite sources for every claim.
+**If Step 0 found a fresh artifact, run only the queries it didn't already cover**
+(deep mode gives you the process scaffold and signals; you still need candidate-level
+question detail). Extract structured data, not summaries. Cite sources for every claim.
 
 | Query | What to extract |
 |-------|-----------------|
@@ -34,6 +62,13 @@ If the company is small or obscure and yields few results, broaden: search for t
 **Do NOT fabricate questions.** If a source says "they asked about distributed systems," report that. Do not invent a specific distributed systems question. When generating likely questions from JD analysis, label them clearly as `[inferred from JD]` not sourced from candidates.
 
 ## Step 2 — Process Overview
+
+If Step 0 surfaced a fresh artifact, **start from its *Interview Style* section** —
+it already captures process shape (rounds, end-to-end days), formats (take-home /
+live coding / case / panel), the difficulty signal, and known quirks. Fill the
+fields below from that scaffold, then use Step 1's targeted queries only to confirm
+and add candidate-level detail. Cite the artifact as `[deep: data/companies/{slug}.md]`
+so the provenance is clear.
 
 ```markdown
 ## Process Overview
@@ -79,6 +114,7 @@ For each: the question, source, and which story from `story-bank.md` maps best.
 ### Role-Specific
 Questions tied to the specific job description (archetype-aware).
 For each: the question, why they're likely asking it (what JD requirement it maps to), and the candidate's best angle.
+If the artifact's **Team & Role Context** section is available, use it to sharpen these: it tells you what the hiring team owns, where the role sits in the org, who it likely reports to, and the problem the req exists to solve. Questions framed against the *actual* team's mandate ("how would you approach {the problem this team owns}") land harder than generic JD-derived ones — and knowing the reporting line lets you anticipate manager-level vs peer-level questioning.
 
 ### Background Red Flags
 Questions the interviewer will probably ask about gaps, transitions, or unusual elements in the candidate's background. Read `_profile.md` and `user/cv.md` to identify what might raise questions.
@@ -138,7 +174,7 @@ Things to say, do, and avoid based on research:
 - **Values they screen for:** name them, cite source (careers page, blog, Glassdoor reviews)
 - **Vocabulary to use:** terms the company uses internally — shows homework (e.g., Stripe says "increase the GDP of the internet", Anthropic says "safety" not "alignment")
 - **Things to avoid:** specific anti-patterns flagged in interview reviews
-- **Questions to ask them:** 2-3 sharp questions that demonstrate you've researched the company, tied to recent news or blog posts discovered in Step 1
+- **Questions to ask them:** 2-3 sharp questions that demonstrate you've researched the company, tied to recent news or blog posts. **If the artifact has a *Recent Signals* section, mine it first** — each dated signal (a funding round, launch, leadership change, partnership) is a ready-made hook ("I saw {signal} last {month} — how is that reshaping what {this team} prioritizes?"). For a *stale* artifact, re-verify the signal is still current before building a question on it.
 
 ## Output
 
@@ -149,8 +185,13 @@ Save the full report to `interview-prep/{Company} - {Role}.md` (mirrors the `rep
 
 **Report:** {link to evaluation report if exists, or "N/A"}
 **Researched:** {YYYY-MM-DD}
+**Deep research:** {`data/companies/{slug}.md` (cached {age}d ago) | "none — researched fresh"}
 **Sources:** {N} Glassdoor reviews, {N} Blind posts, {N} other
 ```
+
+The **Deep research** line records whether Step 0 found a fresh artifact and reused
+it (so a reader knows the process scaffold came from cache) or whether this prep
+researched from scratch.
 
 ## Post-Research
 
@@ -158,7 +199,7 @@ After delivering the report:
 
 1. Ask the user if they want to draft stories for any gaps found in Step 5
 2. If they have a scheduled interview date, note it: "Your interview is in {X} days. Want me to set a reminder to review this prep?"
-3. Suggest running `deep` mode if the company research in Step 1 was thin — deep mode covers strategy, culture, and competitive landscape in more depth
+3. **If Step 0 found no fresh artifact** (missing or stale), suggest running `deep` mode — it builds the reusable `data/companies/{slug}.md` artifact, so the next prep *and* any `contacto` outreach for this company share one research pass instead of re-searching. If a fresh artifact *was* consumed, say so instead ("(Interview-Style scaffold reused from {age}d-old deep research.)").
 
 ## Rules
 
