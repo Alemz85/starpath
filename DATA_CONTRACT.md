@@ -21,6 +21,7 @@ These files contain your personal data, customizations, and work product. Update
 | `data/scan-history.tsv` | Your scan history |
 | `data/score-history.tsv` | Your per-archetype scouting score log (trajectory for `positioning`) |
 | `data/follow-ups.md` | Your follow-up history |
+| `data/outreach.md` | Your outreach log (who you contacted, channel, cadence) |
 | `reports/*` | Your evaluation reports |
 | `output/*` | Your generated PDFs |
 | `jds/*` | Your saved job descriptions |
