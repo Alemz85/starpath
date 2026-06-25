@@ -86,21 +86,24 @@ For each: the likely question, why it comes up, and a recommended framing (hones
 
 ## Step 5 — Story Bank Mapping
 
-**Read `interview-prep/story-bank.md` first.** Surface existing stories before generating anything new.
+**Read `interview-prep/story-bank.md` first.** Surface existing stories before generating anything new. The bank's on-disk format is the contract in `templates/story-bank.template.md` — each story is a `### {Title}` heading with `**Situation/Task/Action/Result/Reflection:**` beats and a `**Themes:**` tag line. Match questions to stories by their **themes** first (that's why the tags exist), then by title/body.
 
 | # | Likely question/topic | Best story from story-bank.md | Fit | Gap? |
 |---|----------------------|-------------------------------|-----|------|
 | 1 | ... | [Story Title] | strong/partial/none | |
 
-- **strong**: story directly answers the question
+- **strong**: story's themes directly cover the question
 - **partial**: story is adjacent; suggest a 1-sentence reframe opener
 - **none**: no existing story — flag for the user
 
 For each gap, suggest: "You need a story about {topic}. Consider: {specific experience from cv.md that could become a STAR+R story}."
 
-**Dedup rule:** If the user asks to draft a missing story, check the bank for a story with the same title before appending. If one exists, update it — never create a duplicate title.
+**Drafting new stories — follow the template contract.** When the user asks to draft a missing story, build it in the exact `templates/story-bank.template.md` shape:
+- All five beats present (Situation, Task, Action, Result, Reflection). The Reflection ("+R") is what most banks skip — don't.
+- The **Result leads with a number** sourced from `user/cv.md` / `user/article-digest.md`. Never fabricate a metric.
+- Add a `**Themes:**` line with honest tags — these drive all future matching in this mode and in `apply.md`.
 
-If the user wants to draft missing stories, help them build STAR+R format and append to `interview-prep/story-bank.md`.
+**Dedup rule:** Check the bank for a story with the same title (normalized: case/punctuation/emphasis-insensitive) before appending. If one exists, update it in place — never create a duplicate title. `scripts/cv-sync-check.mjs` reports incomplete stories (missing beats) and unquantified Results, so a sloppy append surfaces in the health check.
 
 ## Step 6 — Technical Prep Checklist
 
