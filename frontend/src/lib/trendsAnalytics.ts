@@ -268,6 +268,143 @@ export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
   return { dims, scoredCount: scored.length, winnerCount: winners.length, lowSignal }
 }
 
+// ─── Targeting momentum (recent vs earlier) ──────────────────────────────────
+//
+// The time-series chart plots raw per-day averages — honest but noisy: a single
+// n=1 day swings the line, and the eye can't separate "my targeting is getting
+// sharper" from day-to-day sampling jitter. The dimension profile and the funnel
+// are both *static* snapshots over the whole window. Neither answers the question
+// the tool actually exists to push on (TODO § directive: optimize toward
+// outcomes): **as I refine what I evaluate, is the quality of what I evaluate
+// trending up?**
+//
+// This splits the date-windowed, scored corpus in chronological order into two
+// consecutive halves — an EARLIER half and a RECENT half — and contrasts them on
+// the metrics that define "good targeting": the typical (median) overall score,
+// the share that clears the apply bar, and the per-dimension averages. A rising
+// recent half means the user is finding better-fit roles than they used to; a
+// falling one is an early warning that the funnel is drifting (broader keywords,
+// staler sources, scope creep) before it shows up as rejections downstream.
+//
+// Honesty rules carried over from buildDimensionProfile:
+//   • split is by chronological order, not by a calendar midpoint — so two
+//     lopsided bursts of activity still produce balanced-n halves (each half is
+//     a real sample, not "the 3 rows from a quiet month vs the 40 from a busy
+//     one");
+//   • below a per-half floor the comparison is sampling noise, so we report
+//     `lowSignal` and the card shows a "keep evaluating" hint instead of a
+//     verdict;
+//   • the verdict has a deadband (`MOMENTUM_DEADBAND`) so a trivial wobble reads
+//     as "steady", not a trend.
+
+// Minimum scored rows IN EACH HALF before the recent-vs-earlier delta is worth a
+// verdict. Same spirit as MIN_WINNERS_FOR_DELTA — under this the split is too
+// small to separate a real shift from who-happened-to-get-evaluated-when. With
+// 3 per side (6 total) a median is at least a 3-point sample rather than a coin
+// flip on one or two listings.
+export const MIN_PER_HALF_FOR_MOMENTUM = 3
+
+// A median-overall swing smaller than this (on the 0–10 scale) reads as flat —
+// scoring is dimension-summed and rounded, so sub-0.3 wobble between two small
+// samples is noise, not a trend. Above it in either direction earns a verdict.
+export const MOMENTUM_DEADBAND = 0.3
+
+export type MomentumDirection = 'improving' | 'steady' | 'declining'
+
+export interface MomentumHalf {
+  count: number
+  medianOverall: number
+  avgOverall: number
+  applyPct: number       // % of this half clearing APPLY_THRESHOLD
+  dateFrom: string       // earliest dated row in the half ('' if none dated)
+  dateTo: string         // latest dated row in the half
+}
+
+export interface MomentumDimShift {
+  field: keyof ScoreEntry
+  label: string
+  earlier: number        // mean over the earlier half
+  recent: number         // mean over the recent half
+  delta: number          // recent - earlier
+}
+
+export interface TargetingMomentum {
+  earlier: MomentumHalf
+  recent: MomentumHalf
+  /** recent.medianOverall - earlier.medianOverall — the headline movement. */
+  medianDelta: number
+  /** recent.applyPct - earlier.applyPct, in percentage points. */
+  applyPctDelta: number
+  direction: MomentumDirection
+  /** Per-dimension recent-minus-earlier means, sorted by |delta| desc so the
+   *  biggest movers (good or bad) lead. Only meaningful when !lowSignal. */
+  dimShifts: MomentumDimShift[]
+  scoredCount: number    // total scored rows feeding the split
+  /** True when either half is under MIN_PER_HALF_FOR_MOMENTUM — the view then
+   *  shows a hint instead of reading noise as a trend. */
+  lowSignal: boolean
+}
+
+function summarizeHalf(rows: ScoreEntry[]): MomentumHalf {
+  const dated = rows.map(r => r.date?.slice(0, 10) ?? '').filter(Boolean).sort()
+  const winners = rows.filter(r => r.overall >= APPLY_THRESHOLD).length
+  return {
+    count: rows.length,
+    medianOverall: median(rows, 'overall'),
+    avgOverall: avg(rows, 'overall'),
+    applyPct: rows.length ? Math.round((winners / rows.length) * 100) : 0,
+    dateFrom: dated[0] ?? '',
+    dateTo: dated[dated.length - 1] ?? '',
+  }
+}
+
+// Pre-sort the scored corpus by date ascending, then split at the midpoint so
+// the two halves carry equal n (the earlier half takes the extra row on an odd
+// count). Rows are scored-only (overall > 0, mirroring the distribution/profile
+// guard). Undated rows can't be placed on the timeline, so they're dropped from
+// the split rather than silently anchored to one end.
+export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
+  const scored = rows
+    .filter(r => typeof r.overall === 'number' && r.overall > 0 && !!r.date)
+    .slice()
+    .sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)))
+
+  const mid = Math.ceil(scored.length / 2)
+  const earlierRows = scored.slice(0, mid)
+  const recentRows = scored.slice(mid)
+
+  const earlier = summarizeHalf(earlierRows)
+  const recent = summarizeHalf(recentRows)
+
+  const lowSignal =
+    earlierRows.length < MIN_PER_HALF_FOR_MOMENTUM ||
+    recentRows.length < MIN_PER_HALF_FOR_MOMENTUM
+
+  const medianDelta = recent.medianOverall - earlier.medianOverall
+  const applyPctDelta = recent.applyPct - earlier.applyPct
+
+  // Verdict off the median (robust to a single outlier listing), with a
+  // deadband so noise reads as steady. Forced to 'steady' under low signal so
+  // a thin corpus never asserts a direction it can't support.
+  let direction: MomentumDirection = 'steady'
+  if (!lowSignal) {
+    if (medianDelta >= MOMENTUM_DEADBAND) direction = 'improving'
+    else if (medianDelta <= -MOMENTUM_DEADBAND) direction = 'declining'
+  }
+
+  const dimShifts: MomentumDimShift[] = PROFILE_DIMENSIONS.map(({ field, label }) => {
+    const earlierAvg = avg(earlierRows, field)
+    const recentAvg = avg(recentRows, field)
+    return { field, label, earlier: earlierAvg, recent: recentAvg, delta: recentAvg - earlierAvg }
+  }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+
+  return {
+    earlier, recent,
+    medianDelta, applyPctDelta, direction, dimShifts,
+    scoredCount: scored.length, lowSignal,
+  }
+}
+
 // ─── Conversion funnel ───────────────────────────────────────────────────────
 //
 // Cumulative application funnel from current statuses. A status implies every
