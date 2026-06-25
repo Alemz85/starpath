@@ -17,6 +17,11 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
+import {
+  buildTitleFilter,
+  buildLangFilter,
+  buildLocationFilter,
+} from './scan-core.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -228,76 +233,10 @@ async function fetchSmartRecruitersJobs(baseUrl, companyName, brandFilter) {
   return parseSmartRecruiters(allJobs, companyName, brandFilter);
 }
 
-// ── Title filter ────────────────────────────────────────────────────
-
-function buildTitleFilter(titleFilter, auditStats) {
-  const positive = (titleFilter?.positive || []).map(k => k.toLowerCase());
-  const negative = (titleFilter?.negative || []).map(k => k.toLowerCase());
-
-  if (auditStats) {
-    for (const k of negative) {
-      if (!(k in auditStats.negativeHits)) auditStats.negativeHits[k] = 0;
-    }
-  }
-
-  return (title) => {
-    const lower = title.toLowerCase();
-    const hasPositive = positive.length === 0 || positive.some(k => lower.includes(k));
-    if (!hasPositive) {
-      if (auditStats) auditStats.noPositiveMatch++;
-      return false;
-    }
-    for (const k of negative) {
-      if (lower.includes(k)) {
-        if (auditStats) auditStats.negativeHits[k]++;
-        return false;
-      }
-    }
-    return true;
-  };
-}
-
-// ── Language barrier filter ─────────────────────────────────────────
-
-function buildLangFilter(config) {
-  const blocklist = (config.lang_blocklist || []).map(t => t.toLowerCase());
-  if (blocklist.length === 0) return () => true;
-  return (title) => {
-    const lower = title.toLowerCase();
-    return !blocklist.some(token => lower.includes(token));
-  };
-}
-
-// ── Location filter ─────────────────────────────────────────────────
-
-const ALLOWED_LOCATIONS = [
-  'spain', 'barcelona', 'madrid',
-  'ireland', 'dublin',
-  'netherlands', 'amsterdam', 'rotterdam',
-  'denmark', 'copenhagen',
-  'united kingdom', ' uk', 'london',
-  'italy', 'milan', 'rome',
-  'germany', 'munich', 'berlin', 'hamburg', 'frankfurt',
-  'france', 'paris',
-  'portugal', 'lisbon',
-  'belgium', 'brussels',
-  'sweden', 'stockholm',
-  'switzerland', 'zurich', 'geneva',
-  'austria', 'vienna',
-  'finland', 'helsinki',
-  'norway', 'oslo',
-];
-
-/**
- * Returns true if the location string matches a target geography.
- * Empty/unknown locations are allowed through (no location = don't filter).
- */
-function isAllowedLocation(location) {
-  if (!location || location.trim() === '') return true;
-  const lower = location.toLowerCase();
-  return ALLOWED_LOCATIONS.some(l => lower.includes(l));
-}
-
+// Title / language / location filters live in ./scan-core.mjs — pure,
+// word-boundary-aware, and unit-tested (see scan-core.test.mjs). The
+// trailing-space negative-keyword leak (e.g. "Lead " missing "Operations
+// Lead") is fixed there.
 // ── Dedup ───────────────────────────────────────────────────────────
 
 const HISTORY_HEADER = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates';
@@ -483,6 +422,8 @@ async function main() {
   const companies = config.tracked_companies || [];
   const titleFilter = buildTitleFilter(config.title_filter, auditStats);
   const langFilter = buildLangFilter(config);
+  // Optional user override; falls back to the generic EU/UK allowlist.
+  const locationFilter = buildLocationFilter(config.location_allowlist);
 
   // 2. Filter to enabled companies with detectable APIs
   const targets = companies
@@ -539,7 +480,7 @@ async function main() {
           totalLangFiltered++;
           continue;
         }
-        if (!isAllowedLocation(job.location)) {
+        if (!locationFilter(job.location)) {
           totalLocationFiltered++;
           continue;
         }
