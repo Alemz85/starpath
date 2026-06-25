@@ -144,3 +144,81 @@ test('roundToBand: the €2.5K midpoint rounds up (Math.round half-up)', () => {
   assert.equal(roundToBand(42500), 45000)
   assert.equal(roundToBand(47500), 50000)
 })
+
+/* ───── Additional readTsv edge cases ───────────────────────────────── */
+
+test('readTsv: a header-only file (no data rows) returns headers and empty rows', async () => {
+  const path = tmpTsv()
+  writeFileSync(path, 'city\tbaseline_eur\tsource\n')
+  const { headers, rows } = await readTsv(path)
+  assert.deepEqual(headers, ['city', 'baseline_eur', 'source'])
+  assert.deepEqual(rows, [])
+})
+
+test('readTsv: extra cells beyond header width are silently dropped from row objects', async () => {
+  // The map() only walks header indices, so extra tabs in a row are harmless.
+  const path = tmpTsv()
+  writeFileSync(path, 'city\tbaseline_eur\nBerlin\t2400\textra-cell\n')
+  const { headers, rows } = await readTsv(path)
+  assert.deepEqual(headers, ['city', 'baseline_eur'])
+  assert.equal(Object.keys(rows[0]).length, 2)
+  assert.equal(rows[0].city, 'Berlin')
+  assert.equal(rows[0].baseline_eur, '2400')
+})
+
+test('readTsv: a file containing only blank lines yields empty headers and rows', async () => {
+  const path = tmpTsv()
+  writeFileSync(path, '\n\n\n')
+  const { headers, rows } = await readTsv(path)
+  assert.deepEqual(headers, [])
+  assert.deepEqual(rows, [])
+})
+
+/* ───── Additional appendTsv edge cases ─────────────────────────────── */
+
+test('appendTsv: numeric values are coerced to strings via String()', async () => {
+  // Realistic pattern: callers sometimes pass numbers from arithmetic rather than
+  // string literals; verify String() coercion keeps them readable after round-trip.
+  const path = tmpTsv()
+  const HEADERS = ['city', 'baseline_eur', 'count']
+  await appendTsv(path, HEADERS, { city: 'Berlin', baseline_eur: 2400, count: 42 })
+  const { rows } = await readTsv(path)
+  assert.equal(rows[0].baseline_eur, '2400')
+  assert.equal(rows[0].count, '42')
+})
+
+test('appendTsv: multiple appends preserve insertion order on read-back', async () => {
+  const path = tmpTsv()
+  const HEADERS = ['seq', 'val']
+  await appendTsv(path, HEADERS, { seq: '1', val: 'a' })
+  await appendTsv(path, HEADERS, { seq: '2', val: 'b' })
+  await appendTsv(path, HEADERS, { seq: '3', val: 'c' })
+  const { rows } = await readTsv(path)
+  assert.deepEqual(rows.map(r => r.seq), ['1', '2', '3'])
+})
+
+/* ───── Additional isFresh edge cases ───────────────────────────────── */
+
+test('isFresh: days=0 — only the current-day date is fresh, yesterday is stale', () => {
+  // ageDays for a date that is `days` days old is exactly <= days, so
+  // same-day ISO is fresh and yesterday (>0 days old) is stale.
+  const now = new Date('2026-06-25T00:00:00Z')
+  assert.equal(isFresh('2026-06-25', 0, now), true,  'same-day ISO is fresh at days=0')
+  assert.equal(isFresh('2026-06-24', 0, now), false, 'yesterday is stale at days=0')
+})
+
+test('isFresh: large days value always accepts historic dates', () => {
+  const now = new Date('2026-06-25T00:00:00Z')
+  assert.equal(isFresh('2000-01-01', 99999, now), true)
+})
+
+/* ───── Additional todayIso edge cases ──────────────────────────────── */
+
+test('todayIso: returns correct date at exact UTC midnight boundaries', () => {
+  // Exact UTC midnight: still that day.
+  assert.equal(todayIso(new Date('2026-06-25T00:00:00.000Z')), '2026-06-25')
+  // One millisecond before midnight: still the prior day.
+  assert.equal(todayIso(new Date('2026-06-24T23:59:59.999Z')), '2026-06-24')
+  // One millisecond after midnight of June 25: still June 25.
+  assert.equal(todayIso(new Date('2026-06-25T00:00:00.001Z')), '2026-06-25')
+})
