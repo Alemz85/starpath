@@ -11,11 +11,15 @@
  *   - data/scan-history.tsv (rows appended; existing URLs get scan_dates updated)
  *   - data/pipeline.md (lines appended into ## Pending; URL- AND (company,role)-deduped)
  *
- * Dedup is two-layered: exact URL first, then normalized (company, role). The
- * second pass matters because aggregators (Indeed, Google Jobs) surface the
- * same posting under several distinct URLs, so URL-only dedup lets one real
- * job re-enter the pipeline two or three times. The merge math lives in the
- * pure, unit-tested scripts/lib/merge-staging-core.mjs.
+ * Dedup is layered: canonical URL first (tracking params stripped, Google-Jobs
+ * redirect wrappers unwrapped), then normalized + canonicalized (company, role)
+ * — boilerplate like "(m/f/d)", " - Remote", req-ids stripped from the title.
+ * Both passes matter because aggregators (Indeed, Google Jobs) surface the same
+ * posting under several distinct URLs AND slightly different titles, so naive
+ * dedup lets one real job re-enter the pipeline two or three times. Low-quality
+ * rows (no usable title, placeholder company) are also kept out of the inbox.
+ * The merge math lives in the pure, unit-tested
+ * scripts/lib/merge-staging-core.mjs.
  *
  * After a successful merge, staging files are moved to
  *   batch/jobspy-merged/{ISO_DATE}-{HMS}.{tsv,md}
@@ -162,6 +166,7 @@ function main() {
   let appended = 0;
   let updatedScanDates = 0;
   let historyDupRoles = 0;
+  let historyDupUrls = 0;
   let rows = existingRows;
 
   if (stagingHistoryExists) {
@@ -171,6 +176,7 @@ function main() {
     appended = result.appended;
     updatedScanDates = result.updatedScanDates;
     historyDupRoles = result.droppedDuplicateRole;
+    historyDupUrls = result.droppedDuplicateUrl;
     saveHistory(rows);
   }
 
@@ -183,6 +189,7 @@ function main() {
   //    pipeline dedup is handled inside filterPipelineLines.
   let pipelineAppended = 0;
   let pipelineDupRoles = 0;
+  let pipelineLowQuality = 0;
   if (stagingPipelineExists) {
     const stagingLines = readFileSync(TMP_PIPELINE_PATH, 'utf-8')
       .split('\n')
@@ -193,20 +200,31 @@ function main() {
     const result = filterPipelineLines(stagingLines, { seenUrls, seenKeys });
     pipelineAppended = result.appended;
     pipelineDupRoles = result.droppedDuplicateRole;
+    pipelineLowQuality = result.droppedLowQuality;
     if (result.toAppend.length > 0) appendToPipelineMd(result.toAppend);
   }
 
   // 3. Archive staging
   const stamp = archiveStaging(stagingHistoryExists, stagingPipelineExists);
 
-  const dupNote =
-    historyDupRoles + pipelineDupRoles > 0
-      ? ` Dropped ${historyDupRoles} history + ${pipelineDupRoles} pipeline ` +
-        `cross-URL (company, role) duplicates.`
-      : '';
+  // Build a compact, itemized "dropped" breakdown so the user can trust the
+  // merge: cross-URL (company, role) dupes, tracking-param URL twins, and
+  // low-quality rows kept out of the inbox are each reported when non-zero.
+  const dupRoles = historyDupRoles + pipelineDupRoles;
+  const dropParts = [];
+  if (dupRoles > 0) {
+    dropParts.push(
+      `${dupRoles} cross-URL (company, role) dup` +
+      ` (${historyDupRoles} history, ${pipelineDupRoles} pipeline)`
+    );
+  }
+  if (historyDupUrls > 0) dropParts.push(`${historyDupUrls} tracking-param URL twin`);
+  if (pipelineLowQuality > 0) dropParts.push(`${pipelineLowQuality} low-quality`);
+  const dropNote = dropParts.length ? ` Dropped ${dropParts.join(', ')}.` : '';
+
   console.log(
     `[merge] Done — scan-history: +${appended} new, ${updatedScanDates} re-seen; ` +
-    `pipeline.md: +${pipelineAppended} new.${dupNote} ` +
+    `pipeline.md: +${pipelineAppended} new.${dropNote} ` +
     `Staging archived to ${ARCHIVE_DIR}/${stamp}.{tsv,md}.`
   );
   return 0;
