@@ -19,28 +19,36 @@ briefly (GH Support can purge).
 
 ---
 
-## ⏸️ Unfinished freestyle lanes (interrupted 2026-06-25) — re-run later
+## 💰 Token-cost reduction (deep project — set 2026-06-25)
 
-Six agents were stopped mid-flight (session ran low on tokens); their worktrees
-were deleted before committing, so the partial code is gone but the intent is
-captured here. Re-run each as a fresh freestyle lane another time (all on the
-themes the user likes: scan / reports / scoring quality + views polish):
+Running the app burns a Claude Pro session fast (a scan+eval ~= a whole session).
+**Key insight:** the scan + 4-pass filter + relevance ranking are **zero-token**
+(plain Node/Python hitting APIs). The real cost is the **per-listing Claude
+evaluation** (`scouting` mode): volume × context-loaded-per-eval × output length.
+Levers, by impact:
+1. **Pre-filter before Claude** (biggest, ~5–10×): use the free deterministic
+   relevance score + heuristics to triage; only deeply evaluate the top ~10–15.
+2. **Two-tier models:** Haiku triages "worth a deep eval?"; reserve Opus/Sonnet
+   for survivors.
+3. **Slim per-eval context:** headless evals should load a *compressed rubric* +
+   a CV *summary* + the JD only — NOT all of CLAUDE.md/modes (this session grew
+   those; route through `batch/batch-prompt.md`).
+4. **Prompt caching:** cache the rubric+CV prefix across a batch.
+5. **Compress output:** TSV row + 1-line rationale for triage/low-scorers; full
+   report only for high-scorers worth applying to.
+**FIRST STEP: measure** — add per-step/per-spawn token accounting so we optimize
+the real hotspot, not a guess. A focused "go deep" project, not a bolt-on.
 
-- **Pipeline Kanban view (frontend)** — new `frontend/src/components/pipeline/` +
-  `frontend/src/lib/pipelineInbox.ts` (+ test): application-status Kanban + inbox
-  triage, status moves via the `applications.md` writeback. Owns the pipeline view;
-  must NOT touch nav/AppShell/Sidebar.
-- **Reports rendering quality (frontend)** — `reports/ReportSlideOver.tsx` +
-  `lib/reportMarkdown.ts`: polish how a report renders (dimensional table, "Why this
-  score", gaps/comp/recommendation), hierarchy + scannability.
-- **Database table polish (frontend)** — `database/DatabaseView.tsx` / `OffersTable.tsx`
-  / `FilterBar.tsx`: row density, fixability-column treatment, filter-bar UX, a11y.
-- **Scoring depth (backend)** — `scripts/lib/explain-score.mjs`: multi-step lever
-  paths (cheapest path to T1) + per-dimension sensitivity in the "Why this score" output.
-- **Aggregator scan quality (backend)** — `scripts/jobspy/scan.py` (+ a filter test):
-  tighten the Indeed/Google 4-pass filter precision + dedup.
-- **Scan merge dedup quality (backend)** — `scripts/merge-scan-staging.mjs` +
-  `lib/merge-staging-core.mjs`: tighter cross-source (company, role) normalization at merge.
+## 🔌 Quick: wire the Pipeline view into nav
+
+`frontend/src/components/pipeline/PipelineView.tsx` is built + merged but **not
+reachable yet** — add `pipeline` to `store/nav.ts` (ViewId + VIEW_LABELS), render
+it in `AppShell.tsx`, and add a Sidebar + CmdK entry (mirror the `scoretrend`
+wiring). ~6 one-line edits.
+
+_(The six interrupted freestyle lanes that were parked here on 2026-06-25 were all
+recovered + merged in the 2-run encore — Pipeline, Reports-rendering, Database,
+Scoring-depth, JobSpy, Scan-merge-dedup.)_
 
 ---
 
