@@ -86,24 +86,38 @@ For each: the likely question, why it comes up, and a recommended framing (hones
 
 ## Step 5 — Story Bank Mapping
 
-**Read `interview-prep/story-bank.md` first.** Surface existing stories before generating anything new. The bank's on-disk format is the contract in `templates/story-bank.template.md` — each story is a `### {Title}` heading with `**Situation/Task/Action/Result/Reflection:**` beats and a `**Themes:**` tag line. Match questions to stories by their **themes** first (that's why the tags exist), then by title/body.
+**Read `interview-prep/story-bank.md` first.** Surface existing stories before generating anything new. The bank's on-disk format is the contract in `templates/story-bank.template.md` — each story is a `### {Title}` heading with `**Situation/Task/Action/Result/Reflection:**` beats and a `**Themes:**` tag line.
 
-| # | Likely question/topic | Best story from story-bank.md | Fit | Gap? |
-|---|----------------------|-------------------------------|-----|------|
-| 1 | ... | [Story Title] | strong/partial/none | |
+**Run the health check before mapping:** `node scripts/check-story-bank.mjs` (add `--json` for machine output, `--strict` to fail on warnings). It validates every story's STAR+R completeness, flags duplicate titles, resolves the free-text `**Themes:**` tags to the canonical competency taxonomy, and prints a competency-coverage map — i.e. exactly which behavioral competencies have no story yet. Use that coverage map to drive the mapping below. The shared logic lives in `scripts/lib/story-bank.mjs` (the same module `apply.md` and `cv-sync-check.mjs` consume — one source of truth).
 
-- **strong**: story's themes directly cover the question
-- **partial**: story is adjacent; suggest a 1-sentence reframe opener
-- **none**: no existing story — flag for the user
+### Canonical competency taxonomy
 
-For each gap, suggest: "You need a story about {topic}. Consider: {specific experience from cv.md that could become a STAR+R story}."
+The universal behavioral-interview competencies large employers screen for (the exact set in `scripts/lib/story-bank.mjs`). A story's free-text `**Themes:**` tags resolve to these ids, so classify each likely question against the same vocabulary and the mapping becomes deterministic, not freeform:
+
+`ownership` · `leadership` · `collaboration` · `conflict` · `failure` · `ambiguity` · `analytical` · `impact` · `communication` · `customer` · `learning` · `innovation`
+
+(Natural-language themes normalize automatically — e.g. `delivery-under-pressure` → `ownership`, `led a team` → `leadership`, `data-driven` → `analytical`. You don't have to use the canonical word in the `**Themes:**` line, just tag honestly.)
+
+### The mapping
+
+For **each** likely behavioral/role question from Step 4: classify it to one or more competencies, then look up which bank stories cover that competency (the `check-story-bank.mjs` coverage map / index gives you this directly) and pick the best fit.
+
+| # | Likely question/topic | Competency | Best story from story-bank.md | Fit | Gap? |
+|---|----------------------|-----------|-------------------------------|-----|------|
+| 1 | ... | conflict | [Story Title] | strong/partial/none | |
+
+- **strong**: a story covers the question's competency directly — note the 1-line opener that frames it to *this* question.
+- **partial**: story is adjacent (overlapping theme/body but not the exact competency); suggest a 1-sentence reframe opener that bends it toward the question.
+- **none**: no story covers that competency — flag it as a gap.
+
+For each gap, suggest: "You need a story about {competency/topic}. Consider: {specific experience from `user/cv.md` that could become a STAR+R story}." The coverage map's gap list is your checklist — every competency a likely question tests but no story covers is a gap to surface.
 
 **Drafting new stories — follow the template contract.** When the user asks to draft a missing story, build it in the exact `templates/story-bank.template.md` shape:
 - All five beats present (Situation, Task, Action, Result, Reflection). The Reflection ("+R") is what most banks skip — don't.
 - The **Result leads with a number** sourced from `user/cv.md` / `user/article-digest.md`. Never fabricate a metric.
-- Add a `**Themes:**` line with honest tags — these drive all future matching in this mode and in `apply.md`.
+- Add a `**Themes:**` line with honest tags drawn from (or normalizing to) the taxonomy above — these drive all future matching in this mode and in `apply.md`, and they're what the coverage map keys off.
 
-**Dedup rule:** Check the bank for a story with the same title (normalized: case/punctuation/emphasis-insensitive) before appending. If one exists, update it in place — never create a duplicate title. `scripts/cv-sync-check.mjs` reports incomplete stories (missing beats) and unquantified Results, so a sloppy append surfaces in the health check.
+**Dedup rule:** Check the bank for a story with the same title (normalized: case/punctuation/emphasis-insensitive) before appending. If one exists, update it in place — never create a duplicate title. `check-story-bank.mjs` flags duplicate titles, incomplete stories (missing beats), and unquantified Results, so a sloppy append surfaces in the health check; re-run it after editing the bank to confirm it's clean.
 
 ## Step 6 — Technical Prep Checklist
 
