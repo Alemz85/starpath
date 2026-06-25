@@ -9,6 +9,7 @@
     "dedup": "node scripts/dedup-tracker.mjs",
     "merge": "node scripts/merge-tracker.mjs",
     "pdf": "node scripts/generate-pdf.mjs",
+    "ats-coverage": "node scripts/ats-coverage.mjs",
     "sync-check": "node scripts/cv-sync-check.mjs",
     "liveness": "node scripts/check-liveness.mjs",
     "scan": "node scripts/scan.mjs",
