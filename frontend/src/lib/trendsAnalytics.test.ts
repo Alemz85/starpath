@@ -8,6 +8,7 @@ import {
   buildFunnel,
   buildDimensionProfile, PROFILE_DIMENSIONS, MIN_WINNERS_FOR_DELTA, APPLY_THRESHOLD,
   buildTargetingMomentum, MIN_PER_HALF_FOR_MOMENTUM, MOMENTUM_DEADBAND,
+  buildArchetypeMix, MIN_PER_HALF_FOR_MIX,
   isoToFlag, locationFlag,
 } from '@/lib/trendsAnalytics'
 import { makeScoreEntry, makeApplication } from '@/test-utils/fixtures'
@@ -415,6 +416,149 @@ test('buildTargetingMomentum over an empty corpus is all-zero, not NaN', () => {
   assert.equal(m.applyPctDelta, 0)
   assert.equal(m.earlier.count, 0)
   assert.equal(m.recent.count, 0)
+})
+
+// ─── buildArchetypeMix ───────────────────────────────────────────────────────
+
+// A toy canonicalizer so the mix math is tested without pulling in the real
+// archetype rules: lower-cases and trims, nothing more. The component injects
+// the real `canonicalizeArchetype` at the call site.
+const canon = (s: string) => s.trim().toLowerCase()
+
+test('buildArchetypeMix buckets scored rows by canonical archetype, biggest focus first', () => {
+  const rows = [
+    makeScoreEntry({ archetype: 'Data Analyst', overall: 8 }),
+    makeScoreEntry({ archetype: 'data analyst', overall: 6 }),   // same bucket after canon
+    makeScoreEntry({ archetype: 'Strategy',     overall: 9 }),
+  ]
+  const m = buildArchetypeMix(rows, canon)
+  assert.equal(m.scoredCount, 3)
+  assert.equal(m.distinct, 2)
+  assert.deepEqual(m.slices.map(s => s.label), ['data analyst', 'strategy'])
+  assert.equal(m.slices[0].count, 2)
+  assert.equal(m.slices[0].sharePct, 67)         // 2/3 rounded
+  assert.equal(m.slices[0].avgScore, 7)          // (8+6)/2
+  assert.equal(m.slices[1].sharePct, 33)
+})
+
+test('buildArchetypeMix excludes non-positive overalls and noise archetype labels', () => {
+  const rows = [
+    makeScoreEntry({ archetype: 'Data Analyst', overall: 0 }),   // unscored — dropped
+    makeScoreEntry({ archetype: 'n/d',          overall: 8 }),   // noise label — dropped
+    makeScoreEntry({ archetype: '—',            overall: 9 }),   // noise label — dropped
+    makeScoreEntry({ archetype: 'Strategy',     overall: 7 }),
+  ]
+  const m = buildArchetypeMix(rows, canon)
+  assert.equal(m.scoredCount, 1)
+  assert.deepEqual(m.slices.map(s => s.label), ['strategy'])
+})
+
+test('buildArchetypeMix ranks a same-count tie by avg score', () => {
+  const rows = [
+    makeScoreEntry({ archetype: 'Alpha', overall: 6 }),
+    makeScoreEntry({ archetype: 'Beta',  overall: 9 }),
+  ]
+  const m = buildArchetypeMix(rows, canon)
+  // Both n=1 → tie broken by avgScore desc: Beta (9) before Alpha (6).
+  assert.deepEqual(m.slices.map(s => s.label), ['beta', 'alpha'])
+})
+
+test('buildArchetypeMix concentration is 1 for a single archetype and falls as focus spreads', () => {
+  const one = buildArchetypeMix(
+    [makeScoreEntry({ archetype: 'A', overall: 8 }), makeScoreEntry({ archetype: 'A', overall: 8 })],
+    canon,
+  )
+  assert.equal(one.concentration, 1)             // all attention in one bucket
+
+  // Four archetypes, one row each → Herfindahl = 4 * (1/4)^2 = 0.25.
+  const spread = buildArchetypeMix(
+    ['A', 'B', 'C', 'D'].map(a => makeScoreEntry({ archetype: a, overall: 8 })),
+    canon,
+  )
+  assert.ok(Math.abs(spread.concentration - 0.25) < 1e-9)
+  assert.ok(spread.concentration < one.concentration)
+})
+
+test('buildArchetypeMix splits the dated corpus chronologically into equal halves', () => {
+  // 4 dated rows → 2 earlier, 2 recent. Shuffled to prove the date sort.
+  const rows = [
+    makeScoreEntry({ date: '2026-03-01', archetype: 'Strategy', overall: 8 }),
+    makeScoreEntry({ date: '2026-01-01', archetype: 'Data',     overall: 7 }),
+    makeScoreEntry({ date: '2026-04-01', archetype: 'Strategy', overall: 9 }),
+    makeScoreEntry({ date: '2026-02-01', archetype: 'Data',     overall: 6 }),
+  ]
+  const m = buildArchetypeMix(rows, canon)
+  assert.equal(m.earlierTotal, 2)
+  assert.equal(m.recentTotal, 2)
+  // Earlier half = Jan(Data) + Feb(Data); Recent half = Mar(Strategy) + Apr(Strategy).
+  const data = m.slices.find(s => s.label === 'data')!
+  const strat = m.slices.find(s => s.label === 'strategy')!
+  assert.equal(data.earlierCount, 2)
+  assert.equal(data.recentCount, 0)
+  assert.equal(strat.earlierCount, 0)
+  assert.equal(strat.recentCount, 2)
+})
+
+test('buildArchetypeMix surfaces a focus shift as signed share-points (recent minus earlier)', () => {
+  // Earlier half: all Data. Recent half: all Strategy. 3 per half clears the floor.
+  const earlier = Array.from({ length: MIN_PER_HALF_FOR_MIX }, (_, i) =>
+    makeScoreEntry({ date: `2026-01-0${i + 1}`, archetype: 'Data', overall: 8 }),
+  )
+  const recent = Array.from({ length: MIN_PER_HALF_FOR_MIX }, (_, i) =>
+    makeScoreEntry({ date: `2026-06-0${i + 1}`, archetype: 'Strategy', overall: 8 }),
+  )
+  const m = buildArchetypeMix([...earlier, ...recent], canon)
+  assert.equal(m.lowSignal, false)
+  const data = m.slices.find(s => s.label === 'data')!
+  const strat = m.slices.find(s => s.label === 'strategy')!
+  assert.equal(data.earlierSharePct, 100)
+  assert.equal(data.recentSharePct, 0)
+  assert.equal(data.shareShift, -100)            // Data faded out
+  assert.equal(strat.earlierSharePct, 0)
+  assert.equal(strat.recentSharePct, 100)
+  assert.equal(strat.shareShift, 100)            // Strategy took over
+})
+
+test('buildArchetypeMix zeroes the share shift and flags low signal below the per-half floor', () => {
+  // Only 2 dated rows per half — under MIN_PER_HALF_FOR_MIX (3). Even a clean
+  // earlier→recent swing must not assert a drift.
+  const m = buildArchetypeMix([
+    makeScoreEntry({ date: '2026-01-01', archetype: 'Data',     overall: 8 }),
+    makeScoreEntry({ date: '2026-01-02', archetype: 'Data',     overall: 8 }),
+    makeScoreEntry({ date: '2026-06-01', archetype: 'Strategy', overall: 8 }),
+    makeScoreEntry({ date: '2026-06-02', archetype: 'Strategy', overall: 8 }),
+  ], canon)
+  assert.equal(m.lowSignal, true)
+  for (const s of m.slices) assert.equal(s.shareShift, 0)   // suppressed under low signal
+})
+
+test('buildArchetypeMix counts undated rows in the overall mix but not in either half', () => {
+  const m = buildArchetypeMix([
+    makeScoreEntry({ date: '',           archetype: 'Data', overall: 8 }),   // in mix, not in a half
+    makeScoreEntry({ date: '2026-01-01', archetype: 'Data', overall: 8 }),
+    makeScoreEntry({ date: '2026-06-01', archetype: 'Data', overall: 8 }),
+  ], canon)
+  const data = m.slices.find(s => s.label === 'data')!
+  assert.equal(data.count, 3)                    // all three count toward focus
+  assert.equal(m.earlierTotal + m.recentTotal, 2) // only the two dated rows are split
+})
+
+test('buildArchetypeMix over an empty corpus is all-zero, not NaN', () => {
+  const m = buildArchetypeMix([], canon)
+  assert.equal(m.scoredCount, 0)
+  assert.equal(m.distinct, 0)
+  assert.equal(m.concentration, 0)
+  assert.equal(m.lowSignal, true)
+  assert.deepEqual(m.slices, [])
+})
+
+test('buildArchetypeMix default canonicalizer just trims (no UI rules pulled in)', () => {
+  const m = buildArchetypeMix([
+    makeScoreEntry({ archetype: '  Strategy  ', overall: 8 }),
+    makeScoreEntry({ archetype: 'Strategy',     overall: 6 }),
+  ])
+  assert.equal(m.distinct, 1)
+  assert.equal(m.slices[0].label, 'Strategy')
 })
 
 // ─── location flags ──────────────────────────────────────────────────────────
