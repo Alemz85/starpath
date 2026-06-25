@@ -102,7 +102,7 @@ test('cancelling a pending nav drops the captured slug', () => {
 
 test('VIEW_LABELS covers every ViewId including company', () => {
   const ids: ViewId[] = [
-    'scouting', 'applying', 'database', 'reports', 'trends',
+    'today', 'scouting', 'applying', 'database', 'reports', 'trends',
     'scan', 'config', 'settings', 'profile', 'company',
   ]
   for (const id of ids) {

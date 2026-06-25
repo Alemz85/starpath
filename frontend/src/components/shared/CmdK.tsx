@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2,
+  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
@@ -72,6 +72,7 @@ export function CmdK() {
 
             <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Navigate</span>}>
               {([
+                { view: 'today',    label: 'Today',    icon: Sun        },
                 { view: 'scouting', label: 'Scouting', icon: Map        },
                 { view: 'applying', label: 'Applying', icon: Briefcase  },
                 { view: 'database', label: 'Database', icon: Database   },
