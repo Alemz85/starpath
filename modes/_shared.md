@@ -538,6 +538,29 @@ Reports render the dimensions as a single table:
 | Best-fit Early-career Roles (context) | — | Comma-separated list of 1-4 alternative roles at this company |
 ```
 
+### Why-this-score block (explainability)
+
+**Immediately after the dimensional table** (and before the Comparative Rank Block), render a short `## Why this score` block. Its purpose is to answer the two questions a number alone can't: *what is holding this role back* and *what single change would move it up a band*.
+
+**Do NOT hand-derive this — it is computed.** `scripts/score-listing.mjs` returns an `explanation` object alongside the scores. It is pure and replays the same rollup/tier engine, so it can never disagree with the dimensional table. Render its fields verbatim:
+
+- `explanation.headline` — one sentence; use it as the lede.
+- `explanation.bindingConstraints[]` — the dimension(s) actually gating the tier. Render each `.message`. The `kind` tells you what fired: `eoe_gate` (Ease-of-Entry experience-wall cap), `bottom_range` (a 1–2 dim and its −0.30 penalty), or `low_rollup` (the weaker rollup's lowest dim).
+- `explanation.levers[]` — single-dimension raises that cross into a better band, smallest lift first. Render the top 1–2 `.message` strings. If the array is empty, the role is already top-band or no single dim can cross alone — say so in one line rather than inventing a lever.
+- `explanation.drivers` — optional supporting detail (`currentFit.topLift` / `biggestDrag`, same for `aspirationalFit`). Use it only if it adds something the constraint/lever lines didn't.
+
+Render format (keep it tight — 2–5 lines, no multi-step plans):
+
+```markdown
+## Why this score
+{explanation.headline}
+
+- **Holding it back:** {bindingConstraints[0].message}
+- **Closest lever:** {levers[0].message}   ← omit this bullet entirely when levers is empty
+```
+
+This block is **deterministic** — the same dimensional fingerprint always produces the same constraint and lever, so a reader can trust it the way they trust the table. Never write a generic "could improve with experience" line here; if the script returned no lever, the honest statement is that no single dimension crosses a band.
+
 ### Comparative Rank Block
 
 **Immediately after the dimensional table**, append a rank block comparing this role against same-archetype peers already in `data/score-history.tsv`.

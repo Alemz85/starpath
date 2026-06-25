@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen, Clock, ChevronLeft,
   Target, Sparkles, Compass, ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp,
-  AlertTriangle,
+  AlertTriangle, Gauge,
 } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
@@ -681,6 +681,7 @@ function flattenChildrenText(node: React.ReactNode): string {
 function sectionIcon(label: string): React.ElementType | null {
   const l = label.toLowerCase()
   if (l.includes('role summary') || l === 'summary')          return ClipboardList
+  if (l.includes('why this score') || l.includes('why-this-score')) return Gauge
   if (l.includes('gap'))                                       return Lightbulb
   if (l.includes('comp') && !l.includes('recommend'))          return Coins
   if (l.includes('recommendation') || l.includes('verdict'))   return CheckCircle2
