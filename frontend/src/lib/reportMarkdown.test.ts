@@ -76,6 +76,36 @@ test('parseDimensionalScoring groups rows into CF / AF / context and reads Overa
   assert.ok(after.startsWith('## Role summary'))
 })
 
+test('parseDimensionalScoring surfaces a trailing "Why this score" block intact in after', () => {
+  // The explainability block is rendered immediately after the dimensional
+  // table (see modes/_shared.md § Why-this-score block). It must flow through
+  // as `after` content so the slide-over renders + icons it, and it must not
+  // disturb the table parse.
+  const md = `## Dimensional scoring
+
+| Dim | Score | Why |
+|---|---|---|
+| Skills match | 8/10 | ok |
+| Current Fit (rollup) | 7.5/10 | w |
+| Overall | 7.0/10 | rollup |
+
+## Why this score
+Closest lever: Ease of Entry 4 → 5 (+1) would move this from T3 to T2.
+
+- **Holding it back:** Ease of Entry 4/10 trips the experience-wall gate.
+
+## Role summary
+Great role.
+`
+  const { dims, after } = parseDimensionalScoring(md)
+  assert.ok(dims)
+  assert.equal(dims!.overall?.score, '7.0')
+  assert.deepEqual(dims!.currentFit.rows.map(r => r.label), ['Skills match'])
+  assert.ok(after.startsWith('## Why this score'))
+  assert.ok(after.includes('Closest lever'))
+  assert.ok(after.includes('## Role summary'))
+})
+
 test('parseDimensionalScoring routes a (context) row to context even before Overall', () => {
   const md = `## Dimensional scoring
 
