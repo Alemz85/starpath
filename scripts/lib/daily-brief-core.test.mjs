@@ -14,6 +14,8 @@ import {
   outreachItems,
   newHitItems,
   insightItems,
+  deadlineItems,
+  buildPipelineHealthSummary,
   assembleBrief,
   renderBrief,
   buildBriefMarkdown,
@@ -240,7 +242,8 @@ test('renderBrief produces a dated heading, do-this-first, scoreboard, and secti
   const md = renderBrief(assembleBrief(inputs, { asOf: '2026-06-25', period: 'daily' }))
 
   assert.match(md, /^# Daily job-search brief — 2026-06-25/m)
-  assert.match(md, /\*\*Do this first:\*\* Acme — PM/)
+  // The top-action headline wraps the label in bold and appends the sub-text
+  assert.match(md, /\*\*Do this first:\*\* \*\*Acme — PM\*\*/)
   assert.match(md, /_2 action\(s\):_/)
   assert.match(md, /## Follow-ups due/)
   assert.match(md, /## Fresh high-fit postings/)
@@ -284,4 +287,245 @@ test('buildBriefMarkdown is renderBrief∘assembleBrief', () => {
   const inputs = { followupResult: { entries: [] } }
   const opts = { asOf: '2026-06-25' }
   assert.equal(buildBriefMarkdown(inputs, opts), renderBrief(assembleBrief(inputs, opts)))
+})
+
+/* ───── deadlineItems ───────────────────────────────────────────────────────*/
+
+// Helper: build a minimal classifyDeadlines-shaped object
+function classifiedDeadlinesStub(over = {}) {
+  return {
+    asOf: '2026-06-25',
+    buckets: {
+      urgent: [],
+      near: [],
+      medium: [],
+      far: [],
+      rolling: [],
+      missed: [],
+      ...over,
+    },
+    counts: { urgent: 0, near: 0, medium: 0, far: 0, rolling: 0, missed: 0, unknown: 0 },
+  }
+}
+
+test('deadlineItems surfaces urgent bucket first, then near', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: [
+      { source: 'applications', num: 5, company: 'Acme', role: 'Analyst', status: 'Applied', deadline: '2026-06-27', parsed: { kind: 'date', iso: '2026-06-27' }, daysLeft: 2 },
+    ],
+    near: [
+      { source: 'scouting', num: 3, company: 'Beta', role: 'PM', tier: 'T1', deadline: '2026-07-15', parsed: { kind: 'date', iso: '2026-07-15' }, daysLeft: 20 },
+    ],
+  })
+  const items = deadlineItems(classified)
+  assert.equal(items.length, 2)
+  assert.equal(items[0].label, 'Acme — Analyst')
+  assert.equal(items[0].urgency, 0) // urgent
+  assert.match(items[0].sub, /2d left/)
+  assert.match(items[0].sub, /Applied/)
+  assert.equal(items[1].label, 'Beta — PM')
+  assert.equal(items[1].urgency, 1) // near
+  assert.match(items[1].sub, /20d left/)
+  assert.match(items[1].sub, /T1/)
+})
+
+test('deadlineItems closes-today entry uses "closes today" wording', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: [
+      { source: 'scouting', num: 1, company: 'Corp', role: 'Dev', tier: 'T2', deadline: '2026-06-25', parsed: { kind: 'date', iso: '2026-06-25' }, daysLeft: 0 },
+    ],
+  })
+  const items = deadlineItems(classified)
+  assert.match(items[0].sub, /closes today/)
+  assert.match(items[0].sub, /decide now/)
+})
+
+test('deadlineItems sorts urgent entries fewest-days-first', () => {
+  // daysLeft: 1 should surface before daysLeft: 5
+  const classified = classifiedDeadlinesStub({
+    urgent: [
+      { source: 'applications', num: 2, company: 'B', role: 'r', status: 'Applied', deadline: '2026-06-30', parsed: { kind: 'date', iso: '2026-06-30' }, daysLeft: 5 },
+      { source: 'applications', num: 1, company: 'A', role: 'r', status: 'Applied', deadline: '2026-06-26', parsed: { kind: 'date', iso: '2026-06-26' }, daysLeft: 1 },
+    ],
+  })
+  const items = deadlineItems(classified)
+  assert.equal(items[0].label, 'A — r') // daysLeft: 1 first
+  assert.equal(items[1].label, 'B — r')
+})
+
+test('deadlineItems respects maxUrgent / maxNear caps', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: Array.from({ length: 8 }, (_, i) => ({
+      source: 'scouting', num: i, company: `U${i}`, role: 'r', tier: 'T1',
+      deadline: '2026-06-26', parsed: { kind: 'date' }, daysLeft: 1,
+    })),
+    near: Array.from({ length: 8 }, (_, i) => ({
+      source: 'scouting', num: i + 10, company: `N${i}`, role: 'r', tier: 'T2',
+      deadline: '2026-07-10', parsed: { kind: 'date' }, daysLeft: 15,
+    })),
+  })
+  const items = deadlineItems(classified, { maxUrgent: 3, maxNear: 2 })
+  assert.equal(items.filter((it) => it.urgency === 0).length, 3) // urgent
+  assert.equal(items.filter((it) => it.urgency === 1).length, 2) // near
+})
+
+test('deadlineItems shows scouting tier in label for scouting source', () => {
+  const classified = classifiedDeadlinesStub({
+    near: [{ source: 'scouting', num: 9, company: 'XYZ', role: 'Lead', tier: 'T1', deadline: '2026-07-10', parsed: { kind: 'date' }, daysLeft: 15 }],
+  })
+  const items = deadlineItems(classified)
+  assert.match(items[0].sub, /T1/)
+})
+
+test('deadlineItems tolerates null / empty input', () => {
+  assert.deepEqual(deadlineItems(null), [])
+  assert.deepEqual(deadlineItems({}), [])
+  assert.deepEqual(deadlineItems(classifiedDeadlinesStub()), [])
+})
+
+/* ───── buildPipelineHealthSummary ──────────────────────────────────────────*/
+
+test('buildPipelineHealthSummary returns structured counts', () => {
+  const ph = buildPipelineHealthSummary({ active: 3, evaluated: 5, inboxCount: 12 })
+  assert.equal(ph.active, 3)
+  assert.equal(ph.evaluated, 5)
+  assert.equal(ph.inboxCount, 12)
+  assert.equal(ph.hasData, true)
+})
+
+test('buildPipelineHealthSummary returns null when all counts are zero', () => {
+  assert.equal(buildPipelineHealthSummary({ active: 0, evaluated: 0, inboxCount: 0 }), null)
+  assert.equal(buildPipelineHealthSummary(null), null)
+})
+
+test('buildPipelineHealthSummary tolerates partial input (only some keys)', () => {
+  const ph = buildPipelineHealthSummary({ active: 2 })
+  assert.equal(ph.active, 2)
+  assert.equal(ph.evaluated, 0)
+  assert.equal(ph.inboxCount, 0)
+  assert.equal(ph.hasData, true)
+})
+
+/* ───── assembleBrief — new inputs ─────────────────────────────────────────*/
+
+test('assembleBrief includes deadlines section with items from classifiedDeadlines', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: [{ source: 'applications', num: 1, company: 'KPMG', role: 'Analyst', status: 'Applied', deadline: '2026-06-27', parsed: { kind: 'date' }, daysLeft: 2 }],
+  })
+  const brief = assembleBrief(
+    { classifiedDeadlines: classified },
+    { asOf: '2026-06-25' },
+  )
+  const deadlinesSec = brief.sections.find((s) => s.id === 'deadlines')
+  assert.ok(deadlinesSec, 'deadlines section should be present')
+  assert.equal(deadlinesSec.items.length, 1)
+  assert.equal(brief.counts.deadlines, 1)
+  // deadline is an action → contributes to totalActions
+  assert.equal(brief.totalActions, 1)
+})
+
+test('assembleBrief sets topAction to a deadline when it is the first non-empty action section', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: [{ source: 'scouting', num: 2, company: 'Corp', role: 'Dev', tier: 'T2', deadline: '2026-06-26', parsed: { kind: 'date' }, daysLeft: 1 }],
+  })
+  const brief = assembleBrief(
+    { classifiedDeadlines: classified, followupResult: { entries: [] } },
+    { asOf: '2026-06-25' },
+  )
+  // followups empty → first non-empty action is deadlines
+  assert.equal(brief.topAction.section, 'deadlines')
+})
+
+test('assembleBrief exposes pipelineHealth in the brief object', () => {
+  const brief = assembleBrief(
+    { pipelineHealth: { active: 4, evaluated: 2, inboxCount: 7 } },
+    { asOf: '2026-06-25' },
+  )
+  assert.ok(brief.pipelineHealth)
+  assert.equal(brief.pipelineHealth.active, 4)
+  assert.equal(brief.pipelineHealth.evaluated, 2)
+  assert.equal(brief.pipelineHealth.inboxCount, 7)
+})
+
+test('assembleBrief pipelineHealth is null when all zero', () => {
+  const brief = assembleBrief(
+    { pipelineHealth: { active: 0, evaluated: 0, inboxCount: 0 } },
+    { asOf: '2026-06-25' },
+  )
+  assert.equal(brief.pipelineHealth, null)
+})
+
+/* ───── renderBrief — pipeline health + deadline top-action ─────────────────*/
+
+test('renderBrief shows pipeline health summary when counts are non-zero', () => {
+  const brief = assembleBrief(
+    { pipelineHealth: { active: 3, evaluated: 1, inboxCount: 5 } },
+    { asOf: '2026-06-25' },
+  )
+  const md = renderBrief(brief)
+  assert.match(md, /\*\*Pipeline:\*\*/)
+  assert.match(md, /3 active apps in flight/)
+  assert.match(md, /1 evaluated — pending decision/)
+  assert.match(md, /5 URLs in pipeline inbox/)
+})
+
+test('renderBrief omits pipeline health line when all counts are zero', () => {
+  const brief = assembleBrief(
+    { pipelineHealth: { active: 0, evaluated: 0, inboxCount: 0 } },
+    { asOf: '2026-06-25' },
+  )
+  const md = renderBrief(brief)
+  assert.doesNotMatch(md, /\*\*Pipeline:\*\*/)
+})
+
+test('renderBrief renders the deadlines section as a checklist', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: [{ source: 'scouting', num: 1, company: 'Acme', role: 'PM', tier: 'T1', deadline: '2026-06-27', parsed: { kind: 'date' }, daysLeft: 2 }],
+    near: [{ source: 'applications', num: 2, company: 'Beta', role: 'Dev', status: 'Evaluated', deadline: '2026-07-10', parsed: { kind: 'date' }, daysLeft: 15 }],
+  })
+  const md = renderBrief(assembleBrief({ classifiedDeadlines: classified }, { asOf: '2026-06-25' }))
+  assert.match(md, /## Deadlines closing soon/)
+  assert.match(md, /- \*\*Acme — PM\*\*/)
+  assert.match(md, /2d left/)
+  assert.match(md, /- \*\*Beta — Dev\*\*/)
+  assert.match(md, /15d left/)
+})
+
+test('renderBrief top-action for a deadline entry includes days-left callout', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: [{ source: 'applications', num: 1, company: 'Revolut', role: 'Analyst', status: 'Applied', deadline: '2026-06-26', parsed: { kind: 'date' }, daysLeft: 1 }],
+  })
+  const brief = assembleBrief(
+    { classifiedDeadlines: classified, followupResult: { entries: [] } },
+    { asOf: '2026-06-25' },
+  )
+  const md = renderBrief(brief)
+  assert.match(md, /Do this first/)
+  assert.match(md, /1d left/)
+  assert.match(md, /decide\/apply now/)
+})
+
+test('renderBrief top-action for a new-hit entry links to its URL', () => {
+  const digest = digestStub({
+    prioritize: [{ company: 'Stripe', title: 'PM', overall: 8.5, band: 'strong', url: 'https://stripe.test/jobs/1' }],
+  })
+  const brief = assembleBrief(
+    { digest, followupResult: { entries: [] }, outreachResult: { entries: [] } },
+    { asOf: '2026-06-25' },
+  )
+  const md = renderBrief(brief)
+  assert.match(md, /\[Stripe — PM\]\(https:\/\/stripe\.test\/jobs\/1\)/)
+})
+
+test('renderBrief all-clear message mentions deadline pressure', () => {
+  const md = renderBrief(assembleBrief({}, { asOf: '2026-06-25' }))
+  assert.match(md, /deadline pressure/)
+})
+
+test('SECTION_ORDER contains deadlines between followups and outreach', () => {
+  const fi = SECTION_ORDER.indexOf('followups')
+  const di = SECTION_ORDER.indexOf('deadlines')
+  const oi = SECTION_ORDER.indexOf('outreach')
+  assert.ok(fi < di, 'followups should come before deadlines')
+  assert.ok(di < oi, 'deadlines should come before outreach')
 })

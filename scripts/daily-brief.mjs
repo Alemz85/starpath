@@ -36,12 +36,21 @@ import { parseScanHistory, buildDigest } from './lib/whats-new-core.mjs'
 import { positioningIntel } from './lib/positioning-core.mjs'
 import { classifyAll } from './outreach-core.mjs'
 import { parseLog, collapse } from './outreach-cadence.mjs'
+import {
+  parseApplicationsDeadlines,
+  parseScoutingDeadlines,
+  classifyDeadlines,
+} from './lib/deadlines-core.mjs'
+import { parseAppRow } from './lib/tracker-core.mjs'
 import { assembleBrief, renderBrief } from './lib/daily-brief-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const SCAN_FILE = join(ROOT, 'data/scan-history.tsv')
 const SCORE_FILE = join(ROOT, 'data/score-history.tsv')
 const OUTREACH_FILE = join(ROOT, 'data/outreach.md')
+const APPS_FILE = join(ROOT, 'data/applications.md')
+const SCOUTING_FILE = join(ROOT, 'data/scouting.md')
+const PIPELINE_FILE = join(ROOT, 'data/pipeline.md')
 const FOLLOWUP_SCRIPT = join(ROOT, 'scripts/followup-cadence.mjs')
 const BRIEFS_DIR = join(ROOT, 'reports/briefs')
 
@@ -119,6 +128,53 @@ function getPositioningIntel() {
   return positioningIntel(scoreRows)
 }
 
+// 5. Deadline urgency — deadlines-core.classifyDeadlines over applications.md +
+//    scouting.md. Read-only import-only: deadlines-core is never modified.
+function getClassifiedDeadlines() {
+  const appsMd = read(APPS_FILE)
+  const scoutingMd = read(SCOUTING_FILE)
+  const appEntries = parseApplicationsDeadlines(appsMd)
+  const scoutEntries = parseScoutingDeadlines(scoutingMd)
+  const allEntries = [...appEntries, ...scoutEntries]
+  if (allEntries.length === 0) return null
+  return classifyDeadlines(allEntries, asOf)
+}
+
+// 6. Pipeline health — counts derived from applications.md + pipeline.md.
+//    Active = Applied / Responded / Interview / Offer (in-flight).
+//    Evaluated = waiting for a decision (not yet applied or terminal).
+//    inboxCount = non-blank, non-comment lines in pipeline.md.
+const ACTIVE_STATUSES = new Set(['applied', 'responded', 'interview', 'offer'])
+const EVALUATED_STATUS = 'evaluated'
+
+function getPipelineHealth() {
+  const appsMd = read(APPS_FILE)
+  let active = 0
+  let evaluated = 0
+  for (const line of appsMd.split('\n')) {
+    const row = parseAppRow(line)
+    if (!row) continue
+    const s = row.status.replace(/\*\*/g, '').trim().toLowerCase()
+    if (ACTIVE_STATUSES.has(s)) active++
+    else if (s === EVALUATED_STATUS) evaluated++
+  }
+
+  // Count pipeline inbox items: non-blank lines that start with a URL or a
+  // list marker, excluding the header/separator. We count lines that look like
+  // they carry a URL (start with http or a list marker pointing to one).
+  let inboxCount = 0
+  if (existsSync(PIPELINE_FILE)) {
+    for (const line of read(PIPELINE_FILE).split('\n')) {
+      const t = line.trim()
+      if (!t || t.startsWith('|') || t.startsWith('#') || t.startsWith('<!--')) continue
+      // Count list-item lines with a URL
+      if (/^[-*]\s+https?:\/\//.test(t) || /^https?:\/\//.test(t)) inboxCount++
+    }
+  }
+
+  return { active, evaluated, inboxCount }
+}
+
 /* ───── Assemble + emit ──────────────────────────────────────────────────────*/
 
 const inputs = {
@@ -126,6 +182,8 @@ const inputs = {
   followupResult: getFollowupResult(),
   outreachResult: getOutreachResult(),
   positioningIntel: getPositioningIntel(),
+  classifiedDeadlines: getClassifiedDeadlines(),
+  pipelineHealth: getPipelineHealth(),
 }
 
 const brief = assembleBrief(inputs, { asOf, period: weekly ? 'weekly' : 'daily' })
