@@ -22,6 +22,7 @@ These files contain your personal data, customizations, and work product. Update
 | `data/score-history.tsv` | Your per-archetype scouting score log (trajectory for `positioning`) |
 | `data/follow-ups.md` | Your follow-up history |
 | `data/outreach.md` | Your outreach log (who you contacted, channel, cadence) |
+| `data/companies/*.md` | Your cached deep-research dossiers (one per company; written by `deep` mode, read by `interview-prep` / `contacto`) |
 | `reports/*` | Your evaluation reports |
 | `output/*` | Your generated PDFs |
 | `jds/*` | Your saved job descriptions |
