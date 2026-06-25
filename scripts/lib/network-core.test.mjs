@@ -343,3 +343,190 @@ test('pathLabel explains the path in plain words', () => {
     'Grace · Director — weak tie, 2nd-degree (needs an intro)',
   );
 });
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Additional edge-case coverage (extension round)
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ───── normalizeStrength: uncommon synonyms ─────────────────────────────── */
+
+test('normalizeStrength recognizes "tight" → strong, "distant" → weak, "ok" → medium', () => {
+  assert.equal(normalizeStrength('tight'), 'strong');
+  assert.equal(normalizeStrength('well connected'), 'strong');
+  assert.equal(normalizeStrength('distant'), 'weak');
+  assert.equal(normalizeStrength('cold intro'), 'weak');
+  assert.equal(normalizeStrength('ok'), 'medium');
+  assert.equal(normalizeStrength('moderate'), 'medium');
+  assert.equal(normalizeStrength('some rapport'), 'medium');
+});
+
+test('normalizeStrength returns medium for null and non-string input', () => {
+  assert.equal(normalizeStrength(null), 'medium');
+  assert.equal(normalizeStrength(undefined), 'medium');
+  assert.equal(normalizeStrength(42), 'medium'); // coerced to "42" → no match → medium
+});
+
+/* ───── normalizeDegree: capitalized "Second" ────────────────────────────── */
+
+test('normalizeDegree accepts capitalized "Second" and "Second degree"', () => {
+  assert.equal(normalizeDegree('Second'), 2);
+  assert.equal(normalizeDegree('Second degree'), 2);
+});
+
+test('normalizeDegree defaults to 1 for unexpected values', () => {
+  assert.equal(normalizeDegree('3'), 1);   // third-degree is not a concept here
+  assert.equal(normalizeDegree('third'), 1);
+  assert.equal(normalizeDegree(null), 1);
+});
+
+/* ───── recencyFactor: exact boundary values ─────────────────────────────── */
+
+test('recencyFactor boundary: exactly 180 days → 1.0, exactly 181 days → 0.85', () => {
+  // Build reference dates deterministically to avoid test flakiness.
+  const today = '2026-06-25';
+  // 180 days before 2026-06-25 = 2025-12-27
+  const exactly180 = '2025-12-27';
+  assert.equal(recencyFactor(exactly180, today), 1.0);
+  // 181 days before = 2025-12-26
+  const exactly181 = '2025-12-26';
+  assert.equal(recencyFactor(exactly181, today), 0.85);
+});
+
+test('recencyFactor boundary: exactly 365 days → 0.85, exactly 366 days → 0.7', () => {
+  const today = '2026-06-25';
+  // 365 days before 2026-06-25 = 2025-06-25
+  const exactly365 = '2025-06-25';
+  assert.equal(recencyFactor(exactly365, today), 0.85);
+  // 366 days before = 2025-06-24
+  const exactly366 = '2025-06-24';
+  assert.equal(recencyFactor(exactly366, today), 0.7);
+});
+
+test('recencyFactor boundary: exactly 730 days → 0.7, 731 days → 0.55', () => {
+  const today = '2026-06-25';
+  // 730 days before 2026-06-25 = 2024-06-25 (accounting for the 2024 leap year).
+  const exactly730 = '2024-06-25';
+  assert.equal(recencyFactor(exactly730, today), 0.7);
+  // 731 days before = 2024-06-24.
+  const exactly731 = '2024-06-24';
+  assert.equal(recencyFactor(exactly731, today), 0.55);
+});
+
+/* ───── parseContactRow: edge cases ──────────────────────────────────────── */
+
+test('parseContactRow returns null when name is n/d sentinel', () => {
+  // n/d cleans to '' → treated as missing name.
+  const line = '| 1 | n/d | Acme | Eng | strong | 1 |  |  |  |';
+  assert.equal(parseContactRow(line), null);
+});
+
+test('parseContactRow returns null when company is em-dash sentinel', () => {
+  const line = '| 1 | Ada Lovelace | — | Eng | strong | 1 |  |  |  |';
+  assert.equal(parseContactRow(line), null);
+});
+
+test('parseContactRow handles a row with more than 9 data cells (extra trailing cells ignored)', () => {
+  // Markdown rows can have extra trailing cells — parser should not crash.
+  const line = '| 1 | Ada | Acme | Eng | strong | 1 |  | 2026-01-01 | notes | extra | more |';
+  const c = parseContactRow(line);
+  assert.ok(c !== null);
+  assert.equal(c.name, 'Ada');
+  assert.equal(c.notes, 'notes');
+});
+
+/* ───── parseScore: edge cases ───────────────────────────────────────────── */
+
+test('parseScore handles bold-wrapped scores and scores with no denominator', () => {
+  assert.equal(parseScore('**7.5**'), 7.5);
+  assert.equal(parseScore('9'), 9);
+  assert.equal(parseScore('7.2/10'), 7.2);
+});
+
+test('parseScore returns 0 for non-numeric content', () => {
+  assert.equal(parseScore('TBD'), 0);
+  assert.equal(parseScore(null), 0);
+  assert.equal(parseScore('—'), 0);
+});
+
+/* ───── parsePipeline: scouting-vs-scouting score collision ─────────────── */
+
+test('parsePipeline: among two scouting rows for the same role, higher score wins', () => {
+  const scouting = `| 10 | 2026-06-01 | Initech | Strategy Analyst | 6.0/10 | T3 |
+| 11 | 2026-06-02 | Initech | Strategy Analyst | 8.5/10 | T2 |`;
+  const pipe = parsePipeline('', scouting);
+  assert.equal(pipe.length, 1);
+  assert.equal(pipe[0].score, 8.5);
+});
+
+test('parsePipeline: application source wins over scouting even when scouting score is higher', () => {
+  const apps = `| 1 | 2026-05-01 | TechCo | PM | 7.0/10 | Applied |`;
+  const scouting = `| 5 | 2026-06-01 | TechCo | PM | 9.5/10 | T1 |`;
+  const pipe = parsePipeline(apps, scouting);
+  assert.equal(pipe.length, 1);
+  assert.equal(pipe[0].source, 'application');
+  assert.equal(pipe[0].score, 7.0);
+});
+
+/* ───── matchNetworkToPipeline: multiple roles per company ───────────────── */
+
+test('matchNetworkToPipeline surfaces multiple roles per matched company, sorted by score', () => {
+  const network = `| 1 | Ada | MegaCorp | PM | strong | 1 |  | 2026-06-01 | x |`;
+  const scouting = `| 1 | 2026-06-01 | MegaCorp | Data Scientist | 9.0/10 | T1 |
+| 2 | 2026-06-02 | MegaCorp | Data Analyst | 7.5/10 | T2 |
+| 3 | 2026-06-03 | MegaCorp | Junior Analyst | 6.0/10 | T3 |`;
+  const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
+  assert.equal(res.counts.matchedCompanies, 1);
+  const match = res.matches[0];
+  assert.equal(match.roles.length, 3);
+  // Highest score first.
+  assert.equal(match.roles[0].role, 'Data Scientist');
+  assert.equal(match.roles[0].score, 9.0);
+  assert.equal(match.topScore, 9.0);
+});
+
+/* ───── matchNetworkToPipeline: multiple contacts at same company ─────────── */
+
+test('matchNetworkToPipeline ranks contacts within a company by warmth', () => {
+  const network = `| 1 | Strong Friend | Alpha Co | CEO | strong | 1 |  | 2026-06-01 | x |
+| 2 | Weak Acquaintance | Alpha Co | HR | weak | 2 |  | 2024-01-01 | y |
+| 3 | Medium Colleague | Alpha Co | Eng | medium | 1 |  | n/d | z |`;
+  const scouting = `| 1 | 2026-06-01 | Alpha Co | Data Engineer | 8.5/10 | T1 |`;
+  const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
+  const match = res.matches[0];
+  assert.equal(match.contacts.length, 3);
+  // Strong+1st+recent (3.0) > Medium+1st+neutral (2.0) > Weak+2nd+stale (0.6×0.55≈0.33)
+  assert.equal(match.contacts[0].name, 'Strong Friend');
+  assert.equal(match.contacts[2].name, 'Weak Acquaintance');
+  assert.ok(match.contacts[0].warmth > match.contacts[1].warmth);
+  assert.ok(match.contacts[1].warmth > match.contacts[2].warmth);
+});
+
+/* ───── matchNetworkToPipeline: orphan contacts ranked by warmth ─────────── */
+
+test('matchNetworkToPipeline ranks orphan contacts warmest-first', () => {
+  const network = `| 1 | Cold Lead | OffPipeline Inc | Analyst | weak | 2 |  | 2020-01-01 | x |
+| 2 | Hot Lead | OffPipeline Inc | Director | strong | 1 |  | 2026-06-01 | y |`;
+  const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', ''), '2026-06-25');
+  assert.equal(res.counts.orphanContacts, 2);
+  // Hot Lead (strong+1st+recent = 3.0) before Cold Lead (weak+2nd+old ≈ 0.3)
+  assert.equal(res.orphanContacts[0].name, 'Hot Lead');
+  assert.equal(res.orphanContacts[1].name, 'Cold Lead');
+});
+
+/* ───── companyKey: idempotent + handles special chars ───────────────────── */
+
+test('companyKey is idempotent and strips dots, &, spaces, slashes', () => {
+  const k = companyKey('Go-Cardless Ltd.');
+  assert.equal(companyKey(k), k); // idempotent — already normalized
+  assert.equal(companyKey('A&B / C'), 'abc');
+  assert.equal(companyKey('N26 GmbH'), 'n26gmbh');
+});
+
+/* ───── pathLabel: no title ─────────────────────────────────────────────── */
+
+test('pathLabel omits title segment when title is empty', () => {
+  const label = pathLabel({ name: 'Ada', title: '', relationship: 'strong', degree: 1, via: '' });
+  // No " · <title>" in the output when title is empty.
+  assert.ok(!label.includes(' · '));
+  assert.equal(label, 'Ada — strong tie, 1st-degree (direct)');
+});
