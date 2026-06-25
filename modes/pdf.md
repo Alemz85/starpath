@@ -11,7 +11,11 @@
 
 1. Lee `user/cv.md` como fuentes de verdad
 2. Pide al usuario el JD si no está en contexto (texto o URL)
-3. Extrae 15-20 keywords del JD
+3. Extrae 15-20 keywords del JD. Para un set objetivo y reproducible, guarda el
+   texto del JD en `/tmp/jd-{company}.txt` y ejecuta
+   `node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv user/cv.md --json`
+   — el campo `keywords` lista los términos rankeados por relevancia (unigrams,
+   bigrams y phrases) y ya marca cuáles cubre tu CV base y cuáles faltan.
 4. Detecta idioma del JD → idioma del CV (EN default)
 5. Detecta ubicación empresa → formato papel:
    - US/Canada → `letter`
@@ -25,8 +29,16 @@
 12. Genera HTML completo desde template + contenido personalizado
 13. Lee `name` de `user/profile.yml` → normaliza a kebab-case lowercase (e.g. "John Doe" → "john-doe") → `{candidate}`
 14. Escribe HTML a `/tmp/cv-{candidate}-{company}.html`
-15. Ejecuta: `node scripts/generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4}`
-15. Reporta: ruta del PDF, nº páginas, % cobertura de keywords
+15. **Mide la cobertura ATS ANTES de renderizar** (no la estimes a ojo):
+    `node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv /tmp/cv-{candidate}-{company}.html`
+    - Si la cobertura < ~70 %, lee la lista de **missing keywords** y cierra el hueco:
+      reformula logros REALES con el vocabulario exacto del JD (§ "Estrategia de
+      keyword injection"). NUNCA inventes skills para subir el número.
+    - Re-ejecuta hasta que la cobertura sea sólida (≥75 % = strong) o hasta que las
+      keywords restantes sean genuinamente ajenas al perfil del candidato (en cuyo
+      caso es señal de fit bajo, no de un CV mal escrito).
+16. Ejecuta: `node scripts/generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4}`
+17. Reporta: ruta del PDF, nº páginas, y la **% cobertura de keywords medida** (del paso 15, no estimada), más las keywords que quedaron sin cubrir y por qué.
 
 ## Reglas ATS (parseo limpio)
 
@@ -67,6 +79,41 @@ Ejemplos de reformulación legítima:
 - JD dice "stakeholder management" y CV dice "collaborated with team" → cambiar a "stakeholder management across engineering, operations, and business"
 
 **NUNCA añadir skills que el candidato no tiene. Solo reformular experiencia real con el vocabulario exacto del JD.**
+
+## Medición de cobertura ATS (`scripts/ats-coverage.mjs`)
+
+La cobertura de keywords NO se estima a ojo — se mide. El script
+`scripts/ats-coverage.mjs` extrae las keywords del JD (unigrams, bigrams y
+phrases técnicas multi-palabra, filtrando stopwords y boilerplate de reclutador)
+y comprueba cuáles aparecen en el CV. El matching es *stem-lite*: tolera plurales
+y gerundios ("pipelines" ≈ "pipeline", "designing" ≈ "design"), así que no penaliza
+variantes morfológicas legítimas.
+
+```bash
+# Informe legible (cobertura %, weighted %, veredicto, gap list)
+node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv /tmp/cv-...html
+
+# JSON estructurado (para razonar sobre keywords[] / missing[] / covered[])
+node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv /tmp/cv-...html --json
+
+# El JD por stdin si no quieres un fichero temporal
+cat jd.txt | node scripts/ats-coverage.mjs --jd-stdin --cv /tmp/cv-...html
+```
+
+El `--cv` acepta el HTML generado (lo convierte a texto automáticamente) o
+`user/cv.md`. Lectura del informe:
+
+- **`coveragePct`** — % de keywords del JD presentes en el CV. Veredicto: ≥75 % fuerte,
+  55–74 % aceptable (cierra el gap), <55 % débil.
+- **`weightedCoverage`** — pondera por frecuencia en el JD, así que cubrir un término
+  que el JD repite muchas veces pesa más que uno mencionado de pasada.
+- **`missing`** — la lista accionable: keywords del JD que el CV aún no surface.
+  Para cada una, decide si puedes reformular un logro REAL con ese vocabulario
+  (§ "Estrategia de keyword injection") o si es genuinamente ajena al perfil.
+
+El objetivo es subir la cobertura reformulando experiencia verdadera, **nunca**
+inventando skills para inflar el número. Si tras reformular siguen faltando muchas
+keywords core, eso es señal de fit bajo (el CV está bien; el match no lo está).
 
 ## Template HTML
 
