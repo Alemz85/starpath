@@ -12,6 +12,7 @@
     "ats-coverage": "node scripts/ats-coverage.mjs",
     "sync-check": "node scripts/cv-sync-check.mjs",
     "liveness": "node scripts/check-liveness.mjs",
+    "research": "node scripts/company-research.mjs",
     "scan": "node scripts/scan.mjs",
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "test:all": "node scripts/test-all.mjs"
