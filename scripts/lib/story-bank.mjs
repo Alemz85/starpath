@@ -348,3 +348,205 @@ export function bankHealth(stories) {
     themes: [...allThemes].sort(),
   };
 }
+
+/* ───── competency taxonomy ────────────────────────────────────────── */
+//
+// The story bank's `**Themes:**` tags are free text (the candidate writes
+// whatever language fits). But interview-prep.md Step 5 wants a *deterministic*
+// question→story map: classify a likely question to a known competency, then
+// look up which stories cover it. That needs a shared vocabulary on both sides.
+//
+// COMPETENCIES is that vocabulary — the universal behavioral-interview landscape
+// large employers (FAANG, MBB, Big-4, top scaleups) actually screen for. This is
+// legitimate system reference data (cf. CLAUDE.md § System Layer Hygiene — like
+// the school-region map, it's the universal landscape, NOT one user's tags).
+//
+// `aliases` lets a candidate's natural-language theme ("led a team",
+// "delivery-under-pressure") normalize to a canonical competency id, so the
+// existing free-text `themes` field doubles as competency tagging — no new
+// on-disk field, the `### {Title}` + `**Themes:**` format stays exactly as the
+// canonical bank, apply.md, and cv-sync-check.mjs already expect it.
+
+export const COMPETENCIES = [
+  { id: 'ownership',     label: 'Ownership / Drive',            aliases: ['ownership', 'drive', 'bias for action', 'initiative', 'proactivity', 'self starter', 'autonomy', 'delivery under pressure'] },
+  { id: 'leadership',    label: 'Leadership / Influence',       aliases: ['leadership', 'led a team', 'leading', 'influence', 'influence without authority', 'stakeholder management', 'managing up', 'mentoring', 'mentorship'] },
+  { id: 'collaboration', label: 'Collaboration / Teamwork',     aliases: ['collaboration', 'teamwork', 'cross functional', 'working with others', 'partnership'] },
+  { id: 'conflict',      label: 'Conflict / Disagreement',      aliases: ['conflict', 'disagreement', 'pushback', 'difficult conversation', 'difficult stakeholder', 'tension'] },
+  { id: 'failure',       label: 'Failure / Resilience',         aliases: ['failure', 'mistake', 'setback', 'resilience', 'recovered from', 'things went wrong'] },
+  { id: 'ambiguity',     label: 'Ambiguity / Judgment',         aliases: ['ambiguity', 'ambiguous', 'uncertainty', 'incomplete information', 'judgment', 'decision making', 'tradeoff'] },
+  { id: 'analytical',    label: 'Analytical / Problem-Solving', aliases: ['analytical', 'problem solving', 'data driven', 'data driven decision', 'quantitative', 'analysis'] },
+  { id: 'impact',        label: 'Impact / Results',             aliases: ['impact', 'results', 'delivered', 'business value', 'roi', 'outcome', 'metrics moved'] },
+  { id: 'communication', label: 'Communication',                aliases: ['communication', 'presenting', 'storytelling', 'persuasion', 'explaining', 'executive communication'] },
+  { id: 'customer',      label: 'Customer / User Focus',        aliases: ['customer', 'customer focus', 'customer obsession', 'user focus', 'client', 'user empathy'] },
+  { id: 'learning',      label: 'Learning / Growth',            aliases: ['learning', 'growth', 'learned a new', 'learning new domain', 'upskilling', 'curiosity', 'feedback', 'self improvement'] },
+  { id: 'innovation',    label: 'Innovation / Creativity',      aliases: ['innovation', 'creativity', 'novel', 'invented', 'reimagined', 'from scratch', 'greenfield'] },
+];
+
+// alias/id → canonical id. Aliases are stored already theme-normalized so a
+// lookup uses the same normalization as parsed themes.
+const COMPETENCY_ALIAS_TO_ID = (() => {
+  const m = new Map();
+  for (const c of COMPETENCIES) {
+    m.set(c.id, c.id);
+    for (const a of c.aliases) m.set(normalizeTheme(a), c.id);
+  }
+  return m;
+})();
+
+// Normalize a free-text theme/tag to a canonical competency id, or null if it
+// maps to none. Tries: exact id, exact (normalized) alias, then substring
+// containment (longest alias wins, so "stakeholder management" beats a bare
+// "management" miss). A null result is not an error — it just means the tag is
+// an extra freeform note the taxonomy doesn't recognize.
+export function normalizeCompetency(tag) {
+  if (tag == null) return null;
+  const t = normalizeTheme(tag);
+  if (!t) return null;
+  if (COMPETENCY_ALIAS_TO_ID.has(t)) return COMPETENCY_ALIAS_TO_ID.get(t);
+  let best = null;
+  let bestLen = 0;
+  for (const [alias, id] of COMPETENCY_ALIAS_TO_ID) {
+    if (alias.length > bestLen && (t.includes(alias) || alias.includes(t))) {
+      best = id;
+      bestLen = alias.length;
+    }
+  }
+  return best;
+}
+
+// Resolve a story's free-text `themes` into { competencies, unknownThemes }:
+// the canonical competency ids the story credibly covers (deduped, bank order)
+// and the themes that mapped to no competency (kept as honest freeform notes).
+export function storyCompetencies(story) {
+  const resolved = [];
+  const unknown = [];
+  for (const t of (story && story.themes) || []) {
+    const id = normalizeCompetency(t);
+    if (id) resolved.push(id);
+    else unknown.push(t);
+  }
+  return { competencies: [...new Set(resolved)], unknownThemes: unknown };
+}
+
+/* ───── validation ─────────────────────────────────────────────────── */
+
+// Validate one story against the STAR+R contract + competency tagging.
+// Returns { ok, errors, warnings }.
+//   errors   (block a clean bank): missing/empty STAR+R beat, no recognized
+//            competency theme.
+//   warnings (allowed but flagged): a theme that maps to no competency, a
+//            placeholder-length beat, a complete-but-unquantified Result.
+export function validateStory(story) {
+  const errors = [];
+  const warnings = [];
+
+  if (!story || !story.title || !String(story.title).trim()) {
+    errors.push('missing title');
+  }
+
+  for (const beat of STAR_BEATS) {
+    const v = String((story && story[beat]) || '').trim();
+    if (!v) {
+      errors.push(`missing ${beat}`);
+    } else if (v.length < 12) {
+      warnings.push(`${beat} looks like a placeholder (under 12 chars): "${v}"`);
+    }
+  }
+
+  const { competencies, unknownThemes } = storyCompetencies(story || {});
+  if (competencies.length === 0) {
+    errors.push('no recognized competency theme (add a "**Themes:**" line with a known competency)');
+  }
+  for (const u of unknownThemes) {
+    warnings.push(`theme "${u}" maps to no canonical competency`);
+  }
+
+  if (story && isStoryComplete(story) && !resultIsQuantified(story)) {
+    warnings.push('Result has no number — lead with a metric');
+  }
+
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+// Detect duplicate story titles (normalized via storyTitleKey). interview-prep's
+// dedup rule: never add a second story with the same title — update the existing
+// one. Returns [{ title, count, indices }] for each collision.
+export function findDuplicateTitles(stories) {
+  const byKey = new Map();
+  (stories || []).forEach((s, i) => {
+    const key = storyTitleKey(s.title);
+    if (!key) return;
+    if (!byKey.has(key)) byKey.set(key, { title: s.title, count: 0, indices: [] });
+    const e = byKey.get(key);
+    e.count++;
+    e.indices.push(i);
+  });
+  return [...byKey.values()].filter((e) => e.count > 1);
+}
+
+/* ───── competency coverage ────────────────────────────────────────── */
+
+// Build a competency-id → [story titles] index across the bank. This is what
+// makes interview-prep Step 5 deterministic: given a likely question's
+// competency, look up the covering stories instead of re-reasoning over the
+// whole bank. Every canonical competency gets an entry (empty array = a gap),
+// and a story keys a competency via its free-text themes resolving to it.
+export function buildCompetencyIndex(stories) {
+  const index = {};
+  for (const c of COMPETENCIES) index[c.id] = [];
+  for (const s of stories || []) {
+    const { competencies } = storyCompetencies(s);
+    for (const id of competencies) {
+      if (!index[id]) index[id] = [];
+      index[id].push(s.title);
+    }
+  }
+  return index;
+}
+
+// Competencies with no covering story — the candidate's behavioral blind spots.
+// Returns [{ id, label }] for each gap, in canonical taxonomy order.
+export function competencyGaps(stories) {
+  const index = buildCompetencyIndex(stories);
+  return COMPETENCIES
+    .filter((c) => (index[c.id] || []).length === 0)
+    .map((c) => ({ id: c.id, label: c.label }));
+}
+
+// Rank stories for a question by competency first, then the free-text scorer.
+// `question` is the raw likely-question text; `competency` (optional) is a
+// pre-classified canonical id. A story covering the target competency gets a
+// heavy boost so the deterministic competency map dominates the fuzzy token
+// overlap. Returns [{ story, score, fit, viaCompetency }] sorted desc.
+export function rankStoriesByCompetency(stories, question, competency = null, { limit = 3 } = {}) {
+  const compId = competency ? normalizeCompetency(competency) : null;
+  const ranked = (stories || [])
+    .map((story) => {
+      const { competencies } = storyCompetencies(story);
+      const viaCompetency = compId ? competencies.includes(compId) : false;
+      const textScore = scoreStoryForQuestion(story, question);
+      const score = (viaCompetency ? 5 : 0) + textScore;
+      let fit = 'none';
+      if (viaCompetency || score >= 3) fit = 'strong';
+      else if (score >= 1) fit = 'partial';
+      return { story, score, fit, viaCompetency };
+    })
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return limit ? ranked.slice(0, limit) : ranked;
+}
+
+// Whole-bank validation rollup for check-story-bank.mjs and the agent:
+//   { ok, storyCount, perStory: [{ title, ...validateStory }],
+//     duplicates, gaps, index }
+// `ok` ignores warnings (errors + duplicate titles only); the CLI's --strict
+// flag is what escalates warnings to a non-zero exit.
+export function validateBank(stories) {
+  const list = stories || [];
+  const perStory = list.map((s) => ({ title: s.title, ...validateStory(s) }));
+  const duplicates = findDuplicateTitles(list);
+  const gaps = competencyGaps(list);
+  const index = buildCompetencyIndex(list);
+  const ok = perStory.every((s) => s.ok) && duplicates.length === 0;
+  return { ok, storyCount: list.length, perStory, duplicates, gaps, index };
+}
