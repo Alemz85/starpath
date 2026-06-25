@@ -37,6 +37,7 @@ Read ALL of these if they exist. Skip any that are missing with a note.
 | `data/scouting.md` | Landscape inventory tracker — every evaluation lands here by default (Tier column) |
 | `data/score-history.tsv` | Per-archetype, per-dimension score trajectory over time. **Primary quantitative source.** |
 | `data/report-summaries.tsv` | **Compact summary cache** (one row per evaluation). Read this FIRST for the quantitative pass — far faster than opening full reports. Schema: `date\|company\|role\|archetype\|tier\|overall\|cf\|af\|key_gaps\|verdict_one_line`. Only open full `.md` reports when drilling into a specific company or archetype (max 5 full reads per positioning run). |
+| `scripts/score-trend.mjs` (run, don't read) | **The deterministic trajectory engine.** Splits all evaluations into an earlier vs recent calendar window and replays the real bands to answer "is my targeting sharpening?" — plus per-listing re-evaluation deltas. This is what makes § 4 Trajectory decision-grade instead of an eyeball of old report files. |
 | `reports/tier-*/{Company} - {Role}.md` | Full evaluation reports — open only for qualitative color (see rule below). |
 | `data/scan-history.tsv` | Portal scan history — demand signals by company/city |
 | `data/landscape-companies.csv` / `data/landscape-cities.csv` | If they exist |
@@ -49,14 +50,16 @@ Read ALL of these if they exist. Skip any that are missing with a note.
 
 **RULE:** Do not open individual report files for the quantitative pass. Read `data/report-summaries.tsv` and `data/score-history.tsv` for all quantitative signals. Only open full `.md` reports (**max 5 total**) for qualitative color when you need specific gap phrasing or recommendation detail.
 
-### The quantitative backbone — run this first, reason off it
+### The quantitative backbone — run BOTH, reason off them
 
-Before any hand-computation, run the positioning-intelligence script. It does the entire quantitative pass for you — deterministically, off the same scoring engine that produced the reports — so you spend your tokens on the *read*, not the arithmetic:
+Before any hand-computation, run the two backbone scripts. They do the entire quantitative pass for you — deterministically, off the same scoring engine that produced the reports — so you spend your tokens on the *read*, not the arithmetic. The first answers **"where do I stand and what's the cheapest move?"**; the second answers **"is my targeting sharpening over time?"** — the two halves of a decision-grade review.
 
 ```bash
-node scripts/positioning-intel.mjs --summary    # human-readable, for your scratch notes
-node scripts/positioning-intel.mjs              # full JSON, when you need every field
+node scripts/positioning-intel.mjs --summary    # WHERE I STAND: fingerprints, levers, systemic constraint
+node scripts/score-trend.mjs --summary          # IS IT SHARPENING: earlier-vs-recent landscape trend + per-listing re-eval deltas
 ```
+
+Add `(no --summary)` to either for full JSON when you need a field the summary omits. Run both into your scratch notes before writing a line — the TL;DR's "trajectory" call and § 4 come straight off `score-trend`, and they are NOT derivable from `positioning-intel` (which is time-blind — it pools the whole corpus flat).
 
 What it returns (all derived from `data/score-history.tsv` at runtime — nothing hardcoded):
 
@@ -73,6 +76,23 @@ What it returns (all derived from `data/score-history.tsv` at runtime — nothin
 **Why this is the backbone, not a sidecar:** `systemicConstraint` *is* the answer to Step 2's "single cheapest fix with the largest cross-archetype leverage". The distinction it draws is the whole point of the report — the dimension that *binds* the most archetypes (`dominant`) is often NOT the dimension that's *cheapest to lift* (`lever`). Example shape: Ease of Entry may gate the typical role in most of your archetypes, but EoE is a slow fix (experience/credential); meanwhile a one-point lift in Strategic/Analytical Fit might re-band the typical role in several archetypes at once via a positioning reframe. **The report's headline move is `systemicConstraint.lever`, framed against `systemicConstraint.dominant`** — substitute the actual dimensions the script returns; never assume which they are.
 
 Treat the script's numbers as canonical. Do not recompute CF/AF/tier by hand — the script replays the real engine (`score-bands.mjs` via `explain-score.mjs`), so a hand-computed number that disagrees is YOUR error, not the script's.
+
+#### What `score-trend.mjs` returns (the time axis `positioning-intel` is blind to)
+
+`positioning-intel` pools every evaluation into one flat landscape — it cannot see whether *this month's* roles score better than *last month's*. `score-trend` adds exactly that axis, replayed off the same bands, so the report's trajectory section is a deterministic read, not a guess from old report files.
+
+| Field | What it gives you | Where it lands in the report |
+|-------|-------------------|------------------------------|
+| `landscapeTrend.verdict` | `improving` / `declining` / `stable` — the headline "is my targeting sharpening?" call, from earlier-window avg Overall vs recent-window avg Overall | TL;DR trajectory line + § 4 opening verdict |
+| `landscapeTrend.older` / `.recent` | each window's `count`, `avgOverall`, `strongSolidShare`, `dateRange` — the two numbers the verdict is built from | § 4 comparison table |
+| `landscapeTrend.delta` / `.strongSolidShareDelta` | signed Overall move and the cleaner "share of strong/solid roles" move between windows | § 4 + § 1 if it changes the read |
+| `landscapeTrend.splitDate` | the boundary the engine chose (closest-to-50/50, NOT a naive median) | § 4 confounder check — see below |
+| `landscapeTrend.insufficientData` + `reason` | true when the dates are too thin/concentrated to trend | gates § 4: if true, render the baseline note instead |
+| `trajectorySummary` | of the listings re-evaluated 2+ times: `improving`/`declining`/`stable` split, `avgDelta`, `bandUpgrades`/`bandDowngrades` | § 4 + § 2 (a role re-climbing on re-eval is a "prioritize before it closes" signal) |
+| `listingTrajectories[]` | per re-evaluated company+role: first→latest Overall, band transition, the single dimension that moved most (`topMover`) | § 2 per-archetype color when a listing in that archetype moved a band |
+| `recommendations[]` | conservative, pre-phrased "re-check this decliner / prioritize this improver / targeting is sharpening" lines — already impact-ranked | seed for § 3 actions and § 4 judgment (rewrite in your own voice; don't paste verbatim) |
+
+**The split is calendar-balanced, not a naive median** — `score-trend` scans every candidate boundary and picks the one that splits rows closest to 50/50, so a bursty scan day can't shove almost everything into one window. Read `splitDate` and state it in § 4; if the scanner pulled a different *segment* of the market on either side of it (different archetypes / employer tiers / cities), a rise or fall in avg Overall is a corpus-mix artifact, not real targeting movement — say so explicitly so the user doesn't over-read it.
 
 ### `data/score-history.tsv` schema (read this carefully)
 
@@ -102,11 +122,11 @@ Count rows in `score-history.tsv` and tracker entries. If the corpus is too thin
 
 **Minimum thresholds:**
 - At least 15 rows in `score-history.tsv` (or 10 tracker entries if score-history is empty) to produce the "where you stand today" section
-- At least 2 prior positioning reports OR 60 days of score-history data for a real trajectory section (otherwise establish a baseline only)
+- For a real § 4 Trajectory section, don't eyeball a day count — let `score-trend.mjs` decide: if `landscapeTrend.insufficientData` is false, the engine found two balanced calendar windows and the section is real; if it's true (or 2+ prior positioning reports exist as a coarse fallback), establish a baseline only.
 
 ### Step 1 — Gather quantitative signals (kept internal until Step 3)
 
-**Run `node scripts/positioning-intel.mjs --summary` first** and paste its output into your scratch notes — that single run delivers A, B, the systemic constraint, geographic clustering, and the per-archetype levers below, all replayed off the real scoring engine. Then layer in the few signals the script can't derive (the qualitative gaps in C, the comp/Brand-WLB reads in E, the free-text tallies in F/G) by reading `report-summaries.tsv` and at most 5 full reports.
+**Run `node scripts/positioning-intel.mjs --summary` AND `node scripts/score-trend.mjs --summary` first** and paste both into your scratch notes. `positioning-intel` delivers A, B, the systemic constraint, geographic clustering, and the per-archetype levers below; `score-trend` delivers H (the trajectory / "is it sharpening?" read) — all replayed off the real scoring engine. Then layer in the few signals neither script can derive (the qualitative gaps in C, the comp/Brand-WLB reads in E, the free-text tallies in F/G) by reading `report-summaries.tsv` and at most 5 full reports.
 
 You will **not** dump any of this as the first thing the user sees — it goes into the Appendix, and the body only references it inline as evidence for a judgment.
 
@@ -126,18 +146,21 @@ You will **not** dump any of this as the first thing the user sees — it goes i
 
 **G) Dream company coverage** — for each company in `user/profile.yml → target_roles.dream_companies`: postings seen, rollup averages, roles surfaced.
 
-All of these outputs land in the **Appendix**. The body of the report uses them as evidence for judgments — it does not re-list them.
+**H) Trajectory — is targeting sharpening?** — straight from `score-trend.mjs`. Read `landscapeTrend`: if `insufficientData` is true, the corpus can't be trended yet (record the `reason` in Appendix H and render § 4 as a baseline note). Otherwise capture the `verdict`, the earlier-vs-recent `avgOverall` pair, the `delta`, the `strongSolidShareDelta`, and the `splitDate`. Then read `trajectorySummary` (the improving/declining/stable split across re-evaluated listings + `bandUpgrades`/`bandDowngrades`) and skim `listingTrajectories[]` for any role that crossed a band on re-eval — those are the per-listing color points for § 2 and § 4. This is the ONLY signal that answers whether the user is getting better at sourcing, so it earns a line in the TL;DR even though its detail lands in § 4 and the Appendix.
+
+All of these outputs land in the **Appendix** (H feeds § 4 directly). The body of the report uses them as evidence for judgments — it does not re-list them.
 
 ### Step 2 — Decide the punchline FIRST
 
-Before writing any prose, force yourself to answer these four questions in one sentence each. Write them down at the top of your scratch notes; the entire report flows from these:
+Before writing any prose, force yourself to answer these five questions in one sentence each. Write them down at the top of your scratch notes; the entire report flows from these:
 
 1. **What's the one path the user should focus on next cycle, and why?** (Anchor to the strongest archetype-by-Overall plus market demand and growth potential.)
 2. **What's the one thing the user should STOP doing or de-prioritize?** (Anchor to the lowest-`avgOverall` archetype from `fingerprints[]` that still eats real `share`, the leakiest portal config, or a structural bottleneck the user has been ignoring.)
 3. **What's the single cheapest fix with the largest cross-archetype leverage?** (This is `systemicConstraint.lever` — the dimension whose single-point lift re-bands the typical role in the most archetypes. Frame it against `systemicConstraint.dominant`: the dimension that *binds* the most archetypes is usually the expensive one, so the move is the cheaper lever that buys the most re-bandings. Usually that lever cashes out as a positioning reframe, a portal-config tightening, or a missing portal — something that attacks the constraint across multiple archetypes. Don't quote a timeline; just identify the move.)
 4. **What's the runner-up path, and why is it runner-up rather than primary?** (Forces the counterfactual; prevents wishy-washy "do everything" recommendations.)
+5. **Is the user's targeting sharpening, flat, or sliding — and what does that change?** (This is `landscapeTrend.verdict` from `score-trend`. It's not decoration: a *sharpening* trend means "keep sourcing the way you have been — the cheap fixes in Q3 compound" and the user can lean in; a *sliding* trend means the most urgent action is upstream — re-tighten scan keywords or raise the pre-evaluation bar BEFORE chasing levers, because the funnel itself is drifting. A *flat* trend says the levers in Q3 are where the movement has to come from, since sourcing alone isn't moving the needle. If `insufficientData`, say "baseline — can't yet tell" and don't fake a direction.)
 
-These four answers become the **TL;DR block at the top of the report** (Step 3, output structure below). They also constrain every per-archetype section — if a section's verdict contradicts the punchline, one of them is wrong and you need to reconcile before writing.
+These five answers become the **TL;DR block at the top of the report** (Step 3, output structure below). They also constrain every per-archetype section — if a section's verdict contradicts the punchline, one of them is wrong and you need to reconcile before writing. Q5 in particular sets the *tone* of the whole report: a sharpening funnel earns an offensive review (double down, harvest), a sliding one earns a defensive one (fix sourcing first).
 
 ### Step 3 — Write the report
 
@@ -175,6 +198,8 @@ Write the full report to `reports/positioning/positioning-{YY-MM}.md`. Use this 
 
 **Highest-leverage cheap fix:** {The single positioning / portal / framing change that attacks the binding constraint across multiple archetypes, with the dimension it lifts. No timeline — name the move and what it unlocks.}
 
+**Trajectory:** {`landscapeTrend.verdict` in plain words — "Sharpening: recent evals avg {X.X} vs {Y.Y} earlier (+{Δ})" / "Sliding: …" / "Flat" / "Baseline — not enough history to trend yet". One clause on what it changes: lean in (sharpening) · fix sourcing first (sliding) · levers carry the movement (flat).}
+
 ---
 
 ## 1. Where You Stand
@@ -199,7 +224,9 @@ For each **primary** archetype (from `_profile.md`):
 
 **What's missing** (2–4 bullets max): each bullet names the gap and the dimension it lowers. If you can't name both, the gap isn't ready to surface yet.
 
-**Path forward** — one short paragraph (3–6 sentences) describing the route, not a timeline. Anchor it to this archetype's own `cheapestLever` from `levers[]`: that field tells you the exact dimension + raise (e.g. "Strategic Fit 6.8 → 7.8") that moves the *typical* role in this archetype from its current `tier` to a better one — so the entry move should be whatever closes that specific gap (the prerequisite proof point, reframe, or role choice that lifts that dimension past the screen). Then name the compounding move (the next role or pivot the entry seat sets up) and the exit options it leaves open. Anchor to the `bottleneck` dimension throughout — say what each step does to relieve it. If the archetype's average role is already top-band (`tier` is T1 / `cheapestLever` is null), say so and pivot the paragraph to "protect and harvest" rather than "break in". Do **not** assign months or weeks to steps; the user's actual cadence depends on cycle windows you can't predict. If the path materially depends on the order of two moves, say so in prose ("X has to happen before Y because…") — don't fake a Gantt chart.
+**Path forward** — one short paragraph (3–6 sentences) describing the route, not a timeline. Anchor it to this archetype's own `cheapestLever` from `levers[]`: that field tells you the exact dimension + raise (e.g. "Strategic Fit 6.8 → 7.8") that moves the *typical* role in this archetype from its current `tier` to a better one — so the entry move should be whatever closes that specific gap (the prerequisite proof point, reframe, or role choice that lifts that dimension past the screen). When this archetype's `cheapestLever` shares a dimension with `systemicConstraint.lever`, say so — that's the move that pays off here AND across the rest of the landscape, so it sequences first. Then name the compounding move (the next role or pivot the entry seat sets up) and the exit options it leaves open. Anchor to the `bottleneck` dimension throughout — say what each step does to relieve it. If the archetype's average role is already top-band (`tier` is T1 / `cheapestLever` is null), say so and pivot the paragraph to "protect and harvest" rather than "break in". Do **not** assign months or weeks to steps; the user's actual cadence depends on cycle windows you can't predict. If the path materially depends on the order of two moves, say so in prose ("X has to happen before Y because…") — don't fake a Gantt chart.
+
+**Re-eval signal** (one line, only if present): if any `listingTrajectories[]` entry in this archetype crossed a band on re-evaluation, surface it — an *improving* role that re-banded upward is a "prioritize before it closes" prompt (cite the company, the first→latest Overall, and its `topMover` dimension); a *declining* one is a "re-check, fit may be drifting" prompt. Skip the line entirely if nothing in this archetype was evaluated twice.
 
 **Where to find this path** (one line): top 5 companies from the corpus, comma-separated, with city in parens. Pull from scan-history, not invented.
 
@@ -227,17 +254,19 @@ This is the **expanded** version of the TL;DR's focus path — 4–6 paragraphs.
 
 Only recommend ONE priority path. The whole point of this report is to cut through ambiguity. If the user has 3 archetypes they're juggling, picking one is the value.
 
-## 4. Trajectory
+## 4. Trajectory — Is Your Targeting Sharpening?
 
-Only render this section as a real diff if 2+ prior positioning reports exist OR `score-history.tsv` spans >60 days. Otherwise: one-paragraph baseline note ("This is the baseline. Re-run in 4–8 weeks once the corpus crosses 60 days.") and skip the rest.
+**This section is now driven by `score-trend.mjs`, not by eyeballing old report files.** The engine splits every evaluation into a calendar-balanced earlier vs recent window and replays the real bands on each — so "your targeting is improving" is a deterministic claim with two numbers behind it, not a vibe.
 
-When you DO render trajectory:
+**Gate:** if `landscapeTrend.insufficientData` is true, render only the baseline note ("Not enough history to trend yet — {the engine's `reason`}. Re-run once the corpus spans a wider date range.") and stop. Do NOT fabricate a direction from a handful of dates. (Prior positioning reports, if any exist, can still add a second, coarser data point — mention them, but the engine's verdict is the primary signal.)
 
-**One paragraph of judgment first.** What's actually moving? What's stagnant despite effort? What does the user need to do differently this cycle? Name specific archetype × dimension combos that lifted or stagnated, and the most likely cause.
+When `landscapeTrend` IS usable:
 
-**Then one table** (max), comparing previous → current on the 4–6 metrics that actually moved or stagnated meaningfully. Do NOT exhaustively list every archetype × dimension combo — pick the 4–6 that change the read.
+**Lead with the verdict in one paragraph.** State `landscapeTrend.verdict` plainly and what it changes: *sharpening* → the funnel is working, lean into the focus path and let the cheap levers compound; *sliding* → the most urgent move is upstream, re-tighten scan keywords / raise the pre-evaluation bar before chasing levers, because the corpus quality is drifting down; *flat* → sourcing alone isn't moving the needle, so the levers in § 3 are where movement has to come from. Anchor to the earlier-vs-recent `avgOverall` pair and the `strongSolidShareDelta` (the cleanest "am I sourcing better roles?" number). Then fold in `trajectorySummary`: of the listings you looked at twice, how the improving/declining/stable split fell and whether any crossed a band (`bandUpgrades`/`bandDowngrades`) — a wave of upgrades on re-eval is the user getting better-positioned for roles they already saw.
 
-If the scanner pulled a different segment of the market between windows (a common confounder), say so explicitly so the user doesn't misread a corpus-mix shift as a real trajectory change.
+**Then one table** (max): earlier window vs recent window on `count`, `avgOverall`, `strongSolidShare`, and `dateRange`, plus the 1–2 re-evaluated listings that moved a band (from `listingTrajectories[]`). Don't exhaustively list every re-evaluated role — pick the ones that change the read.
+
+**Confounder check (mandatory):** state the engine's `splitDate`, then ask whether the scanner pulled a different *segment* of the market on either side of it — different archetypes, employer tiers, or cities. If it did, a rise or fall in avg Overall is a corpus-mix artifact, not real targeting movement; say so explicitly so the user doesn't over-read it. (Cross-check the per-window archetype mix against the Appendix-A counts if you're unsure.)
 
 ---
 
@@ -266,18 +295,22 @@ This is where ALL the tables live. The body of the report references them as evi
 ### G. Dream company coverage
 {Step 1G table + one verdict line per company}
 
-### H. Data sources
+### H. Trajectory detail (from `score-trend.mjs`)
+{The numbers behind § 4, so its verdict is verifiable. If `landscapeTrend.insufficientData`, state the `reason` and skip the rest. Otherwise: the earlier-vs-recent window table (`splitDate`, each window's `count` / `avgOverall` / `strongSolidShare` / `dateRange`), the `delta` + `strongSolidShareDelta`, the `trajectorySummary` split (improving/declining/stable + `bandUpgrades`/`bandDowngrades`), and the full `listingTrajectories[]` movers list (company · role · first→latest Overall · band transition · `topMover` dimension).}
+
+### I. Data sources
 - `score-history.tsv`: {N} rows, {from} → {to}
 - `positioning-intel.mjs`: backbone aggregates (run `node scripts/positioning-intel.mjs --summary`); {archetypesAnalyzed} archetypes with ≥ {minRoles} roles
+- `score-trend.mjs`: trajectory engine (run `node scripts/score-trend.mjs --summary`); {landscapeTrend.verdict or "insufficient data"}, {reevaluatedListings} re-evaluated listings, split at {splitDate or "n/a"}
 - `applications.md`: {M} entries
 - `report-summaries.tsv`: {K} cached summaries
 - Reports sampled for qualitative color ({≤5}): {filenames}
 - Previous positioning reports: {list or "none"}
 
-### I. Archetype bucketing applied
+### J. Archetype bucketing applied
 {List spelling-variant merges if `score-history.tsv` has naming variance. Format: `"{Canonical archetype name}" includes: {variant 1} ({count}), {variant 2} ({count}), ...`. Only include this section if the TSV actually has duplicates worth surfacing.}
 
-### J. Data-quality notes
+### K. Data-quality notes
 {Any caveats: archetypes skipped for insufficient sample, dream companies with zero postings, scanner coverage gaps the user should know about. Surface fix suggestions for `user/portals.yml` but do NOT edit it automatically.}
 ```
 
@@ -299,6 +332,7 @@ Do next:
 
 Stop doing: {one sentence}
 Highest-leverage cheap fix: {one sentence}
+Trajectory: {sharpening / sliding / flat / baseline — one clause on what it changes}
 
 Full report: reports/positioning/positioning-{YY-MM}.md
 ```
@@ -309,8 +343,8 @@ Full report: reports/positioning/positioning-{YY-MM}.md
 - **Lead with judgment, anchor with numbers.** Numbers go inline as evidence for a claim, not as the claim itself. If a paragraph contains 3 numbers and no action, rewrite it.
 - **Hard cap: ≤4 tables in the body.** All others belong in the Appendix.
 - **Do not tailor CV or generate PDFs** in this mode. It's analytical, not generative.
-- **Do not modify `_profile.md` or `user/profile.yml`** automatically. If the report recommends a change (e.g., drop a dead archetype), surface it as a suggestion in Appendix J and ask the user before editing.
-- **Do run `scripts/positioning-intel.mjs`** — it's a pure, zero-token, read-only aggregation over `data/score-history.tsv` (it does not write anything). Trust its CF/AF/tier/lever numbers over any you compute by hand; it replays the canonical scoring engine.
+- **Do not modify `_profile.md` or `user/profile.yml`** automatically. If the report recommends a change (e.g., drop a dead archetype), surface it as a suggestion in Appendix K and ask the user before editing.
+- **Do run BOTH `scripts/positioning-intel.mjs` AND `scripts/score-trend.mjs`** — both are pure, zero-token, read-only aggregations over `data/score-history.tsv` (neither writes anything). `positioning-intel` is the "where I stand" backbone; `score-trend` is the "is it sharpening" trajectory engine. Trust their CF/AF/tier/lever/trend numbers over any you compute by hand; both replay the canonical scoring engine, so a hand-computed number that disagrees is your error.
 - **Do not rerun `scripts/scan.mjs` or `scripts/analyze-patterns.mjs`** — those are separate modes. Positioning reads; it does not scan or re-process. (`analyze-patterns.mjs --scouting` overlaps with `positioning-intel.mjs` but reasons at corpus level only; positioning-intel adds the per-archetype lever layer this mode needs.)
 - **Respect the Data Contract.** This mode reads a lot of files but writes ONLY to `reports/positioning/positioning-*.md`.
 - **One positioning report per month max.** If `reports/positioning/positioning-{YY-MM}.md` already exists, ask the user whether to overwrite or skip. Usually skip — a month's gap allows enough new data to accumulate.
