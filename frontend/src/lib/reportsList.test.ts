@@ -4,7 +4,8 @@ import {
   getScoreBand, ALL_BANDS, BAND_DETAILS,
   filterReportRows, sortReportRows, corpusBands, bandCounts,
   buildScoreIndex, matchScore,
-  type ScoreBand, type ReportRowLike,
+  distanceToNextBand, fixabilityScore, isNearMiss,
+  type ScoreBand, type ReportRowLike, type FixabilityRow,
 } from '@/lib/reportsList'
 import { makeScoreEntry } from '@/test-utils/fixtures'
 
@@ -161,4 +162,75 @@ test('matchScore falls back to the highest-overall entry for the company', () =>
 test('matchScore returns null when the company is absent from score history', () => {
   const idx = buildScoreIndex([makeScoreEntry({ company: 'Stripe', role: 'Ops' })])
   assert.equal(matchScore(idx, { company: 'Nobody', role: 'X' }), null)
+})
+
+// ─── fixability / near-miss ──────────────────────────────────────────────────
+
+function fixRow(over: Partial<FixabilityRow> = {}): FixabilityRow {
+  return { company: 'Acme', role: 'Analyst', tier: 'T3', overall: 6.9, mtime: 0, ...over }
+}
+
+test('distanceToNextBand measures points to the next band floor', () => {
+  assert.equal(distanceToNextBand(6.9, 'T3'), 0.1)   // decent floor 7.0
+  assert.equal(distanceToNextBand(7.0, 'T2'), 1.0)   // strong floor 8.0
+  assert.equal(distanceToNextBand(5.1, 'T3'), 1.9)   // decent floor 7.0
+})
+
+test('distanceToNextBand returns null for the top band and for unscored rows', () => {
+  assert.equal(distanceToNextBand(9.2, 'T1'), null)   // stellar — no band above
+  assert.equal(distanceToNextBand(null, 'T3'), null)
+  assert.equal(distanceToNextBand(0, 'T3'), null)
+})
+
+test('fixabilityScore: a lever-backed near-miss outranks a closer lever-less one', () => {
+  const withLever  = fixRow({ overall: 6.5, fixability: { hasLever: true } })
+  const noLever     = fixRow({ overall: 6.9, fixability: { hasLever: false } })   // closer, but no lever
+  assert.ok(fixabilityScore(withLever) > fixabilityScore(noLever))
+})
+
+test('fixabilityScore is 0 for top-band and unscored rows (not in the ranking)', () => {
+  assert.equal(fixabilityScore(fixRow({ overall: 9.3, tier: 'T1', fixability: { hasLever: true } })), 0)
+  assert.equal(fixabilityScore(fixRow({ overall: null, fixability: { hasLever: true } })), 0)
+})
+
+test('fixabilityScore rises as the gap to the next band shrinks (lever-less)', () => {
+  const far   = fixRow({ overall: 5.2, fixability: { hasLever: false } })
+  const near  = fixRow({ overall: 6.8, fixability: { hasLever: false } })
+  assert.ok(fixabilityScore(near) > fixabilityScore(far))
+})
+
+test('isNearMiss: small gap OR a concrete lever qualifies; top-band never does', () => {
+  assert.equal(isNearMiss(fixRow({ overall: 6.9, fixability: { hasLever: false } })), true)  // 0.1 gap
+  assert.equal(isNearMiss(fixRow({ overall: 5.5, fixability: { hasLever: false } })), false) // 1.5 gap, no lever
+  assert.equal(isNearMiss(fixRow({ overall: 5.5, fixability: { hasLever: true } })), true)   // lever overrides gap
+  assert.equal(isNearMiss(fixRow({ overall: 9.4, tier: 'T1', fixability: { hasLever: true } })), false)
+})
+
+test('filterReportRows nearMissOnly keeps only near-miss rows', () => {
+  const rows = [
+    fixRow({ company: 'Close',  overall: 6.95, fixability: { hasLever: false } }),  // 0.05 gap
+    fixRow({ company: 'Lever',  overall: 5.4,  fixability: { hasLever: true } }),   // lever
+    fixRow({ company: 'Far',    overall: 5.4,  fixability: { hasLever: false } }),  // out
+    fixRow({ company: 'Top',    overall: 9.2, tier: 'T1', fixability: { hasLever: true } }), // out
+  ]
+  assert.deepEqual(
+    filterReportRows(rows, { nearMissOnly: true }).map(r => r.company).sort(),
+    ['Close', 'Lever'],
+  )
+})
+
+test('sortReportRows by fixable puts the cheapest upgrade first under desc', () => {
+  const rows = [
+    fixRow({ company: 'Far',   overall: 5.3, fixability: { hasLever: false } }),
+    fixRow({ company: 'Lever', overall: 6.4, fixability: { hasLever: true } }),
+    fixRow({ company: 'Close', overall: 6.95, fixability: { hasLever: false } }),
+    fixRow({ company: 'Top',   overall: 9.3, tier: 'T1', fixability: { hasLever: true } }),
+  ]
+  const order = sortReportRows(rows, 'fixable', 'desc').map(r => r.company)
+  // Lever-backed near-miss leads; the closer lever-less row follows; the two
+  // zero-fixability rows (Far = too far, Top = no upgrade target) trail, and
+  // among equal fixability the higher raw overall wins the tie-break.
+  assert.equal(order[0], 'Lever')
+  assert.equal(order[1], 'Close')
+  assert.deepEqual(order.slice(2), ['Top', 'Far'])   // both fixability 0, tie-break by overall desc
 })
