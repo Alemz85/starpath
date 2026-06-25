@@ -11,6 +11,7 @@
     "pdf": "node scripts/generate-pdf.mjs",
     "ats-coverage": "node scripts/ats-coverage.mjs",
     "sync-check": "node scripts/cv-sync-check.mjs",
+    "cv-gap": "node scripts/cv-gap.mjs",
     "story-bank": "node scripts/check-story-bank.mjs",
     "liveness": "node scripts/check-liveness.mjs",
     "research": "node scripts/company-research.mjs",
