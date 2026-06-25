@@ -123,6 +123,9 @@ Generate a **short summary report**. Universal header (with `**Tier:** T2` to ma
 ## Dimensional scoring
 (Standard report block — see modes/_shared.md § Standard report block format)
 
+## Why this score
+(Why-this-score block — render `explanation.headline` + the binding constraint + closest lever from score-listing.mjs. See modes/_shared.md § Why-this-score block.)
+
 ## Fit / gaps
 {2 bullets max — strongest match + biggest gap}
 
@@ -143,6 +146,9 @@ Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal hea
 ## Dimensional scoring
 (Standard report block)
 
+## Why this score
+(Why-this-score block — render `explanation.headline` + binding constraint + closest lever from score-listing.mjs. On a Growth Target this is the most important section: the lever IS the roadmap. See modes/_shared.md § Why-this-score block.)
+
 ## Gaps and opportunities
 - **Gap:** {1 bullet — the single biggest CF blocker + dimension}
 - **Revisit when:** {one line, concrete trigger}
@@ -161,6 +167,9 @@ The Stellar report leads with the dimensional table — it's the load-bearing ar
 ```markdown
 ## Dimensional scoring
 (Standard report block — see modes/_shared.md § Standard report block format)
+
+## Why this score
+(Why-this-score block — render `explanation.headline` + binding constraint from score-listing.mjs. A Stellar role usually has no lever — say so honestly rather than inventing one. See modes/_shared.md § Why-this-score block.)
 
 ## Peer ranking (optional — include only when ≥5 peers exist for the primary archetype in `data/score-history.tsv`)
 

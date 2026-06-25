@@ -73,6 +73,8 @@ import {
   applyBrandCalibration, applyGrowthCalibration, applyAspirationalFitFloor,
 } from './lib/calibration.mjs'
 
+import { explainScore } from './lib/explain-score.mjs'
+
 import * as taxCache from './lib/tax-cache.mjs'
 import * as colCache from './lib/col-cache.mjs'
 
@@ -201,6 +203,21 @@ export async function scoreListing(input) {
   }
   const tierResult = assignTier({ cf, af, sixDims })
 
+  // 7b. Explainability bundle — binding constraint, per-rollup drivers, and
+  // the smallest single-dimension lever that crosses into a better band. Pure
+  // (replays the same engine), so it can't drift from the scores above.
+  const explanation = explainScore({
+    sixDims,
+    cf,
+    af,
+    tier: tierResult.tier,
+    context: {
+      salary_adj_for_city: finalSalaryAdjScore,
+      work_life_balance:   j.work_life_balance,
+      is_intern:           input.is_intern === true,
+    },
+  })
+
   // 7. Provenance string for the Salary Adj reasoning cell.
   // When the comp comes from an estimate (Glassdoor / Levels.fyi /
   // comp-cache lookup) instead of being disclosed in the JD, mark the
@@ -246,6 +263,7 @@ export async function scoreListing(input) {
     overall_modifiers: modifiersApplied,
     tier: tierResult.tier,
     tier_reason: tierResult.reason,
+    explanation,
   }
 }
 
