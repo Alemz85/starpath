@@ -49,6 +49,31 @@ Read ALL of these if they exist. Skip any that are missing with a note.
 
 **RULE:** Do not open individual report files for the quantitative pass. Read `data/report-summaries.tsv` and `data/score-history.tsv` for all quantitative signals. Only open full `.md` reports (**max 5 total**) for qualitative color when you need specific gap phrasing or recommendation detail.
 
+### The quantitative backbone — run this first, reason off it
+
+Before any hand-computation, run the positioning-intelligence script. It does the entire quantitative pass for you — deterministically, off the same scoring engine that produced the reports — so you spend your tokens on the *read*, not the arithmetic:
+
+```bash
+node scripts/positioning-intel.mjs --summary    # human-readable, for your scratch notes
+node scripts/positioning-intel.mjs              # full JSON, when you need every field
+```
+
+What it returns (all derived from `data/score-history.tsv` at runtime — nothing hardcoded):
+
+| Field | What it gives you | Where it lands in the report |
+|-------|-------------------|------------------------------|
+| `landscape` | corpus avg/median Overall, band mix, `wastedShare` (% of evals below 6.0) | § 1 opening + Appendix |
+| `fingerprints[]` | per-archetype 6-dim average + `bottleneck` (lowest dim) + `avgOverall` / `strongRate` / `share` | § 2 per-archetype judgments + Appendix B |
+| `levers[]` | for each archetype's **average role**: replayed `cf` / `af` / `tier`, its `bindingConstraint`, and the **`cheapestLever`** — the smallest single-dimension raise that re-bands the typical role | § 2 "Path forward" + § 3 |
+| `systemicConstraint.dominant` | the one dimension that binds the typical role across the **most** archetypes, with the list of archetypes it gates | § 1 binding-constraint paragraph + TL;DR |
+| `systemicConstraint.lever` | the cheapest-lever dimension shared by the most archetypes — the **single fix with the largest cross-archetype leverage** | TL;DR "highest-leverage cheap fix" + § 3 |
+| `dimensionDrag[]` | corpus-wide per-dimension average + `lowShare` (% of evals where it scored ≤ 4) | Appendix B/C cross-reference |
+| `cityExposure[]` | where solid+ matches cluster geographically | § 1 geographic read + Appendix D |
+
+**Why this is the backbone, not a sidecar:** `systemicConstraint` *is* the answer to Step 2's "single cheapest fix with the largest cross-archetype leverage". The distinction it draws is the whole point of the report — the dimension that *binds* the most archetypes (`dominant`) is often NOT the dimension that's *cheapest to lift* (`lever`). Example shape: Ease of Entry may gate the typical role in most of your archetypes, but EoE is a slow fix (experience/credential); meanwhile a one-point lift in Strategic/Analytical Fit might re-band the typical role in several archetypes at once via a positioning reframe. **The report's headline move is `systemicConstraint.lever`, framed against `systemicConstraint.dominant`** — substitute the actual dimensions the script returns; never assume which they are.
+
+Treat the script's numbers as canonical. Do not recompute CF/AF/tier by hand — the script replays the real engine (`score-bands.mjs` via `explain-score.mjs`), so a hand-computed number that disagrees is YOUR error, not the script's.
+
 ### `data/score-history.tsv` schema (read this carefully)
 
 The TSV is the primary quantitative input. Schema (see `modes/_shared.md` § "Logging to data/score-history.tsv" for the canonical definition):
@@ -79,35 +104,37 @@ Count rows in `score-history.tsv` and tracker entries. If the corpus is too thin
 - At least 15 rows in `score-history.tsv` (or 10 tracker entries if score-history is empty) to produce the "where you stand today" section
 - At least 2 prior positioning reports OR 60 days of score-history data for a real trajectory section (otherwise establish a baseline only)
 
-### Step 1 — Compute quantitative signals (kept internal until Step 3)
+### Step 1 — Gather quantitative signals (kept internal until Step 3)
 
-Run the math yourself, holding the results in working memory. You will **not** dump these as the first thing the user sees — they go into the Appendix and the body of the report only references them inline as evidence for a judgment.
+**Run `node scripts/positioning-intel.mjs --summary` first** and paste its output into your scratch notes — that single run delivers A, B, the systemic constraint, geographic clustering, and the per-archetype levers below, all replayed off the real scoring engine. Then layer in the few signals the script can't derive (the qualitative gaps in C, the comp/Brand-WLB reads in E, the free-text tallies in F/G) by reading `report-summaries.tsv` and at most 5 full reports.
 
-Compute:
+You will **not** dump any of this as the first thing the user sees — it goes into the Appendix, and the body only references it inline as evidence for a judgment.
 
-**A) Rollup view by archetype** — `# evals`, `Avg CF`, `Avg AF`, `Avg Overall`, plus a Trend arrow (most recent 30 days vs prior 30 days; ↑ ≥+0.3, → ±0.3, ↓ ≤−0.3; n/a if either window has <3 rows). Skip archetypes with <3 total evaluations.
+**A) Rollup + lever view by archetype** — straight from `fingerprints[]` + `levers[]`: `# evals`, `Avg CF`, `Avg AF`, `Avg Overall`, the replayed `tier` of the average role, and its `cheapestLever` (the smallest single-dim raise that re-bands it). Add a Trend arrow yourself if you have the data (most recent 30 days vs prior 30 days; ↑ ≥+0.3, → ±0.3, ↓ ≤−0.3; n/a if either window has <3 rows). The script already skips archetypes with <3 evals (`minRoles`), so its list IS the set you analyze in the body.
 
-**B) Dimensional fingerprint by archetype** — for each archetype with ≥3 evals, the average of each of the 7 dimensions (6 rollup + sales-trap). Identify the lowest-scoring dimension per archetype (the bottleneck).
+**B) Dimensional fingerprint by archetype** — `fingerprints[].dims` gives the 6-dim average; `fingerprints[].bottleneck` flags the lowest-scoring dimension (the archetype's own bottleneck). Cross-reference with corpus-wide `dimensionDrag[]` to see whether an archetype's bottleneck is idiosyncratic or part of the systemic drag. Add the sales-trap average yourself if you want the 7th dimension — the script covers the 6 rollup dims.
 
-**C) Recurring gaps** — open up to 5 full reports (one per primary archetype where possible). Parse the qualitative "Key gaps" sections. Cross-reference each gap with the dimensional fingerprint from B — a gap that recurs in the prose AND drags the same dimension quantitatively is a high-conviction finding worth surfacing in the body.
+**The systemic constraint (new, and the spine of the report)** — `systemicConstraint.dominant` names the dimension that gates the typical role across the most archetypes; `systemicConstraint.lever` names the cheapest shared lever. These two answers ARE Step 2's questions 2 and 3. Do not re-derive them — read them off the JSON and reason about *why* the dominant constraint is expensive while the lever is cheap.
 
-**D) Geographic opportunity** — by city: `# listings`, `Avg CF`, `Avg AF`, `Best Cities geo score`, `Salary Adj`. Mark preferred cities per `_profile.md` / `user/profile.yml`. Flag any city with `salary_adj_city` avg below 3.0.
+**C) Recurring gaps** — open up to 5 full reports (one per primary archetype where possible). Parse the qualitative "Key gaps" sections. Cross-reference each gap with the dimensional fingerprint from B — a gap that recurs in the prose AND drags the same dimension quantitatively (per `dimensionDrag[]`) is a high-conviction finding worth surfacing in the body.
 
-**E) Brand vs WLB patterns** — per archetype: `Avg Brand`, `Avg WLB`, `Avg Sales-Trap`. Surface mismatches (e.g., high brand + low WLB = recurring trade-off).
+**D) Geographic opportunity** — `cityExposure[]` gives where solid+ matches cluster. For the comp/Salary-Adj read, pull `salary_adj_city` per city from the TSV yourself. Mark preferred cities per `_profile.md` / `user/profile.yml`. Flag any city with `salary_adj_city` avg below 3.0.
+
+**E) Brand vs WLB patterns** — per archetype: `Avg Brand` (in `fingerprints[].dims.brand_value`), `Avg WLB`, `Avg Sales-Trap` (read WLB/sales-trap from the TSV). Surface mismatches (e.g., high brand + low WLB = recurring trade-off).
 
 **F) Best-fit alternative roles** — tally the `best_fit_roles` column across the corpus. Top 10–15 alternative roles with counts.
 
 **G) Dream company coverage** — for each company in `user/profile.yml → target_roles.dream_companies`: postings seen, rollup averages, roles surfaced.
 
-All seven outputs land in the **Appendix**. The body of the report uses them as evidence for judgments — it does not re-list them.
+All of these outputs land in the **Appendix**. The body of the report uses them as evidence for judgments — it does not re-list them.
 
 ### Step 2 — Decide the punchline FIRST
 
 Before writing any prose, force yourself to answer these four questions in one sentence each. Write them down at the top of your scratch notes; the entire report flows from these:
 
 1. **What's the one path the user should focus on next cycle, and why?** (Anchor to the strongest archetype-by-Overall plus market demand and growth potential.)
-2. **What's the one thing the user should STOP doing or de-prioritize?** (Anchor to the lowest-conviction archetype, the leakiest portal config, or a structural bottleneck the user has been ignoring.)
-3. **What's the single cheapest fix with the largest cross-archetype leverage?** (Usually a positioning reframe, a portal-config tightening, or a missing portal entirely — something that attacks the binding constraint across multiple archetypes. Don't quote a timeline; just identify the move.)
+2. **What's the one thing the user should STOP doing or de-prioritize?** (Anchor to the lowest-`avgOverall` archetype from `fingerprints[]` that still eats real `share`, the leakiest portal config, or a structural bottleneck the user has been ignoring.)
+3. **What's the single cheapest fix with the largest cross-archetype leverage?** (This is `systemicConstraint.lever` — the dimension whose single-point lift re-bands the typical role in the most archetypes. Frame it against `systemicConstraint.dominant`: the dimension that *binds* the most archetypes is usually the expensive one, so the move is the cheaper lever that buys the most re-bandings. Usually that lever cashes out as a positioning reframe, a portal-config tightening, or a missing portal — something that attacks the constraint across multiple archetypes. Don't quote a timeline; just identify the move.)
 4. **What's the runner-up path, and why is it runner-up rather than primary?** (Forces the counterfactual; prevents wishy-washy "do everything" recommendations.)
 
 These four answers become the **TL;DR block at the top of the report** (Step 3, output structure below). They also constrain every per-archetype section — if a section's verdict contradicts the punchline, one of them is wrong and you need to reconcile before writing.
@@ -155,7 +182,7 @@ Write the full report to `reports/positioning/positioning-{YY-MM}.md`. Use this 
 **3–5 paragraphs of prose.** No tables in this section. Anchor every claim to a number from the Appendix; format anchors as "{archetype} is the strongest fingerprint — CF {X.X} / AF {X.X} across {N} evals — and {what that means for the call}". The illustration is the *shape* of the sentence, not the archetype or score; substitute the user's actual values. Cover:
 
 - The shape of the corpus — what's dense, what's thin, what's surprising
-- The binding constraint — the single dimension or structural issue that recurs across multiple archetypes, and the one fix that addresses it
+- The binding constraint — lead with `systemicConstraint.dominant`: name the dimension that gates the typical role across the most archetypes and list how many it binds. Then make the report's signature move: contrast it with `systemicConstraint.lever` — "X binds the most archetypes but is the slow fix; the cheapest move that actually re-bands the most typical roles is a single-point lift in Y, because [reframe / portal change]". This is the sentence the rest of the report hangs on; anchor it to the exact dimensions and archetype counts the script returned, never an assumed pair.
 - The brand picture — where the user's brand stack is compounding vs. where the scanner is pulling mid-tier seats that don't help
 - The geographic read — which city is structurally strongest, where comp doesn't justify cost, what's dormant but about to activate
 - Any surprise — a counter-intuitive finding (e.g., "this archetype under-delivers because the scanner is pulling the wrong employer tier, not because the archetype is broken")
@@ -172,7 +199,7 @@ For each **primary** archetype (from `_profile.md`):
 
 **What's missing** (2–4 bullets max): each bullet names the gap and the dimension it lowers. If you can't name both, the gap isn't ready to surface yet.
 
-**Path forward** — one short paragraph (3–6 sentences) describing the route, not a timeline. Name the entry move (where the user breaks in: a specific kind of role, the prerequisite proof point that gets them past the screen), the compounding move (the next role or pivot the entry seat sets up), and the exit options it leaves open. Anchor to the bottleneck dimension throughout — say what each step does to relieve it. Do **not** assign months or weeks to steps; the user's actual cadence depends on cycle windows you can't predict. If the path materially depends on the order of two moves, say so in prose ("X has to happen before Y because…") — don't fake a Gantt chart.
+**Path forward** — one short paragraph (3–6 sentences) describing the route, not a timeline. Anchor it to this archetype's own `cheapestLever` from `levers[]`: that field tells you the exact dimension + raise (e.g. "Strategic Fit 6.8 → 7.8") that moves the *typical* role in this archetype from its current `tier` to a better one — so the entry move should be whatever closes that specific gap (the prerequisite proof point, reframe, or role choice that lifts that dimension past the screen). Then name the compounding move (the next role or pivot the entry seat sets up) and the exit options it leaves open. Anchor to the `bottleneck` dimension throughout — say what each step does to relieve it. If the archetype's average role is already top-band (`tier` is T1 / `cheapestLever` is null), say so and pivot the paragraph to "protect and harvest" rather than "break in". Do **not** assign months or weeks to steps; the user's actual cadence depends on cycle windows you can't predict. If the path materially depends on the order of two moves, say so in prose ("X has to happen before Y because…") — don't fake a Gantt chart.
 
 **Where to find this path** (one line): top 5 companies from the corpus, comma-separated, with city in parens. Pull from scan-history, not invented.
 
@@ -193,7 +220,7 @@ This is the **expanded** version of the TL;DR's focus path — 4–6 paragraphs.
 4. **Counterfactual:** why NOT the runner-up — for EACH plausible runner-up, one sentence on why it's not the call this cycle
 
 **Concrete next actions** (no timelines — just the moves, ordered by what unblocks what):
-1. {action — usually the positioning reframe or portal-config fix; what it unblocks}
+1. {action — usually the positioning reframe or portal-config fix that cashes out `systemicConstraint.lever`; name the dimension it lifts and the archetypes it re-bands, then what that unblocks}
 2. {action — usually a missing-portal addition or a cycle-window calendar item; what it unblocks}
 3. {action — usually a specific application paired with a referral path; what it unblocks}
 4. {action — usually the highest-ROI skill / cert / proof point; what it unblocks}
@@ -222,7 +249,7 @@ This is where ALL the tables live. The body of the report references them as evi
 {Step 1A table}
 
 ### B. Dimensional fingerprint by archetype
-{Step 1B table — full 7-dimension breakdown}
+{Step 1B table — full 7-dimension breakdown from `fingerprints[].dims` (+ sales-trap added by hand), with each archetype's `bottleneck` dimension and its average-role `cheapestLever` (dimension · from → to · resulting tier) appended as columns. This is also where the systemic-constraint detail lives: list `systemicConstraint.dominant` (dimension + the archetypes it binds) and `systemicConstraint.lever` (dimension + the archetypes a single lift re-bands + avg lift), so the body's headline claim is verifiable here.}
 
 ### C. Recurring gaps cross-reference
 {Step 1C table — qualitative gap × dimension it lowers × time-to-close}
@@ -241,6 +268,7 @@ This is where ALL the tables live. The body of the report references them as evi
 
 ### H. Data sources
 - `score-history.tsv`: {N} rows, {from} → {to}
+- `positioning-intel.mjs`: backbone aggregates (run `node scripts/positioning-intel.mjs --summary`); {archetypesAnalyzed} archetypes with ≥ {minRoles} roles
 - `applications.md`: {M} entries
 - `report-summaries.tsv`: {K} cached summaries
 - Reports sampled for qualitative color ({≤5}): {filenames}
@@ -282,6 +310,7 @@ Full report: reports/positioning/positioning-{YY-MM}.md
 - **Hard cap: ≤4 tables in the body.** All others belong in the Appendix.
 - **Do not tailor CV or generate PDFs** in this mode. It's analytical, not generative.
 - **Do not modify `_profile.md` or `user/profile.yml`** automatically. If the report recommends a change (e.g., drop a dead archetype), surface it as a suggestion in Appendix J and ask the user before editing.
-- **Do not rerun `scripts/scan.mjs` or `scripts/analyze-patterns.mjs`** — those are separate modes. Positioning reads; it does not scan or re-process.
+- **Do run `scripts/positioning-intel.mjs`** — it's a pure, zero-token, read-only aggregation over `data/score-history.tsv` (it does not write anything). Trust its CF/AF/tier/lever numbers over any you compute by hand; it replays the canonical scoring engine.
+- **Do not rerun `scripts/scan.mjs` or `scripts/analyze-patterns.mjs`** — those are separate modes. Positioning reads; it does not scan or re-process. (`analyze-patterns.mjs --scouting` overlaps with `positioning-intel.mjs` but reasons at corpus level only; positioning-intel adds the per-archetype lever layer this mode needs.)
 - **Respect the Data Contract.** This mode reads a lot of files but writes ONLY to `reports/positioning/positioning-*.md`.
 - **One positioning report per month max.** If `reports/positioning/positioning-{YY-MM}.md` already exists, ask the user whether to overwrite or skip. Usually skip — a month's gap allows enough new data to accumulate.
