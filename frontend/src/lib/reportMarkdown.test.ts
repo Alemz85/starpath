@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   extractMetadata, parseDimensionalScoring, parseRow,
-  extractWhyThisScoreSection, parseWhyThisScore,
+  extractWhyThisScoreSection, parseWhyThisScore, splitWhyThisScore,
 } from '@/lib/reportMarkdown'
 
 // A representative evaluation report — header + metadata block, a dimensional
@@ -256,4 +256,73 @@ test('parseWhyThisScore accepts "Binding constraint" / "Cheapest lever" label sy
   assert.equal(why.bindingConstraint, 'Ease of Entry gate.')
   assert.equal(why.lever, 'Brand value 6 → 8 crosses the band.')
   assert.equal(why.headline, '')   // no non-bullet lede line
+})
+
+// ─── splitWhyThisScore (slide-over rendering split) ──────────────────────────
+
+test('splitWhyThisScore parses the block and removes it from the trailing prose', () => {
+  const after = `## Why this score
+Strong aspirational pull, but the experience wall keeps Current Fit just under T2.
+
+- **Holding it back:** Ease of Entry 4/10 trips the experience-wall gate.
+- **Closest lever:** Skills match 7 → 8 (+1) crosses Current Fit into the T2 band.
+
+## Role summary
+Great role.
+`
+  const { why, rest } = splitWhyThisScore(after)
+  assert.equal(why.present, true)
+  assert.ok(why.headline.startsWith('Strong aspirational pull'))
+  assert.equal(why.bindingConstraint, 'Ease of Entry 4/10 trips the experience-wall gate.')
+  assert.equal(why.lever, 'Skills match 7 → 8 (+1) crosses Current Fit into the T2 band.')
+  // The block is gone from rest; the following section survives intact.
+  assert.ok(!rest.includes('## Why this score'))
+  assert.ok(!rest.includes('Holding it back'))
+  assert.ok(rest.includes('## Role summary'))
+  assert.ok(rest.includes('Great role.'))
+})
+
+test('splitWhyThisScore preserves prose that precedes the block', () => {
+  const after = `## Role summary
+A solid match.
+
+## Why this score
+The comp gap is the only thing below band.
+
+- **Holding it back:** Comp 5/10 drags Current Fit.
+
+## Gaps
+Need more SQL.
+`
+  const { why, rest } = splitWhyThisScore(after)
+  assert.equal(why.bindingConstraint, 'Comp 5/10 drags Current Fit.')
+  assert.ok(rest.includes('## Role summary'))
+  assert.ok(rest.includes('A solid match.'))
+  assert.ok(rest.includes('## Gaps'))
+  assert.ok(rest.includes('Need more SQL.'))
+  assert.ok(!rest.includes('## Why this score'))
+})
+
+test('splitWhyThisScore returns present:false and the md untouched when no block exists', () => {
+  const after = `## Role summary
+No why-block here.
+`
+  const { why, rest } = splitWhyThisScore(after)
+  assert.equal(why.present, false)
+  assert.equal(rest, after)
+})
+
+test('splitWhyThisScore drops a Why block that sits at the very end (no following heading)', () => {
+  const after = `## Role summary
+Great role.
+
+## Why this score
+Headline only, no bullets.
+`
+  const { why, rest } = splitWhyThisScore(after)
+  assert.equal(why.present, true)
+  assert.ok(why.headline.startsWith('Headline only'))
+  assert.ok(rest.includes('## Role summary'))
+  assert.ok(!rest.includes('## Why this score'))
+  assert.ok(!/\n{3,}/.test(rest))   // no blank-line crater left behind
 })
