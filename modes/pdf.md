@@ -9,36 +9,75 @@
 
 ## Pipeline completo
 
-1. Lee `user/cv.md` como fuentes de verdad
-2. Pide al usuario el JD si no está en contexto (texto o URL)
-3. Extrae 15-20 keywords del JD. Para un set objetivo y reproducible, guarda el
-   texto del JD en `/tmp/jd-{company}.txt` y ejecuta
-   `node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv user/cv.md --json`
-   — el campo `keywords` lista los términos rankeados por relevancia (unigrams,
-   bigrams y phrases) y ya marca cuáles cubre tu CV base y cuáles faltan.
-4. Detecta idioma del JD → idioma del CV (EN default)
+1. Lee `user/cv.md` y (si existe) `user/article-digest.md` como fuentes de verdad del candidato.
+2. Pide al usuario el JD si no está en contexto (texto o URL).
+3. **Extrae y rankea las keywords del JD** — guarda el texto del JD en `/tmp/jd-{company}.txt` y ejecuta:
+   ```bash
+   node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv user/cv.md --json
+   ```
+   Trabaja con el array `keywords[]` completo (no solo los `missing[]`): incluye `term`, `count` y `type`. Ordénalos internamente por relevancia ponderada: phrases > bigrams > unigrams con mayor `count`. Estos son los términos que guiarán todo el proceso de tailoring.
+4. Detecta idioma del JD → idioma del CV (EN default).
 5. Detecta ubicación empresa → formato papel:
    - US/Canada → `letter`
    - Resto del mundo → `a4`
-6. Detecta arquetipo del rol → adapta framing
-7. Reescribe Professional Summary inyectando keywords del JD + el *narrative bridge* del candidato — tómalo de `user/_profile.md` / `user/cv.md` (su narrativa de transición/posicionamiento), p.ej. "{tu narrativa de origen}. Now applying {tu fortaleza central} to {domain del JD}." NUNCA inventes una narrativa que no esté en los archivos del usuario.
-8. Selecciona top 3-4 proyectos más relevantes para la oferta
-9. Reordena bullets de experiencia por relevancia al JD
-10. Construye competency grid desde requisitos del JD (6-8 keyword phrases)
-11. Inyecta keywords naturalmente en logros existentes (NUNCA inventa)
-12. Genera HTML completo desde template + contenido personalizado
-13. Lee `name` de `user/profile.yml` → normaliza a kebab-case lowercase (e.g. "John Doe" → "john-doe") → `{candidate}`
-14. Escribe HTML a `/tmp/cv-{candidate}-{company}.html`
-15. **Mide la cobertura ATS ANTES de renderizar** (no la estimes a ojo):
-    `node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv /tmp/cv-{candidate}-{company}.html`
-    - Si la cobertura < ~70 %, lee la lista de **missing keywords** y cierra el hueco:
-      reformula logros REALES con el vocabulario exacto del JD (§ "Estrategia de
-      keyword injection"). NUNCA inventes skills para subir el número.
-    - Re-ejecuta hasta que la cobertura sea sólida (≥75 % = strong) o hasta que las
-      keywords restantes sean genuinamente ajenas al perfil del candidato (en cuyo
-      caso es señal de fit bajo, no de un CV mal escrito).
-16. Ejecuta: `node scripts/generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4}`
-17. Reporta: ruta del PDF, nº páginas, y la **% cobertura de keywords medida** (del paso 15, no estimada), más las keywords que quedaron sin cubrir y por qué.
+6. Detecta arquetipo del rol → adapta framing.
+7. **Genera contenido personalizado (pasos 7a–7e antes de escribir HTML):**
+
+   **7a. Professional Summary** — escribe 3-4 líneas que:
+   - Abre con la narrativa de transición/posicionamiento del candidato desde `user/_profile.md` / `user/cv.md`. NUNCA inventes una narrativa que no esté en esos archivos.
+   - Inyecta los top 4-5 keywords del JD (priorizando phrases y bigrams de mayor `count`) en las primeras dos frases.
+   - Cierra con una frase de framing específica al domain del JD.
+   - El Summary es la sección de mayor densidad de keywords; cada frase debe servir de ancla para al menos un término clave.
+
+   **7b. Core Competencies** — selecciona 6-8 keyword phrases para el grid:
+   - Elige las phrases y bigrams de mayor `count` del JD que el candidato genuinamente posee.
+   - Completa con unigrams técnicos de alta frecuencia si el candidato tiene esa skill.
+   - Descarta cualquier término que el candidato NO tenga — el grid debe ser verificable.
+   - Formato: `<span class="competency-tag">keyword</span>` × 6-8.
+
+   **7c. Selección y reordenación de proyectos** — para escoger los top 3-4:
+   - Puntúa cada proyecto de `user/cv.md` (y pruebas en `user/article-digest.md` si existe) contra el set de keywords del JD: +2 por phrase/bigram match, +1 por unigram match.
+   - Selecciona los 3-4 con mayor score.
+   - Dentro de cada proyecto, reordena bullets poniendo primero los que más keywords del JD contienen.
+   - Reformula los bullets de los proyectos seleccionados con el vocabulario exacto del JD (ver § "Estrategia de keyword injection").
+
+   **7d. Reordenación de bullets de experiencia** — para cada rol laboral:
+   - Calcula un score de relevancia para cada bullet: count de keywords del JD que aparecen (stem-lite).
+   - Reordena bullets de mayor a menor score dentro del mismo rol.
+   - El primer bullet de cada rol es el más expuesto al ATS y al recruiter scan — debe cubrir la keyword de mayor peso (`count` × type-factor) que ese rol pueda justificar.
+   - Reformula bullets usando vocabulario exacto del JD (§ "Estrategia de keyword injection"). Consulta `user/article-digest.md` para proof-points más específicos.
+
+   **7e. Skills section** — extrae todos los skills técnicos y de idioma del candidato desde `user/cv.md`. No los inventes, no los amplifiques.
+
+8. Construye el HTML completo desde `templates/cv-template.html` + el contenido de 7a–7e.
+9. Lee `name` de `user/profile.yml` → normaliza a kebab-case lowercase → `{candidate}`. Escribe el HTML a `/tmp/cv-{candidate}-{company}.html`.
+
+10. **Mide la cobertura ATS y cierra gaps (loop hasta convergencia):**
+
+    ```bash
+    node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv /tmp/cv-{candidate}-{company}.html --json
+    ```
+
+    **Proceso de gap-closing estructurado:**
+
+    Para cada keyword en `missing[]`, decide en orden:
+
+    a. **¿El candidato tiene experiencia real con este término?** Compruébalo en `user/cv.md` + `user/article-digest.md`.
+       - **Sí** → reformula el logro más relevante usando el vocabulario exacto del JD (§ "Estrategia de keyword injection"). Prioriza: Summary primero si el término es de alta frecuencia (`count ≥ 3`), primer bullet del rol más relevante segundo, Skills section para términos técnicos discretos.
+       - **No** → marca como "genuinamente ajeno al perfil". No toques nada. Si hay 3+ términos core genuinamente ajenos, ese es el síntoma de un fit bajo, no de un CV mal escrito.
+
+    b. **¿Está ya cubierto por un sinónimo pero no en la forma exacta del JD?** (e.g., el CV dice "retrieval-augmented generation" pero el JD dice "RAG") → reformula para incluir AMBAS formas si caben naturalmente.
+
+    c. **¿Es un bigram cuyas palabras ya aparecen por separado?** (e.g., JD "stakeholder management", CV ya tiene "stakeholder" y "management") — el ATS suele reconocerlo, pero si `count ≥ 2` en el JD, inyecta la phrase completa en Summary o un bullet.
+
+    Vuelve a medir tras cada ronda de reformulaciones. **Para cuando:**
+    - `coveragePct ≥ 75` → strong, procede.
+    - `coveragePct` no sube entre iteraciones → has reformulado todo lo que puedes sin inventar; procede con la cobertura actual y reporta las keywords sin cubrir como "fuera del perfil".
+    - `coveragePct ≥ 55` con todos los restantes marcados "genuinamente ajenos" → aceptable; procede.
+    - `coveragePct < 55` con múltiples keywords core sin cubrir → señal de fit bajo; repórtalo en el output final.
+
+11. Ejecuta: `node scripts/generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4}`
+12. Reporta: ruta del PDF, nº páginas, **% cobertura ATS medida** (del paso 10, no estimada), keywords cubiertas vs. sin cubrir, y si las keywords sin cubrir son "fuera del perfil" o "cierre pendiente".
 
 ## Reglas ATS (parseo limpio)
 
@@ -48,7 +87,7 @@
 - Sin info crítica en headers/footers del PDF (ATS los ignora)
 - UTF-8, texto seleccionable (no rasterizado)
 - Sin tablas anidadas
-- Keywords del JD distribuidas: Summary (top 5), primer bullet de cada rol, Skills section
+- Keywords del JD distribuidas por sección: Summary (top 4-5 keywords, mayor densidad), primer bullet de cada rol (1-2 keywords core), Core Competencies grid (6-8 phrases/bigrams), Skills section (términos técnicos discretos)
 
 ## Diseño del PDF
 
@@ -73,21 +112,34 @@
 
 ## Estrategia de keyword injection (ético, basado en verdad)
 
-Ejemplos de reformulación legítima:
-- JD dice "RAG pipelines" y CV dice "LLM workflows with retrieval" → cambiar a "RAG pipeline design and LLM orchestration workflows"
-- JD dice "MLOps" y CV dice "observability, evals, error handling" → cambiar a "MLOps and observability: evals, error handling, cost monitoring"
-- JD dice "stakeholder management" y CV dice "collaborated with team" → cambiar a "stakeholder management across engineering, operations, and business"
+**Principio:** reformula experiencia REAL con el vocabulario EXACTO del JD. La misma tarea descrita con el término que el ATS y el recruiter esperan ver. NUNCA añadir skills que el candidato no tiene.
 
-**NUNCA añadir skills que el candidato no tiene. Solo reformular experiencia real con el vocabulario exacto del JD.**
+**Dónde inyectar según el tipo de keyword:**
+
+| Tipo | Dónde inyectar primero |
+|------|------------------------|
+| Phrase / bigram, `count ≥ 3` | Professional Summary (frase 1-2) |
+| Phrase / bigram, `count 1-2` | Primer bullet del rol más relevante, o Core Competencies grid |
+| Unigram técnico de alta frecuencia | Core Competencies grid o Skills section |
+| Unigram de baja frecuencia | Bullet del rol o proyecto donde aparece de forma más natural |
+
+**Técnicas de reformulación legítimas:**
+
+- **Vocabulario exacto:** JD dice "RAG pipelines" y CV dice "LLM workflows with retrieval" → "RAG pipeline design and LLM orchestration workflows"
+- **Expansión de scope:** JD dice "MLOps" y CV dice "observability, evals, error handling" → "MLOps and observability: evals, error handling, cost monitoring"
+- **Desambiguación de frase:** JD dice "stakeholder management" y CV dice "collaborated with team" → "stakeholder management across engineering, operations, and business"
+- **Doble forma:** JD usa acrónimo y expansión (e.g., "NLP (natural language processing)") → incluir ambas formas cuando el candidato tiene la skill
+- **Recombinación:** el candidato tiene la experiencia dispersa en dos bullets → consolídala en uno más denso que use la phrase del JD
+
+**Límites duros:**
+- NUNCA inventar skills, herramientas o métricas que el candidato no posee.
+- NUNCA modificar cifras o resultados de logros existentes.
+- NUNCA añadir keywords en secciones donde la skill no es genuinamente aplicable al candidato.
+- La keyword injection NO es relleno: si no cabe naturalmente en una frase que siga siendo verdad, no va.
 
 ## Medición de cobertura ATS (`scripts/ats-coverage.mjs`)
 
-La cobertura de keywords NO se estima a ojo — se mide. El script
-`scripts/ats-coverage.mjs` extrae las keywords del JD (unigrams, bigrams y
-phrases técnicas multi-palabra, filtrando stopwords y boilerplate de reclutador)
-y comprueba cuáles aparecen en el CV. El matching es *stem-lite*: tolera plurales
-y gerundios ("pipelines" ≈ "pipeline", "designing" ≈ "design"), así que no penaliza
-variantes morfológicas legítimas.
+La cobertura NO se estima a ojo — se mide en dos momentos: **antes** (baseline sobre `user/cv.md`) y **después** (sobre el HTML generado). La diferencia cuantifica el valor del tailoring.
 
 ```bash
 # Informe legible (cobertura %, weighted %, veredicto, gap list)
@@ -100,20 +152,12 @@ node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv /tmp/cv-...html --
 cat jd.txt | node scripts/ats-coverage.mjs --jd-stdin --cv /tmp/cv-...html
 ```
 
-El `--cv` acepta el HTML generado (lo convierte a texto automáticamente) o
-`user/cv.md`. Lectura del informe:
+El `--cv` acepta el HTML generado (lo convierte a texto automáticamente) o `user/cv.md`. Lectura del informe:
 
-- **`coveragePct`** — % de keywords del JD presentes en el CV. Veredicto: ≥75 % fuerte,
-  55–74 % aceptable (cierra el gap), <55 % débil.
-- **`weightedCoverage`** — pondera por frecuencia en el JD, así que cubrir un término
-  que el JD repite muchas veces pesa más que uno mencionado de pasada.
-- **`missing`** — la lista accionable: keywords del JD que el CV aún no surface.
-  Para cada una, decide si puedes reformular un logro REAL con ese vocabulario
-  (§ "Estrategia de keyword injection") o si es genuinamente ajena al perfil.
-
-El objetivo es subir la cobertura reformulando experiencia verdadera, **nunca**
-inventando skills para inflar el número. Si tras reformular siguen faltando muchas
-keywords core, eso es señal de fit bajo (el CV está bien; el match no lo está).
+- **`coveragePct`** — % de keywords del JD presentes en el CV. Veredicto: ≥75 % fuerte, 55–74 % aceptable, <55 % débil.
+- **`weightedCoverage`** — pondera por `count` en el JD; cubrir un término que se repite mucho pesa más.
+- **`missing`** — la lista accionable: keywords del JD que el CV aún no surface. Para cada una, decide si es reformulable (§ estrategia) o genuinamente ajena al perfil.
+- **`keywords[]`** — el set completo (covered + missing) con `term`, `count` y `type` — úsalo para priorizar qué inyectar primero.
 
 ## Template HTML
 
@@ -136,9 +180,9 @@ Usar el template en `cv-template.html`. Reemplazar los placeholders `{{...}}` co
 | `{{SECTION_COMPETENCIES}}` | Core Competencies / Competencias Core |
 | `{{COMPETENCIES}}` | `<span class="competency-tag">keyword</span>` × 6-8 |
 | `{{SECTION_EXPERIENCE}}` | Work Experience / Experiencia Laboral |
-| `{{EXPERIENCE}}` | HTML de cada trabajo con bullets reordenados |
+| `{{EXPERIENCE}}` | HTML de cada trabajo con bullets reordenados por relevancia al JD |
 | `{{SECTION_PROJECTS}}` | Projects / Proyectos |
-| `{{PROJECTS}}` | HTML de top 3-4 proyectos |
+| `{{PROJECTS}}` | HTML de top 3-4 proyectos seleccionados por score de relevancia |
 | `{{SECTION_EDUCATION}}` | Education / Formación |
 | `{{EDUCATION}}` | HTML de educación |
 | `{{SECTION_CERTIFICATIONS}}` | Certifications / Certificaciones |
@@ -175,9 +219,9 @@ c. If mapping fails, show the user what was found and ask for guidance
 
 #### Step 3 — Generate tailored content
 
-Same content generation as the HTML flow (Steps 1-11 above):
-- Rewrite Professional Summary with JD keywords + exit narrative
-- Reorder experience bullets by JD relevance
+Same content generation as the HTML flow (Steps 7a–7e above):
+- Rewrite Professional Summary with JD keywords + exit narrative from `user/_profile.md`
+- Reorder experience bullets by JD relevance score
 - Select top competencies from JD requirements
 - Inject keywords naturally (NEVER invent)
 
