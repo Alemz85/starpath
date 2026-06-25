@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useId } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
@@ -264,6 +264,8 @@ function GeneralTab() {
   const setModel = useAppStore(s => s.setModel)
   const resetTailoring = useAppStore(s => s.resetTailoring)
   const refresh = useDataStore(s => s.refresh)
+  const [refreshDone, setRefreshDone] = useState(false)
+  const [retuneDone, setRetuneDone] = useState(false)
 
   const MODEL_ROWS: Array<{
     key: 'pipeline' | 'tailorCv' | 'draftApp' | 'interviewPrep' | 'generateReport'
@@ -282,18 +284,35 @@ function GeneralTab() {
     if (result?.valid) { setRepoPath(result.path); await refresh() }
   }
 
+  const handleRefresh = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    await refresh({ resync: e.shiftKey })
+    setRefreshDone(true)
+    setTimeout(() => setRefreshDone(false), 2000)
+  }
+
+  const handleRetune = () => {
+    resetTailoring()
+    setRetuneDone(true)
+    setTimeout(() => setRetuneDone(false), 2000)
+  }
+
   return (
     <div>
       <SettingRow title="Repository" description="The local career-ops folder Claude reads and writes to.">
         <div className="flex items-center gap-2 mt-3">
-          <div className="flex-1 px-3 py-2 rounded-md border border-border-default bg-bg-elevated text-label text-text-3 font-mono truncate">
-            {repoPath ?? 'Not set'}
+          <div
+            className="flex-1 px-3 py-2 rounded-md border border-border-default bg-bg-elevated text-label font-mono truncate"
+            aria-label="Current repository path"
+          >
+            <span className={repoPath ? 'text-text-3' : 'text-text-4 italic'}>
+              {repoPath ?? 'Not set'}
+            </span>
           </div>
           <button
             onClick={changeRepo}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors shrink-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
           >
-            <FolderOpen size={13} />
+            <FolderOpen size={13} aria-hidden="true" />
             Change
           </button>
         </div>
@@ -303,7 +322,7 @@ function GeneralTab() {
         title="Models"
         description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough."
       >
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 space-y-4" role="group" aria-label="Model assignments">
           {MODEL_ROWS.map(row => (
             <ModelChoice
               key={row.key}
@@ -321,21 +340,26 @@ function GeneralTab() {
             sources — useful when debugging cache divergence. Plain click
             just re-reads from the DB (the watcher keeps it current). */}
         <button
-          onClick={(e) => refresh({ resync: e.shiftKey })}
-          className="flex items-center gap-1.5 px-3 py-2 mt-3 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors"
+          onClick={handleRefresh}
+          className="flex items-center gap-1.5 px-3 py-2 mt-3 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+          title="Shift-click to force a full SQLite resync"
         >
-          <RefreshCw size={13} />
-          Refresh data
+          {refreshDone
+            ? <><Check size={13} aria-hidden="true" /> Done</>
+            : <><RefreshCw size={13} aria-hidden="true" /> Refresh data</>
+          }
         </button>
       </SettingRow>
 
       <SettingRow title="Workspace tuning" description="Re-run Claude to regenerate keyword filters and candidate context from your CV and profile.">
         <button
-          onClick={resetTailoring}
-          className="flex items-center gap-1.5 px-3 py-2 mt-3 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors"
+          onClick={handleRetune}
+          className="flex items-center gap-1.5 px-3 py-2 mt-3 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
         >
-          <Sparkles size={13} />
-          Re-tune workspace
+          {retuneDone
+            ? <><Check size={13} aria-hidden="true" /> Started</>
+            : <><Sparkles size={13} aria-hidden="true" /> Re-tune workspace</>
+          }
         </button>
       </SettingRow>
     </div>
@@ -421,16 +445,20 @@ export function RolesTab() {
         title="Selected roles"
         description="Role archetypes the system uses to score fit. Select as many as apply — the more specific, the better the scoring."
       >
-        <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]">
+        <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]" role="list" aria-label="Selected role archetypes">
           {roles.length === 0 ? (
             <span className="text-label text-text-4 self-center italic">No roles selected — pick from suggestions or browse below.</span>
           ) : (
             roles.map(role => (
-              <span key={role} className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg bg-accent/15 border border-accent/35 text-accent-text text-label font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-accent/70 shrink-0" />
+              <span key={role} role="listitem" className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg bg-accent/15 border border-accent/35 text-accent-text text-label font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent/70 shrink-0" aria-hidden="true" />
                 {role}
-                <button onClick={() => removeRole(role)} className="text-accent-text/40 hover:text-accent-text transition-colors">
-                  <X size={11} />
+                <button
+                  onClick={() => removeRole(role)}
+                  aria-label={`Remove ${role}`}
+                  className="text-accent-text/40 hover:text-accent-text transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+                >
+                  <X size={11} aria-hidden="true" />
                 </button>
               </span>
             ))
@@ -440,18 +468,19 @@ export function RolesTab() {
         {suggestions.length > 0 && (
           <div className="mt-5">
             <div className="flex items-center gap-3 mb-3">
-              <span className="text-micro font-semibold text-text-4 uppercase tracking-widest">Related</span>
-              <div className="flex-1 h-px bg-border-default" />
+              <span className="text-micro font-semibold text-text-4 uppercase tracking-widest" aria-hidden="true">Related</span>
+              <div className="flex-1 h-px bg-border-default" aria-hidden="true" />
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2" role="list" aria-label="Suggested related roles">
               {suggestions.map((role, i) => (
                 <button
                   key={role}
                   onClick={() => addRole(role)}
-                  className="suggestion-chip inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-border-strong text-text-3 text-label hover:border-accent/50 hover:text-accent-text hover:bg-accent/10 active:scale-95 transition-all duration-150"
+                  aria-label={`Add suggested role: ${role}`}
+                  className="suggestion-chip inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-border-strong text-text-3 text-label hover:border-accent/50 hover:text-accent-text hover:bg-accent/10 active:scale-95 transition-all duration-150 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
                   style={{ animationDelay: `${i * 40}ms` }}
                 >
-                  <Plus size={10} className="text-text-4 shrink-0" />
+                  <Plus size={10} className="text-text-4 shrink-0" aria-hidden="true" />
                   {role}
                 </button>
               ))}
@@ -460,33 +489,37 @@ export function RolesTab() {
         )}
 
         <div className="mt-5">
+          <label htmlFor="roles-custom-input" className="sr-only">Add a custom role</label>
           <input
+            id="roles-custom-input"
             ref={inputRef}
             value={addInput}
             onChange={e => setAddInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addRole(addInput) } }}
             placeholder="Add a custom role and press Enter…"
-            className="w-full px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+            aria-label="Add a custom role — press Enter or comma to confirm"
+            className="w-full px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
           />
         </div>
       </SettingRow>
 
       <SettingRow title="Browse all" description="All archetypes in the suggestion graph. Click any to add or remove.">
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="All role archetypes">
           {ROLE_GRAPH_KEYS.map(role => {
             const selected = roles.includes(role)
             return (
               <button
                 key={role}
                 onClick={() => selected ? removeRole(role) : addRole(role)}
+                aria-pressed={selected}
                 className={cn(
-                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-micro transition-all duration-100',
+                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-micro transition-all duration-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
                   selected
                     ? 'bg-accent/15 border-accent/30 text-accent-text'
                     : 'border-border-default text-text-4 hover:border-border-strong hover:text-text-2',
                 )}
               >
-                {selected ? <Check size={9} /> : <Plus size={9} />}
+                {selected ? <Check size={9} aria-hidden="true" /> : <Plus size={9} aria-hidden="true" />}
                 {role}
               </button>
             )
@@ -505,9 +538,11 @@ export function RolesTab() {
         <button
           onClick={handleSave}
           disabled={saving || roles.length === 0}
-          className="flex items-center gap-2 px-4 py-2 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+          aria-busy={saving}
+          aria-label={saving ? 'Saving roles…' : saved ? 'Roles saved' : 'Save roles'}
+          className="flex items-center gap-2 px-4 py-2 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
         >
-          {saved ? <Check size={13} /> : null}
+          {saved ? <Check size={13} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : saved ? 'Saved' : 'Save roles'}
         </button>
       </div>
@@ -572,35 +607,44 @@ function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
       title="Dream companies"
       description="Floors Brand Value at 10 and Aspirational Fit at 8.0 in scoring — the user wants their foot in the door regardless of function match."
     >
-      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]">
+      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]" role="list" aria-label="Dream companies">
         {names.length === 0 ? (
           <span className="text-label text-text-4 italic self-center">No dream companies yet — add brands you'd most want to work for.</span>
         ) : (
           names.map(n => (
-            <span key={n} className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg bg-tier-1/15 border border-tier-1/35 text-tier-1 text-label font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-tier-1/70 shrink-0" />
+            <span key={n} role="listitem" className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg bg-tier-1/15 border border-tier-1/35 text-tier-1 text-label font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-tier-1/70 shrink-0" aria-hidden="true" />
               {n}
-              <button onClick={() => remove(n)} className="opacity-50 hover:opacity-100 transition-opacity">
-                <X size={11} />
+              <button
+                onClick={() => remove(n)}
+                aria-label={`Remove ${n}`}
+                className="opacity-50 hover:opacity-100 transition-opacity focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+              >
+                <X size={11} aria-hidden="true" />
               </button>
             </span>
           ))
         )}
       </div>
       <div className="mt-4 flex gap-2">
+        <label htmlFor="dream-company-input" className="sr-only">Add a dream company</label>
         <input
+          id="dream-company-input"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
           placeholder="Add a company (e.g. Stripe, Datadog) and press Enter…"
-          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+          aria-label="Add a dream company — press Enter or comma to confirm"
+          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
         />
         <button
           onClick={handleSave}
           disabled={saving || !dirty}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+          aria-busy={saving}
+          aria-label={saving ? 'Saving dream companies…' : savedAt ? 'Dream companies saved' : 'Save dream companies'}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
         >
-          {savedAt ? <Check size={12} /> : null}
+          {savedAt ? <Check size={12} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : savedAt ? 'Saved' : 'Save'}
         </button>
       </div>
@@ -714,51 +758,62 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
       title="Target locations"
       description="Cities you want to work in, in priority order. Drives the Best Cities scoring dimension — top of list scores 9-10, bottom of list 6-7, anything not listed scores lower."
     >
-      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]">
+      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]" role="list" aria-label="Target cities in priority order">
         {cities.length === 0 ? (
           <span className="text-label text-text-4 italic self-center">No target locations yet — add the cities you'd actually relocate to.</span>
         ) : (
           cities.map((c, i) => (
-            <span key={c} className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-lg bg-info/10 border border-info/30 text-info text-label font-medium">
-              <span className="font-mono text-info/60 text-[10px] mr-0.5">#{i + 1}</span>
+            <span key={c} role="listitem" className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-lg bg-info/10 border border-info/30 text-info text-label font-medium">
+              <span className="font-mono text-info/60 text-[10px] mr-0.5" aria-label={`Priority ${i + 1}`}>#{i + 1}</span>
               {c}
               <button
                 onClick={() => move(c, -1)}
                 disabled={i === 0}
-                title="Move up"
-                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5"
+                aria-label={`Move ${c} up in priority`}
+                aria-disabled={i === 0}
+                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
               >
-                <ChevronRight size={11} className="-rotate-90" />
+                <ChevronRight size={11} className="-rotate-90" aria-hidden="true" />
               </button>
               <button
                 onClick={() => move(c, 1)}
                 disabled={i === cities.length - 1}
-                title="Move down"
-                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5"
+                aria-label={`Move ${c} down in priority`}
+                aria-disabled={i === cities.length - 1}
+                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
               >
-                <ChevronRight size={11} className="rotate-90" />
+                <ChevronRight size={11} className="rotate-90" aria-hidden="true" />
               </button>
-              <button onClick={() => remove(c)} className="opacity-50 hover:opacity-100 transition-opacity p-0.5">
-                <X size={11} />
+              <button
+                onClick={() => remove(c)}
+                aria-label={`Remove ${c}`}
+                className="opacity-50 hover:opacity-100 transition-opacity p-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+              >
+                <X size={11} aria-hidden="true" />
               </button>
             </span>
           ))
         )}
       </div>
       <div className="mt-4 flex gap-2">
+        <label htmlFor="target-location-input" className="sr-only">Add a target city</label>
         <input
+          id="target-location-input"
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
           placeholder="Add a city (e.g. Dublin, Barcelona, Berlin) and press Enter…"
-          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+          aria-label="Add a target city — press Enter or comma to confirm"
+          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
         />
         <button
           onClick={handleSave}
           disabled={saving || !dirty}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+          aria-busy={saving}
+          aria-label={saving ? 'Saving target locations…' : savedAt ? 'Target locations saved' : 'Save target locations'}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
         >
-          {savedAt ? <Check size={12} /> : null}
+          {savedAt ? <Check size={12} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : savedAt ? 'Saved' : 'Save'}
         </button>
       </div>
@@ -971,16 +1026,18 @@ export function PortalsTab() {
         <TagInput tags={positive} onRemove={t => removeTag(setPositive, t)}
           input={addPos} setInput={setAddPos}
           onAdd={() => addTag(positive, setPositive, addPos, setAddPos)}
-          color="text-success bg-success/10 border-success/30" className="mt-3" />
+          color="text-success bg-success/10 border-success/30" className="mt-3"
+          aria-label="Must-match keywords" />
       </SettingRow>
 
       <SettingRow title="Exclude" description="Roles containing any of these keywords are filtered out regardless of positive matches.">
         <TagInput tags={negative} onRemove={t => removeTag(setNegative, t)}
           input={addNeg} setInput={setAddNeg}
           onAdd={() => addTag(negative, setNegative, addNeg, setAddNeg)}
-          color="text-danger bg-danger/10 border-danger/30" className="mt-3" />
+          color="text-danger bg-danger/10 border-danger/30" className="mt-3"
+          aria-label="Exclude keywords" />
         {negative.length > 8 && (
-          <p className="mt-2 text-micro text-warning">{negative.length} exclusions — review periodically to avoid over-filtering</p>
+          <p className="mt-2 text-micro text-warning" role="alert">{negative.length} exclusions — review periodically to avoid over-filtering</p>
         )}
       </SettingRow>
 
@@ -992,26 +1049,39 @@ export function PortalsTab() {
         <div className="mt-3 space-y-2">
           {/* Search */}
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border-default bg-bg-elevated">
-            <Search size={12} className="text-text-4 shrink-0" />
+            <Search size={12} className="text-text-4 shrink-0" aria-hidden="true" />
+            <label htmlFor="company-search" className="sr-only">Filter companies</label>
             <input
+              id="company-search"
               value={companySearch}
               onChange={e => setCompanySearch(e.target.value)}
               placeholder="Filter companies…"
               className="flex-1 bg-transparent outline-none text-label text-text-1 placeholder:text-text-4"
             />
             {companySearch && (
-              <button onClick={() => setCompanySearch('')} className="text-text-4 hover:text-text-2"><X size={11} /></button>
+              <button
+                onClick={() => setCompanySearch('')}
+                aria-label="Clear company filter"
+                className="text-text-4 hover:text-text-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+              >
+                <X size={11} aria-hidden="true" />
+              </button>
             )}
           </div>
 
           {/* Company list */}
-          <div className="border border-border-default rounded-md overflow-hidden max-h-72 overflow-y-auto">
+          <div
+            className="border border-border-default rounded-md overflow-hidden max-h-72 overflow-y-auto"
+            role="list"
+            aria-label="Tracked companies"
+          >
             {filteredCompanies.length === 0 ? (
               <div className="px-4 py-6 text-center text-label text-text-4">No companies match</div>
             ) : (
               filteredCompanies.map((company, i) => (
                 <div
                   key={company.name}
+                  role="listitem"
                   className={cn(
                     'flex items-center gap-3 px-3 py-2.5 group',
                     i > 0 && 'border-t border-border-default',
@@ -1020,17 +1090,19 @@ export function PortalsTab() {
                 >
                   {/* Toggle switch */}
                   <button
+                    role="switch"
+                    aria-checked={company.enabled}
+                    aria-label={`${company.enabled ? 'Disable' : 'Enable'} scanning for ${company.name}`}
                     onClick={() => toggleCompany(company.name)}
                     className={cn(
-                      'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200',
+                      'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
                       company.enabled ? 'bg-accent' : 'bg-border-strong',
                     )}
-                    title={company.enabled ? 'Disable' : 'Enable'}
                   >
                     <span className={cn(
                       'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
                       company.enabled ? 'translate-x-4' : 'translate-x-0',
-                    )} />
+                    )} aria-hidden="true" />
                   </button>
 
                   {/* Info */}
@@ -1042,8 +1114,9 @@ export function PortalsTab() {
                       {company.careers_url ? (
                         <button
                           onClick={() => ipc.openExternal(company.careers_url)}
-                          title={`Open ${company.careers_url}`}
-                          className="text-label text-text-1 font-medium truncate hover:text-accent hover:underline underline-offset-2 transition-colors text-left"
+                          aria-label={`Open ${company.name} careers page`}
+                          title={company.careers_url}
+                          className="text-label text-text-1 font-medium truncate hover:text-accent hover:underline underline-offset-2 transition-colors text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
                         >
                           {company.name}
                         </button>
@@ -1060,10 +1133,10 @@ export function PortalsTab() {
                   {/* Remove */}
                   <button
                     onClick={() => handleRemoveCompany(company.name)}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-text-4 hover:text-danger transition-all"
-                    title="Remove"
+                    aria-label={`Remove ${company.name}`}
+                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-text-4 hover:text-danger transition-all focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-danger/45"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={12} aria-hidden="true" />
                   </button>
                 </div>
               ))
@@ -1072,40 +1145,45 @@ export function PortalsTab() {
 
           {/* Add company */}
           {showAddCompany ? (
-            <div className="flex gap-2 mt-1">
+            <div className="flex gap-2 mt-1" role="group" aria-label="Add a new company">
+              <label htmlFor="new-company-name" className="sr-only">Company name</label>
               <input
+                id="new-company-name"
                 value={newCompanyName}
                 onChange={e => setNewCompanyName(e.target.value)}
                 placeholder="Company name"
-                className="flex-1 px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors text-[12px]"
+                className="flex-1 px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors text-[12px]"
               />
+              <label htmlFor="new-company-url" className="sr-only">Careers page URL</label>
               <input
+                id="new-company-url"
                 value={newCompanyUrl}
                 onChange={e => setNewCompanyUrl(e.target.value)}
                 placeholder="careers URL"
-                className="flex-1 px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors text-[12px]"
+                className="flex-1 px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors text-[12px]"
                 onKeyDown={e => { if (e.key === 'Enter') handleAddCompany() }}
               />
               <button
                 onClick={handleAddCompany}
                 disabled={!newCompanyName.trim()}
-                className="px-3 h-8 rounded-md bg-accent/20 border border-accent/30 text-accent-text text-label hover:bg-accent/30 disabled:opacity-40 transition-colors text-[12px]"
+                className="px-3 h-8 rounded-md bg-accent/20 border border-accent/30 text-accent-text text-label hover:bg-accent/30 disabled:opacity-40 transition-colors text-[12px] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
               >
                 Add
               </button>
               <button
                 onClick={() => { setShowAddCompany(false); setNewCompanyName(''); setNewCompanyUrl('') }}
-                className="px-2 h-8 rounded-md border border-border-default text-text-4 hover:text-text-2 transition-colors"
+                aria-label="Cancel adding company"
+                className="px-2 h-8 rounded-md border border-border-default text-text-4 hover:text-text-2 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
               >
-                <X size={12} />
+                <X size={12} aria-hidden="true" />
               </button>
             </div>
           ) : (
             <button
               onClick={() => setShowAddCompany(true)}
-              className="flex items-center gap-1.5 text-label text-text-4 hover:text-text-2 transition-colors"
+              className="flex items-center gap-1.5 text-label text-text-4 hover:text-text-2 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
             >
-              <Plus size={12} />
+              <Plus size={12} aria-hidden="true" />
               Add company
             </button>
           )}
@@ -1125,6 +1203,7 @@ export function PortalsTab() {
           onAdd={() => addTag(langKeywords, setLangKeywords, addLang, setAddLang)}
           color="text-warning bg-warning/10 border-warning/30"
           className="mt-3"
+          aria-label="Language blocklist keywords"
         />
       </SettingRow>
 
@@ -1132,18 +1211,24 @@ export function PortalsTab() {
       <SettingRow title="Advanced" description="Edit search_queries, seniority_boost, and raw company config directly.">
         <button
           onClick={() => setShowRaw(v => !v)}
-          className="mt-3 flex items-center gap-1.5 text-label text-accent hover:opacity-75 transition-opacity"
+          aria-expanded={showRaw}
+          aria-controls="portals-raw-editor"
+          className="mt-3 flex items-center gap-1.5 text-label text-accent hover:opacity-75 transition-opacity focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
         >
-          <ChevronRight size={13} className={cn('transition-transform duration-200', showRaw && 'rotate-90')} />
+          <ChevronRight size={13} className={cn('transition-transform duration-200', showRaw && 'rotate-90')} aria-hidden="true" />
           {showRaw ? 'Hide' : 'Edit'} raw portals.yml
         </button>
         {showRaw && (
-          <textarea
-            value={rawText}
-            onChange={e => setRawText(e.target.value)}
-            className="mt-3 w-full h-80 px-3 py-2.5 bg-bg-elevated border border-border-default rounded-md font-mono text-[12px] text-text-2 outline-none focus:border-accent/60 resize-none"
-            spellCheck={false}
-          />
+          <>
+            <label htmlFor="portals-raw-editor" className="sr-only">Raw portals.yml content</label>
+            <textarea
+              id="portals-raw-editor"
+              value={rawText}
+              onChange={e => setRawText(e.target.value)}
+              className="mt-3 w-full h-80 px-3 py-2.5 bg-bg-elevated border border-border-default rounded-md font-mono text-[12px] text-text-2 outline-none focus:border-accent/60 focus-visible:ring-1 focus-visible:ring-accent/45 resize-none"
+              spellCheck={false}
+            />
+          </>
         )}
       </SettingRow>
 
@@ -1154,9 +1239,11 @@ export function PortalsTab() {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 px-4 py-2 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+          aria-busy={saving}
+          aria-label={saving ? 'Saving portals…' : saved ? 'Portals saved' : 'Save portals'}
+          className="flex items-center gap-2 px-4 py-2 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
         >
-          {saved ? <Check size={13} /> : null}
+          {saved ? <Check size={13} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : saved ? 'Saved' : 'Save'}
         </button>
       </div>
@@ -1169,11 +1256,18 @@ export function PortalsTab() {
 function SettingRow({ title, description, children }: {
   title: string; description: string; children?: React.ReactNode
 }) {
+  const headingId = useId()
+  const descId = useId()
   return (
-    <div className="px-6 py-5 border-b border-border-default">
+    <div
+      className="px-6 py-5 border-b border-border-default"
+      role="group"
+      aria-labelledby={headingId}
+      aria-describedby={descId}
+    >
       <div className="max-w-2xl">
-        <h3 className="text-body text-text-1 font-medium">{title}</h3>
-        <p className="text-label text-text-4 mt-0.5 leading-snug">{description}</p>
+        <h3 id={headingId} className="text-body text-text-1 font-medium">{title}</h3>
+        <p id={descId} className="text-label text-text-4 mt-0.5 leading-snug">{description}</p>
         {children}
       </div>
     </div>
@@ -1216,34 +1310,51 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: {
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   placeholder: string; type?: string
 }) {
+  const inputId = useId()
   return (
     <div>
-      {label && <label className="block text-label text-text-3 mb-1">{label}</label>}
+      {label && <label htmlFor={inputId} className="block text-label text-text-3 mb-1">{label}</label>}
       <input
+        id={inputId}
         type={type}
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        className="w-full px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus:outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+        className="w-full px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
       />
     </div>
   )
 }
 
-function TagInput({ tags, onRemove, input, setInput, onAdd, color, className }: {
+function TagInput({ tags, onRemove, input, setInput, onAdd, color, className, 'aria-label': ariaLabel }: {
   tags: string[]; onRemove: (t: string) => void
   input: string; setInput: (v: string) => void
   onAdd: () => void; color: string; className?: string
+  'aria-label'?: string
 }) {
+  const inputId = useId()
+  const label = ariaLabel ?? 'Tag list'
   return (
-    <div className={cn('flex flex-wrap gap-1.5 p-3 bg-bg-elevated border border-border-default rounded-md min-h-[52px]', className)}>
+    <div
+      className={cn('flex flex-wrap gap-1.5 p-3 bg-bg-elevated border border-border-default rounded-md min-h-[52px]', className)}
+      role="group"
+      aria-label={label}
+    >
       {tags.map(t => (
         <span key={t} className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-label border', color)}>
           {t}
-          <button onClick={() => onRemove(t)} className="hover:opacity-70 transition-opacity"><X size={10} /></button>
+          <button
+            onClick={() => onRemove(t)}
+            aria-label={`Remove ${t}`}
+            className="hover:opacity-70 transition-opacity focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+          >
+            <X size={10} aria-hidden="true" />
+          </button>
         </span>
       ))}
+      <label htmlFor={inputId} className="sr-only">Add a keyword — press Enter or comma to confirm</label>
       <input
+        id={inputId}
         value={input}
         onChange={e => setInput(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); onAdd() } }}
@@ -1271,30 +1382,37 @@ function ModelChoice({ label, sub, value, onChange, disabled = false }: {
   onChange: (m: 'sonnet' | 'opus' | 'haiku') => void
   disabled?: boolean
 }) {
+  const descId = useId()
   const options: Array<{ id: 'sonnet' | 'opus' | 'haiku'; name: string; tag: string }> = [
     { id: 'sonnet', name: 'Sonnet', tag: 'cheaper · fast' },
     { id: 'opus',   name: 'Opus',   tag: 'thorough'      },
   ]
   return (
     <div className={cn('flex items-start justify-between gap-6 py-1', disabled && 'opacity-60')}>
-      <div className="min-w-0">
+      <div className="min-w-0" id={descId}>
         <div className="text-label text-text-1 font-medium">{label}</div>
         <div className="text-[11px] text-text-4 leading-snug mt-0.5">{sub}</div>
       </div>
-      <div className="flex rounded-md overflow-hidden border border-border-default shrink-0">
+      <div
+        className="flex rounded-md overflow-hidden border border-border-default shrink-0"
+        role="group"
+        aria-label={`Model for ${label}`}
+        aria-describedby={descId}
+      >
         {options.map(opt => (
           <button
             key={opt.id}
             onClick={() => !disabled && onChange(opt.id)}
             disabled={disabled}
+            aria-pressed={value === opt.id}
+            title={disabled ? 'Locked' : opt.tag}
             className={cn(
-              'px-3 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap',
+              'px-3 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
               value === opt.id
                 ? 'bg-accent/20 text-accent-text'
                 : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
               disabled && 'cursor-not-allowed hover:bg-transparent hover:text-text-3',
             )}
-            title={disabled ? 'Locked' : opt.tag}
           >
             {opt.name}
           </button>
