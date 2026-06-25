@@ -177,16 +177,21 @@ export function tierLevers({ sixDims, context }) {
       const probe = { ...sixDims, [dim]: candidate }
       const result = computeTierFromDims(probe, context)
       if (TIER_RANK[result.tier] > baseRank) {
+        // Round to kill float-epsilon noise (e.g. +0.9999999991) when callers
+        // feed fractional/averaged dims; a no-op for the normal integer scores.
+        const from = Number(current.toFixed(2))
+        const to = Number(candidate.toFixed(2))
+        const lift = Number((candidate - current).toFixed(2))
         levers.push({
           dimension: dim,
           label: DIM_LABELS[dim],
-          from: current,
-          to: candidate,
-          lift: candidate - current,
+          from,
+          to,
+          lift,
           fromTier: baseline.tier,
           toTier: result.tier,
           message:
-            `${DIM_LABELS[dim]} ${current} → ${candidate} (+${candidate - current}) ` +
+            `${DIM_LABELS[dim]} ${from} → ${to} (+${lift}) ` +
             `would move this from ${baseline.tier} to ${result.tier}.`,
         })
         break // smallest lift for this dim found; stop climbing it
