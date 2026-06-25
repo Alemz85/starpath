@@ -45,6 +45,91 @@ export function getScoreBand(overall: number | null | undefined, tier: string): 
   return 'skip'
 }
 
+// ─── Fixability / near-miss ──────────────────────────────────────────────────
+//
+// The Reports list answers "where should I spend effort?" by ranking reports on
+// how cheaply they could cross into a better tier. Two ingredients:
+//
+//   1. distance to the next band up (purely from the Overall score), and
+//   2. whether the report's own Why-this-score block names a concrete lever.
+//
+// A T3 sitting at 6.9 with a named lever is the canonical "easiest near-miss":
+// one tenth from the next band AND the engine already told us which dimension
+// to raise. We surface those first.
+
+// Lower edge of each band (inclusive) on the 0–10 Overall scale. Mirrors the
+// thresholds in getScoreBand so the two never drift.
+const BAND_FLOOR: Record<ScoreBand, number> = {
+  stellar: 9.0, strong: 8.0, decent: 7.0, pass: 5.0, skip: 0,
+}
+
+// The band immediately above each band (the upgrade target). `stellar` is the
+// ceiling — nothing above it.
+const NEXT_BAND_UP: Record<ScoreBand, ScoreBand | null> = {
+  skip: 'pass', pass: 'decent', decent: 'strong', strong: 'stellar', stellar: null,
+}
+
+// Points an Overall score must gain to reach the next band's floor. Null when
+// already in the top band (stellar) — no upgrade target exists. Returns null
+// for reports with no usable overall (can't measure a distance).
+export function distanceToNextBand(overall: number | null | undefined, tier: string): number | null {
+  if (overall === null || overall === undefined || overall <= 0) return null
+  const band = getScoreBand(overall, tier)
+  const next = NEXT_BAND_UP[band]
+  if (!next) return null
+  return Math.max(0, +(BAND_FLOOR[next] - overall).toFixed(2))
+}
+
+// The optional fixability signal a report carries once its body has been parsed
+// (the list rows themselves don't include the body — see ReportsView). Only the
+// fields the ranking needs.
+export interface Fixability {
+  /** A concrete cheapest-lever sentence exists in the report's Why block. */
+  hasLever: boolean
+  /** The binding-constraint sentence, when present (for the badge). */
+  bindingConstraint?: string | null
+  /** The lever sentence, when present (for the badge). */
+  lever?: string | null
+}
+
+export interface FixabilityRow extends ReportRowLike {
+  fixability?: Fixability | null
+}
+
+// A 0–1 "how worth upgrading is this" score. Higher = cheaper, more actionable.
+//   • Distance to the next band drives the base: 0 points away → ~1.0, a full
+//     band away (1.0) → ~0.0, linearly. Already-top / unscored → 0.
+//   • A named lever multiplies confidence: the engine found a single dimension
+//     that crosses the band, so we weight those well above mere proximity.
+// Reports with no upgrade target (stellar) or no overall score score 0 — they
+// don't belong in a "near-miss to upgrade" ranking.
+export function fixabilityScore(row: FixabilityRow): number {
+  const dist = distanceToNextBand(row.overall, row.tier)
+  if (dist === null) return 0
+  // Map distance → proximity in [0,1]. Bands are ≤1.0 wide for pass/decent/
+  // strong; clamp so anything ≥1.0 away contributes nothing.
+  const proximity = Math.max(0, 1 - dist)
+  const hasLever = row.fixability?.hasLever ?? false
+  // Lever present: proximity dominates but a real lever guarantees a strong
+  // floor (0.55) so a clearly-actionable report never sinks below a barely-
+  // closer one with no lever. No lever: proximity alone, dampened to 0.6 so
+  // lever-backed near-misses always outrank lever-less ones at equal distance.
+  return hasLever
+    ? 0.55 + 0.45 * proximity
+    : 0.6 * proximity
+}
+
+// "Near-miss" predicate for the filter chip: a report within `maxDistance`
+// (default 0.5) of the next band up, OR any report that carries a concrete
+// lever (the engine says one dimension crosses — actionable regardless of the
+// raw gap). Stellar / unscored reports are never near-misses.
+export function isNearMiss(row: FixabilityRow, maxDistance = 0.5): boolean {
+  const dist = distanceToNextBand(row.overall, row.tier)
+  if (dist === null) return false
+  if (row.fixability?.hasLever) return true
+  return dist <= maxDistance
+}
+
 // ─── Filtering / sorting ─────────────────────────────────────────────────────
 
 // The fields the Reports grid actually reads — DbReportRow satisfies this, but
@@ -58,17 +143,19 @@ export interface ReportRowLike {
   mtime?: number
 }
 
-export type ReportSortBy = 'score' | 'date' | 'tier'
+export type ReportSortBy = 'score' | 'date' | 'tier' | 'fixable'
 export type SortOrder = 'asc' | 'desc'
 
 const matchesQuery = (r: { company: string; role: string }, q: string): boolean =>
   r.company.toLowerCase().includes(q) || r.role.toLowerCase().includes(q)
 
-// Apply the search query + band multi-select (OR within bands). An empty band
-// set means "all bands"; an empty query means "no text filter".
-export function filterReportRows<T extends ReportRowLike>(
+// Apply the search query + band multi-select (OR within bands) + the optional
+// near-miss filter. An empty band set means "all bands"; an empty query means
+// "no text filter"; `nearMissOnly` keeps only reports one cheap lever / a small
+// gap from the next band up.
+export function filterReportRows<T extends FixabilityRow>(
   rows: T[],
-  opts: { query?: string; bands?: ReadonlySet<ScoreBand> },
+  opts: { query?: string; bands?: ReadonlySet<ScoreBand>; nearMissOnly?: boolean },
 ): T[] {
   const bands = opts.bands
   const q = (opts.query ?? '').trim().toLowerCase()
@@ -79,6 +166,9 @@ export function filterReportRows<T extends ReportRowLike>(
   if (q) {
     out = out.filter(r => matchesQuery(r, q))
   }
+  if (opts.nearMissOnly) {
+    out = out.filter(r => isNearMiss(r))
+  }
   return out
 }
 
@@ -87,7 +177,7 @@ const TIER_SORT_ORDER = ['T1', 'T2-high', 'T2', 'T3', 'T4']
 // Stable multi-key sort. `desc` is the natural reading for every key (highest
 // score / newest / best tier first), so `asc` simply flips the comparator.
 // Returns a new array; never mutates the input.
-export function sortReportRows<T extends ReportRowLike>(
+export function sortReportRows<T extends FixabilityRow>(
   rows: T[],
   sortBy: ReportSortBy,
   sortOrder: SortOrder,
@@ -102,6 +192,12 @@ export function sortReportRows<T extends ReportRowLike>(
       const ai = TIER_SORT_ORDER.indexOf(a.tier)
       const bi = TIER_SORT_ORDER.indexOf(b.tier)
       comp = (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+    } else if (sortBy === 'fixable') {
+      // Primary: fixability score (cheapest upgrade first under `desc`).
+      // Tie-break on raw overall so two equally-fixable rows keep a stable,
+      // meaningful order rather than falling back to array position.
+      comp = fixabilityScore(b) - fixabilityScore(a)
+      if (comp === 0) comp = (b.overall ?? 0) - (a.overall ?? 0)
     }
     return sortOrder === 'asc' ? -comp : comp
   })

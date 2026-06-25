@@ -146,6 +146,111 @@ export function parseDimensionalScoring(md: string): {
   return { before, dims, after }
 }
 
+// ─── "Why this score" block (explainability / fixability) ────────────────────
+//
+// Every report written by the current scouting template carries a
+// `## Why this score` block immediately after the dimensional table. Its shape
+// (see modes/_shared.md § Why-this-score block) is:
+//
+//   ## Why this score
+//   {headline sentence}
+//
+//   - **Holding it back:** {binding constraint message}
+//   - **Closest lever:** {cheapest band-crossing lever}   ← omitted when none
+//
+// We parse it into structured pieces so the Reports LIST can surface each
+// report's binding constraint + cheapest lever as a badge and rank by "easiest
+// near-miss to upgrade" — without the user having to open every slide-over.
+//
+// The block is deterministic (computed by scripts/score-listing.mjs), so a
+// brittle exact-string parse would be fine; we keep the matchers forgiving
+// anyway (bold optional, label synonyms, em-dash/colon variants) so a
+// hand-tweaked or older report still yields what it can rather than nothing.
+
+export interface WhyThisScore {
+  /** The lede sentence under the heading (may be empty for terse reports). */
+  headline: string
+  /** The dimension/gate actually capping the tier — the "Holding it back" line. */
+  bindingConstraint: string | null
+  /** The cheapest single-dimension raise that crosses into a better band.
+   *  Null when the report states no single lever exists (already top-band, or
+   *  no dimension crosses alone). This is the load-bearing "fixability" signal. */
+  lever: string | null
+  /** True when the block is present at all (vs. an older report with no block).
+   *  Distinguishes "parsed, no lever" from "never had a Why-this-score block". */
+  present: boolean
+}
+
+const EMPTY_WHY: WhyThisScore = { headline: '', bindingConstraint: null, lever: null, present: false }
+
+// Pull the body of the `## Why this score` section — from the heading to the
+// next `## ` heading (or end of doc). Returns null when the section is absent.
+export function extractWhyThisScoreSection(md: string): string | null {
+  const headingRe = /^##\s+Why\s+this\s+score\s*$/im
+  const m = headingRe.exec(md)
+  if (!m) return null
+  const rest = md.slice(m.index + m[0].length)
+  const nextHeading = /\n##\s+\S/m.exec(rest)
+  return (nextHeading ? rest.slice(0, nextHeading.index) : rest).trim()
+}
+
+// Strip a leading "- **Label:** " (or "* Label: ") bullet prefix and return the
+// remaining value, or null if the line doesn't match this label. `labels` are
+// matched case-insensitively and allow internal whitespace/hyphen variation.
+function matchBulletLabel(line: string, labels: string[]): string | null {
+  const labelAlt = labels
+    .map(l => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'))
+    .join('|')
+  // Optional list marker, optional bold around the label. The colon may sit
+  // inside the bold ("**Label:**") or outside ("**Label**:"), so we allow
+  // `[:：]` and `*` to interleave between the label text and the value. The
+  // value side then strips any leftover leading bold/colon.
+  const re = new RegExp(`^\\s*(?:[-*]\\s*)?\\*{0,2}\\s*(?:${labelAlt})\\s*[:：*]+\\s*(.+?)\\s*$`, 'i')
+  const m = re.exec(line)
+  if (!m) return null
+  // Clean the value: drop a leftover leading colon (when the bold closed after
+  // the colon), then strip a whole-value bold wrap. Keeps inline emphasis.
+  return m[1]
+    .replace(/^[:：*\s]+/, '')
+    .replace(/^\*\*(.+)\*\*$/, '$1')
+    .trim()
+}
+
+// Phrases the template uses when there is genuinely no single-dimension lever.
+// We treat a lever line carrying one of these as "no lever" (null) rather than
+// surfacing the disclaimer as if it were an actionable fix.
+const NO_LEVER_RE = /\b(no single (?:dim|dimension)|already (?:top|the top)[- ]band|none\b|no lever|cannot cross alone)\b/i
+
+export function parseWhyThisScore(md: string): WhyThisScore {
+  const section = extractWhyThisScoreSection(md)
+  if (section === null) return EMPTY_WHY
+
+  const lines = section.split('\n')
+  let headline = ''
+  let bindingConstraint: string | null = null
+  let lever: string | null = null
+
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+
+    const binding = matchBulletLabel(line, ['Holding it back', 'Binding constraint', 'Holding back'])
+    if (binding !== null) { bindingConstraint = binding || null; continue }
+
+    const lev = matchBulletLabel(line, ['Closest lever', 'Cheapest lever', 'Lever', 'Closest band-crossing lever'])
+    if (lev !== null) {
+      lever = lev && !NO_LEVER_RE.test(lev) ? lev : null
+      continue
+    }
+
+    // First non-bullet, non-empty line is the headline lede. Don't let a
+    // stray later paragraph overwrite it.
+    if (!headline && !/^[-*]/.test(line)) headline = line
+  }
+
+  return { headline, bindingConstraint, lever, present: true }
+}
+
 export function parseRow(line: string) {
   // "| a | b | c |" → ['', ' a ', ' b ', ' c ', ''] → ['a','b','c']
   const cells = line.split('|').slice(1, -1).map(c => c.trim())

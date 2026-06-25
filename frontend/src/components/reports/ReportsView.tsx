@@ -8,7 +8,7 @@ import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
   Search, FileText, X, ExternalLink, Sparkles, Square,
   ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp, Target,
-  Copy, Folder, Check, Compass
+  Copy, Folder, Check, Compass, Wrench, ArrowUpRight, Gauge
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
@@ -21,7 +21,9 @@ import {
   filterReportRows, sortReportRows,
   corpusBands as computeCorpusBands, bandCounts as computeBandCounts,
   buildScoreIndex, matchScore,
+  distanceToNextBand, type Fixability, type FixabilityRow,
 } from '@/lib/reportsList'
+import { parseWhyThisScore } from '@/lib/reportMarkdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -171,8 +173,21 @@ export function ReportsView() {
   const [selectedPositioning, setSelectedPositioning] = useState<PositioningReportInfo | null>(null)
 
   // Sort State
-  const [sortBy, setSortBy] = useState<'score' | 'date' | 'tier'>('score')
+  const [sortBy, setSortBy] = useState<'score' | 'date' | 'tier' | 'fixable'>('score')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  // "Easiest near-miss to upgrade" filter — keeps only reports one cheap lever
+  // / a small gap from the next tier up.
+  const [nearMissOnly, setNearMissOnly] = useState(false)
+
+  // Per-report fixability, keyed by report path. The list rows from db.reports()
+  // carry the Overall score but NOT the report body, so the binding-constraint
+  // and cheapest-lever signals must be parsed from each report's `## Why this
+  // score` block on disk. We fetch lazily, parse once, and cache — the badge +
+  // the "fixable" sort/filter read from this map. Paths that resolve to a body
+  // with no Why block parse to `{ hasLever: false }` and are still cached so we
+  // don't re-fetch them every render.
+  const [fixByPath, setFixByPath] = useState<Record<string, Fixability>>({})
 
   const loadPositioningReports = async () => {
     try {
@@ -253,6 +268,52 @@ export function ReportsView() {
     return () => { cancelled = true }
   }, [scoreHistory.length])
 
+  // Parse the `## Why this score` block for every report we haven't seen yet.
+  // Bounded concurrency keeps the disk reads from stampeding when the corpus is
+  // large; results land in `fixByPath` incrementally so cards light up their
+  // badges as soon as each parse completes rather than waiting for the batch.
+  // Re-runs when reportRows changes but only fetches paths not already cached,
+  // so a sync (new report on disk) costs one read, not a full re-scan.
+  useEffect(() => {
+    let cancelled = false
+    const pending = reportRows.map(r => r.path).filter(p => !(p in fixByPath))
+    if (pending.length === 0) return
+
+    const run = async () => {
+      const CONCURRENCY = 6
+      for (let i = 0; i < pending.length; i += CONCURRENCY) {
+        if (cancelled) return
+        const slice = pending.slice(i, i + CONCURRENCY)
+        const parsed = await Promise.all(slice.map(async (path): Promise<[string, Fixability]> => {
+          try {
+            const text = await ipc.readFile(path)
+            if (!text) return [path, { hasLever: false }]
+            const why = parseWhyThisScore(text)
+            return [path, {
+              hasLever: why.lever !== null,
+              bindingConstraint: why.bindingConstraint,
+              lever: why.lever,
+            }]
+          } catch {
+            return [path, { hasLever: false }]
+          }
+        }))
+        if (cancelled) return
+        setFixByPath(prev => {
+          const next = { ...prev }
+          for (const [path, fix] of parsed) next[path] = fix
+          return next
+        })
+      }
+    }
+    void run()
+    return () => { cancelled = true }
+    // fixByPath intentionally omitted — including it would re-fire the effect on
+    // every incremental setState. We snapshot it for the `pending` diff; new
+    // paths from a reportRows change are still picked up.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportRows])
+
   useEffect(() => {
     loadPositioningReports()
   }, [])
@@ -287,12 +348,30 @@ export function ReportsView() {
     )
   }
 
+  // Decorate each list row with its parsed fixability so the filter/sort can
+  // read `hasLever`. `DbReportRow & { fixability }` satisfies FixabilityRow.
+  const rowsWithFix = useMemo<Array<DbReportRow & FixabilityRow>>(
+    () => reportRows.map(r => ({ ...r, fixability: fixByPath[r.path] ?? null })),
+    [reportRows, fixByPath],
+  )
+
   const filteredFiles = useMemo(
     () => sortReportRows(
-      filterReportRows(reportRows, { query, bands: selectedBands }),
+      filterReportRows(rowsWithFix, { query, bands: selectedBands, nearMissOnly }),
       sortBy, sortOrder,
     ),
-    [reportRows, query, selectedBands, sortBy, sortOrder],
+    [rowsWithFix, query, selectedBands, nearMissOnly, sortBy, sortOrder],
+  )
+
+  // Count of near-miss reports for the toggle's badge — computed on the same
+  // fixability-decorated rows but before the toggle itself, so it shows how many
+  // the filter would surface regardless of whether it's currently on.
+  const nearMissCount = useMemo(
+    () => filterReportRows(rowsWithFix, { query, bands: selectedBands }).filter(r => {
+      const d = distanceToNextBand(r.overall, r.tier)
+      return r.fixability?.hasLever ? d !== null : d !== null && d <= 0.5
+    }).length,
+    [rowsWithFix, query, selectedBands],
   )
 
   const toggleBand = (band: ScoreBand) => {
@@ -314,11 +393,12 @@ export function ReportsView() {
   // with every OTHER active filter applied, but not its own selection).
   const bandCounts = useMemo(() => computeBandCounts(reportRows, query), [reportRows, query])
 
-  const hasActiveFilters = query.trim() !== '' || selectedBands.size > 0
+  const hasActiveFilters = query.trim() !== '' || selectedBands.size > 0 || nearMissOnly
 
   const clearFilters = () => {
     setQuery('')
     setSelectedBands(new Set())
+    setNearMissOnly(false)
   }
 
   // `/` focuses the search box from anywhere in the view (matching the kbd
@@ -484,10 +564,18 @@ export function ReportsView() {
           )}
         </div>
 
-        {/* Sort Controls */}
+        {/* Sort Controls. `fixable` ranks by "easiest near-miss to upgrade" —
+            cheapest tier-crossing first (a T3 at 6.9 with a named lever beats a
+            T3 at 5.2 with none). Labelled "Fixability" so it reads as effort-to-
+            convert, not a raw score. */}
         <div className="flex items-center gap-1.5 border-l border-border-default pl-3">
           <span className="text-[10px] text-text-4 font-bold uppercase tracking-wider">Sort:</span>
-          {(['score', 'date', 'tier'] as const).map(field => (
+          {([
+            { field: 'score' as const,   label: 'score' },
+            { field: 'date' as const,    label: 'date' },
+            { field: 'tier' as const,    label: 'tier' },
+            { field: 'fixable' as const, label: 'fixability' },
+          ]).map(({ field, label }) => (
             <button
               key={field}
               onClick={() => {
@@ -498,6 +586,9 @@ export function ReportsView() {
                   setSortOrder('desc')
                 }
               }}
+              title={field === 'fixable'
+                ? 'Rank by easiest near-miss to upgrade — cheapest tier-crossing first'
+                : undefined}
               className={cn(
                 'px-2 py-0.5 text-micro font-mono rounded border transition-colors inline-flex items-center gap-1 uppercase tracking-wider',
                 sortBy === field
@@ -505,7 +596,8 @@ export function ReportsView() {
                   : 'text-text-4 border-border-default hover:border-border-strong bg-transparent'
               )}
             >
-              <span>{field}</span>
+              {field === 'fixable' && <Wrench size={9} className="shrink-0" />}
+              <span>{label}</span>
               {sortBy === field && (
                 <span className="text-[9px] font-bold">
                   {sortOrder === 'asc' ? '▲' : '▼'}
@@ -516,6 +608,28 @@ export function ReportsView() {
         </div>
 
         <div className="flex-1" />
+
+        {/* Near-miss toggle — surfaces only reports one cheap lever / a small
+            gap from the next tier up. The count tells the user how many would
+            survive before they commit to the filter. Hidden when nothing
+            qualifies (and the toggle isn't already on) so it never sits at "0".
+            "Where effort converts" is the whole point of this view. */}
+        {(nearMissCount > 0 || nearMissOnly) && (
+          <button
+            onClick={() => setNearMissOnly(v => !v)}
+            title="Show only reports one cheap lever / a small gap from the next tier up"
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 py-0.5 text-micro font-medium rounded-full border transition-all duration-200 uppercase tracking-wider mr-1',
+              nearMissOnly
+                ? 'bg-accent/15 text-accent-text border-accent/40 font-bold'
+                : 'text-text-3 border-border-default hover:border-border-strong hover:bg-bg-elevated',
+            )}
+          >
+            <ArrowUpRight size={11} className="shrink-0" />
+            <span>Near-miss</span>
+            <span className="text-[10px] font-mono tabular-nums text-text-4">{nearMissCount}</span>
+          </button>
+        )}
 
         {/* Score band filter chips — only render bands that actually have reports.
             Reports for T3/T4 listings aren't written to disk by the pipeline,
@@ -622,6 +736,7 @@ export function ReportsView() {
                   key={report.path}
                   report={report}
                   overall={overall}
+                  fixability={fixByPath[report.path] ?? null}
                   url={url && /^https?:\/\//i.test(url) ? url : null}
                   isSelected={selected?.path === report.path}
                   onClick={() => setSelected({
@@ -706,19 +821,45 @@ function ScoreBadge({ value }: { value: number }) {
   )
 }
 
+// "T3 → T2 in +0.1" style upgrade label. The next-band target uses the same
+// thresholds the banding logic uses; we phrase the gap in points-to-go so the
+// user reads effort, not a raw score. Null when there's no upgrade target
+// (top-band) or no usable score.
+function upgradeHint(overall: number | null, tier: string): { label: string; gap: number } | null {
+  const gap = distanceToNextBand(overall, tier)
+  if (gap === null) return null
+  const band = getScoreBand(overall, tier)
+  const nextLabel =
+    band === 'skip'   ? 'Pass' :
+    band === 'pass'   ? 'Decent' :
+    band === 'decent' ? 'Strong' :
+    band === 'strong' ? 'Stellar' : null
+  if (!nextLabel) return null
+  return { label: nextLabel, gap }
+}
+
 function ReportCard({
   report,
   overall,
+  fixability,
   url,
   isSelected,
   onClick,
 }: {
   report: { path: string; company: string; role: string; tier: string }
   overall: number | null
+  fixability: Fixability | null
   url: string | null
   isSelected: boolean
   onClick: () => void
 }) {
+  const hint = upgradeHint(overall, report.tier)
+  const lever = fixability?.lever ?? null
+  const binding = fixability?.bindingConstraint ?? null
+  // A card earns the fixability footer when it's a genuine near-miss: a small
+  // gap to the next band, OR the engine named a concrete lever. Cards with no
+  // upgrade target (top-band) or no Why block stay clean — no empty chrome.
+  const isNearMiss = hint !== null && (lever !== null || hint.gap <= 0.5)
   return (
     <div className="relative">
       <button
@@ -743,6 +884,47 @@ function ReportCard({
             )}>
               {report.role}
             </div>
+
+            {/* Fixability footer — only for near-misses. The upgrade pill shows
+                the cheapest band-crossing target ("→ Strong +0.2"); the lever
+                line (when the engine found one) names the single dimension to
+                raise. This is the "spend effort where it converts" surface: a
+                glanceable answer to "is this report worth upgrading, and how?".
+                Binding constraint is the fallback caption when no lever exists
+                but the gap is still small. */}
+            {isNearMiss && (
+              <div className="mt-2 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {hint && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold tabular-nums bg-accent/12 text-accent-text border border-accent/30"
+                      title={`One band from ${hint.label} — needs +${hint.gap.toFixed(1)} on Overall`}
+                    >
+                      <ArrowUpRight size={9} className="shrink-0" />
+                      {hint.label}
+                      <span className="text-text-4">+{hint.gap.toFixed(1)}</span>
+                    </span>
+                  )}
+                  {lever && (
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#2EB8A8]/12 text-[#2EB8A8] border border-[#2EB8A8]/30">
+                      <Wrench size={9} className="shrink-0" />
+                      lever
+                    </span>
+                  )}
+                </div>
+                {(lever || binding) && (
+                  <div
+                    className="flex items-start gap-1 text-[11px] leading-snug text-text-3 line-clamp-2"
+                    title={lever ?? binding ?? undefined}
+                  >
+                    {lever
+                      ? <Wrench size={10} className="shrink-0 mt-0.5 text-[#2EB8A8]" aria-hidden />
+                      : <Gauge size={10} className="shrink-0 mt-0.5 text-text-4" aria-hidden />}
+                    <span className="min-w-0">{lever ?? binding}</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </button>
