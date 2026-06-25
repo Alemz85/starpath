@@ -62,17 +62,22 @@ Identificar TODAS las preguntas visibles:
 - Campos de salario (range, expectation)
 - Upload fields (resume, cover letter PDF)
 
-**Clasificar cada pregunta por TIPO** — el tipo decide la receta de drafting (Paso 5):
+**Clasificar cada pregunta por TIPO antes de redactar nada.** El tipo decide la receta de drafting (Paso 5); redactar sin clasificar es como acabas con respuestas genéricas. Recorre cada pregunta por la primera fila que matchee, de arriba abajo:
 
-| Tipo de pregunta | Señal | Fuente principal |
-|------------------|-------|------------------|
-| **Behavioral / "Tell me about a time…"** | "describe a time", "give an example", "how did you handle…" | Story bank (historia STAR+R cuyo theme matchea) |
-| **Motivation / "Why us / why this role"** | "why do you want", "what attracts you", "why {company}" | Exit narrative (`user/_profile.md`) + 1 hecho concreto del JD/empresa |
-| **Fit / "Why are you a good fit"** | "what makes you qualified", "your strengths for this" | Dimensional table del report (Skills Match + Strategic Fit) + 1 proof point |
-| **Cover letter / texto largo libre** | campo grande, "cover letter", "anything else" | Estructura de carta (Paso 5C) — combina narrative + 1-2 stories + cierre |
-| **Logística** | work auth, relocation, notice period, salary | `user/profile.yml` + `user/_profile.md` (comp targets, location policy, right-to-work) — responder factual, sin fluff |
+| Tipo de pregunta | Señal | Fuente principal | Receta |
+|------------------|-------|------------------|--------|
+| **Logística** | work auth, visa, relocation, notice period, start date, salary/comp, "are you authorized…" | `user/profile.yml` (compensation, visa_status, location_flexibility, onsite_availability) + `user/_profile.md` (location policy) — factual, sin fluff | 5F |
+| **Behavioral / "Tell me about a time…"** | "describe a time", "give an example", "how did you handle…", "a situation where you…" | Story bank — historia STAR+R cuya competency/theme matchea | 5A |
+| **Cover letter / texto largo libre** | campo grande, "cover letter", "anything else you'd like us to know" | Estructura de carta — narrative + 1-2 stories + cierre | 5C |
+| **Motivation / "Why us / why this role"** | "why do you want", "what attracts you", "why {company}", "why this team" | Exit narrative (`user/_profile.md`) + 1 hecho concreto del JD/empresa | 5B |
+| **Fit / "Why are you a good fit"** | "what makes you qualified", "your strengths for this", "what would you bring" | Dimensional table del report (Skills Match + Strategic Fit) + 1 proof point | 5B |
 
-Para cada pregunta behavioral/fit, hacer **match por themes**: tomar las palabras clave de la pregunta y buscar la historia del banco cuya línea `**Themes:**` (o título/cuerpo) las cubre mejor. Una sola historia fuerte > tres historias tibias. Si **ninguna** historia matchea bien, marcarlo como gap (Paso 5D) — no fabriques una historia nueva sobre la marcha para un formulario en vivo.
+**Reglas de clasificación:**
+- **Logística primero.** Si la pregunta pide un hecho (comp, fecha, visa, autorización), es 5F aunque venga envuelta en prosa — no la conviertas en una mini-cover-letter.
+- **Preguntas compuestas** (un campo que pide DOS cosas, p. ej. "why this role *and* what's your biggest strength"): respóndelas como dos movimientos dentro de la misma respuesta, no elijas una y ignores la otra. Etiqueta internamente ambos tipos y combina las recetas en orden.
+- **Behavioral vs. Fit:** "tell me about a time" siempre va a una historia concreta (5A); "why are you a good fit" es una afirmación respaldada por UN proof point (5B), no una historia entera.
+
+Para cada pregunta behavioral, hacer **match por competency primero, luego por theme/texto** — es el orden que usa el ranking del banco (`scripts/lib/story-bank.mjs`: clasifica la pregunta a una competency canónica, luego elige la historia que la cubre; el texto desempata). Las competencies canónicas (ownership, leadership, collaboration, conflict, failure, ambiguity, analytical, impact, communication, customer, learning, innovation) son el vocabulario compartido entre la pregunta y la línea `**Themes:**` de cada historia. Una sola historia fuerte > tres historias tibias. Si **ninguna** historia cubre la competency de la pregunta, marcarlo como gap (Paso 5D) — no fabriques una historia nueva sobre la marcha para un formulario en vivo.
 
 ## Paso 5 — Generar respuestas (la artesanía de conversión)
 
@@ -80,7 +85,7 @@ El objetivo no es "responder la pregunta": es producir texto que un reclutador c
 
 ### 5A — Receta: pregunta behavioral → respuesta desde una historia STAR+R
 
-1. **Selecciona la historia** por theme-match (arriba). Cita su título-handle internamente para no perderla.
+1. **Selecciona la historia** por competency-match, luego theme/texto (arriba). Cita su título-handle internamente para no perderla.
 2. **Comprime los 5 beats al largo del campo** (ver tabla de longitudes abajo). El orden de prioridad cuando hay que recortar es: **Result → Action → Situation → Task → Reflection**. El número del Result nunca se recorta; es lo que hace memorable la respuesta.
 3. **Reescribe el opening para la pregunta exacta.** No pegues el Situation tal cual del banco — abre conectando con lo que la pregunta pide. Ej.: pregunta "a time you influenced without authority" + historia con theme `influence-without-authority` → abre con *"I didn't own the data team, but the dashboard nobody trusted was blocking my analysis, so…"*.
 4. **Aterriza el Result con el número primero**, luego el impacto de negocio. "Adoption 20%→75% in one quarter" antes que "which made the team happier".
@@ -122,6 +127,31 @@ Estructura de 4 movimientos (≈250-350 palabras salvo que el campo pida otra co
 | Cover letter / texto largo | 250-350 palabras (estructura 5C) |
 | Campo con límite de caracteres | respeta el límite VISIBLE; prioriza Result+Action |
 
+### 5F — Receta: logística (comp / disponibilidad / autorización)
+
+Estos campos parecen triviales pero son donde se pierde apalancamiento. Una cifra mal puesta ancla la negociación en tu contra antes de que empiece. Lee los valores de `user/profile.yml` § `compensation` y § `location`; nunca inventes ni redondees a ojo.
+
+- **Salario / expectativa de comp:**
+  - Si el formulario pide un **rango**, da el rango objetivo (`compensation.target_range`). Si pide un **número único**, da el extremo superior del rango o un punto alto dentro de él — nunca el `minimum` (es tu walk-away, es información privada que solo destruye apalancamiento si se filtra).
+  - Si el campo es **obligatorio y numérico** y no puedes dar rango, usa el techo del rango objetivo, no el suelo.
+  - Si es **opcional o de texto libre**, prefiere diferir: *"Open to discussing once I understand the full scope and total package"* — pero solo si el formulario lo permite sin bloquear el envío.
+  - Indica moneda y si es base o total comp cuando el campo lo permita (`compensation.currency`). No mezcles base con OTE.
+- **Autorización / visa:** responde el hecho exacto de `location.visa_status` (p. ej. "authorized to work in {country} without sponsorship" / "require sponsorship"). Sin matizar ni disculparse. Si el rol está en un país donde el candidato necesita patrocinio y el formulario pregunta, di la verdad — no la ocultes.
+- **Relocation / on-site:** deriva de `location.location_flexibility` + `location.onsite_availability` + la location policy de `user/_profile.md`. Si el candidato tiene una ventana de disponibilidad física concreta para una ciudad, refléjala con su fecha real leída de la fuente, no inventes.
+- **Notice period / start date:** lee de `user/_profile.md` / `user/cv.md`; si no está documentado, márcalo como gap en las Notas (`[gap: notice period no documentado — confirmar]`) en vez de adivinar.
+- **Tono:** factual, completo, una frase. Nada de fluff ni de venderte en un campo de logística — el reclutador filtra por hechos aquí, no por prosa.
+
+### 5G — Self-check antes de entregar (gate obligatorio)
+
+Antes de imprimir el output, pasa CADA respuesta por este filtro. Si alguna falla, reescríbela — no la entregues con una nota de disculpa:
+
+1. **¿Tiene ≥1 concreto verificable?** (número del CV, nombre propio de proyecto/empresa/herramienta, o una línea del JD). Si no → reescribe.
+2. **¿Contiene algún ban duro** (Paso 5D)? Si sí → reescribe.
+3. **¿Está dentro del largo objetivo** (Paso 5E) y del límite de caracteres visible? Si se pasa → recorta por prioridad (Result/Action primero).
+4. **¿El mismo proof point se repite** en otra respuesta del formulario? Si sí y es evitable → sustituye por otro del CV/banco.
+5. **¿Las cifras salen de `user/cv.md` / `user/article-digest.md` / `user/profile.yml`** y no de tu memoria? Ninguna métrica inventada.
+6. **Logística:** ¿filtraste el walk-away (`minimum`)? Nunca debe aparecer. ¿La cifra de comp es coherente con `target_range`?
+
 **Formato de output:**
 
 ```
@@ -142,16 +172,20 @@ Basado en: Report #NNN | Score: X.X/10 | Arquetipo: [tipo]
 ---
 
 Notas:
-- [Cualquier observación sobre el rol, cambios, etc.]
-- [Sugerencias de personalización que el candidato debería revisar]
+- [Gaps detectados: `[gap: …]` de competencies sin historia o datos de logística sin documentar]
+- [Cualquier observación sobre el rol, cambios respecto al evaluado, etc.]
+- [Sugerencias de personalización que el candidato debería revisar antes de enviar]
 ```
+
+Las respuestas se entregan listas para copy-paste; el candidato siempre revisa y envía (nunca auto-submit — ver `CLAUDE.md` § Ethical Use). Si el Score del report es < 7.0, recuérdalo brevemente en las Notas antes de redactar.
 
 ## Paso 6 — Post-apply (opcional)
 
 Si el candidato confirma que envió la aplicación:
 1. Actualizar estado en `applications.md` de "Evaluated" a "Applied"
 2. Actualizar `interview-prep/{Company} - {Role}.md` con las respuestas finales (append a una sección `## Final form answers`)
-3. Sugerir siguiente paso: `/career-ops contacto` para LinkedIn outreach
+3. **Cerrar el loop del banco:** si una respuesta behavioral salió de una historia que aún no estaba en `interview-prep/story-bank.md` (la armaste ad-hoc desde el CV), añádela ahora con el formato canónico (`### {Título}` + beats STAR+R + `**Themes:**`) para que el banco crezca. Si detectaste un `[gap: no hay historia para '{competency}']`, anótalo para que el candidato lo construya. Nunca dupliques un título existente — actualiza el que ya está (dedup por `storyTitleKey`).
+4. Sugerir siguiente paso: `/career-ops contacto` para LinkedIn outreach
 
 ## Scroll handling
 
