@@ -5,9 +5,19 @@
  *
  * Fetches Greenhouse, Ashby, and Lever APIs directly, applies title
  * filters from user/portals.yml, deduplicates against existing history,
- * and appends new offers to pipeline.md + scan-history.tsv.
+ * ranks the survivors by relevance (best first), and appends them to
+ * pipeline.md + scan-history.tsv.
  *
  * Zero Claude API tokens — pure HTTP + JSON.
+ *
+ * Relevance ranking: postings that clear the 4-pass filter funnel are scored
+ * and ordered best-first so the strongest matches sit at the top of the
+ * pipeline (and surface first when the user evaluates). The score is a
+ * transparent sum of signals — positive-keyword/phrase matches, the
+ * seniority_boost band, freshness, and target-city specificity — and the
+ * "why" is appended to each pipeline line. Tune the weights via
+ * user/portals.yml › title_filter.relevance_weights (optional; safe defaults
+ * apply). Scoring lives in scan-core.mjs (pure + unit-tested).
  *
  * Usage:
  *   node scripts/scan.mjs                  # scan all enabled companies
@@ -21,6 +31,8 @@ import {
   buildTitleFilter,
   buildLangFilter,
   buildLocationFilter,
+  rankOffers,
+  formatRelevanceNote,
 } from './scan-core.mjs';
 const parseYaml = yaml.load;
 
@@ -335,6 +347,19 @@ function loadSeenCompanyRoles() {
 
 // ── Pipeline writer ─────────────────────────────────────────────────
 
+/**
+ * Render one pipeline checkbox line. Offers are expected to arrive ranked
+ * best-first (see rankOffers); when an offer carries a `.relevance` score we
+ * append a compact "relevance X.X — why" note to the line's tail. The frontend
+ * pipeline parser only reads the leading URL (regex-anchored at line start), so
+ * the trailing note is purely human-facing and never breaks dedup or parsing.
+ */
+function pipelineLine(o) {
+  const base = `- [ ] ${o.url} | ${o.company} | ${o.title}`;
+  const note = formatRelevanceNote(o.relevance);
+  return note ? `${base} | ${note}` : base;
+}
+
 function appendToPipeline(offers) {
   if (offers.length === 0) return;
 
@@ -347,9 +372,7 @@ function appendToPipeline(offers) {
     // No Pending section — append at end before Processed
     const procIdx = text.indexOf('## Processed');
     const insertAt = procIdx === -1 ? text.length : procIdx;
-    const block = `\n${marker}\n\n` + offers.map(o =>
-      `- [ ] ${o.url} | ${o.company} | ${o.title}`
-    ).join('\n') + '\n\n';
+    const block = `\n${marker}\n\n` + offers.map(pipelineLine).join('\n') + '\n\n';
     text = text.slice(0, insertAt) + block + text.slice(insertAt);
   } else {
     // Find the end of existing Pending content (next ## or end)
@@ -357,9 +380,7 @@ function appendToPipeline(offers) {
     const nextSection = text.indexOf('\n## ', afterMarker);
     const insertAt = nextSection === -1 ? text.length : nextSection;
 
-    const block = '\n' + offers.map(o =>
-      `- [ ] ${o.url} | ${o.company} | ${o.title}`
-    ).join('\n') + '\n';
+    const block = '\n' + offers.map(pipelineLine).join('\n') + '\n';
     text = text.slice(0, insertAt) + block + text.slice(insertAt);
   }
 
@@ -515,11 +536,22 @@ async function main() {
 
   await parallelFetch(tasks, CONCURRENCY);
 
-  // 5. Write results
+  // 4b. Rank survivors best-first by relevance, so the strongest matches land at
+  // the top of the pipeline (and surface first when the user evaluates). All
+  // newOffers are first-seen today, so freshness is uniform across this batch —
+  // ranking is driven by title/keyword/seniority/location signals. Weights and
+  // the seniority_boost list both come from user/portals.yml (no hardcoded user
+  // data). See scan-core.mjs › rankOffers / scoreRelevance.
+  const rankedOffers = rankOffers(newOffers, config.title_filter || {}, {
+    now: date,
+    locationAllowlist: config.location_allowlist,
+  });
+
+  // 5. Write results (ranked order — best matches first in pipeline + history)
   if (!dryRun) {
-    if (newOffers.length > 0) {
-      appendToPipeline(newOffers);
-      addToHistory(history.rows, history.urlToIndex, newOffers, date);
+    if (rankedOffers.length > 0) {
+      appendToPipeline(rankedOffers);
+      addToHistory(history.rows, history.urlToIndex, rankedOffers, date);
     }
     if (reseenUrls.size > 0) {
       updateScanDates(history.rows, history.urlToIndex, reseenUrls, date);
@@ -548,10 +580,11 @@ async function main() {
     }
   }
 
-  if (newOffers.length > 0) {
-    console.log('\nNew offers:');
-    for (const o of newOffers) {
-      console.log(`  + ${o.company} | ${o.title} | ${o.location || 'N/A'}`);
+  if (rankedOffers.length > 0) {
+    console.log('\nNew offers (ranked by relevance, best first):');
+    for (const o of rankedOffers) {
+      const score = o.relevance ? o.relevance.score.toFixed(1).padStart(4) : ' n/a';
+      console.log(`  [${score}] ${o.company} | ${o.title} | ${o.location || 'N/A'}`);
     }
     if (dryRun) {
       console.log('\n(dry run — run without --dry-run to save results)');
