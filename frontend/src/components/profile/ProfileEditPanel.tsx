@@ -494,7 +494,7 @@ function PhoneField({ cc, num, onChange }: {
           inputMode="tel"
           value={num}
           onChange={e => onChange(cc, formatNational(e.target.value))}
-          placeholder="555 123 4567"
+          placeholder="123 456 789"
           className="flex-1 min-w-0 px-3 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 font-mono tabular-nums placeholder:text-text-4 transition-colors focus:border-accent/50 outline-none"
         />
       </div>

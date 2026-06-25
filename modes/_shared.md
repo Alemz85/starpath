@@ -26,7 +26,7 @@
 
 ## Report Voice
 
-**Reports are written FOR the candidate, not ABOUT them.** Every prose section (Reasoning cells, Gaps, Recommendation, Career Path Impact, TL;DR) addresses the candidate directly in **second person** — *"your CV covers Python + R + SQL"*, *"you finish the [redacted degree/date]"*, *"this role accelerates you toward Stripe / Wise / Monzo exits"*. Treat the report as a memo the candidate is reading about a role being evaluated for them — not a referral profile being written for a third-party recruiter.
+**Reports are written FOR the candidate, not ABOUT them.** Every prose section (Reasoning cells, Gaps, Recommendation, Career Path Impact, TL;DR) addresses the candidate directly in **second person** — *"your CV covers your core stack"*, *"you finish your master's before this role's start window"*, *"this role accelerates you toward your target-tier companies"*. Treat the report as a memo the candidate is reading about a role being evaluated for them — not a referral profile being written for a third-party recruiter.
 
 **Hard bans in report prose:**
 - *"the user"* / *"the candidate"* / *"the candidate's profile"* / *"applicants like this one"*
