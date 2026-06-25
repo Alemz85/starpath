@@ -319,3 +319,172 @@ test('reportEngineLever returns the structured lever only on the engine path', (
   assert.ok(reportEngineLever(withDims))            // engine lever present
   assert.equal(reportEngineLever(noDims), null)     // parse path → no structured lever
 })
+
+// ─── filterReportRows edge cases ─────────────────────────────────────────────
+
+test('filterReportRows with an empty bands set passes all rows through (OR semantics)', () => {
+  const rows = [row({ overall: 9.5 }), row({ overall: 4.0 })]
+  // Empty Set means "no band filter" — not "matches zero"
+  const out = filterReportRows(rows, { bands: new Set() })
+  assert.equal(out.length, 2)
+})
+
+test('filterReportRows with an empty input returns an empty array', () => {
+  const out = filterReportRows([], { query: 'stripe', bands: new Set<ScoreBand>(['stellar']) })
+  assert.deepEqual(out, [])
+})
+
+test('filterReportRows nearMissOnly=false (explicit) passes all rows through', () => {
+  const rows = [
+    row({ overall: 9.5 }),    // top-band, not near-miss
+    row({ overall: 5.0 }),    // far from next band
+  ]
+  const out = filterReportRows(rows, { nearMissOnly: false })
+  assert.equal(out.length, 2)
+})
+
+test('filterReportRows trims and lowercases the query', () => {
+  const rows = [
+    row({ company: '  Stripe  ', role: 'Analyst' }),
+    row({ company: 'Acme', role: 'STRIPE Manager' }),
+  ]
+  // Query with leading/trailing spaces and mixed case
+  const out = filterReportRows(rows, { query: '  STRIPE  ' })
+  assert.equal(out.length, 2)
+})
+
+// ─── sortReportRows edge cases ────────────────────────────────────────────────
+
+test('sortReportRows by tier asc reverses the canonical order (T4 first)', () => {
+  const rows = [
+    row({ tier: 'T1' }), row({ tier: 'T3' }), row({ tier: 'T2' }),
+  ]
+  assert.deepEqual(
+    sortReportRows(rows, 'tier', 'asc').map(r => r.tier),
+    ['T3', 'T2', 'T1'],
+  )
+})
+
+test('sortReportRows by date asc puts the oldest mtime first', () => {
+  const rows = [row({ mtime: 100 }), row({ mtime: 300 }), row({ mtime: 200 })]
+  assert.deepEqual(sortReportRows(rows, 'date', 'asc').map(r => r.mtime), [100, 200, 300])
+})
+
+test('sortReportRows by fixable asc reverses fixability (least fixable first)', () => {
+  const rows = [
+    { company: 'Close', role: 'r', tier: 'T3', overall: 6.9, fixability: { hasLever: false } },
+    { company: 'Far',   role: 'r', tier: 'T3', overall: 5.0, fixability: { hasLever: false } },
+  ] as FixabilityRow[]
+  const order = sortReportRows(rows, 'fixable', 'asc').map(r => r.company)
+  // asc = reverse of desc → Far (less fixable, lower score) comes first
+  assert.equal(order[0], 'Far')
+  assert.equal(order[1], 'Close')
+})
+
+test('sortReportRows by score asc places tied nulls together at the front', () => {
+  const rows = [
+    row({ overall: null }), row({ overall: null }), row({ overall: 7 }),
+  ]
+  const sorted = sortReportRows(rows, 'score', 'asc')
+  assert.equal(sorted[0].overall, null)
+  assert.equal(sorted[1].overall, null)
+  assert.equal(sorted[2].overall, 7)
+})
+
+// ─── corpusBands edge cases ───────────────────────────────────────────────────
+
+test('corpusBands deduplicates: many stellar rows yield one "stellar" entry', () => {
+  const rows = [row({ overall: 9.1 }), row({ overall: 9.2 }), row({ overall: 9.5 })]
+  assert.deepEqual(corpusBands(rows), ['stellar'])
+})
+
+test('corpusBands respects the tier fallback for unscored rows', () => {
+  const rows = [
+    row({ overall: 0, tier: 'T1' }),    // stellar via tier
+    row({ overall: 0, tier: 'T3' }),    // pass via tier
+  ]
+  const bands = corpusBands(rows)
+  assert.ok(bands.includes('stellar'))
+  assert.ok(bands.includes('pass'))
+})
+
+// ─── bandCounts edge cases ────────────────────────────────────────────────────
+
+test('bandCounts on an empty input returns all-zero counts', () => {
+  const counts = bandCounts([])
+  for (const band of ['stellar', 'strong', 'decent', 'pass', 'skip'] as const) {
+    assert.equal(counts[band], 0)
+  }
+})
+
+test('bandCounts with a query that matches nothing returns all-zero counts', () => {
+  const rows = [row({ company: 'Stripe', overall: 9.0 })]
+  const counts = bandCounts(rows, 'zzz-no-match')
+  for (const band of ['stellar', 'strong', 'decent', 'pass', 'skip'] as const) {
+    assert.equal(counts[band], 0)
+  }
+})
+
+// ─── buildScoreIndex / matchScore edge cases ──────────────────────────────────
+
+test('buildScoreIndex with an empty array returns empty maps', () => {
+  const idx = buildScoreIndex([])
+  assert.equal(idx.byExact.size, 0)
+  assert.equal(idx.byCompany.size, 0)
+})
+
+test('matchScore: prefix match is bidirectional (report role shorter than score entry)', () => {
+  // score-history has "Risk Analyst II"; report has the shorter "Risk Analyst"
+  const entry = makeScoreEntry({ company: 'Stripe', role: 'Risk Analyst II', overall: 8 })
+  const idx = buildScoreIndex([entry])
+  const hit = matchScore(idx, { company: 'Stripe', role: 'Risk Analyst' })
+  assert.equal(hit?.role, 'Risk Analyst II')
+})
+
+test('matchScore: best-overall fallback picks the single entry when there is only one', () => {
+  const entry = makeScoreEntry({ company: 'Stripe', role: 'Strategy', overall: 7 })
+  const idx = buildScoreIndex([entry])
+  // No prefix match (completely different role)
+  const hit = matchScore(idx, { company: 'Stripe', role: 'Totally Unrelated' })
+  assert.equal(hit?.overall, 7)
+})
+
+test('matchScore trims and lowercases for the exact key lookup', () => {
+  const entry = makeScoreEntry({ company: '  Stripe ', role: ' Risk Analyst ' })
+  const idx = buildScoreIndex([entry])
+  const hit = matchScore(idx, { company: 'stripe', role: 'risk analyst' })
+  assert.ok(hit)
+  assert.equal(hit?.company, '  Stripe ')
+})
+
+// ─── distanceToNextBand edge cases ────────────────────────────────────────────
+
+test('distanceToNextBand: score exactly at a band floor has distance to the NEXT floor', () => {
+  // 7.0 is the floor of 'decent'; next band is 'strong' (floor 8.0)
+  assert.equal(distanceToNextBand(7.0, 'T2'), 1.0)
+  // 8.0 is the floor of 'strong'; next band is 'stellar' (floor 9.0)
+  assert.equal(distanceToNextBand(8.0, 'T2'), 1.0)
+  // 5.0 is the floor of 'pass'; next band is 'decent' (floor 7.0)
+  assert.equal(distanceToNextBand(5.0, 'T3'), 2.0)
+})
+
+test('distanceToNextBand: a score just below 5.0 (skip band) measures to decent floor (7.0)', () => {
+  // skip floor is 0; next is pass (5.0)... wait, 'pass' has floor 5.0
+  // A skip-band score (e.g. 4.0) → next is pass at 5.0 → distance 1.0
+  assert.equal(distanceToNextBand(4.0, 'T4'), 1.0)
+})
+
+// ─── isNearMiss edge cases ────────────────────────────────────────────────────
+
+test('isNearMiss: a row at exactly the band floor (distance=0) is NOT near-miss', () => {
+  // 7.0 = bottom of 'decent'; still 1.0 from 'strong'. Not near-miss without a lever.
+  const r: FixabilityRow = { company: 'A', role: 'r', tier: 'T2', overall: 7.0, fixability: { hasLever: false } }
+  // 1.0 gap → too far; isNearMiss should be false
+  assert.equal(isNearMiss(r), false)
+})
+
+test('isNearMiss: a row with no fixability field (undefined) is treated as no lever', () => {
+  const r: FixabilityRow = { company: 'A', role: 'r', tier: 'T3', overall: 6.95 }
+  // 0.05 gap → near-miss even with no lever (small gap qualifies)
+  assert.equal(isNearMiss(r), true)
+})
