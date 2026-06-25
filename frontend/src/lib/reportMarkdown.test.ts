@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   extractMetadata, parseDimensionalScoring, parseRow,
+  extractWhyThisScoreSection, parseWhyThisScore,
 } from '@/lib/reportMarkdown'
 
 // A representative evaluation report — header + metadata block, a dimensional
@@ -171,4 +172,88 @@ test('extractMetadata flags an unconfirmed verification value through to the cal
 test('extractMetadata collapses the blank-line run the dropped block leaves behind', () => {
   const { rest } = extractMetadata('A\n\n**URL:** x\n\nB\n')
   assert.ok(!/\n{3,}/.test(rest))   // no triple-newline gap where URL was
+})
+
+// ─── Why-this-score (fixability) ─────────────────────────────────────────────
+
+const WHY_REPORT = `# Acme — Analyst
+
+## Dimensional scoring
+
+| Dim | Score | Why |
+|---|---|---|
+| Skills match | 8/10 | ok |
+| Overall | 6.9/10 | rollup |
+
+## Why this score
+Strong aspirational pull, but the experience wall keeps Current Fit just under T2.
+
+- **Holding it back:** Ease of Entry 4/10 trips the experience-wall gate.
+- **Closest lever:** Skills match 7 → 8 (+1) crosses Current Fit into the T2 band.
+
+## Role summary
+Great role.
+`
+
+test('extractWhyThisScoreSection pulls just the block body, stopping at the next heading', () => {
+  const sec = extractWhyThisScoreSection(WHY_REPORT)
+  assert.ok(sec)
+  assert.ok(sec!.includes('experience wall'))
+  assert.ok(sec!.includes('Closest lever'))
+  assert.ok(!sec!.includes('Role summary'))
+  assert.ok(!sec!.includes('Dimensional scoring'))
+})
+
+test('extractWhyThisScoreSection returns null when the block is absent', () => {
+  assert.equal(extractWhyThisScoreSection('# Report\n\n## Role summary\nx\n'), null)
+})
+
+test('parseWhyThisScore extracts headline, binding constraint, and lever', () => {
+  const why = parseWhyThisScore(WHY_REPORT)
+  assert.equal(why.present, true)
+  assert.ok(why.headline.startsWith('Strong aspirational pull'))
+  assert.equal(why.bindingConstraint, 'Ease of Entry 4/10 trips the experience-wall gate.')
+  assert.equal(why.lever, 'Skills match 7 → 8 (+1) crosses Current Fit into the T2 band.')
+})
+
+test('parseWhyThisScore reports present:false and null fields when no block exists', () => {
+  const why = parseWhyThisScore('# Report\n\n## Role summary\nx\n')
+  assert.deepEqual(why, { headline: '', bindingConstraint: null, lever: null, present: false })
+})
+
+test('parseWhyThisScore treats a "no single lever" disclaimer as no lever', () => {
+  const md = `## Why this score
+Already a top-band match on every gating dimension.
+
+- **Holding it back:** Nothing — all rollup dimensions clear their bands.
+- **Closest lever:** No single dimension can cross alone; already top-band.
+`
+  const why = parseWhyThisScore(md)
+  assert.equal(why.present, true)
+  assert.equal(why.lever, null)
+  // binding constraint still surfaces even when phrased as "Nothing — …"
+  assert.ok(why.bindingConstraint?.startsWith('Nothing'))
+})
+
+test('parseWhyThisScore tolerates un-bolded labels and a missing lever bullet', () => {
+  const md = `## Why this score
+The comp gap is the only thing below band.
+
+- Holding it back: Salary-adjusted comp 5/10 drags Current Fit.
+`
+  const why = parseWhyThisScore(md)
+  assert.equal(why.bindingConstraint, 'Salary-adjusted comp 5/10 drags Current Fit.')
+  assert.equal(why.lever, null)
+  assert.ok(why.headline.startsWith('The comp gap'))
+})
+
+test('parseWhyThisScore accepts "Binding constraint" / "Cheapest lever" label synonyms', () => {
+  const md = `## Why this score
+- **Binding constraint:** Ease of Entry gate.
+- **Cheapest lever:** Brand value 6 → 8 crosses the band.
+`
+  const why = parseWhyThisScore(md)
+  assert.equal(why.bindingConstraint, 'Ease of Entry gate.')
+  assert.equal(why.lever, 'Brand value 6 → 8 crosses the band.')
+  assert.equal(why.headline, '')   // no non-bullet lede line
 })
