@@ -330,8 +330,10 @@ function BreakdownRow({
                       {s.overall > 0 ? s.overall.toFixed(1) : '—'}
                     </span>
                     <span className={cn(
-                      'text-[9.5px] font-mono uppercase tracking-[0.08em] w-[44px] text-right',
-                      isHistorical ? 'text-text-4' : 'text-success',
+                      'text-[9.5px] font-mono uppercase tracking-[0.08em] w-[50px] text-right',
+                      s.livenessState === 'closed' ? 'text-text-4' :
+                      s.livenessState === 'stale'  ? 'text-warning' :
+                      'text-success',
                     )}>
                       {s.livenessState ?? 'active'}
                     </span>
@@ -477,9 +479,9 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         return (
           <button
             onClick={(e) => { e.stopPropagation(); onOpenReport(entry) }}
-            title="Open report"
-            aria-label="Open report"
-            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-4 opacity-70 hover:opacity-100 hover:text-accent hover:bg-accent/10 transition-all"
+            title="Open scouting report"
+            aria-label="Open scouting report"
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-3 hover:text-accent hover:bg-accent/10 transition-all"
           >
             <FileText size={11} />
           </button>
@@ -499,7 +501,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     }),
     col.display({
       id: 'fixability',
-      header: 'Fixability',
+      header: 'Upgrade Path',
       size: 116,
       // Sort by how cheap the upgrade is: near-misses (smallest lift) first,
       // rows with no lever last. `sortingFn` reads the lever lift; a missing
@@ -580,9 +582,9 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         return (
           <button
             onClick={(e) => { e.stopPropagation(); ipc.openExternal(url) }}
-            title="Open job posting"
-            aria-label="Open job posting"
-            className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-4 opacity-60 hover:opacity-100 hover:text-accent hover:bg-accent/10 transition-all"
+            title="Open job posting in browser"
+            aria-label="Open job posting in browser"
+            className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-3 hover:text-accent hover:bg-accent/10 transition-all"
           >
             <ExternalLink size={12} />
           </button>
@@ -611,16 +613,28 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                 const sorted = header.column.getIsSorted()
                 const headerStr = header.column.columnDef.header as string
                 const isCentered = headerStr === 'Location'
+                const isUpgradePath = headerStr === 'Upgrade Path'
+                const ariaSortVal: 'ascending' | 'descending' | 'none' = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
+                const toggleSort = canSort ? header.column.getToggleSortingHandler() : undefined
                 return (
                   <th
                     key={header.id}
                     style={{ width: header.getSize() }}
+                    aria-sort={canSort ? ariaSortVal : undefined}
+                    title={isUpgradePath ? 'Cheapest single-dimension raise that moves this listing into a better tier. Sort ascending = easiest to upgrade first.' : undefined}
                     className={cn(
                       'px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-4 whitespace-nowrap select-none',
-                      'bg-bg-base/80 backdrop-blur-md border-b border-border-default',
+                      'bg-bg-chrome border-b border-border-default',
                       canSort && 'cursor-pointer hover:text-text-2 transition-colors',
                     )}
-                    onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
+                    onClick={toggleSort}
+                    onKeyDown={canSort ? (e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        toggleSort?.(e as unknown as React.MouseEvent)
+                      }
+                    } : undefined}
+                    tabIndex={canSort ? 0 : undefined}
                   >
                     <div className={cn('flex items-center gap-1', isCentered && 'justify-center')}>
                       {flexRender(header.column.columnDef.header, header.getContext())}
@@ -654,9 +668,18 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
               <Fragment key={row.id}>
                 <tr
                   onClick={(evt) => onRowClick(entry, evt)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onRowClick(entry, e as unknown as React.MouseEvent)
+                    }
+                  }}
+                  tabIndex={0}
+                  aria-selected={isSelected}
+                  role="row"
                   className={cn(
                     'border-b border-border-default/30 cursor-pointer',
-                    'transition-colors duration-150',
+                    'transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50',
                     isSelected
                       ? 'bg-accent/10'
                       : isExpanded
@@ -665,7 +688,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                   )}
                 >
                   {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="px-3 py-3 align-middle">
+                    <td key={cell.id} className="px-3 py-2.5 align-middle">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -687,11 +710,12 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                   <div className="w-14 h-14 rounded-full galaxy-bg border border-border-default flex items-center justify-center">
                     <Search size={22} className="text-accent opacity-80" />
                   </div>
-                  <div className="text-center max-w-sm">
-                    <p className="text-[15px] text-text-1 font-medium">No matches</p>
-                    <p className="text-[12px] text-text-3 mt-1 leading-snug">
-                      Try relaxing a filter, searching a different keyword, or toggling
-                      the Liveness chips to see stale or closed listings.
+                  <div className="text-center max-w-xs">
+                    <p className="text-[14px] text-text-1 font-semibold">No listings match</p>
+                    <p className="text-[12px] text-text-3 mt-1.5 leading-relaxed">
+                      Try relaxing a filter or searching a different keyword.
+                      Use the <span className="font-mono text-text-2">Liveness</span> chips to include stale or closed listings,
+                      or turn off <span className="font-mono text-text-2">Untapped</span> to see roles already in your pipeline.
                     </p>
                   </div>
                 </div>
