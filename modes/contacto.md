@@ -29,7 +29,11 @@ and speculative outreach (no posting yet, but you want in).
   user names a company you've already evaluated (links outreach to the pipeline).
 - `reports/tier-*/{Company} - {Role}.md` — if a report exists, mine its company
   context (the specific challenge / hook) instead of re-researching from scratch.
-- `data/companies/{slug}.md` — cached deep research, if present (see `modes/deep.md`).
+- `data/companies/{slug}.md` — **cached deep research, the primary hook source when
+  fresh.** Don't read this path by hand or guess the slug — query it through
+  `scripts/company-research.mjs` (Step 1a). When a fresh artifact exists, its
+  **Talking Points** become the message hook and its **Team & Role Context** tells
+  you which team/person to target and what problem they own. See `modes/deep.md`.
 - `data/outreach.md` — the outreach log (created on first send). Drives cadence.
 
 > **System-layer hygiene:** this file must stay generic. Every example below uses
@@ -45,6 +49,30 @@ If the user said `/career-ops contacto {company}`, that's the company. Check
 - **No match** → ask the user for the role (or treat it as speculative outreach
   for one of their target roles from `user/profile.yml`).
 
+## Step 1a — Cache check (reuse deep research before re-searching)
+
+Before you spend WebSearch budget finding a person and a hook, check whether
+`modes/deep.md` already cached the research for this company:
+
+```bash
+node scripts/company-research.mjs check "{Company}" --json
+```
+
+Read the `state` field (and exit code):
+
+| Verdict (exit code) | Action |
+|---------------------|--------|
+| `fresh` + valid (0) | **Consume it.** Read `data/companies/{slug}.md`. Two sections drive this mode: **Talking Points** (3–6 concrete, defensible hooks — the raw material for the message's opening line and any "ask them" question) and **Team & Role Context** (who owns the req, who it reports to, adjacent teams — this tells Step 2 *who* to target and Step 4 *what problem* to reference). Treat any named person as a lead to verify (Step 2), not a confirmed contact. |
+| `stale` (2) | Use **Team & Role Context** as a scaffold (org shape is slow-moving) but treat **Talking Points** tied to *Recent Signals* as possibly outdated — re-verify before leaning on a "recent" hook, since a stale signal in a cold message reads worse than a generic one. Suggest the user re-run `deep` mode. |
+| missing file (1) | No cached research — gather the hook in Step 2 from the report / JD / a fresh search. Worth telling the user that running `deep` first builds a reusable artifact shared with `interview-prep`. |
+| invalid schema (3) | Malformed file — ignore it; research the hook fresh. |
+
+The CLI owns the slug → path → freshness math (30-day window) so contacto, `deep`,
+and `interview-prep` agree on what "fresh" means. **Candidate specifics — the proof
+sentence, the name, the location — still come from `user/*` at runtime** (Step 4);
+the artifact supplies the *company-side* hook and targeting, never the candidate's
+numbers.
+
 ## Step 2 — Find the right person (WebSearch / LinkedIn)
 
 Identify candidates for outreach, in rough priority order:
@@ -56,6 +84,12 @@ Identify candidates for outreach, in rough priority order:
 3. **Recruiter / Talent** — owns the funnel; good for logistics and a fast read
    on fit, weaker as a referral.
 4. **Interviewer** — only if the candidate already has an interview scheduled.
+
+**If Step 1a found a fresh artifact, start from its *Team & Role Context*.** It
+names the team that owns the req, who the role likely reports to, and adjacent
+teams — which is exactly the targeting input this step needs. The hiring manager
+it points to (or the team it names) becomes your primary search target; verify the
+person below rather than re-deriving the org from scratch.
 
 Search patterns (adapt to the company): `site:linkedin.com/in "{company}"
 "{team or function}"`, the company's team/about page, engineering or product blog
@@ -77,9 +111,16 @@ you found, or ask if ambiguous: **Hiring Manager · Peer · Recruiter · Intervi
 ## Step 4 — Draft the message
 
 Pull the **proof** from `user/cv.md` and the **angle** from `user/_profile.md`.
-Pull the **hook** from the role/company (the report's company context, the JD, a
-blog post, recent news). Frameworks below — 3 sentences each, substitute real
-specifics at runtime:
+Pull the **hook** from the role/company. **When Step 1a found a fresh artifact, its
+*Talking Points* are the first place to look for that hook** — each one is already
+"concrete enough to drop into a message or an 'ask them' question" (that's the
+section's contract in `modes/deep.md`). Pick the talking point most relevant to the
+contact type and the role, and phrase it in your own words — don't paste it
+verbatim. Fall back to the report's company context, the JD, a blog post, or recent
+news when there's no fresh artifact (or to add a sharper, more current hook on top).
+For a *stale* artifact, prefer a durable talking point (a public value, a product
+detail) over one pinned to a possibly-outdated recent signal. Frameworks below — 3
+sentences each, substitute real specifics at runtime:
 
 ### Hiring Manager
 - **Hook** — a specific challenge their team faces (from the JD / company blog /
@@ -210,7 +251,8 @@ Then loop back to Step 6 to log the nudge as `Touch = N+1`.
 
 | Situation | Do |
 |-----------|----|
-| `/career-ops contacto {company}` | Steps 1–6 for that company |
+| `/career-ops contacto {company}` | Steps 1–6 for that company (Step 1a checks for cached deep research first) |
+| Cached research exists | `node scripts/company-research.mjs check "{Company}"` → if fresh, mine **Talking Points** + **Team & Role Context** before searching |
 | "who should I follow up with?" | `node scripts/outreach-cadence.mjs --summary` → Step 8 for NUDGE rows |
 | Contact replied | Mark `Outcome` → `Replied`; stop the cadence; move to a real conversation |
 | 2 touches, no reply | It goes COLD — switch to an alternate contact, don't pester |
