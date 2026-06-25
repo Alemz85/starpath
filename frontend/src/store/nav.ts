@@ -5,6 +5,7 @@ export type ViewId =
   | 'today'
   | 'scouting'
   | 'applying'
+  | 'outreach'
   | 'database'
   | 'reports'
   | 'trends'
@@ -21,6 +22,7 @@ export const VIEW_LABELS: Record<ViewId, string> = {
   today:    'Today',
   scouting: 'Scouting',
   applying: 'Applying',
+  outreach: 'Outreach',
   database: 'Database',
   reports:  'Reports',
   trends:   'Trends',
