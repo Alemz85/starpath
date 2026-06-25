@@ -20,6 +20,9 @@ import {
   flattenForExport,
 } from '@/lib/databaseRows'
 import { livenessKey } from '@/lib/scanHistory'
+import { filterNearUpgrades } from '@/lib/tierLevers'
+import { TrendingUp } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
@@ -35,6 +38,12 @@ export function DatabaseView() {
   // Local UI state (not persisted like the facet store) — it's a transient
   // "help me find what's left to chase" lens, reset on relaunch.
   const [untappedOnly, setUntappedOnly] = useState(false)
+
+  // "Near upgrade only" — keep just the rows one modest single-dimension bump
+  // from a better tier (lib/tierLevers § isNearUpgrade). A fast "what's cheap
+  // to upgrade?" lens layered on top of the facet filters. Local UI state like
+  // untappedOnly — transient, reset on relaunch.
+  const [nearUpgradeOnly, setNearUpgradeOnly] = useState(false)
 
   // Drop tombstoned rows up-front. The tombstone set is keyed by
   // livenessKey(company, role) — identical to the key used for the
@@ -103,9 +112,17 @@ export function DatabaseView() {
     [entities, filters, tokenFilters, freeText, showClosed, untappedOnly, actedKeys, liveness],
   )
 
+  // Apply the "Near upgrade only" lens on top of the grouped rows. Grouping
+  // already picked each row's primary (best active sibling), whose dims drive
+  // the lever — so filtering at the group level matches what the chip shows.
+  const visibleRows = useMemo(
+    () => filterNearUpgrades(filtered, nearUpgradeOnly),
+    [filtered, nearUpgradeOnly],
+  )
+
   // Flatten grouped rows to one entity per line for export (every evaluated
   // city carries its own score, with livenessState resolved per sibling).
-  const exportRows = useMemo(() => flattenForExport(filtered, liveness), [filtered, liveness])
+  const exportRows = useMemo(() => flattenForExport(visibleRows, liveness), [visibleRows, liveness])
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -113,8 +130,24 @@ export function DatabaseView() {
         {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
         <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
           <h1 className="text-body text-text-1 font-medium">Database</h1>
-          <span className="text-label text-text-4 font-mono">{loaded ? `${filtered.length} / ${scoreHistory.length}` : '…'}</span>
+          <span className="text-label text-text-4 font-mono">{loaded ? `${visibleRows.length} / ${scoreHistory.length}` : '…'}</span>
           <div className="flex-1" />
+          {/* "Near upgrade" quick-filter — one nudge from a better tier. */}
+          <button
+            type="button"
+            onClick={() => setNearUpgradeOnly(v => !v)}
+            title="Show only listings one modest single-dimension bump from a better tier"
+            aria-pressed={nearUpgradeOnly}
+            className={cn(
+              'titlebar-no-drag inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-label font-medium transition-colors',
+              nearUpgradeOnly
+                ? 'bg-accent/10 text-accent border border-accent/30'
+                : 'text-text-3 border border-transparent hover:bg-bg-elevated hover:text-text-2',
+            )}
+          >
+            <TrendingUp size={12} aria-hidden />
+            Near upgrade
+          </button>
           <ExportMenu rows={exportRows} />
           <label className="titlebar-no-drag flex items-center gap-1.5 text-label text-text-3 cursor-pointer">
             <input
@@ -143,7 +176,7 @@ export function DatabaseView() {
           <div className="flex-1 min-w-0 overflow-hidden">
             {loaded ? (
               <DatabaseTable
-                rows={filtered}
+                rows={visibleRows}
                 setPopoverState={setPopoverState}
                 setSelectedEntry={setSelectedEntry}
                 popoverState={popoverState}

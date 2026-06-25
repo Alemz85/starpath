@@ -9,7 +9,7 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText, TrendingUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry, AppStatus } from '@/types'
 import { STATUS_COLORS, ENGAGED_STATUSES } from '@/types'
@@ -20,6 +20,7 @@ import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { scoreColor, scoreColorLight } from '@/lib/tier'
+import { rowLever, type LeverResult } from '@/lib/tierLevers'
 import { useId } from 'react'
 
 interface OffersTableProps {
@@ -153,6 +154,56 @@ function relativeTime(dateStr: string): string {
   return `${Math.floor(days / 365)}y`
 }
 
+// ─── Fixability lever chip ──────────────────────────────────────────────────
+//
+// Surfaces, per evaluated row, the CHEAPEST single-dimension raise that would
+// move the listing into a strictly better tier — the same "smallest lever to
+// next band" the backend's explain-score.mjs computes during evaluation, but
+// derived renderer-side from the dims already in the store (lib/tierLevers).
+//
+// Three states:
+//   • near-miss lever (lift ≤ 1) → accent-filled "one nudge away" pill
+//   • larger lever               → quiet outline pill (still a real path up)
+//   • top-band / no lever        → a muted dash (T1 has nowhere to climb)
+//
+// The chip is decision-support while scanning: it tells the user *which*
+// roles are cheap upgrades worth chasing, without opening each report.
+function LeverChip({ lever }: { lever: LeverResult }) {
+  const best = lever.best
+  if (!best) {
+    // T1 rows are "maxed"; everything else with no single-dim path reads as a
+    // neutral dash so the column stays scannable.
+    const maxed = lever.tier === 'T1'
+    return (
+      <span
+        className="text-[10.5px] font-mono text-text-4"
+        title={maxed ? 'Top band — no dimension is holding it back' : 'No single-dimension raise crosses a band'}
+      >
+        {maxed ? '★' : '—'}
+      </span>
+    )
+  }
+  const tooltip =
+    `${best.label} ${best.from} → ${best.to} (+${best.lift}) would move this ` +
+    `from ${best.fromTier} to ${best.toTier}.`
+  return (
+    <span
+      title={tooltip}
+      className={cn(
+        'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-pill text-[10px] font-mono font-medium whitespace-nowrap max-w-[124px]',
+        lever.nearMiss
+          ? 'bg-accent/10 text-accent border border-accent/30'
+          : 'bg-bg-elevated text-text-3 border border-border-default',
+      )}
+    >
+      <TrendingUp size={9} className="shrink-0" aria-hidden />
+      <span className="truncate">
+        {best.label.split(' ')[0]} +{best.lift}
+      </span>
+    </span>
+  )
+}
+
 // ─── Inline row breakdown ───────────────────────────────────────────────────
 //
 // Click the chevron on a row → that row expands inline, revealing the
@@ -199,9 +250,32 @@ function BreakdownRow({
   })
   const showCityList = siblings.length > 0
 
+  // Cheapest band-crossing lever for this row — the "what would move it up"
+  // line, shown above the dim bars so the expanded view leads with the action.
+  const lever = rowLever(entry)
+
   return (
     <tr className="bg-bg-elevated/40 border-b border-border-default/30">
       <td colSpan={colSpan} className="pl-16 pr-6 py-3">
+        {lever.best && (
+          <div className="mb-3 max-w-[720px]">
+            <div className={cn(
+              'inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px]',
+              lever.nearMiss
+                ? 'bg-accent/[0.07] text-text-2 border border-accent/25'
+                : 'bg-bg-elevated text-text-3 border border-border-default',
+            )}>
+              <TrendingUp size={12} className={cn('shrink-0', lever.nearMiss ? 'text-accent' : 'text-text-4')} aria-hidden />
+              <span>
+                Cheapest upgrade:{' '}
+                <span className="font-medium text-text-1">{lever.best.label} {lever.best.from} → {lever.best.to}</span>
+                {' '}(+{lever.best.lift}) moves this from{' '}
+                <span className="font-mono">{lever.best.fromTier}</span> to{' '}
+                <span className="font-mono text-accent">{lever.best.toTier}</span>.
+              </span>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 max-w-[720px]">
           {BREAKDOWN_DIMS.map(({ key, label }) => {
             const raw = entry[key]
@@ -422,6 +496,21 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       header: 'CF / AF',
       size: 84,
       cell: info => <CfAfBlock cf={info.getValue()} af={info.row.original.aspirational_fit} />,
+    }),
+    col.display({
+      id: 'fixability',
+      header: 'Fixability',
+      size: 116,
+      // Sort by how cheap the upgrade is: near-misses (smallest lift) first,
+      // rows with no lever last. `sortingFn` reads the lever lift; a missing
+      // lever sorts to the bottom of an ascending sort (Infinity).
+      sortingFn: (a, b) => {
+        const la = rowLever(a.original).best?.lift ?? Infinity
+        const lb = rowLever(b.original).best?.lift ?? Infinity
+        return la - lb
+      },
+      enableSorting: true,
+      cell: info => <LeverChip lever={rowLever(info.row.original)} />,
     }),
     col.accessor('location', {
       header: 'Location',
