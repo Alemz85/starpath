@@ -14,9 +14,11 @@ import { scoreColor as galaxyScoreColor } from '@/lib/tier'
 import {
   type TimeRange, type DateBucket, type TopRow, type Distribution, type Funnel,
   type DimensionProfile, type TargetingMomentum, type MomentumDirection,
+  type ArchetypeMix,
   TIME_RANGE_LABEL, filterByDateWindow,
   avg, buildByDate, buildTopBy, buildDistribution, buildFunnel,
-  buildDimensionProfile, buildTargetingMomentum, APPLY_THRESHOLD, locationFlag,
+  buildDimensionProfile, buildTargetingMomentum, buildArchetypeMix,
+  APPLY_THRESHOLD, locationFlag,
 } from '@/lib/trendsAnalytics'
 
 // Multi-series chart palette — sourced from the documented categorical
@@ -105,6 +107,17 @@ export function TrendsView() {
   // static snapshots above can't show. Pure derivation in lib/; honest about
   // small samples (forces a "steady" verdict + a hint under the per-half floor).
   const momentum = useMemo(() => buildTargetingMomentum(filtered), [filtered])
+
+  // Archetype mix — the only panel about the *composition* of the corpus rather
+  // than its quality. Buckets every scored row by canonical archetype to show
+  // where evaluation effort is going (share of attention + a concentration cue),
+  // and contrasts the earlier vs recent half so a drift in focus reads as a
+  // signed share-point shift. Canonicalization is injected so the lib stays
+  // React-free; honest about small samples (suppresses the shift under the floor).
+  const archetypeMix = useMemo(
+    () => buildArchetypeMix(filtered, canonicalizeArchetype),
+    [filtered],
+  )
 
   // Applications rolled into a cumulative conversion funnel, filtered to the
   // same time window as the score-history views (by tracker-add date). Kept
@@ -264,6 +277,16 @@ export function TrendsView() {
             falls back to a hint when either half is too thin for a verdict. */}
         {loaded && momentum.scoredCount >= 2 && (
           <TargetingMomentumCard momentum={momentum} />
+        )}
+
+        {/* Archetype mix — the only panel about *where the evaluation effort
+            goes* rather than how good it is. Share-of-attention per canonical
+            archetype, a concentration cue (focused vs scattered), and — when the
+            window has two real halves — how that allocation drifted earlier→
+            recent. Gated on at least two distinct archetypes so a single-bucket
+            corpus (nothing to compose) doesn't render a one-bar "mix". */}
+        {loaded && archetypeMix.distinct >= 2 && (
+          <ArchetypeMixCard mix={archetypeMix} />
         )}
 
         {/* Pipeline conversion — the downstream counterpart to the score
@@ -608,6 +631,120 @@ function fmtDay(iso: string): string {
   const [, m, d] = iso.split('-')
   const mi = Number(m) - 1
   return mi >= 0 && mi < 12 ? `${MONTHS[mi]} ${Number(d)}` : iso
+}
+
+// ─── Archetype mix card ──────────────────────────────────────────────────────
+//
+// Each row is a canonical archetype, ordered by how much of the corpus it
+// accounts for (biggest focus on top). The bar is share-of-attention; the right
+// rail carries the archetype's avg fit (galaxy-tier coloured, so the eye reads
+// "lots of attention on a low-scoring bucket" as a warning) and — when the
+// window has two trustworthy halves — a signed share-shift badge showing whether
+// that archetype is taking a growing or shrinking slice of recent attention.
+//
+// Bars use the categorical chart palette (DESIGN-meta § chart-1…chart-7), NOT
+// the score-tier scale: an archetype is a category, not a quality, so colour
+// here means "which bucket", never "how good". The avg-fit figure on the right
+// is the only place tier colour belongs.
+
+function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
+  const { slices, scoredCount, distinct, concentration, lowSignal } = mix
+  // Cap the visible list so a long tail of one-off archetypes doesn't dominate;
+  // roll the remainder into a single muted "+N more" footer line.
+  const VISIBLE = 7
+  const shown = slices.slice(0, VISIBLE)
+  const rest = slices.slice(VISIBLE)
+  const restCount = rest.reduce((s, x) => s + x.count, 0)
+  const maxShare = shown.length ? Math.max(...shown.map(s => s.sharePct)) : 0
+
+  // One-word read on how concentrated the search is. Herfindahl thresholds:
+  // ≥0.5 = one or two buckets dominate; ≤0.25 = spread thin across many.
+  const focus = concentration >= 0.5 ? 'Focused'
+    : concentration <= 0.25 ? 'Scattered'
+    : 'Balanced'
+
+  return (
+    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
+      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
+        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Archetype Mix</span>
+        <span className="text-[11px] font-mono tabular-nums text-text-4">
+          <span className="text-accent-text font-semibold">{focus}</span>
+          <span> · {distinct} archetypes · {scoredCount} scored</span>
+        </span>
+      </div>
+
+      <ul className="space-y-2.5">
+        {shown.map((s, i) => {
+          const color = DIM_COLORS[i % DIM_COLORS.length]
+          const barPct = maxShare ? (s.sharePct / maxShare) * 100 : 0
+          return (
+            <li key={s.label}>
+              <div className="flex items-baseline justify-between gap-2 mb-1">
+                <span className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="w-2 h-2 rounded-full shrink-0 self-center" style={{ background: color }} />
+                  <span className="text-[12px] text-text-1 truncate">{s.label}</span>
+                </span>
+                <span className="flex items-baseline gap-2 text-[11px] font-mono tabular-nums shrink-0">
+                  {!lowSignal && <ShareShiftBadge shift={s.shareShift} />}
+                  <span
+                    className="font-semibold w-8 text-right"
+                    style={{ color: scoreTierColor(s.avgScore) }}
+                    title="Average overall fit for this archetype"
+                  >
+                    {s.avgScore.toFixed(1)}
+                  </span>
+                  <span className="text-text-3 w-9 text-right">{s.sharePct}%</span>
+                  <span className="text-text-4 w-5 text-right">{s.count}</span>
+                </span>
+              </div>
+              {/* Bar length is share-of-attention (scaled to the busiest bucket
+                  so the leader fills the track); colour is the categorical hue. */}
+              <div className="h-1.5 bg-bg-elevated rounded-pill overflow-hidden">
+                <div
+                  className="h-full rounded-pill"
+                  style={{ width: `${barPct}%`, background: color, transition: 'width 320ms ease' }}
+                />
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+
+      {/* Column legend + tail rollup. The right-rail numbers are unlabelled in
+          the rows (space), so name them once here. */}
+      <div className="flex items-baseline justify-between gap-3 mt-3 pt-2 border-t border-border-default/60 text-[10px] text-text-4">
+        <span>
+          {restCount > 0
+            ? <>+{rest.length} more archetype{rest.length === 1 ? '' : 's'} · {restCount} eval{restCount === 1 ? '' : 's'}</>
+            : lowSignal
+              ? <span>Shift hidden — too few on each side of the timeline yet</span>
+              : <span>Shift = recent vs earlier share of attention</span>}
+        </span>
+        <span className="font-mono uppercase tracking-[0.06em] shrink-0">
+          {!lowSignal && 'Δ · '}AVG · SHARE · N
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// Signed share-of-attention shift for an archetype, in percentage points
+// (recent half minus earlier half). Violet when an archetype is gaining focus,
+// slate when it's fading; near-zero reads as flat so a stable bucket doesn't
+// masquerade as a mover. Mirrors DeltaBadge's vocabulary so the two cards rhyme.
+function ShareShiftBadge({ shift }: { shift: number }) {
+  const flat = Math.abs(shift) < 1            // sub-1pt is rounding noise, not a drift
+  const sign = shift > 0 ? '+' : shift < 0 ? '−' : '±'
+  const color = flat ? '#8595A4' : shift > 0 ? '#7C5CFF' : '#5D6C7B'
+  return (
+    <span
+      className="inline-flex items-center rounded-pill px-1.5 py-px text-[10px] font-semibold tabular-nums"
+      style={{ color, background: flat ? 'transparent' : `${color}1f` }}
+      title="Recent-half minus earlier-half share of attention (percentage points)"
+    >
+      {flat ? '±0' : `${sign}${Math.abs(shift)}`}
+    </span>
+  )
 }
 
 // ─── Chart tooltip ───────────────────────────────────────────────────────────

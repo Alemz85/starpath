@@ -405,6 +405,171 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
   }
 }
 
+// ─── Archetype mix over time ─────────────────────────────────────────────────
+//
+// Every panel above answers a question about *quality*: the time-series plots
+// averages, the distribution shows the quality shape, the dimension profile
+// explains what drives a high score, and targeting momentum tracks whether
+// quality is rising. None of them answer the orthogonal question — *where is my
+// evaluation effort actually going, and is that allocation drifting?*
+//
+// A job search is a portfolio-allocation problem as much as a quality one: a
+// user who spreads attention thinly across nine archetypes is unfocused; one who
+// has quietly drifted from a high-scoring archetype toward a low-scoring one is
+// chasing volume over fit without noticing. This panel makes the *composition*
+// of the corpus legible by canonical archetype, and — crucially — contrasts how
+// that composition looked in the EARLIER half of the window vs the RECENT half,
+// so a shift in focus shows up as a signed change in share-of-attention.
+//
+// Honesty rules carried over from the rest of this file:
+//   • canonicalization is injected (the rules live in lib/archetype.ts, which is
+//     UI-adjacent), so this module stays React-free and the math is testable in
+//     isolation with a trivial stub — same pattern as the `now`-injection above;
+//   • only real scored rows count (overall > 0), and noise archetype labels are
+//     dropped via the shared `isNoiseLabel` guard;
+//   • the earlier/recent split is chronological (equal-n halves), mirroring
+//     buildTargetingMomentum, so two lopsided activity bursts still produce
+//     balanced samples rather than "a quiet month vs a busy one";
+//   • below a per-half floor the split is sampling noise, so `lowSignal` flips
+//     and the share-shift column is suppressed — the panel still shows the
+//     overall mix, it just doesn't assert a drift it can't support.
+
+// Minimum scored rows IN EACH HALF before the earlier-vs-recent share shift is
+// trustworthy. Same spirit as MIN_PER_HALF_FOR_MOMENTUM — under this the split
+// reflects who-got-evaluated-when, not a real change in focus.
+export const MIN_PER_HALF_FOR_MIX = 3
+
+export interface ArchetypeSlice {
+  /** Canonical archetype label (already run through the injected canonicalizer). */
+  label: string
+  count: number          // scored rows in this archetype over the whole window
+  sharePct: number       // count / total scored, 0–100 (rounded for display)
+  avgScore: number       // mean overall for this archetype
+  earlierCount: number   // scored rows in the earlier (chronological) half
+  recentCount: number    // scored rows in the recent half
+  earlierSharePct: number // share of the earlier half (0–100, rounded)
+  recentSharePct: number  // share of the recent half (0–100, rounded)
+  /** recentSharePct - earlierSharePct, in percentage points. Positive = the
+   *  archetype is taking a growing slice of attention; negative = fading.
+   *  Only meaningful when !lowSignal. */
+  shareShift: number
+}
+
+export interface ArchetypeMix {
+  /** Slices sorted by overall count desc (biggest focus first), then avgScore. */
+  slices: ArchetypeSlice[]
+  scoredCount: number    // total scored rows feeding the mix
+  distinct: number       // number of distinct archetypes (concentration cue)
+  /** Herfindahl-style concentration of attention: sum of squared shares (as
+   *  fractions), 0–1. 1 = all eggs in one archetype; →0 = spread evenly across
+   *  many. A one-number "how focused is my search" read. */
+  concentration: number
+  earlierTotal: number   // scored rows in the earlier half
+  recentTotal: number    // scored rows in the recent half
+  /** True when either half is under MIN_PER_HALF_FOR_MIX — the view then shows
+   *  the static mix but hides the earlier→recent share-shift column. */
+  lowSignal: boolean
+}
+
+// Canonicalizer signature — injected so this module never imports the UI-side
+// archetype rules. The default is identity (trims only), which keeps the pure
+// math testable; the component passes `canonicalizeArchetype` from lib/archetype.
+export type ArchetypeKeyFn = (raw: string) => string
+
+export function buildArchetypeMix(
+  rows: ScoreEntry[],
+  canon: ArchetypeKeyFn = (s) => s.trim(),
+): ArchetypeMix {
+  // Scored, dated-or-not but timeline-placeable rows. We need a date to assign a
+  // row to the earlier/recent half; undated rows still count toward the static
+  // mix but can't carry a share-shift, so — to keep the two halves honest — we
+  // split only the dated subset and let undated rows ride in the overall totals.
+  const scored = rows.filter(r => typeof r.overall === 'number' && r.overall > 0)
+
+  // Chronological split of the *dated* scored rows (equal-n halves, earlier
+  // takes the extra on odd n) — identical scheme to buildTargetingMomentum so
+  // the two panels agree on what "recent" means.
+  const dated = scored
+    .filter(r => !!r.date)
+    .slice()
+    .sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)))
+  const mid = Math.ceil(dated.length / 2)
+  const earlierRows = dated.slice(0, mid)
+  const recentRows = dated.slice(mid)
+
+  // Bucket every scored row by canonical archetype, tracking the three counts.
+  interface Bucket { entries: ScoreEntry[]; earlier: number; recent: number }
+  const buckets = new Map<string, Bucket>()
+  const bump = (label: string, get: (b: Bucket) => void) => {
+    let b = buckets.get(label)
+    if (!b) { b = { entries: [], earlier: 0, recent: 0 }; buckets.set(label, b) }
+    get(b)
+  }
+  const labelOf = (e: ScoreEntry): string | null => {
+    const k = canon(e.archetype ?? '').trim()
+    return isNoiseLabel(k) ? null : k
+  }
+  for (const e of scored) {
+    const label = labelOf(e)
+    if (label) bump(label, b => b.entries.push(e))
+  }
+  for (const e of earlierRows) {
+    const label = labelOf(e)
+    if (label) bump(label, b => { b.earlier++ })
+  }
+  for (const e of recentRows) {
+    const label = labelOf(e)
+    if (label) bump(label, b => { b.recent++ })
+  }
+
+  const total = [...buckets.values()].reduce((s, b) => s + b.entries.length, 0)
+  const earlierTotal = earlierRows.length
+  const recentTotal = recentRows.length
+
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0)
+  // Unrounded fractions for the concentration index, so it doesn't drift from
+  // rounding the displayed percentages.
+  const concentration = total
+    ? [...buckets.values()].reduce((s, b) => {
+        const frac = b.entries.length / total
+        return s + frac * frac
+      }, 0)
+    : 0
+
+  const lowSignal =
+    earlierRows.length < MIN_PER_HALF_FOR_MIX ||
+    recentRows.length < MIN_PER_HALF_FOR_MIX
+
+  const slices: ArchetypeSlice[] = [...buckets.entries()].map(([label, b]) => {
+    const earlierSharePct = pct(b.earlier, earlierTotal)
+    const recentSharePct = pct(b.recent, recentTotal)
+    return {
+      label,
+      count: b.entries.length,
+      sharePct: pct(b.entries.length, total),
+      avgScore: avg(b.entries, 'overall'),
+      earlierCount: b.earlier,
+      recentCount: b.recent,
+      earlierSharePct,
+      recentSharePct,
+      shareShift: lowSignal ? 0 : recentSharePct - earlierSharePct,
+    }
+  })
+  // Biggest focus first; ties broken by quality so a high-scoring archetype
+  // leads a same-count low-scoring one.
+  slices.sort((a, b) => b.count - a.count || b.avgScore - a.avgScore || a.label.localeCompare(b.label))
+
+  return {
+    slices,
+    scoredCount: total,
+    distinct: buckets.size,
+    concentration,
+    earlierTotal,
+    recentTotal,
+    lowSignal,
+  }
+}
+
 // ─── Conversion funnel ───────────────────────────────────────────────────────
 //
 // Cumulative application funnel from current statuses. A status implies every
