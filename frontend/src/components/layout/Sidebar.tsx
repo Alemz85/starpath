@@ -13,6 +13,7 @@ import {
   Database,
   FileText,
   TrendingUp,
+  Scale,
   Search,
   Settings,
   SlidersHorizontal,
@@ -56,6 +57,7 @@ const PRIMARY_NAV: NavItem[] = [
 // triggered scans); user-facing label is "Activity" since it now hosts
 // every running spawn — scans, filter runs, tailoring, company API probes.
 const SECONDARY_NAV: NavItem[] = [
+  { view: 'offers',   label: 'Offers',   icon: Scale      },
   { view: 'database', label: 'Database', icon: Database   },
   { view: 'reports',  label: 'Reports',  icon: FileText   },
   { view: 'trends',   label: 'Trends',   icon: TrendingUp },

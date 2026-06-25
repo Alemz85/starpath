@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun, Users,
+  TrendingUp, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun, Users, Scale,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
@@ -76,6 +76,7 @@ export function CmdK() {
                 { view: 'scouting', label: 'Scouting', icon: Map        },
                 { view: 'applying', label: 'Applying', icon: Briefcase  },
                 { view: 'outreach', label: 'Outreach', icon: Users      },
+                { view: 'offers',   label: 'Offers',   icon: Scale      },
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },

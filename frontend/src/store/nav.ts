@@ -6,6 +6,7 @@ export type ViewId =
   | 'scouting'
   | 'applying'
   | 'outreach'
+  | 'offers'
   | 'database'
   | 'reports'
   | 'trends'
@@ -23,6 +24,7 @@ export const VIEW_LABELS: Record<ViewId, string> = {
   scouting: 'Scouting',
   applying: 'Applying',
   outreach: 'Outreach',
+  offers:   'Offers',
   database: 'Database',
   reports:  'Reports',
   trends:   'Trends',
