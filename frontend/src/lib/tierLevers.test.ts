@@ -11,6 +11,9 @@ import {
   isNearUpgrade,
   filterNearUpgrades,
   leverContextOf,
+  hasScoredDims,
+  reportFixability,
+  REPORT_NEAR_MISS_MAX_GAP,
   NEAR_MISS_MAX_LIFT,
   type SixDims,
   type LeverContext,
@@ -255,4 +258,123 @@ test('leverContextOf wires salary/WLB/intern from the ScoreEntry', () => {
     work_life_balance: 4,
     is_intern: true,
   })
+})
+
+// ─── hasScoredDims ──────────────────────────────────────────────────────────
+
+test('hasScoredDims is true for an evaluated row and false for placeholders', () => {
+  assert.equal(hasScoredDims(entry({ overall: 6, skills_match: 8 })), true)
+  // zero overall → unevaluated, even if a dim is non-zero
+  assert.equal(hasScoredDims(entry({ overall: 0, skills_match: 8 })), false)
+  // all six dims zero → orphan placeholder (the shape ReportsView builds when
+  // a report has no score-history match)
+  assert.equal(hasScoredDims(entry({
+    overall: 0, skills_match: 0, ease_of_entry: 0, strategic_fit: 0,
+    growth_mobility: 0, optionality_exit: 0, brand_value: 0,
+  })), false)
+  assert.equal(hasScoredDims(null), false)
+  assert.equal(hasScoredDims(undefined), false)
+})
+
+// ─── reportFixability: engine-first, parse-fallback (the unified authority) ──
+
+test('reportFixability ENGINE path mirrors rowLever exactly when dims are present', () => {
+  // The canonical EoE-gate near-miss: ease_of_entry 4 → 5 (+1) T3 → T2. The
+  // Reports verdict for this listing must equal the Database verdict bit-for-bit.
+  const e = entry({
+    skills_match: 8, ease_of_entry: 4, strategic_fit: 8,
+    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
+    tier: 'T3', overall: 6.6,
+  })
+  const lev = rowLever(e)
+  const fix = reportFixability({
+    scoreEntry: e, overall: 6.6, tier: 'T3',
+    // Deliberately give the parse path a CONTRADICTORY signal — no lever, and a
+    // band distance that would say "not a near-miss" on the fallback — to prove
+    // the engine path wins when dims exist.
+    parsedHasLever: false, parsedLever: null, bandDistance: 0.9,
+  })
+  assert.equal(fix.source, 'engine')
+  assert.equal(fix.nearMiss, lev.nearMiss)          // both true
+  assert.equal(fix.nearMiss, true)
+  assert.equal(fix.engineLever?.dimension, 'ease_of_entry')
+  assert.equal(fix.engineLever?.lift, 1)
+  assert.equal(fix.engineLever?.toTier, 'T2')
+})
+
+test('reportFixability ENGINE path: an already-T1 row is never a near-miss', () => {
+  const e = entry({
+    skills_match: 9, ease_of_entry: 8, strategic_fit: 8,
+    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
+    tier: 'T1', overall: 8.3,
+  })
+  const fix = reportFixability({
+    scoreEntry: e, overall: 8.3, tier: 'T1',
+    // Even if the report body somehow named a lever, the engine says top-band.
+    parsedHasLever: true, parsedLever: 'Brand value 8 → 10', bandDistance: 0.4,
+  })
+  assert.equal(fix.source, 'engine')
+  assert.equal(fix.nearMiss, false)
+  assert.equal(fix.engineLever, null)
+  assert.equal(fix.fixabilityScore, 0)
+})
+
+test('reportFixability PARSE fallback fires only when no real dims are available', () => {
+  // No scoreEntry → must use the Overall-gap + parsed-lever heuristic.
+  const near = reportFixability({
+    scoreEntry: null, overall: 6.9, tier: 'T3',
+    parsedHasLever: false, parsedLever: null, bandDistance: 0.1,
+  })
+  assert.equal(near.source, 'parse')
+  assert.equal(near.nearMiss, true)        // 0.1 ≤ 0.5
+  assert.equal(near.engineLever, null)
+
+  const lever = reportFixability({
+    scoreEntry: null, overall: 5.4, tier: 'T3',
+    parsedHasLever: true, parsedLever: 'Skills 6 → 8', bandDistance: 1.6,
+  })
+  assert.equal(lever.source, 'parse')
+  assert.equal(lever.nearMiss, true)       // lever overrides the wide gap
+
+  const far = reportFixability({
+    scoreEntry: null, overall: 5.4, tier: 'T3',
+    parsedHasLever: false, parsedLever: null, bandDistance: 1.6,
+  })
+  assert.equal(far.nearMiss, false)        // wide gap, no lever
+})
+
+test('reportFixability PARSE fallback: top-band / unscored → never near-miss, score 0', () => {
+  const top = reportFixability({
+    scoreEntry: null, overall: 9.3, tier: 'T1',
+    parsedHasLever: true, parsedLever: 'x', bandDistance: null,
+  })
+  assert.equal(top.nearMiss, false)
+  assert.equal(top.fixabilityScore, 0)
+})
+
+test('reportFixability falls back to dim-less placeholder entries via the parse path', () => {
+  // The orphan-report shape ReportsView builds: a ScoreEntry with overall 0 and
+  // all dims 0. hasScoredDims rejects it, so the parse path drives the verdict.
+  const placeholder = entry({
+    overall: 0, skills_match: 0, ease_of_entry: 0, strategic_fit: 0,
+    growth_mobility: 0, optionality_exit: 0, brand_value: 0,
+  })
+  const fix = reportFixability({
+    scoreEntry: placeholder, overall: 6.9, tier: 'T3',
+    parsedHasLever: false, parsedLever: null, bandDistance: 0.1,
+  })
+  assert.equal(fix.source, 'parse')
+  assert.equal(fix.nearMiss, true)
+})
+
+test('reportFixability parse path defaults hasLever to the display string presence', () => {
+  // parsedHasLever omitted → derive from parsedLever. A wide gap with a lever
+  // string still reads as a near-miss.
+  const fix = reportFixability({
+    scoreEntry: null, overall: 5.4, tier: 'T3',
+    parsedLever: 'Skills 6 → 8', bandDistance: 1.6,
+  })
+  assert.equal(fix.nearMiss, true)
+  // sanity: the threshold constant is the historical 0.5
+  assert.equal(REPORT_NEAR_MISS_MAX_GAP, 0.5)
 })

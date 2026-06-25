@@ -9,6 +9,7 @@
 // did — just now with a test pinning each tier of the fallback.
 
 import type { ScoreEntry } from '@/types'
+import { reportFixability, type Lever } from '@/lib/tierLevers'
 
 // ─── Score bands ─────────────────────────────────────────────────────────────
 
@@ -94,40 +95,54 @@ export interface Fixability {
 
 export interface FixabilityRow extends ReportRowLike {
   fixability?: Fixability | null
+  /** The score-history entry this report resolved to (lib § matchScore), when
+   *  one matched. When it carries the six scored dims, the near-miss / lever /
+   *  ranking run through the SAME engine the Database uses (tierLevers §
+   *  reportFixability) — so a listing reads identically in both views. Absent
+   *  or dim-less → the Overall-gap + parsed-lever fallback. */
+  scoreEntry?: ScoreEntry | null
+}
+
+// Resolve a row to the single unified near-miss / fixability verdict. This is
+// the ONE place the Reports lens decides "near-miss?" — it delegates to
+// tierLevers § reportFixability, which prefers the engine (real dims) and falls
+// back to the Overall-gap heuristic. The band distance (this module owns the
+// band ladder) is computed here and injected so tierLevers stays band-agnostic.
+export function reportRowFixability(row: FixabilityRow) {
+  return reportFixability({
+    scoreEntry: row.scoreEntry,
+    overall: row.overall,
+    tier: row.tier,
+    parsedHasLever: row.fixability?.hasLever ?? false,
+    parsedLever: row.fixability?.lever ?? null,
+    bandDistance: distanceToNextBand(row.overall, row.tier),
+  })
 }
 
 // A 0–1 "how worth upgrading is this" score. Higher = cheaper, more actionable.
-//   • Distance to the next band drives the base: 0 points away → ~1.0, a full
-//     band away (1.0) → ~0.0, linearly. Already-top / unscored → 0.
-//   • A named lever multiplies confidence: the engine found a single dimension
-//     that crosses the band, so we weight those well above mere proximity.
-// Reports with no upgrade target (stellar) or no overall score score 0 — they
-// don't belong in a "near-miss to upgrade" ranking.
+// Now a thin wrapper over the unified engine-first computation: when the row
+// carries real dims the rank reflects the true cheapest lift; otherwise it's
+// the historical Overall-gap + parsed-lever blend. Reports with no upgrade
+// target (stellar) or no overall score score 0 — they don't belong in a
+// "near-miss to upgrade" ranking.
 export function fixabilityScore(row: FixabilityRow): number {
-  const dist = distanceToNextBand(row.overall, row.tier)
-  if (dist === null) return 0
-  // Map distance → proximity in [0,1]. Bands are ≤1.0 wide for pass/decent/
-  // strong; clamp so anything ≥1.0 away contributes nothing.
-  const proximity = Math.max(0, 1 - dist)
-  const hasLever = row.fixability?.hasLever ?? false
-  // Lever present: proximity dominates but a real lever guarantees a strong
-  // floor (0.55) so a clearly-actionable report never sinks below a barely-
-  // closer one with no lever. No lever: proximity alone, dampened to 0.6 so
-  // lever-backed near-misses always outrank lever-less ones at equal distance.
-  return hasLever
-    ? 0.55 + 0.45 * proximity
-    : 0.6 * proximity
+  return reportRowFixability(row).fixabilityScore
 }
 
-// "Near-miss" predicate for the filter chip: a report within `maxDistance`
-// (default 0.5) of the next band up, OR any report that carries a concrete
-// lever (the engine says one dimension crosses — actionable regardless of the
-// raw gap). Stellar / unscored reports are never near-misses.
-export function isNearMiss(row: FixabilityRow, maxDistance = 0.5): boolean {
-  const dist = distanceToNextBand(row.overall, row.tier)
-  if (dist === null) return false
-  if (row.fixability?.hasLever) return true
-  return dist <= maxDistance
+// "Near-miss" predicate for the filter chip. Unified: when the row resolved to
+// real dims, this is the engine's lift-≤-threshold verdict (identical to the
+// Database "Near upgrade"); otherwise a report within ~0.5 of the next band up
+// OR carrying a concrete parsed lever. Stellar / unscored reports never qualify.
+export function isNearMiss(row: FixabilityRow): boolean {
+  return reportRowFixability(row).nearMiss
+}
+
+// The structured engine lever for a report row, when the engine path ran and
+// found a single-dim band crossing. Null on the parse fallback (no dims) or for
+// already-top-band rows. Lets the Reports UI show the same "Skills +1 → T2"
+// lever the Database shows, instead of only the prose sentence from the body.
+export function reportEngineLever(row: FixabilityRow): Lever | null {
+  return reportRowFixability(row).engineLever
 }
 
 // ─── Filtering / sorting ─────────────────────────────────────────────────────
