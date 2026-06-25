@@ -13,6 +13,7 @@
     "sync-check": "node scripts/cv-sync-check.mjs",
     "cv-gap": "node scripts/cv-gap.mjs",
     "story-bank": "node scripts/check-story-bank.mjs",
+    "mock-interview": "node scripts/mock-interview.mjs",
     "liveness": "node scripts/check-liveness.mjs",
     "research": "node scripts/company-research.mjs",
     "scan": "node scripts/scan.mjs",
