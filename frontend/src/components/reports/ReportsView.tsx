@@ -21,7 +21,8 @@ import {
   filterReportRows, sortReportRows,
   corpusBands as computeCorpusBands, bandCounts as computeBandCounts,
   buildScoreIndex, matchScore,
-  distanceToNextBand, type Fixability, type FixabilityRow,
+  distanceToNextBand, isNearMiss, reportRowFixability,
+  type Fixability, type FixabilityRow,
 } from '@/lib/reportsList'
 import { parseWhyThisScore } from '@/lib/reportMarkdown'
 import ReactMarkdown from 'react-markdown'
@@ -348,11 +349,28 @@ export function ReportsView() {
     )
   }
 
-  // Decorate each list row with its parsed fixability so the filter/sort can
-  // read `hasLever`. `DbReportRow & { fixability }` satisfies FixabilityRow.
+  // Report → score-history matcher. Built once per scoreHistory change; the
+  // resolved entry carries the six dims that let the unified fixability logic
+  // run the engine path (see rowsWithFix). Declared here (above rowsWithFix)
+  // because that memo now depends on it.
+  const scoreIndex = useMemo(() => buildScoreIndex(scoreHistory), [scoreHistory])
+
+  const scoreFor = (r: { company: string; role: string }): ScoreEntry | null =>
+    matchScore(scoreIndex, r)
+
+  // Decorate each list row with its parsed fixability AND its resolved
+  // score-history entry, so the unified near-miss/lever logic (lib/tierLevers §
+  // reportFixability, via reportsList) can run the SAME engine math the
+  // Database uses whenever the report matches an entry carrying real dims —
+  // falling back to the parsed `## Why this score` lever only for orphan
+  // reports. `DbReportRow & { fixability, scoreEntry }` satisfies FixabilityRow.
   const rowsWithFix = useMemo<Array<DbReportRow & FixabilityRow>>(
-    () => reportRows.map(r => ({ ...r, fixability: fixByPath[r.path] ?? null })),
-    [reportRows, fixByPath],
+    () => reportRows.map(r => ({
+      ...r,
+      fixability: fixByPath[r.path] ?? null,
+      scoreEntry: matchScore(scoreIndex, r),
+    })),
+    [reportRows, fixByPath, scoreIndex],
   )
 
   const filteredFiles = useMemo(
@@ -365,12 +383,11 @@ export function ReportsView() {
 
   // Count of near-miss reports for the toggle's badge — computed on the same
   // fixability-decorated rows but before the toggle itself, so it shows how many
-  // the filter would surface regardless of whether it's currently on.
+  // the filter would surface regardless of whether it's currently on. Uses the
+  // SAME unified predicate (lib/reportsList § isNearMiss) the nearMissOnly
+  // filter uses, so the badge count can never disagree with the rows shown.
   const nearMissCount = useMemo(
-    () => filterReportRows(rowsWithFix, { query, bands: selectedBands }).filter(r => {
-      const d = distanceToNextBand(r.overall, r.tier)
-      return r.fixability?.hasLever ? d !== null : d !== null && d <= 0.5
-    }).length,
+    () => filterReportRows(rowsWithFix, { query, bands: selectedBands }).filter(isNearMiss).length,
     [rowsWithFix, query, selectedBands],
   )
 
@@ -417,11 +434,6 @@ export function ReportsView() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
-
-  const scoreIndex = useMemo(() => buildScoreIndex(scoreHistory), [scoreHistory])
-
-  const scoreFor = (r: { company: string; role: string }): ScoreEntry | null =>
-    matchScore(scoreIndex, r)
 
   const selectedScore = selected ? scoreFor(selected) : null
 
@@ -737,6 +749,7 @@ export function ReportsView() {
                   report={report}
                   overall={overall}
                   fixability={fixByPath[report.path] ?? null}
+                  scoreEntry={score}
                   url={url && /^https?:\/\//i.test(url) ? url : null}
                   isSelected={selected?.path === report.path}
                   onClick={() => setSelected({
@@ -842,6 +855,7 @@ function ReportCard({
   report,
   overall,
   fixability,
+  scoreEntry,
   url,
   isSelected,
   onClick,
@@ -849,6 +863,7 @@ function ReportCard({
   report: { path: string; company: string; role: string; tier: string }
   overall: number | null
   fixability: Fixability | null
+  scoreEntry: ScoreEntry | null
   url: string | null
   isSelected: boolean
   onClick: () => void
@@ -856,10 +871,16 @@ function ReportCard({
   const hint = upgradeHint(overall, report.tier)
   const lever = fixability?.lever ?? null
   const binding = fixability?.bindingConstraint ?? null
-  // A card earns the fixability footer when it's a genuine near-miss: a small
-  // gap to the next band, OR the engine named a concrete lever. Cards with no
-  // upgrade target (top-band) or no Why block stay clean — no empty chrome.
-  const isNearMiss = hint !== null && (lever !== null || hint.gap <= 0.5)
+  // A card earns the fixability footer when it's a genuine near-miss. The
+  // verdict comes from the ONE unified authority (lib/reportsList §
+  // reportRowFixability → tierLevers § reportFixability): the engine's
+  // lift-≤-threshold rule when this report resolved to real dims (identical to
+  // the Database "Near upgrade"), else the Overall-gap + parsed-lever fallback.
+  // Cards with no upgrade target (top-band) or no signal stay clean — no chrome.
+  const showFixability = reportRowFixability({
+    company: report.company, role: report.role, tier: report.tier,
+    overall, fixability, scoreEntry,
+  }).nearMiss && hint !== null
   return (
     <div className="relative">
       <button
@@ -892,7 +913,7 @@ function ReportCard({
                 glanceable answer to "is this report worth upgrading, and how?".
                 Binding constraint is the fallback caption when no lever exists
                 but the gap is still small. */}
-            {isNearMiss && (
+            {showFixability && (
               <div className="mt-2 flex flex-col gap-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {hint && (
