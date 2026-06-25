@@ -8,9 +8,10 @@
 // useAddListingStore so the Scouting CTA + CmdK can both trigger it
 // without prop drilling.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   X, Sparkles, Link2, Inbox, AlertTriangle, CheckCircle2, Plus, Clipboard,
+  Loader2,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { useAppStore } from '@/store/app'
@@ -43,6 +44,29 @@ function buildEvaluatePrompt(url: string): string {
   )
 }
 
+// ─── State model ──────────────────────────────────────────────────────────────
+// The modal moves through a small state machine so each UI zone renders a
+// single explicit state rather than a tangle of overlapping conditions.
+//
+//  idle            No URL or clipboard hint yet — show placeholder hint
+//  typing          User started typing but the URL is not yet valid
+//  valid-new       URL is valid and not known to the system
+//  valid-duplicate URL is valid and already scored (re-eval path)
+//  valid-queued    URL is valid and already in the inbox but not scored
+//  submitting      Primary or secondary action in progress
+//  inbox-done      "Add to inbox" succeeded — brief confirmation
+//  inbox-error     "Add to inbox" failed
+//
+type ModalState =
+  | 'idle'
+  | 'typing'
+  | 'valid-new'
+  | 'valid-duplicate'
+  | 'valid-queued'
+  | 'submitting'
+  | 'inbox-done'
+  | 'inbox-error'
+
 // URL/company helpers (`guessCompanyFromUrl`, `isValidHttpUrl`, `normalizeUrl`)
 // live in `@/lib/listingUrl` — `normalizeUrl` is the dedup key, so it's
 // extracted + unit-tested there rather than inlined here.
@@ -61,11 +85,18 @@ export function AddListingModal() {
   const evaluateSpawn = spawns[ADD_LISTING_SPAWN_ID]
 
   const [url, setUrl] = useState('')
-  const [active, setActive] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [inboxStatus, setInboxStatus] = useState<'idle' | 'done' | 'error'>('idle')
+  const [entering, setEntering] = useState(false)
+  const [modalState, setModalState] = useState<ModalState>('idle')
   const [clipboardSuggestion, setClipboardSuggestion] = useState<string | null>(null)
+
+  // Focus-trap refs: we keep a list of all focusable elements inside the
+  // modal so Tab/Shift-Tab cycles within it and never leaks to the page.
+  const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // ID for aria-labelledby / aria-describedby
+  const titleId = 'add-listing-title'
+  const descId = 'add-listing-desc'
+  const statusId = 'add-listing-status'
 
   // Refresh data when the evaluate spawn finishes so the new
   // scouting.md / score-history.tsv row shows up in the Database
@@ -77,66 +108,36 @@ export function AddListingModal() {
   // Open lifecycle — animate in, focus the input, clear stale state.
   useEffect(() => {
     if (!open) return
-    setUrl(prefillUrl ?? '')
-    setInboxStatus('idle')
+    const initialUrl = prefillUrl ?? ''
+    setUrl(initialUrl)
+    setModalState(initialUrl ? 'typing' : 'idle')
+    setClipboardSuggestion(null)
     const t = setTimeout(() => {
-      setActive(true)
+      setEntering(true)
       inputRef.current?.focus()
       // Auto-paste detection — if the clipboard has a valid URL the user
       // didn't already type one of, surface a one-click suggestion. We
       // never auto-fill (would feel invasive); just offer.
-      void readClipboardSuggestion()
+      void readClipboardSuggestion(initialUrl)
     }, 20)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const readClipboardSuggestion = async () => {
+  const readClipboardSuggestion = async (currentUrl: string) => {
     try {
       const text = await navigator.clipboard.readText()
       if (!text) return
       const trimmed = text.trim()
       if (!isValidHttpUrl(trimmed)) return
-      if (trimmed === (prefillUrl ?? '').trim()) return
+      if (trimmed === currentUrl.trim()) return
       setClipboardSuggestion(trimmed)
     } catch {
       // Permission denied or non-secure context — silently noop.
     }
   }
 
-  // Esc closes; ⌘↵ submits the primary action.
-  useEffect(() => {
-    if (!open) return
-    const h = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') handleClose()
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault()
-        if (valid && !submitting) void handleEvaluate()
-      }
-    }
-    document.addEventListener('keydown', h)
-    return () => document.removeEventListener('keydown', h)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, url, submitting])
-
-  const handleClose = () => {
-    setActive(false)
-    setTimeout(() => {
-      hide()
-      setUrl('')
-      setInboxStatus('idle')
-      setClipboardSuggestion(null)
-      setSubmitting(false)
-    }, 240)
-  }
-
-  const trimmedUrl = url.trim()
-  const valid = isValidHttpUrl(trimmedUrl)
-  const guessedCompany = useMemo(() => valid ? guessCompanyFromUrl(trimmedUrl) : null, [trimmedUrl, valid])
-
-  // Normalized index of everything already known, so a paste with a stray
-  // trailing slash or a utm tag still matches. Built once per data change;
-  // the per-keystroke lookups below are O(1) map gets.
+  // Normalized indexes for fast O(1) dedup checks
   const scoredByUrl = useMemo(() => {
     const m = new Map<string, ScoreEntry>()
     for (const r of scoreHistory) if (r.url) m.set(normalizeUrl(r.url), r)
@@ -148,27 +149,102 @@ export function AddListingModal() {
     return m
   }, [pipeline])
 
+  const trimmedUrl = url.trim()
+  const valid = isValidHttpUrl(trimmedUrl)
+  const guessedCompany = useMemo(() => valid ? guessCompanyFromUrl(trimmedUrl) : null, [trimmedUrl, valid])
   const normUrl = valid ? normalizeUrl(trimmedUrl) : null
-
-  // Smart-duplicate detection — surface a soft warning if this URL is already
-  // known to score-history (re-evaluating is fine, but the user should know
-  // they're spending tokens on a re-score, not a first eval).
   const duplicate = normUrl ? scoredByUrl.get(normUrl) ?? null : null
-  // Already queued in the inbox but not yet scored — re-queuing would just
-  // duplicate the line, so we steer the user to evaluate it instead.
   const alreadyQueued = normUrl && !duplicate ? queuedByUrl.get(normUrl) ?? null : null
 
-  // Primary action — evaluate this URL into the Database without writing
-  // a prose report. Closes the modal after handing off; live progress
-  // shows up in the Activity panel via the existing spawn machinery.
+  // Derive modal state from current input value + system state.
+  // This runs after every url change — intentionally kept pure so it's
+  // easy to test and the state machine is the single source of truth.
+  useEffect(() => {
+    if (modalState === 'submitting' || modalState === 'inbox-done' || modalState === 'inbox-error') {
+      return // mid-flight or terminal — don't overwrite
+    }
+    if (!url) {
+      setModalState('idle')
+    } else if (!valid) {
+      setModalState('typing')
+    } else if (duplicate) {
+      setModalState('valid-duplicate')
+    } else if (alreadyQueued) {
+      setModalState('valid-queued')
+    } else {
+      setModalState('valid-new')
+    }
+  }, [url, valid, duplicate, alreadyQueued, modalState])
+
+  const isSubmitting = modalState === 'submitting'
+
+  // ─── Focus trap ──────────────────────────────────────────────────────────
+  // Tab/Shift-Tab cycles within the dialog; never reaches the page behind it.
+  const handleFocusTrap = useCallback((e: KeyboardEvent) => {
+    if (e.key !== 'Tab' || !dialogRef.current) return
+    const focusable = dialogRef.current.querySelectorAll<HTMLElement>(
+      'input, button, [href], [tabindex]:not([tabindex="-1"])',
+    )
+    const items = Array.from(focusable).filter(el => !el.hasAttribute('disabled'))
+    if (items.length === 0) return
+    const first = items[0]
+    const last = items[items.length - 1]
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+  }, [])
+
+  // ─── Keyboard shortcuts ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (!open) return
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        handleClose()
+      }
+      if (e.key === 'Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        // Plain Enter on the input → primary action (evaluate)
+        if (document.activeElement === inputRef.current && valid && !isSubmitting) {
+          e.preventDefault()
+          void handleEvaluate()
+        }
+      }
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        // ⌘↵ / Ctrl+↵ → primary action from anywhere in the modal
+        e.preventDefault()
+        if (valid && !isSubmitting) void handleEvaluate()
+      }
+      handleFocusTrap(e)
+    }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, url, isSubmitting, valid, handleFocusTrap])
+
+  const handleClose = () => {
+    setEntering(false)
+    setTimeout(() => {
+      hide()
+      setUrl('')
+      setModalState('idle')
+      setClipboardSuggestion(null)
+    }, 240)
+  }
+
+  // ─── Primary action: evaluate ─────────────────────────────────────────────
   const handleEvaluate = async () => {
-    if (!valid || !repoPath) return
-    setSubmitting(true)
+    if (!valid || !repoPath || isSubmitting) return
+    setModalState('submitting')
     try {
-      // First: append URL to data/pipeline.md so the inbox stays the
-      // source of truth (manual paste vs scanned URL = same data shape).
       await appendToPipeline(trimmedUrl)
-      // Then: spawn claude to score-only-evaluate the URL.
       if (evaluateSpawn) clearSpawn(ADD_LISTING_SPAWN_ID)
       startSpawn(
         ADD_LISTING_SPAWN_ID,
@@ -180,31 +256,113 @@ export function AddListingModal() {
       handleClose()
     } catch (err) {
       console.error('Evaluate failed', err)
-      setSubmitting(false)
+      setModalState(valid && duplicate ? 'valid-duplicate' : valid && alreadyQueued ? 'valid-queued' : 'valid-new')
     }
   }
 
-  // Secondary action — just queue the URL. No claude spawn, no tokens.
-  // The next manual `Filter to Database` run picks it up alongside any
-  // scanner-found URLs.
+  // ─── Secondary action: add to inbox only ─────────────────────────────────
   const handleAddToInbox = async () => {
-    if (!valid || !repoPath) return
-    setSubmitting(true)
+    if (!valid || !repoPath || isSubmitting || !!alreadyQueued) return
+    setModalState('submitting')
     try {
       await appendToPipeline(trimmedUrl)
-      setInboxStatus('done')
+      setModalState('inbox-done')
       void refresh()
-      // Hold the success state briefly so the user sees the confirmation,
-      // then close. Snappy but legible.
+      // Brief success confirmation, then close.
       setTimeout(handleClose, 900)
     } catch (err) {
       console.error('Add to inbox failed', err)
-      setInboxStatus('error')
-      setSubmitting(false)
+      setModalState('inbox-error')
     }
   }
 
   if (!open) return null
+
+  // ─── Derived display values ───────────────────────────────────────────────
+
+  // Hint row below the input — shows context based on current state
+  const hintContent = (() => {
+    switch (modalState) {
+      case 'idle':
+        if (clipboardSuggestion) {
+          return (
+            <button
+              onClick={() => {
+                setUrl(clipboardSuggestion)
+                setClipboardSuggestion(null)
+                inputRef.current?.focus()
+              }}
+              className="text-accent hover:underline flex items-center gap-1 focus:outline-none focus:ring-1 focus:ring-accent/50 rounded"
+            >
+              <Clipboard size={10} aria-hidden />
+              Use clipboard URL
+            </button>
+          )
+        }
+        return (
+          <span className="text-text-4">
+            Paste any Greenhouse / Lever / Ashby / Workday / WTTJ / company-careers URL
+          </span>
+        )
+      case 'typing':
+        return (
+          <span className="text-warning flex items-center gap-1" role="alert" aria-atomic>
+            <AlertTriangle size={11} aria-hidden />
+            Not a valid http(s) URL
+          </span>
+        )
+      case 'valid-new':
+      case 'valid-duplicate':
+      case 'valid-queued':
+        return guessedCompany ? (
+          <span className="text-text-3">
+            Detected · <span className="text-text-1 font-medium">{guessedCompany}</span>
+          </span>
+        ) : (
+          <span className="text-text-3">Valid URL</span>
+        )
+      case 'submitting':
+        return (
+          <span className="text-text-4 flex items-center gap-1">
+            <Loader2 size={11} className="animate-spin" aria-hidden />
+            Working…
+          </span>
+        )
+      case 'inbox-done':
+        return (
+          <span className="text-success flex items-center gap-1" role="status">
+            <CheckCircle2 size={11} aria-hidden />
+            Queued in pipeline
+          </span>
+        )
+      case 'inbox-error':
+        return (
+          <span className="text-danger flex items-center gap-1" role="alert" aria-atomic>
+            <AlertTriangle size={11} aria-hidden />
+            Failed to write — check console
+          </span>
+        )
+      default:
+        return null
+    }
+  })()
+
+  // Input border style — reflects validation state
+  const inputBorderClass = (() => {
+    if (modalState === 'typing') return 'border-warning/50 focus-within:border-warning'
+    if (modalState === 'valid-new' || modalState === 'valid-duplicate' || modalState === 'valid-queued') return 'border-accent/40 focus-within:border-accent'
+    if (modalState === 'submitting') return 'border-border-strong opacity-70'
+    return 'border-border-default focus-within:border-border-strong'
+  })()
+
+  // "Evaluate" button label + icon
+  const evaluateBtnContent = (() => {
+    if (modalState === 'submitting') return <><Loader2 size={12} className="animate-spin" aria-hidden />Working…</>
+    if (modalState === 'valid-duplicate') return <><Sparkles size={12} aria-hidden />Re-evaluate</>
+    return <><Sparkles size={12} aria-hidden />Add &amp; evaluate</>
+  })()
+
+  const evaluateBtnEnabled = valid && !isSubmitting
 
   return (
     <>
@@ -212,25 +370,30 @@ export function AddListingModal() {
       <div
         className={cn(
           'fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] transition-opacity duration-[240ms]',
-          active ? 'opacity-100' : 'opacity-0',
+          entering ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}
+        aria-hidden
       />
 
-      {/* Center-stage modal — narrower than the report slide-overs because
-          there's effectively one field of content; the report modals run
-          full-height to host long markdown, the AddListing modal is a
-          single decision card. Same visual language though (accent
-          gradient stripe, icon plate, eyebrow, action pills). */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center px-6 pointer-events-none">
+      {/* Center-stage dialog */}
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center px-6 pointer-events-none"
+        // Keep the outer wrapper non-interactive so clicks on it reach the backdrop
+      >
         <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          aria-describedby={descId}
           className={cn(
             'pointer-events-auto w-full max-w-[560px] bg-bg-panel border border-border-strong rounded-2xl shadow-cosmos-lift overflow-hidden flex flex-col',
             'transition-[transform,opacity] duration-[240ms] ease-out',
-            active ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
+            entering ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
           )}
         >
-          {/* Accent stripe — same gradient language as PositioningModal */}
+          {/* Accent stripe */}
           <div
             className="h-1.5 shrink-0"
             aria-hidden
@@ -241,169 +404,244 @@ export function AddListingModal() {
           <div className="flex items-start gap-4 px-6 pt-5 pb-4 border-b border-border-default">
             <div
               className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center mt-0.5"
-              style={{
-                background: '#7C5CFF1F',
-                border: '1px solid #7C5CFF40',
-              }}
+              style={{ background: '#7C5CFF1F', border: '1px solid #7C5CFF40' }}
               aria-hidden
             >
               <Plus size={18} className="text-accent" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-micro text-text-4 uppercase tracking-[0.08em] mb-0.5">
+              <div className="text-micro text-text-4 uppercase tracking-[0.08em] mb-0.5" aria-hidden>
                 Add Listing
               </div>
-              <h2 className="text-section text-text-1 leading-tight tracking-[-0.005em]">
+              <h2 id={titleId} className="text-section text-text-1 leading-tight tracking-[-0.005em]">
                 Evaluate a job you found
               </h2>
-              <p className="text-label text-text-3 leading-snug mt-1">
+              <p id={descId} className="text-label text-text-3 leading-snug mt-1">
                 Paste a job posting URL · score it into the Database or queue it for the next filter pass.
               </p>
             </div>
             <button
               onClick={handleClose}
-              className="shrink-0 p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
-              title="Close (Esc)"
+              className="shrink-0 p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors focus:outline-none focus:ring-1 focus:ring-border-strong"
+              aria-label="Close (Esc)"
             >
-              <X size={15} />
+              <X size={15} aria-hidden />
             </button>
           </div>
 
           {/* Body */}
           <div className="flex flex-col gap-3 px-6 py-5">
-            {/* URL input + paste suggestion */}
+            {/* URL input */}
             <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-text-4 mb-1.5">
+              <label
+                htmlFor="add-listing-url-input"
+                className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-text-4 mb-1.5"
+              >
                 Job posting URL
               </label>
               <div
                 className={cn(
-                  'flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-bg-base transition-colors',
-                  valid
-                    ? 'border-accent/40'
-                    : url.length > 0
-                      ? 'border-warning/40'
-                      : 'border-border-default focus-within:border-border-strong',
+                  'flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-bg-base transition-colors duration-150',
+                  inputBorderClass,
                 )}
               >
-                <Link2 size={14} className={cn('shrink-0', valid ? 'text-accent' : 'text-text-4')} />
+                <Link2
+                  size={14}
+                  aria-hidden
+                  className={cn(
+                    'shrink-0 transition-colors duration-150',
+                    (modalState === 'valid-new' || modalState === 'valid-duplicate' || modalState === 'valid-queued')
+                      ? 'text-accent'
+                      : modalState === 'typing'
+                        ? 'text-warning'
+                        : 'text-text-4',
+                  )}
+                />
                 <input
                   ref={inputRef}
-                  type="text"
+                  id="add-listing-url-input"
+                  type="url"
                   inputMode="url"
+                  autoComplete="off"
                   spellCheck={false}
                   value={url}
                   onChange={e => setUrl(e.target.value)}
+                  onPaste={e => {
+                    // On paste, dismiss the clipboard suggestion (the pasted
+                    // value is about to become the input value).
+                    if (clipboardSuggestion) setClipboardSuggestion(null)
+                    // Let the paste propagate normally
+                    void e
+                  }}
                   placeholder="https://…"
-                  className="flex-1 bg-transparent outline-none text-[13.5px] text-text-1 placeholder:text-text-4 font-mono tabular-nums"
+                  disabled={isSubmitting}
+                  aria-invalid={modalState === 'typing' ? 'true' : 'false'}
+                  aria-describedby={`${descId} ${statusId}`}
+                  className="flex-1 bg-transparent outline-none text-[13.5px] text-text-1 placeholder:text-text-4 font-mono tabular-nums disabled:opacity-50"
                 />
-                {url && (
+                {url && !isSubmitting && (
                   <button
                     onClick={() => { setUrl(''); inputRef.current?.focus() }}
-                    className="shrink-0 text-text-4 hover:text-text-2 transition-colors"
-                    title="Clear"
+                    className="shrink-0 text-text-4 hover:text-text-2 transition-colors focus:outline-none focus:ring-1 focus:ring-border-default rounded"
+                    aria-label="Clear URL"
+                    tabIndex={0}
                   >
-                    <X size={12} />
+                    <X size={12} aria-hidden />
                   </button>
                 )}
               </div>
 
-              {/* Live preview / state row */}
-              <div className="mt-1.5 min-h-[16px] text-[11px] flex items-center gap-1.5">
-                {valid && guessedCompany ? (
-                  <span className="text-text-3">
-                    Detected · <span className="text-text-1 font-medium">{guessedCompany}</span>
-                  </span>
-                ) : url.length > 0 && !valid ? (
-                  <span className="text-warning flex items-center gap-1">
-                    <AlertTriangle size={11} />
-                    Not a valid http(s) URL
-                  </span>
-                ) : clipboardSuggestion ? (
-                  <button
-                    onClick={() => { setUrl(clipboardSuggestion); setClipboardSuggestion(null); inputRef.current?.focus() }}
-                    className="text-accent-text hover:underline flex items-center gap-1"
-                  >
-                    <Clipboard size={10} />
-                    Use clipboard URL
-                  </button>
-                ) : (
-                  <span className="text-text-4">Paste any Greenhouse / Lever / Ashby / Workday / WTTJ / company-careers URL</span>
-                )}
+              {/* Hint / live state row — aria-live so screen readers announce changes */}
+              <div
+                id={statusId}
+                aria-live="polite"
+                aria-atomic="false"
+                className="mt-1.5 min-h-[18px] text-[11px] flex items-center gap-1.5"
+              >
+                {hintContent}
               </div>
             </div>
 
-            {/* Duplicate warning */}
-            {duplicate && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-warning/30 bg-warning/5 text-[11.5px] text-text-2">
-                <AlertTriangle size={12} className="text-warning shrink-0 mt-0.5" />
-                <div className="leading-snug">
-                  Already in the Database: <span className="text-text-1 font-medium">{duplicate.company}</span> · {duplicate.role} · {duplicate.overall > 0 ? `${duplicate.overall.toFixed(1)}/10` : 'unscored'}{' '}
-                  <span className="text-text-4">(evaluated {duplicate.date}). Re-evaluating will replace the score.</span>
+            {/* State banners — only one shows at a time */}
+
+            {/* Duplicate warning — already scored */}
+            {modalState === 'valid-duplicate' && duplicate && (
+              <div
+                role="status"
+                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-warning/30 bg-warning/5 text-[11.5px] text-text-2"
+              >
+                <AlertTriangle size={13} className="text-warning shrink-0 mt-0.5" aria-hidden />
+                <div className="leading-snug space-y-0.5">
+                  <span className="text-text-1 font-medium">Already in the Database</span>
+                  <span className="text-text-3"> · {duplicate.company} · {duplicate.role}</span>
+                  {duplicate.overall > 0 && (
+                    <span className="text-text-3"> · {duplicate.overall.toFixed(1)}/10</span>
+                  )}
+                  <br />
+                  <span className="text-text-4">
+                    Evaluated {duplicate.date}. Hitting <span className="font-medium text-text-3">Re-evaluate</span> replaces the score.
+                  </span>
                 </div>
               </div>
             )}
 
-            {/* Already-queued notice — the URL is in the inbox but not yet
-                scored. Re-queuing is a no-op, so point the user at evaluate. */}
-            {alreadyQueued && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-accent/25 bg-accent/[0.06] text-[11.5px] text-text-2">
-                <Inbox size={12} className="text-accent shrink-0 mt-0.5" />
-                <div className="leading-snug">
-                  Already in your inbox{alreadyQueued.addedDate ? <span className="text-text-4"> · queued {alreadyQueued.addedDate}</span> : null}.{' '}
-                  <span className="text-text-4">Evaluate it now, or the next <span className="font-medium text-text-3">Filter to Database</span> run will pick it up.</span>
+            {/* Already-queued notice */}
+            {modalState === 'valid-queued' && alreadyQueued && (
+              <div
+                role="status"
+                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-accent/25 bg-accent/[0.06] text-[11.5px] text-text-2"
+              >
+                <Inbox size={13} className="text-accent shrink-0 mt-0.5" aria-hidden />
+                <div className="leading-snug space-y-0.5">
+                  <span className="text-text-1 font-medium">Already in your inbox</span>
+                  {alreadyQueued.addedDate && (
+                    <span className="text-text-4"> · queued {alreadyQueued.addedDate}</span>
+                  )}
+                  <br />
+                  <span className="text-text-4">
+                    Hit <span className="font-medium text-text-3">Add &amp; evaluate</span> to score it now,
+                    or the next <span className="font-medium text-text-3">Filter to Database</span> pass will pick it up automatically.
+                  </span>
                 </div>
               </div>
             )}
 
             {/* Inbox-only success confirmation */}
-            {inboxStatus === 'done' && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-success/30 bg-success/5 text-[11.5px] text-text-2">
-                <CheckCircle2 size={12} className="text-success" />
-                Added to pipeline inbox. The next <span className="font-medium text-text-1">Filter to Database</span> run will pick it up.
+            {modalState === 'inbox-done' && (
+              <div
+                role="status"
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-success/30 bg-success/5 text-[11.5px] text-text-2"
+              >
+                <CheckCircle2 size={13} className="text-success shrink-0" aria-hidden />
+                <div className="leading-snug">
+                  <span className="text-text-1 font-medium">Added to pipeline inbox.</span>{' '}
+                  <span className="text-text-4">
+                    The next <span className="font-medium text-text-3">Filter to Database</span> run will pick it up.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Error state */}
+            {modalState === 'inbox-error' && (
+              <div
+                role="alert"
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-danger/25 bg-danger/[0.05] text-[11.5px] text-text-2"
+              >
+                <AlertTriangle size={13} className="text-danger shrink-0" aria-hidden />
+                <span className="leading-snug">
+                  <span className="text-text-1 font-medium">Write failed.</span>{' '}
+                  <span className="text-text-4">Check the Activity panel for details.</span>
+                </span>
               </div>
             )}
           </div>
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-2 px-6 py-3.5 border-t border-border-default bg-bg-elevated/40">
+            {/* Keyboard hint — visible for sighted users, hidden from AT */}
+            <span className="mr-auto text-[10.5px] text-text-4 select-none hidden sm:flex items-center gap-1" aria-hidden>
+              <kbd className="px-1 py-0.5 rounded bg-bg-elevated border border-border-default text-[9px] font-mono">↵</kbd>
+              {' '}evaluate
+              <span className="mx-1 opacity-50">·</span>
+              <kbd className="px-1 py-0.5 rounded bg-bg-elevated border border-border-default text-[9px] font-mono">Esc</kbd>
+              {' '}close
+            </span>
+
             <button
               onClick={handleClose}
-              className="px-3 py-1.5 rounded-md text-[12.5px] text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors"
+              className="px-3 py-1.5 rounded-md text-[12.5px] text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors focus:outline-none focus:ring-1 focus:ring-border-strong"
             >
               Cancel
             </button>
+
             <button
               onClick={handleAddToInbox}
-              disabled={!valid || submitting || !!alreadyQueued}
-              title={alreadyQueued
-                ? 'This URL is already in your pipeline inbox'
-                : 'Append the URL to data/pipeline.md for the next filter pass (no tokens spent now)'}
+              disabled={!valid || isSubmitting || !!alreadyQueued}
+              title={
+                alreadyQueued
+                  ? 'This URL is already in your pipeline inbox'
+                  : 'Append the URL to data/pipeline.md for the next filter pass (no tokens spent now)'
+              }
+              aria-label={
+                alreadyQueued
+                  ? 'Already in inbox'
+                  : 'Add to inbox — queue for next filter pass, no tokens'
+              }
               className={cn(
-                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12.5px] border transition-colors',
-                valid && !submitting && !alreadyQueued
+                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12.5px] border transition-colors focus:outline-none focus:ring-1 focus:ring-border-strong',
+                valid && !isSubmitting && !alreadyQueued
                   ? 'border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong'
                   : 'border-border-default bg-bg-elevated text-text-4 opacity-60 cursor-not-allowed',
               )}
             >
-              {alreadyQueued ? <CheckCircle2 size={12} className="text-success" /> : <Inbox size={12} />}
-              {alreadyQueued ? 'In inbox' : 'Add to inbox'}
+              {alreadyQueued
+                ? <><CheckCircle2 size={12} className="text-success" aria-hidden />In inbox</>
+                : <><Inbox size={12} aria-hidden />Add to inbox</>
+              }
             </button>
+
             <button
               onClick={handleEvaluate}
-              disabled={!valid || submitting}
-              title={valid
-                ? 'Score this URL into the Database now (Claude tokens). No prose report is generated — you can trigger one later from the Database.'
-                : 'Paste a valid URL first'}
+              disabled={!evaluateBtnEnabled}
+              title={
+                !valid
+                  ? 'Paste a valid URL first'
+                  : 'Score this URL into the Database now (Claude tokens). No prose report — trigger one later from the Database.'
+              }
+              aria-label={
+                modalState === 'valid-duplicate'
+                  ? 'Re-evaluate with Claude (replaces previous score)'
+                  : 'Add and evaluate with Claude'
+              }
               className={cn(
-                'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[12.5px] font-medium border transition-colors shadow-sm',
-                valid && !submitting
-                  ? 'bg-accent border-accent text-white hover:bg-accent-hover'
+                'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[12.5px] font-medium border transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/50',
+                evaluateBtnEnabled
+                  ? 'bg-accent border-accent text-white hover:bg-accent-hover active:bg-accent-press active:scale-[0.98]'
                   : 'bg-accent/30 border-accent/30 text-white/70 cursor-not-allowed',
               )}
             >
-              <Sparkles size={12} />
-              {submitting ? 'Working…' : 'Add & evaluate'}
+              {evaluateBtnContent}
             </button>
           </div>
         </div>
