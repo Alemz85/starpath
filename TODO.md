@@ -2,6 +2,48 @@
 
 ---
 
+## 🔒 To do later: scrub PII from git history
+
+Repo was made **private** (2026-06-25) after a leak — the user's **phone number**
++ **school/grad-date** were committed into (then-public) history. The working tree
+is already clean; what remains is **rewriting history to purge the PII from old
+commits, then force-pushing**. Deliberately deferred: `git filter-repo` rewrites
+every ref and would corrupt live agent worktrees, so it must run only when the
+tree is back to a single clean `main` with **no agent worktrees**.
+
+When ready: `git filter-repo --replace-text <file>` redacting the strings
+`555 123 4567` and `[redacted degree/date]` (NOT the bare word "Esade" — that's
+legit reference data in the school-region table), then `git push --force`.
+Caveat: existing forks/clones keep the old data; GitHub may cache old commit SHAs
+briefly (GH Support can purge).
+
+---
+
+## ⏸️ Unfinished freestyle lanes (interrupted 2026-06-25) — re-run later
+
+Six agents were stopped mid-flight (session ran low on tokens); their worktrees
+were deleted before committing, so the partial code is gone but the intent is
+captured here. Re-run each as a fresh freestyle lane another time (all on the
+themes the user likes: scan / reports / scoring quality + views polish):
+
+- **Pipeline Kanban view (frontend)** — new `frontend/src/components/pipeline/` +
+  `frontend/src/lib/pipelineInbox.ts` (+ test): application-status Kanban + inbox
+  triage, status moves via the `applications.md` writeback. Owns the pipeline view;
+  must NOT touch nav/AppShell/Sidebar.
+- **Reports rendering quality (frontend)** — `reports/ReportSlideOver.tsx` +
+  `lib/reportMarkdown.ts`: polish how a report renders (dimensional table, "Why this
+  score", gaps/comp/recommendation), hierarchy + scannability.
+- **Database table polish (frontend)** — `database/DatabaseView.tsx` / `OffersTable.tsx`
+  / `FilterBar.tsx`: row density, fixability-column treatment, filter-bar UX, a11y.
+- **Scoring depth (backend)** — `scripts/lib/explain-score.mjs`: multi-step lever
+  paths (cheapest path to T1) + per-dimension sensitivity in the "Why this score" output.
+- **Aggregator scan quality (backend)** — `scripts/jobspy/scan.py` (+ a filter test):
+  tighten the Indeed/Google 4-pass filter precision + dedup.
+- **Scan merge dedup quality (backend)** — `scripts/merge-scan-staging.mjs` +
+  `lib/merge-staging-core.mjs`: tighter cross-source (company, role) normalization at merge.
+
+---
+
 ## ⭐ Directive for the next freestyle rounds (set 2026-06-25)
 
 **Build features now, not more plumbing.** The hardening phase is done: the
