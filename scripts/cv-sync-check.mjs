@@ -8,11 +8,13 @@
  * 2. user/profile.yml exists and has required fields
  * 3. No hardcoded metrics in _shared.md or batch/batch-prompt.md
  * 4. user/article-digest.md freshness (if exists)
+ * 5. Story-bank health (count + STAR+R completeness + quantified results)
  */
 
 import { readFileSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { parseStoryBank, bankHealth } from './lib/story-bank.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = dirname(__dirname);
@@ -87,9 +89,25 @@ if (!existsSync(storyBankPath)) {
   warnings.push('interview-prep/story-bank.md not found. Run /career-ops interview-prep on a few roles to build up STAR+R stories.');
 } else {
   const storyContent = readFileSync(storyBankPath, 'utf-8');
-  const storyCount = (storyContent.match(/^### /gm) || []).length;
-  if (storyCount < 3) {
-    warnings.push(`interview-prep/story-bank.md has only ${storyCount} stor${storyCount === 1 ? 'y' : 'ies'}. Aim for 5+ to cover common behavioral question themes.`);
+  const stories = parseStoryBank(storyContent);
+  const health = bankHealth(stories);
+
+  if (health.count < 3) {
+    warnings.push(`interview-prep/story-bank.md has only ${health.count} stor${health.count === 1 ? 'y' : 'ies'}. Aim for 5+ to cover common behavioral question themes.`);
+  }
+  // Incomplete stories (missing STAR+R beats) weaken reuse in apply.md /
+  // interview-prep.md — a story with no Result/Reflection can't anchor a
+  // recruiter-worthy answer. Surface up to 5 so the user can fix them.
+  if (health.incomplete.length > 0) {
+    const sample = health.incomplete
+      .slice(0, 5)
+      .map((s) => `"${s.title}" (missing: ${s.missing.join(', ')})`)
+      .join('; ');
+    warnings.push(`interview-prep/story-bank.md has ${health.incomplete.length} incomplete stor${health.incomplete.length === 1 ? 'y' : 'ies'} (see templates/story-bank.template.md for the STAR+R contract): ${sample}`);
+  }
+  // Complete stories whose Result has no number read as vague. Flag them.
+  if (health.unquantified.length > 0) {
+    warnings.push(`interview-prep/story-bank.md has ${health.unquantified.length} stor${health.unquantified.length === 1 ? 'y' : 'ies'} with an unquantified Result (lead with a number): ${health.unquantified.slice(0, 5).map((t) => `"${t}"`).join(', ')}`);
   }
 }
 
