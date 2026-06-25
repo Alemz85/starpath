@@ -5,8 +5,10 @@ import {
   filterReportRows, sortReportRows, corpusBands, bandCounts,
   buildScoreIndex, matchScore,
   distanceToNextBand, fixabilityScore, isNearMiss,
+  reportRowFixability, reportEngineLever,
   type ScoreBand, type ReportRowLike, type FixabilityRow,
 } from '@/lib/reportsList'
+import { rowLever } from '@/lib/tierLevers'
 import { makeScoreEntry } from '@/test-utils/fixtures'
 
 // A report row carries only the handful of fields the grid reads.
@@ -233,4 +235,87 @@ test('sortReportRows by fixable puts the cheapest upgrade first under desc', () 
   assert.equal(order[0], 'Lever')
   assert.equal(order[1], 'Close')
   assert.deepEqual(order.slice(2), ['Top', 'Far'])   // both fixability 0, tie-break by overall desc
+})
+
+// ─── Unified engine path (reportsList ↔ tierLevers) ──────────────────────────
+//
+// Before the unification the Reports lens computed its own near-miss verdict
+// from the Overall score + the parsed lever sentence, independent of the
+// engine the Database used on the same listing. The two could disagree. These
+// tests pin the contract that, when a report row carries the real dims (its
+// matched score-history entry), the Reports verdict is the engine's verdict —
+// the same one the Database "Near upgrade" filter computes.
+
+test('DRIFT GUARD: a report row carrying real dims reads identically to the Database', () => {
+  // The canonical EoE-gate near-miss listing.
+  const dims = {
+    skills_match: 8, ease_of_entry: 4, strategic_fit: 8,
+    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
+  }
+  const scoreEntry = makeScoreEntry({ ...dims, tier: 'T3', overall: 6.6 })
+
+  // Database side (the engine source of truth).
+  const dbVerdict = rowLever(scoreEntry)
+
+  // Reports side, decorated with the same matched entry. Give it a deliberately
+  // wrong parse signal to prove the engine — not the report text — decides.
+  const reportRow: FixabilityRow = {
+    company: scoreEntry.company, role: scoreEntry.role, tier: 'T3', overall: 6.6,
+    fixability: { hasLever: false, lever: null },   // body says "no lever"
+    scoreEntry,
+  }
+
+  // Same near-miss verdict.
+  assert.equal(isNearMiss(reportRow), dbVerdict.nearMiss)
+  assert.equal(isNearMiss(reportRow), true)
+  // Same structured lever surfaced to the Reports UI.
+  assert.deepEqual(reportEngineLever(reportRow), dbVerdict.best)
+  assert.equal(reportEngineLever(reportRow)?.dimension, 'ease_of_entry')
+  // And the engine source is recorded.
+  assert.equal(reportRowFixability(reportRow).source, 'engine')
+})
+
+test('engine path overrides a contradictory parse near-miss for a T1 row', () => {
+  // Database says T1 (no lever). The report body claims a lever + the row sits
+  // 0.4 below the next band — both would say "near-miss" on the parse path.
+  const scoreEntry = makeScoreEntry({
+    skills_match: 9, ease_of_entry: 8, strategic_fit: 8,
+    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
+    tier: 'T1', overall: 8.6,
+  })
+  const reportRow: FixabilityRow = {
+    company: 'Acme', role: 'Analyst', tier: 'T1', overall: 8.6,
+    fixability: { hasLever: true, lever: 'Brand 8 → 10 crosses the band.' },
+    scoreEntry,
+  }
+  assert.equal(rowLever(scoreEntry).nearMiss, false)
+  assert.equal(isNearMiss(reportRow), false)          // engine wins
+  assert.equal(reportEngineLever(reportRow), null)
+  assert.equal(fixabilityScore(reportRow), 0)
+})
+
+test('rows WITHOUT a matched entry keep the historical parse-based verdict', () => {
+  // No scoreEntry → the legacy Overall-gap + parsed-lever heuristic still drives
+  // the verdict, unchanged. (This is the same case the pre-unification tests
+  // above already pin; restated here to make the fallback contract explicit.)
+  const close: FixabilityRow = { company: 'Close', role: 'r', tier: 'T3', overall: 6.9, fixability: { hasLever: false } }
+  const lever: FixabilityRow = { company: 'Lever', role: 'r', tier: 'T3', overall: 5.4, fixability: { hasLever: true } }
+  const far:   FixabilityRow = { company: 'Far',   role: 'r', tier: 'T3', overall: 5.4, fixability: { hasLever: false } }
+  assert.equal(reportRowFixability(close).source, 'parse')
+  assert.equal(isNearMiss(close), true)    // 0.1 gap
+  assert.equal(isNearMiss(lever), true)    // lever overrides gap
+  assert.equal(isNearMiss(far), false)     // wide gap, no lever
+  assert.equal(reportEngineLever(close), null)   // no engine lever on the parse path
+})
+
+test('reportEngineLever returns the structured lever only on the engine path', () => {
+  const scoreEntry = makeScoreEntry({
+    skills_match: 8, ease_of_entry: 4, strategic_fit: 8,
+    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
+    tier: 'T3', overall: 6.6,
+  })
+  const withDims: FixabilityRow = { company: 'A', role: 'r', tier: 'T3', overall: 6.6, scoreEntry, fixability: { hasLever: false } }
+  const noDims:   FixabilityRow = { company: 'A', role: 'r', tier: 'T3', overall: 6.6, fixability: { hasLever: true, lever: 'Skills 7 → 8' } }
+  assert.ok(reportEngineLever(withDims))            // engine lever present
+  assert.equal(reportEngineLever(noDims), null)     // parse path → no structured lever
 })

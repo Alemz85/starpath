@@ -239,3 +239,124 @@ export function rowLever(e: ScoreEntry): LeverResult {
     nearMiss: best != null && best.lift <= NEAR_MISS_MAX_LIFT,
   }
 }
+
+// True iff a ScoreEntry actually carries the six scored dimensions (i.e. the
+// engine math can run on it). Orphan / placeholder rows are built with the six
+// dims at 0 and overall 0 — those can't yield a meaningful engine lever, so the
+// report path must fall back to parsing for them. We treat "any of the six dims
+// > 0 AND a positive overall" as "evaluated, engine-runnable".
+export function hasScoredDims(e: ScoreEntry | null | undefined): e is ScoreEntry {
+  if (!e || e.overall <= 0) return false
+  const d = sixDimsOf(e)
+  const keys: SixDimKey[] = [...CF_DIMS, ...AF_DIMS]
+  return keys.some(k => d[k] > 0)
+}
+
+// ─── Unified report-row fixability (the single near-miss authority) ──────────
+//
+// The Reports lens used to answer "is this a near-miss to upgrade, and what's
+// the cheapest lever?" with its OWN engine: an Overall-score band ladder
+// (lib/reportsList § distanceToNextBand / isNearMiss / fixabilityScore) plus a
+// regex pull of the report's `## Why this score` lever sentence. That is a
+// second, independent implementation of the exact question rowLever() answers
+// for the Database from the real dimensional scores — so the two could (and
+// did) disagree: the Database said "+1 Ease of Entry → T2" while the Reports
+// card, knowing only Overall 6.9, said "+0.1 to Decent".
+//
+// reportFixability() collapses both into ONE verdict, with a clear precedence:
+//
+//   1. ENGINE (preferred). When the report resolves to a score-history entry
+//      that carries real dims, run rowLever() — the same engine-pinned math the
+//      Database uses. The near-miss verdict, the lever, and the tier are then
+//      IDENTICAL across the two views for the same listing. The lever string,
+//      if the report body carries one, is kept for display (it's prose the
+//      engine can't reproduce) but the *boolean* verdict comes from the engine.
+//
+//   2. PARSE FALLBACK. When no dims are available (orphan reports with no
+//      score-history match, or unscored placeholders), fall back to the
+//      Overall-gap heuristic + the presence of a parsed lever sentence — the
+//      pre-unification behavior, now living in one place instead of three.
+//
+// `bandDistance` is injected (the Overall→band-floor math lives in reportsList,
+// which owns the display band ladder) so this module stays free of the band
+// vocabulary while still driving the fallback. This keeps tierLevers the lever
+// authority and reportsList the band authority, with no circular import.
+
+export interface ReportLeverInput {
+  /** Resolved score-history entry for this report, if one matched. Carries the
+   *  six dims when present — that's what lets the engine path run. */
+  scoreEntry: ScoreEntry | null | undefined
+  /** Overall score shown on the card (report.overall ?? matched entry's). */
+  overall: number | null | undefined
+  /** Tier string for the report (drives the fallback band ladder). */
+  tier: string
+  /** Whether the report's `## Why this score` block named a concrete lever.
+   *  This is the authoritative "a lever exists" flag on the PARSE path — the
+   *  display string below may be absent even when this is true. Defaults to
+   *  `!!parsedLever` when omitted. */
+  parsedHasLever?: boolean
+  /** Lever sentence parsed from the report's `## Why this score` block, when
+   *  present. Display-only — never the verdict when the engine path runs. */
+  parsedLever?: string | null
+  /** Points from `overall` to the next display band's floor (reportsList §
+   *  distanceToNextBand). Null when top-band / unscored. Drives the fallback. */
+  bandDistance: number | null
+}
+
+export interface ReportLeverResult {
+  /** The single near-miss verdict both the chip and the filter/sort read. */
+  nearMiss: boolean
+  /** How the verdict was reached — 'engine' (dims available, rowLever ran) or
+   *  'parse' (Overall-gap + parsed lever sentence). Useful for tests + a future
+   *  "computed from scores vs. report text" affordance; harmless to ignore. */
+  source: 'engine' | 'parse'
+  /** Engine lever when the engine path ran and found one — the structured
+   *  Database-style lever (dimension/from/to/lift/tiers). Null on the parse
+   *  path or when the engine found no single-dim crossing. */
+  engineLever: Lever | null
+  /** A 0–1 "how worth upgrading is this" rank key. Engine path: a near-miss
+   *  lever floors high (cheaper lift ranks higher); parse path: the legacy
+   *  proximity+lever blend. Higher = cheaper/more actionable. */
+  fixabilityScore: number
+}
+
+// Max gap (in Overall points) to the next band that still counts as a near-miss
+// on the PARSE fallback path. Mirrors the historical reportsList default.
+export const REPORT_NEAR_MISS_MAX_GAP = 0.5
+
+// The single near-miss / fixability computation for a report row. See the block
+// comment above for the engine-first / parse-fallback precedence.
+export function reportFixability(input: ReportLeverInput): ReportLeverResult {
+  const { scoreEntry, parsedLever, bandDistance } = input
+
+  // ── Engine path ── real dims available → reuse the Database engine verbatim.
+  if (hasScoredDims(scoreEntry)) {
+    const lev = rowLever(scoreEntry)
+    // Engine near-miss is the lift-≤-threshold rule. A top-band row (best=null)
+    // is never a near-miss regardless of what the report text says.
+    const engineLever = lev.best
+    const nearMiss = lev.nearMiss
+    // Rank key: cheaper lift → higher score. A near-miss lever floors at 0.55
+    // (mirrors the parse path's lever floor) and adds proximity by lift; a
+    // larger-but-real lever still ranks above any no-lever row; no lever → 0.
+    let fix = 0
+    if (engineLever) {
+      const liftProximity = Math.max(0, 1 - (engineLever.lift - 1) / 9) // lift 1 → 1.0, lift 10 → ~0
+      fix = nearMiss ? 0.55 + 0.45 * liftProximity : 0.45 * liftProximity
+    }
+    return { nearMiss, source: 'engine', engineLever, fixabilityScore: fix }
+  }
+
+  // ── Parse fallback ── no dims → Overall-gap + parsed-lever sentence.
+  if (bandDistance === null || bandDistance === undefined) {
+    // Top-band or unscored — never a near-miss, never in the ranking.
+    return { nearMiss: false, source: 'parse', engineLever: null, fixabilityScore: 0 }
+  }
+  // `parsedHasLever` is the authoritative flag; fall back to the display
+  // string's presence when the caller didn't pass it explicitly.
+  const hasLever = input.parsedHasLever ?? !!parsedLever
+  const nearMiss = hasLever || bandDistance <= REPORT_NEAR_MISS_MAX_GAP
+  const proximity = Math.max(0, 1 - bandDistance)
+  const fix = hasLever ? 0.55 + 0.45 * proximity : 0.6 * proximity
+  return { nearMiss, source: 'parse', engineLever: null, fixabilityScore: fix }
+}
