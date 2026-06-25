@@ -9,7 +9,13 @@
  *
  * Outputs (canonical, also written by scripts/scan.mjs):
  *   - data/scan-history.tsv (rows appended; existing URLs get scan_dates updated)
- *   - data/pipeline.md (lines appended into ## Pending; URL-deduped)
+ *   - data/pipeline.md (lines appended into ## Pending; URL- AND (company,role)-deduped)
+ *
+ * Dedup is two-layered: exact URL first, then normalized (company, role). The
+ * second pass matters because aggregators (Indeed, Google Jobs) surface the
+ * same posting under several distinct URLs, so URL-only dedup lets one real
+ * job re-enter the pipeline two or three times. The merge math lives in the
+ * pure, unit-tested scripts/lib/merge-staging-core.mjs.
  *
  * After a successful merge, staging files are moved to
  *   batch/jobspy-merged/{ISO_DATE}-{HMS}.{tsv,md}
@@ -26,6 +32,13 @@ import {
   readFileSync, writeFileSync, existsSync, mkdirSync, renameSync,
 } from 'fs';
 import { join } from 'path';
+import {
+  HISTORY_HEADER as CORE_HISTORY_HEADER,
+  dataLines,
+  indexHistory,
+  mergeHistory,
+  filterPipelineLines,
+} from './lib/merge-staging-core.mjs';
 
 // ── Paths ───────────────────────────────────────────────────────────────
 
@@ -38,24 +51,14 @@ const TMP_HISTORY_PATH     = 'data/scan-history.jobspy.tsv.tmp';
 const TMP_PIPELINE_PATH    = 'data/pipeline.jobspy.md.tmp';
 const ARCHIVE_DIR          = 'batch/jobspy-merged';
 
-const HISTORY_HEADER = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates';
+const HISTORY_HEADER = CORE_HISTORY_HEADER;
 
-// ── History helpers (mirror scan.mjs) ──────────────────────────────────
+// ── History helpers (file IO; merge math lives in merge-staging-core) ────
 
-function loadHistory() {
-  if (!existsSync(SCAN_HISTORY_PATH)) {
-    return { rows: [], urlToIndex: new Map() };
-  }
-  const lines = readFileSync(SCAN_HISTORY_PATH, 'utf-8').split('\n');
-  const urlToIndex = new Map();
-  const rows = [];
-  for (const line of lines.slice(1)) {
-    if (!line.trim()) continue;
-    const url = line.split('\t')[0];
-    if (url) urlToIndex.set(url, rows.length);
-    rows.push(line);
-  }
-  return { rows, urlToIndex };
+/** Load existing scan-history data rows (header dropped). */
+function loadHistoryRows() {
+  if (!existsSync(SCAN_HISTORY_PATH)) return [];
+  return dataLines(readFileSync(SCAN_HISTORY_PATH, 'utf-8'));
 }
 
 function saveHistory(rows) {
@@ -63,18 +66,9 @@ function saveHistory(rows) {
   writeFileSync(SCAN_HISTORY_PATH, content, 'utf-8');
 }
 
-function appendScanDate(row, date) {
-  const cols = row.split('\t');
-  if (cols.length < 8) {
-    while (cols.length < 7) cols.push('');
-    cols.push(date);
-  } else {
-    const existing = cols[7] || '';
-    if (!existing.split('|').includes(date)) {
-      cols[7] = existing ? `${existing}|${date}` : date;
-    }
-  }
-  return cols.join('\t');
+/** Normalized (company, role) keys already in scan-history — pipeline dedup seed. */
+function companyRoleKeysInHistory(rows) {
+  return indexHistory(rows).companyRoleSeen;
 }
 
 // ── Pipeline helpers ───────────────────────────────────────────────────
@@ -159,62 +153,60 @@ function main() {
     renameSync(STAGING_PIPELINE_PATH, TMP_PIPELINE_PATH);
   }
 
-  // 1. Merge scan-history
+  // 1. Merge scan-history (URL dedup → (company, role) dedup → append)
   const today = new Date().toISOString().slice(0, 10);
-  const { rows, urlToIndex } = loadHistory();
+  const existingRows = loadHistoryRows();
+  // Keys already on disk before this merge — seed for the pipeline dedup pass.
+  const historyKeys = companyRoleKeysInHistory(existingRows);
+
   let appended = 0;
   let updatedScanDates = 0;
+  let historyDupRoles = 0;
+  let rows = existingRows;
 
   if (stagingHistoryExists) {
-    const stagingLines = readFileSync(TMP_HISTORY_PATH, 'utf-8')
-      .split('\n')
-      .slice(1)               // skip staging header
-      .filter(l => l.trim());
-
-    for (const line of stagingLines) {
-      const url = line.split('\t')[0];
-      if (!url) continue;
-      if (urlToIndex.has(url)) {
-        const idx = urlToIndex.get(url);
-        rows[idx] = appendScanDate(rows[idx], today);
-        updatedScanDates++;
-      } else {
-        urlToIndex.set(url, rows.length);
-        rows.push(line);
-        appended++;
-      }
-    }
+    const stagingLines = dataLines(readFileSync(TMP_HISTORY_PATH, 'utf-8'));
+    const result = mergeHistory(existingRows, stagingLines, today);
+    rows = result.rows;
+    appended = result.appended;
+    updatedScanDates = result.updatedScanDates;
+    historyDupRoles = result.droppedDuplicateRole;
     saveHistory(rows);
   }
 
-  // 2. Merge pipeline.md (URL-deduped against pipeline + applications)
+  // 2. Merge pipeline.md — dedup against pipeline + applications URLs, plus
+  //    (company, role) keys that ALREADY existed in scan-history before this
+  //    run. We seed with historyKeys (not the keys accepted this run): a
+  //    brand-new job appended to history this run must still reach the
+  //    pipeline, while a cross-URL duplicate — whose original is on disk, so
+  //    its key is in historyKeys — is correctly suppressed. Within-batch
+  //    pipeline dedup is handled inside filterPipelineLines.
   let pipelineAppended = 0;
+  let pipelineDupRoles = 0;
   if (stagingPipelineExists) {
     const stagingLines = readFileSync(TMP_PIPELINE_PATH, 'utf-8')
       .split('\n')
       .filter(l => l.trim());
 
-    const seenInPipeline = urlsInPipeline();
-    const seenInApps = urlsInApplications();
-    const toAppend = [];
-    for (const line of stagingLines) {
-      const m = line.match(/- \[[ x]\] (https?:\/\/\S+)/);
-      if (!m) continue;
-      const url = m[1];
-      if (seenInPipeline.has(url) || seenInApps.has(url)) continue;
-      toAppend.push(line);
-      seenInPipeline.add(url); // intra-batch dedup
-      pipelineAppended++;
-    }
-    if (toAppend.length > 0) appendToPipelineMd(toAppend);
+    const seenUrls = new Set([...urlsInPipeline(), ...urlsInApplications()]);
+    const seenKeys = new Set(historyKeys);
+    const result = filterPipelineLines(stagingLines, { seenUrls, seenKeys });
+    pipelineAppended = result.appended;
+    pipelineDupRoles = result.droppedDuplicateRole;
+    if (result.toAppend.length > 0) appendToPipelineMd(result.toAppend);
   }
 
   // 3. Archive staging
   const stamp = archiveStaging(stagingHistoryExists, stagingPipelineExists);
 
+  const dupNote =
+    historyDupRoles + pipelineDupRoles > 0
+      ? ` Dropped ${historyDupRoles} history + ${pipelineDupRoles} pipeline ` +
+        `cross-URL (company, role) duplicates.`
+      : '';
   console.log(
     `[merge] Done — scan-history: +${appended} new, ${updatedScanDates} re-seen; ` +
-    `pipeline.md: +${pipelineAppended} new. ` +
+    `pipeline.md: +${pipelineAppended} new.${dupNote} ` +
     `Staging archived to ${ARCHIVE_DIR}/${stamp}.{tsv,md}.`
   );
   return 0;
