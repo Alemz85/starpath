@@ -7,6 +7,7 @@
 //   • followup-cadence.mjs  — applications whose follow-up is due/overdue.
 //   • outreach-core.mjs     — outreach threads where a nudge is due now.
 //   • positioning-core.mjs  — the one standing targeting insight across the corpus.
+//   • deadlines-core.mjs    — closing-date urgency bucketing (import-only, never modified).
 //
 // Nothing bundles them into a single "what should I do now?" artifact the user
 // can read, cron, or email. That is this module's job. It does NOT re-implement
@@ -16,7 +17,7 @@
 //
 //   1. normalizes each core's output into a uniform list of "action" items,
 //   2. ranks them into sections by urgency / leverage,
-//   3. renders one dated markdown brief.
+//   3. renders one dated markdown brief (with pipeline health summary + deadlines).
 //
 // Everything here is a pure function of its inputs — no filesystem, no clock,
 // no globals, no mutation. That keeps it exhaustively unit-testable, and keeps
@@ -31,15 +32,19 @@
  *
  *   followups  — applications with an overdue/urgent follow-up. Most decay-
  *                sensitive: a stale thread cools fast. Top of the brief.
+ *   deadlines  — listings/applications with a closing date ≤ 30 days out.
+ *                (urgent ≤ 7d first, then near 8–30d). Pure from deadlines-core
+ *                classified output — import-only.
  *   outreach   — outreach threads where a nudge is due now.
  *   newhits    — fresh, high-fit postings worth evaluating/applying to.
  *   insight    — one standing positioning insight (not an item to "do today",
  *                but the lens to keep in mind while doing the above).
  */
-export const SECTION_ORDER = ['followups', 'outreach', 'newhits', 'insight']
+export const SECTION_ORDER = ['followups', 'deadlines', 'outreach', 'newhits', 'insight']
 
 export const SECTION_META = {
   followups: { title: 'Follow-ups due', kind: 'action' },
+  deadlines: { title: 'Deadlines closing soon', kind: 'action' },
   outreach: { title: 'Outreach nudges due', kind: 'action' },
   newhits: { title: 'Fresh high-fit postings', kind: 'action' },
   insight: { title: 'Standing positioning note', kind: 'insight' },
@@ -261,6 +266,98 @@ function round1(n) {
   return Math.round(n * 10) / 10
 }
 
+/* ───── Deadline items (from deadlines-core.classifyDeadlines output) ────────
+ *
+ * We surface only the `urgent` bucket (≤ 7 days) and `near` bucket (8–30 days)
+ * so the brief stays actionable, not a full calendar dump. The full deadlines
+ * view (`/career-ops deadlines`) is the right place for the complete picture.
+ *
+ * Expected input shape: classifyDeadlines() return value:
+ *   { asOf, buckets: { urgent: [...], near: [...], ... }, counts: {...} }
+ *
+ * Each bucket entry has: { source, num, company, role, status/tier, deadline,
+ *   parsed, daysLeft }
+ *
+ * @param {object|null} classifiedDeadlines   deadlines-core.classifyDeadlines output
+ * @param {object}      opts                  { maxUrgent, maxNear }
+ */
+export function deadlineItems(classifiedDeadlines, { maxUrgent = 5, maxNear = 5 } = {}) {
+  if (!classifiedDeadlines || !classifiedDeadlines.buckets) return []
+  const items = []
+
+  const urgentEntries = (classifiedDeadlines.buckets.urgent || []).slice(0, maxUrgent)
+  for (const e of urgentEntries) {
+    const dayLabel = e.daysLeft === 0 ? 'closes today' : `${e.daysLeft}d left`
+    const tierOrStatus = e.source === 'scouting' ? e.tier : (e.status || '')
+    const sub = `${dayLabel}${tierOrStatus ? ` · ${tierOrStatus}` : ''} — decide now`
+    items.push({
+      key: `deadline|${(e.company || '').toLowerCase()}|${(e.role || '').toLowerCase()}`,
+      label: e.role ? `${e.company} — ${e.role}` : e.company,
+      sub,
+      urgency: 0, // urgent entries sort before near
+      sortKey: 7 - (e.daysLeft ?? 7), // fewer days left → higher sortKey → surfaces first
+      meta: {
+        kind: 'deadline-urgent',
+        source: e.source,
+        daysLeft: e.daysLeft,
+        deadline: e.deadline,
+        tierOrStatus,
+        num: e.num || null,
+      },
+    })
+  }
+
+  const nearEntries = (classifiedDeadlines.buckets.near || []).slice(0, maxNear)
+  for (const e of nearEntries) {
+    const tierOrStatus = e.source === 'scouting' ? e.tier : (e.status || '')
+    const sub = `${e.daysLeft}d left (${e.deadline})${tierOrStatus ? ` · ${tierOrStatus}` : ''}`
+    items.push({
+      key: `deadline|${(e.company || '').toLowerCase()}|${(e.role || '').toLowerCase()}`,
+      label: e.role ? `${e.company} — ${e.role}` : e.company,
+      sub,
+      urgency: 1, // near entries sort after urgent
+      sortKey: 30 - (e.daysLeft ?? 30), // fewer days left → earlier
+      meta: {
+        kind: 'deadline-near',
+        source: e.source,
+        daysLeft: e.daysLeft,
+        deadline: e.deadline,
+        tierOrStatus,
+        num: e.num || null,
+      },
+    })
+  }
+
+  return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey)
+}
+
+/* ───── Pipeline health summary ──────────────────────────────────────────────
+ *
+ * A compact one-liner showing funnel health: how many applications are actively
+ * in-flight, how many evaluations are pending a decision, and how many URLs are
+ * waiting in the pipeline inbox.
+ *
+ * Expected input shape (pipelineHealth input from CLI):
+ *   {
+ *     active:    N,   // Applied + Responded + Interview + Offer
+ *     evaluated: N,   // Evaluated (waiting for decision)
+ *     inboxCount: N,  // rows in data/pipeline.md
+ *   }
+ *
+ * Returns an object { active, evaluated, inboxCount, hasData } or null when all
+ * counts are zero/null (suppressed in the render).
+ *
+ * @param {object|null} pipelineHealth
+ */
+export function buildPipelineHealthSummary(pipelineHealth) {
+  if (!pipelineHealth) return null
+  const active = Number.isFinite(pipelineHealth.active) ? pipelineHealth.active : 0
+  const evaluated = Number.isFinite(pipelineHealth.evaluated) ? pipelineHealth.evaluated : 0
+  const inboxCount = Number.isFinite(pipelineHealth.inboxCount) ? pipelineHealth.inboxCount : 0
+  if (active === 0 && evaluated === 0 && inboxCount === 0) return null
+  return { active, evaluated, inboxCount, hasData: true }
+}
+
 /* ───── Assembly ─────────────────────────────────────────────────────────────
  *
  * Compose the normalized items into a single brief object. The caller passes
@@ -268,18 +365,21 @@ function round1(n) {
  * this stays a pure transform.
  *
  * @param {object} inputs
- *   - digest          whats-new buildDigest output (or null)
- *   - followupResult  followup-cadence analysis output (or null)
- *   - outreachResult  outreach classifyAll output (or null)
- *   - positioningIntel positioning-core positioningIntel output (or null)
+ *   - digest               whats-new buildDigest output (or null)
+ *   - followupResult       followup-cadence analysis output (or null)
+ *   - outreachResult       outreach classifyAll output (or null)
+ *   - positioningIntel     positioning-core positioningIntel output (or null)
+ *   - classifiedDeadlines  deadlines-core.classifyDeadlines output (or null)
+ *   - pipelineHealth       { active, evaluated, inboxCount } counts (or null)
  * @param {object} opts
  *   - asOf      YYYY-MM-DD "today" for the brief header (required for a dated brief)
  *   - period    'daily' | 'weekly' (label only; affects the header wording)
  *   - maxPrioritize / maxNeedsEval  caps passed to newHitItems
+ *   - maxUrgent / maxNear          caps passed to deadlineItems
  *
  * @returns {object} brief:
  *   { asOf, period, sections: [{ id, title, kind, items }], counts, totalActions,
- *     topAction }
+ *     topAction, pipelineHealth }
  */
 export function assembleBrief(inputs = {}, opts = {}) {
   const asOf = isValidDate(opts.asOf) ? opts.asOf.trim() : null
@@ -287,6 +387,7 @@ export function assembleBrief(inputs = {}, opts = {}) {
 
   const byId = {
     followups: followupItems(inputs.followupResult),
+    deadlines: deadlineItems(inputs.classifiedDeadlines, opts),
     outreach: outreachItems(inputs.outreachResult),
     newhits: newHitItems(inputs.digest, opts),
     insight: insightItems(inputs.positioningIntel),
@@ -317,7 +418,9 @@ export function assembleBrief(inputs = {}, opts = {}) {
     }
   }
 
-  return { asOf, period, sections, counts, totalActions, topAction }
+  const pipelineHealth = buildPipelineHealthSummary(inputs.pipelineHealth || null)
+
+  return { asOf, period, sections, counts, totalActions, topAction, pipelineHealth }
 }
 
 /* ───── Markdown renderer ────────────────────────────────────────────────────
@@ -333,14 +436,26 @@ export function renderBrief(brief) {
   L.push(`# ${periodWord} job-search brief — ${dateLabel}`)
   L.push('')
 
+  // ── Pipeline health summary (one-liner above the action block). ──
+  if (brief.pipelineHealth && brief.pipelineHealth.hasData) {
+    const ph = brief.pipelineHealth
+    const parts = []
+    if (ph.active > 0) parts.push(`${ph.active} active app${ph.active !== 1 ? 's' : ''} in flight`)
+    if (ph.evaluated > 0) parts.push(`${ph.evaluated} evaluated — pending decision`)
+    if (ph.inboxCount > 0) parts.push(`${ph.inboxCount} URL${ph.inboxCount !== 1 ? 's' : ''} in pipeline inbox`)
+    L.push(`> **Pipeline:** ${parts.join(' · ')}`)
+    L.push('')
+  }
+
   // ── Headline: the one thing to do, + a scoreboard. ──
   if (brief.totalActions === 0) {
-    L.push('_Nothing time-sensitive right now._ No due follow-ups, outreach nudges, or fresh high-fit postings.')
+    L.push('_Nothing time-sensitive right now._ No due follow-ups, deadline pressure, outreach nudges, or fresh high-fit postings.')
     L.push('')
   } else {
     if (brief.topAction) {
       const ta = brief.topAction
-      L.push(`**Do this first:** ${ta.item.label} — ${ta.item.sub} _(${ta.sectionTitle})_`)
+      const topLine = renderTopActionLine(ta)
+      L.push(`**Do this first:** ${topLine} _(${ta.sectionTitle})_`)
       L.push('')
     }
     const board = SECTION_ORDER
@@ -377,6 +492,28 @@ export function renderBrief(brief) {
   L.push('')
 
   return L.join('\n')
+}
+
+/**
+ * Render the top-action one-liner with enriched context where available.
+ * For deadline-urgent items → surfaces days-left inline.
+ * For new-hit items → links to the URL.
+ * For follow-up items → kept compact (label + sub).
+ */
+function renderTopActionLine(topAction) {
+  const it = topAction.item
+  const section = topAction.section
+
+  if (section === 'deadlines' && it.meta && it.meta.daysLeft !== undefined) {
+    const daysLabel = it.meta.daysLeft === 0 ? 'closes TODAY' : `${it.meta.daysLeft}d left`
+    return `**${it.label}** — ${daysLabel} · ${it.meta.tierOrStatus || ''} — decide/apply now`
+  }
+
+  if (section === 'newhits' && it.meta && it.meta.url) {
+    return `**[${it.label}](${it.meta.url})** — ${it.sub}`
+  }
+
+  return `**${it.label}** — ${it.sub}`
 }
 
 function renderActionLine(sectionId, it) {
