@@ -269,3 +269,194 @@ test('flattenForExport emits the parent then each sibling with a resolved livene
   assert.equal(flat.length, 2)                                   // parent + 1 sibling
   assert.ok(flat.every(r => r.livenessState === 'active'))       // every row carries a state
 })
+
+// ─── dedupeEntities edge cases ───────────────────────────────────────────────
+
+test('dedupeEntities with an empty array returns an empty array', () => {
+  assert.deepEqual(dedupeEntities([]), [])
+})
+
+test('dedupeEntities keeps a single entry unchanged', () => {
+  const e = makeScoreEntry({ company: 'Acme', role: 'Engineer', overall: 8 })
+  const out = dedupeEntities([e])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].overall, 8)
+})
+
+test('dedupeEntities: same (company, role) across different cities are distinct entities', () => {
+  // 'Engineer' with no location vs 'Engineer' with Berlin — different entityIds
+  const out = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: '' }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin' }),
+  ])
+  assert.equal(out.length, 2)
+})
+
+test('dedupeEntities: three evaluations of the same role/city — only the most recent survives', () => {
+  const out = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-01-01', overall: 5 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-02-01', overall: 6 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-05-01', overall: 9 }),
+  ])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].overall, 9)
+})
+
+// ─── buildFacetOptions edge cases ────────────────────────────────────────────
+
+test('buildFacetOptions with empty input returns empty sorted arrays and fixed tiers', () => {
+  const opts = buildFacetOptions([])
+  assert.deepEqual(opts.companies, [])
+  assert.deepEqual(opts.locations, [])
+  assert.deepEqual(opts.archetypes, [])
+  assert.deepEqual(opts.employmentTypes, [])
+  assert.deepEqual(opts.tiers, ['T1', 'T2-high', 'T2', 'T3', 'T4'])
+})
+
+test('buildFacetOptions filters out falsy archetypes', () => {
+  const opts = buildFacetOptions([
+    makeScoreEntry({ archetype: '' }),
+    makeScoreEntry({ archetype: 'Data Analyst' }),
+  ])
+  // Empty archetype is filtered via .filter(Boolean)
+  assert.ok(!opts.archetypes.includes(''))
+  assert.ok(opts.archetypes.includes('Data Analyst') || opts.archetypes.some(a => a.length > 0))
+})
+
+// ─── buildActedKeys edge cases ────────────────────────────────────────────────
+
+test('buildActedKeys with an empty input returns an empty set', () => {
+  const keys = buildActedKeys([])
+  assert.equal(keys.size, 0)
+})
+
+test('buildActedKeys: all engaged statuses are captured', () => {
+  // ENGAGED_STATUSES covers Applied, Responded, Interview, Offer, Rejected
+  const keys = buildActedKeys([
+    makeApplication({ company: 'A', role: 'r1', status: 'Applied' }),
+    makeApplication({ company: 'A', role: 'r2', status: 'Responded' }),
+    makeApplication({ company: 'A', role: 'r3', status: 'Interview' }),
+    makeApplication({ company: 'A', role: 'r4', status: 'Offer' }),
+    makeApplication({ company: 'A', role: 'r5', status: 'Rejected' }),
+    makeApplication({ company: 'A', role: 'r6', status: 'Evaluated' }),  // NOT engaged
+    makeApplication({ company: 'A', role: 'r7', status: 'Discarded' }),  // NOT engaged
+    makeApplication({ company: 'A', role: 'r8', status: 'SKIP' }),       // NOT engaged
+  ])
+  assert.equal(keys.has(livenessKey('A', 'r1')), true)
+  assert.equal(keys.has(livenessKey('A', 'r2')), true)
+  assert.equal(keys.has(livenessKey('A', 'r3')), true)
+  assert.equal(keys.has(livenessKey('A', 'r4')), true)
+  assert.equal(keys.has(livenessKey('A', 'r5')), true)
+  assert.equal(keys.has(livenessKey('A', 'r6')), false)
+  assert.equal(keys.has(livenessKey('A', 'r7')), false)
+  assert.equal(keys.has(livenessKey('A', 'r8')), false)
+})
+
+// ─── filterAndGroupEntities: location filter ─────────────────────────────────
+
+test('filterAndGroupEntities filters by location (cities)', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'Eng Berlin', location: 'Berlin', overall: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Eng Paris',  location: 'Paris',  overall: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Eng London', location: 'London', overall: 8 }),
+  ])
+  const out = filterAndGroupEntities(entities, ctx({ filters: filters({ locations: new Set(['Berlin']) }) }))
+  assert.equal(out.length, 1)
+  assert.equal(out[0].role, 'Eng Berlin')
+})
+
+test('filterAndGroupEntities filters a multi-city listing: row visible if ANY city matches', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin / Paris', overall: 8 }),
+  ])
+  const out = filterAndGroupEntities(entities, ctx({ filters: filters({ locations: new Set(['Paris']) }) }))
+  assert.equal(out.length, 1)
+})
+
+// ─── filterAndGroupEntities: archetype filter ─────────────────────────────────
+
+test('filterAndGroupEntities filters by archetype via canonicalization', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'a', archetype: 'Data Analyst', overall: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'b', archetype: 'Product Manager', overall: 8 }),
+  ])
+  const out = filterAndGroupEntities(entities, ctx({ filters: filters({ archetypes: new Set(['Data Analyst']) }) }))
+  assert.equal(out.length, 1)
+  assert.equal(out[0].company, 'Acme')
+})
+
+// ─── filterAndGroupEntities: employment type filter ───────────────────────────
+
+test('filterAndGroupEntities filters by employment type', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'Acme',   role: 'a', employment_type: 'Full-time', overall: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'b', employment_type: 'Internship', overall: 8 }),
+  ])
+  const out = filterAndGroupEntities(entities, ctx({ filters: filters({ employmentTypes: new Set(['Internship']) }) }))
+  assert.equal(out.length, 1)
+  assert.equal(out[0].company, 'Globex')
+})
+
+// ─── filterAndGroupEntities: score range filter ───────────────────────────────
+
+test('filterAndGroupEntities applies scoreMin/scoreMax range gates', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'High', role: 'a', overall: 9.5 }),
+    makeScoreEntry({ company: 'Mid',  role: 'b', overall: 7.0 }),
+    makeScoreEntry({ company: 'Low',  role: 'c', overall: 5.0 }),
+  ])
+  const out = filterAndGroupEntities(entities, ctx({
+    showClosed: true,
+    filters: filters({ scoreMin: 6, scoreMax: 8 }),
+  }))
+  assert.equal(out.length, 1)
+  assert.equal(out[0].company, 'Mid')
+})
+
+// ─── computeFacetCounts: liveness dimension ───────────────────────────────────
+
+test('computeFacetCounts counts liveness bucket per entity', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'a', overall: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'b', overall: 8 }),
+  ])
+  const liveness = {
+    [livenessKey('Acme', 'a')]: 'active' as Liveness,
+    [livenessKey('Globex', 'b')]: 'stale' as Liveness,
+  }
+  const counts = computeFacetCounts(entities, ctx({
+    liveness,
+    filters: filters({ liveness: new Set<Liveness>(['active', 'stale']) }),
+  }))
+  assert.equal(counts.liveness['active'], 1)
+  assert.equal(counts.liveness['stale'], 1)
+})
+
+// ─── flattenForExport edge cases ──────────────────────────────────────────────
+
+test('flattenForExport with no siblings emits a single row', () => {
+  const entities = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', overall: 8 }),
+  ])
+  const grouped = filterAndGroupEntities(entities, ctx())
+  const flat = flattenForExport(grouped, {})
+  assert.equal(flat.length, 1)
+  assert.equal(flat[0].company, 'Acme')
+  assert.equal(flat[0].livenessState, 'active')
+})
+
+test('flattenForExport with an empty input returns an empty array', () => {
+  assert.deepEqual(flattenForExport([], {}), [])
+})
+
+test('flattenForExport preserves a pre-resolved livenessState on a sibling', () => {
+  // Build a grouped row where the sibling already carries a livenessState
+  const parent = makeScoreEntry({ company: 'Acme', role: 'Eng Berlin', location: 'Berlin', overall: 8 })
+  const sibling = { ...makeScoreEntry({ company: 'Acme', role: 'Eng Paris', location: 'Paris', overall: 7 }), livenessState: 'stale' as Liveness }
+  const grouped = [{ ...parent, livenessState: 'active' as Liveness, siblings: [sibling] }]
+  const flat = flattenForExport(grouped, {})
+  assert.equal(flat.length, 2)
+  assert.equal(flat[0].livenessState, 'active')
+  // Sibling already has livenessState='stale'; flattenForExport should not overwrite it
+  assert.equal(flat[1].livenessState, 'stale')
+})
