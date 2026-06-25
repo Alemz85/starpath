@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen, Clock, ChevronLeft,
   Target, Sparkles, Compass, ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp,
-  AlertTriangle, Gauge,
+  AlertTriangle, Gauge, Anchor, Wrench,
 } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
@@ -21,8 +21,8 @@ import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { parseCities, entityId } from '@/lib/entityId'
 import {
-  extractMetadata, parseDimensionalScoring,
-  type ParsedDimensions, type DimensionRow,
+  extractMetadata, parseDimensionalScoring, splitWhyThisScore,
+  type ParsedDimensions, type DimensionRow, type WhyThisScore,
 } from '@/lib/reportMarkdown'
 
 type Tab = 'scouting' | 'application' | 'history'
@@ -613,9 +613,14 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
   // line-walk parsers were running every time, causing a visible flicker.
   const parsed = useMemo(() => {
     const { before, dims, after } = parseDimensionalScoring(content)
-    if (!dims) return { dims: null as ParsedDimensions | null, before: '', after: '', meta: [] as Array<{ key: string; value: string }>, beforeWithoutMeta: '' }
+    if (!dims) return { dims: null as ParsedDimensions | null, after: '', meta: [] as Array<{ key: string; value: string }>, beforeWithoutMeta: '', why: null as WhyThisScore | null }
     const { meta, rest: beforeWithoutMeta } = extractMetadata(before)
-    return { dims, before, after, meta, beforeWithoutMeta }
+    // Carve the "Why this score" block out of the trailing prose so it can be
+    // promoted to a structured callout right under the score table — its
+    // binding-constraint + lever shape is the report's most actionable signal
+    // and reads poorly as loose markdown bullets.
+    const { why, rest: afterWithoutWhy } = splitWhyThisScore(after)
+    return { dims, after: afterWithoutWhy, meta, beforeWithoutMeta, why: why.present ? why : null }
   }, [content])
 
   if (!parsed.dims) {
@@ -625,7 +630,7 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
       </div>
     )
   }
-  const { dims, after, meta, beforeWithoutMeta } = parsed
+  const { dims, after, meta, beforeWithoutMeta, why } = parsed
   return (
     <>
       <div className="prose-report">
@@ -633,12 +638,85 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
       </div>
       {meta.length > 0 && <ReportMeta items={meta} />}
       <DimensionalScoring dims={dims} tier={tier} />
+      {why && <WhyThisScoreCard why={why} tier={tier} />}
       {after && (
         <div className="prose-report">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{after}</ReactMarkdown>
         </div>
       )}
     </>
+  )
+}
+
+// "Why this score" — the report's explainability block, promoted from loose
+// markdown bullets into a structured callout. The headline lede reads as the
+// verdict; the two rows below carry the load-bearing fixability signal:
+//   - Holding it back (binding constraint) → the dimension/gate capping the tier
+//   - Closest lever  → the cheapest single raise that crosses into a better band
+// The lever row is tinted accent (it's actionable); the constraint row stays
+// neutral-warning (it's a diagnosis). Both degrade gracefully — a terse report
+// with only a headline renders just the lede plate.
+function WhyThisScoreCard({ why, tier }: { why: WhyThisScore; tier: TierKey }) {
+  const accent = tierHex(tier)
+  return (
+    <section className="my-5">
+      <div className="flex items-center gap-2 pb-2.5 mb-3.5 border-b border-border-default">
+        <Gauge size={14} className="shrink-0 text-accent" aria-hidden />
+        <h3 className="text-[16px] font-semibold text-text-1 leading-none tracking-[-0.005em]">
+          Why this score
+        </h3>
+      </div>
+
+      {why.headline && (
+        <p className="text-[13px] text-text-2 leading-[1.55] mb-3">
+          {why.headline}
+        </p>
+      )}
+
+      <div className="space-y-2">
+        {/* Binding constraint — the diagnosis. Amber-warning rail because it's
+            the thing capping the tier, not an action. */}
+        {why.bindingConstraint && (
+          <div className="flex gap-3 px-3.5 py-3 rounded-lg bg-bg-elevated/60 border border-border-default">
+            <Anchor size={15} className="shrink-0 mt-0.5 text-warning" aria-hidden />
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4 mb-1">
+                Holding it back
+              </div>
+              <div className="text-[13px] text-text-1 leading-[1.5]">
+                {why.bindingConstraint}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Closest lever — the actionable fix. Accent-tinted plate so the one
+            move that upgrades the tier stands out as "do this". When the
+            report states no single lever exists, we render a quiet note
+            instead of dropping the row silently. */}
+        {why.lever ? (
+          <div
+            className="flex gap-3 px-3.5 py-3 rounded-lg"
+            style={{ background: `${accent}0F`, border: `1px solid ${accent}33` }}
+          >
+            <Wrench size={15} className="shrink-0 mt-0.5" style={{ color: accent }} aria-hidden />
+            <div className="min-w-0">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4 mb-1">
+                Closest lever
+              </div>
+              <div className="text-[13px] text-text-1 leading-[1.5]">
+                {why.lever}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 px-3.5 py-2.5 text-[12px] text-text-4 italic">
+            <Wrench size={13} className="shrink-0 opacity-50" aria-hidden />
+            No single dimension crosses into a better band on its own.
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -754,12 +832,15 @@ function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: Tier
                                     'Below threshold'}
             </div>
           </div>
-          <span
-            className="font-mono font-semibold tabular-nums leading-none text-[44px]"
-            style={{ color: heroColor }}
-          >
-            {dims.overall.score}
-          </span>
+          <div className="flex items-baseline gap-1 shrink-0">
+            <span
+              className="font-mono font-semibold tabular-nums leading-none text-[44px]"
+              style={{ color: heroColor }}
+            >
+              {dims.overall.score}
+            </span>
+            <span className="font-mono tabular-nums text-[15px] text-text-4">/10</span>
+          </div>
         </div>
       )}
 
@@ -837,7 +918,12 @@ function DimensionGroup({
               key={i}
               className="grid grid-cols-[140px_1fr] gap-5 py-3.5 items-start"
             >
-              {/* Left col: stacked Category label / large score */}
+              {/* Left col: stacked Category label / large score / score bar.
+                  The bar gives the column an at-a-glance magnitude read so the
+                  eye can sort dimensions by strength without parsing every
+                  number — same scoreColor banding as the number above it so
+                  hue + length agree. Only rendered for numeric scores; the
+                  /10 denominator scales the fill. */}
               <div className="min-w-0">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-3 leading-tight">
                   {row.label}
@@ -849,8 +935,20 @@ function DimensionGroup({
                     color: cellColor,
                   }}
                 >
-                  {row.score || '—'}
+                  {isNumeric ? numScore.toFixed(numScore % 1 === 0 ? 0 : 1) : (row.score || '—')}
+                  {isNumeric && <span className="text-[11px] text-text-4 font-normal ml-0.5">/10</span>}
                 </div>
+                {isNumeric && (
+                  <div className="mt-2 h-1 w-[88px] rounded-full bg-bg-elevated overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.max(0, Math.min(100, (numScore / 10) * 100))}%`,
+                        background: cellColor,
+                      }}
+                    />
+                  </div>
+                )}
               </div>
               {/* Right col: reasoning at body-text size (was 11.5px — too
                   small to read comfortably; now 13px with relaxed leading). */}
