@@ -22,6 +22,9 @@ import {
   buildKitMarkdown,
   CHECK_IDS,
   CHECK_META,
+  atsSidecarName,
+  parseAtsSidecar,
+  cvFactsFromFiles,
 } from './apply-kit-core.mjs'
 
 /* A fully-ready set of facts — handy base for "tweak one thing" tests. */
@@ -554,4 +557,141 @@ test('renderKit: kit with no note text still renders without crash', () => {
   })
   assert.match(md, /# Application-kit readiness/)
   assert.doesNotMatch(md, /\n_\n/) // no empty italic paragraph
+})
+
+/* ───── atsSidecarName ──────────────────────────────────────────────────────
+ * The CV and its coverage record travel together: same stem, .ats.json ext. */
+
+test('atsSidecarName: swaps a .pdf extension for .ats.json', () => {
+  assert.equal(
+    atsSidecarName('output/cv-jo-acme-2026-06-27.pdf'),
+    'output/cv-jo-acme-2026-06-27.ats.json',
+  )
+})
+
+test('atsSidecarName: a CV and its HTML twin share one sidecar', () => {
+  // Same stem → same sidecar, so coverage written for either is found.
+  assert.equal(
+    atsSidecarName('output/cv-jo-acme-2026-06-27.html'),
+    atsSidecarName('output/cv-jo-acme-2026-06-27.pdf'),
+  )
+})
+
+test('atsSidecarName: no recognizable extension → appends .ats.json', () => {
+  assert.equal(atsSidecarName('output/cv-jo-acme'), 'output/cv-jo-acme.ats.json')
+})
+
+test('atsSidecarName: empty / nullish input → empty string', () => {
+  assert.equal(atsSidecarName(''), '')
+  assert.equal(atsSidecarName(null), '')
+  assert.equal(atsSidecarName(undefined), '')
+})
+
+/* ───── parseAtsSidecar ─────────────────────────────────────────────────────
+ * Tolerant by construction: a missing/malformed sidecar is "unverified", not a
+ * crash. coveragePct (0..100) and coverage (0..1 or 0..100) both resolve. */
+
+test('parseAtsSidecar: coveragePct (0..100) → fraction, atsChecked true', () => {
+  const r = parseAtsSidecar(JSON.stringify({ coveragePct: 82 }))
+  assert.equal(r.atsChecked, true)
+  assert.equal(r.atsCoverage, 0.82)
+})
+
+test('parseAtsSidecar: fractional coverage (0..1) is taken as-is', () => {
+  const r = parseAtsSidecar(JSON.stringify({ coverage: 0.73 }))
+  assert.equal(r.atsChecked, true)
+  assert.equal(r.atsCoverage, 0.73)
+})
+
+test('parseAtsSidecar: coveragePct wins over coverage when both present', () => {
+  // ats-coverage.mjs emits both; the integer percent is the canonical signal.
+  const r = parseAtsSidecar(JSON.stringify({ coverage: 0.5, coveragePct: 80 }))
+  assert.equal(r.atsCoverage, 0.8)
+})
+
+test('parseAtsSidecar: a string number is coerced', () => {
+  const r = parseAtsSidecar(JSON.stringify({ coveragePct: '67' }))
+  assert.equal(r.atsChecked, true)
+  assert.equal(r.atsCoverage, 0.67)
+})
+
+test('parseAtsSidecar: empty / null / blank → unverified (atsChecked false)', () => {
+  for (const v of [null, undefined, '', '   ']) {
+    const r = parseAtsSidecar(v)
+    assert.equal(r.atsChecked, false)
+    assert.equal(r.atsCoverage, undefined)
+  }
+})
+
+test('parseAtsSidecar: malformed JSON → unverified, does not throw', () => {
+  const r = parseAtsSidecar('{not json')
+  assert.equal(r.atsChecked, false)
+})
+
+test('parseAtsSidecar: object without a coverage field → unverified', () => {
+  const r = parseAtsSidecar(JSON.stringify({ note: 'hi', missing: ['x'] }))
+  assert.equal(r.atsChecked, false)
+})
+
+test('parseAtsSidecar: out-of-range coverage → unverified', () => {
+  // > 100 can't be a percent or a fraction → rejected rather than silently capped.
+  assert.equal(parseAtsSidecar(JSON.stringify({ coveragePct: 150 })).atsChecked, false)
+  assert.equal(parseAtsSidecar(JSON.stringify({ coveragePct: -4 })).atsChecked, false)
+  assert.equal(parseAtsSidecar(JSON.stringify({ coverage: -0.2 })).atsChecked, false)
+})
+
+test('parseAtsSidecar: a value in (1,100] is read as a percentage', () => {
+  // The >1 → percent heuristic: a bare 12 means 12%, not a 1200% fraction.
+  assert.equal(parseAtsSidecar(JSON.stringify({ coverage: 12 })).atsCoverage, 0.12)
+})
+
+/* ───── cvFactsFromFiles ────────────────────────────────────────────────────
+ * Composes the fact object cvCheck consumes from the resolved file facts. */
+
+test('cvFactsFromFiles: absent CV → just { exists:false }', () => {
+  assert.deepEqual(cvFactsFromFiles({ exists: false }), { exists: false })
+  assert.deepEqual(cvFactsFromFiles(), { exists: false })
+})
+
+test('cvFactsFromFiles: CV + healthy sidecar → ATS-checked facts → cvCheck ready', () => {
+  const facts = cvFactsFromFiles({
+    exists: true,
+    path: 'output/cv-jo-acme-2026-06-27.pdf',
+    sidecarText: JSON.stringify({ coveragePct: 78 }),
+  })
+  assert.equal(facts.exists, true)
+  assert.equal(facts.atsChecked, true)
+  assert.equal(facts.atsCoverage, 0.78)
+  // End-to-end: these facts drive cvCheck to "ready".
+  assert.equal(cvCheck(facts).status, 'ready')
+})
+
+test('cvFactsFromFiles: CV + low-coverage sidecar → cvCheck downgrades to stale', () => {
+  const facts = cvFactsFromFiles({
+    exists: true,
+    path: 'output/cv.pdf',
+    sidecarText: JSON.stringify({ coveragePct: 40 }),
+  })
+  assert.equal(facts.atsCoverage, 0.4)
+  const c = cvCheck(facts)
+  assert.equal(c.status, 'stale')
+  assert.match(c.detail, /40%/)
+})
+
+test('cvFactsFromFiles: CV but NO sidecar → atsChecked:false → cvCheck stale (re-tailor)', () => {
+  // This is the core fix: an existing CV with no coverage record is no longer
+  // silently "ready" — it reads as ATS-unverified, nudging a re-tailor.
+  const facts = cvFactsFromFiles({ exists: true, path: 'output/cv.pdf', sidecarText: null })
+  assert.equal(facts.exists, true)
+  assert.equal(facts.atsChecked, false)
+  assert.equal(facts.atsCoverage, undefined)
+  const c = cvCheck(facts)
+  assert.equal(c.status, 'stale')
+  assert.match(c.detail, /not ATS-checked/)
+})
+
+test('cvFactsFromFiles: malformed sidecar is treated as no sidecar (unverified)', () => {
+  const facts = cvFactsFromFiles({ exists: true, path: 'output/cv.pdf', sidecarText: 'garbage' })
+  assert.equal(facts.atsChecked, false)
+  assert.equal(cvCheck(facts).status, 'stale')
 })

@@ -178,6 +178,86 @@ export function cvCheck(f = {}) {
     { path: f.path || null, atsCoverage: Number.isFinite(f.atsCoverage) ? f.atsCoverage : null })
 }
 
+/* ───── ATS-coverage sidecar (the missing wire into cvCheck) ───────────────────
+ *
+ * cvCheck above can downgrade a CV to "stale" when its ATS coverage is known-weak
+ * (atsCoverage < 0.6) or when it was never ATS-checked (atsChecked === false). But
+ * those facts have to come from somewhere: apply-kit runs long after pdf mode and
+ * has no JD to re-measure against. So pdf mode persists the coverage it already
+ * measured (during the tailoring loop) into a tiny sidecar next to the CV:
+ *
+ *   output/cv-{candidate}-{company}-{date}.html         ← the tailored CV
+ *   output/cv-{candidate}-{company}-{date}.ats.json     ← { coveragePct, ... }
+ *
+ * These helpers derive that sidecar's name and parse it into the {atsChecked,
+ * atsCoverage} facts cvCheck consumes — pure, so the CLI only does the read. A
+ * CV with no sidecar reads as ATS-unverified (stale → "re-tailor"), which is the
+ * honest signal: "a PDF exists, but we can't confirm it's tailored to this role."
+ */
+
+// Derive the ATS sidecar filename for a CV path/filename. The sidecar sits beside
+// the CV with the extension swapped for `.ats.json`, so a CV and its coverage
+// record always travel together. Returns '' for empty/non-string input.
+export function atsSidecarName(cvPath) {
+  const s = String(cvPath || '').trim()
+  if (!s) return ''
+  // Swap the final extension (.html/.htm/.pdf/…) for .ats.json. If there's no
+  // recognizable extension, just append.
+  return s.replace(/\.[A-Za-z0-9]+$/, '') + '.ats.json'
+}
+
+// Coerce a coverage value that may arrive as a 0..1 fraction (0.82) or a 0..100
+// percentage (82) into a 0..1 fraction. Anything > 1 is treated as a percent.
+// Returns null for non-finite / out-of-range input.
+function normalizeCoverageFraction(v) {
+  if (typeof v === 'string' && v.trim() !== '') v = Number(v)
+  if (!Number.isFinite(v)) return null
+  const frac = v > 1 ? v / 100 : v
+  if (frac < 0 || frac > 1) return null
+  return frac
+}
+
+// Parse the JSON text of an ATS sidecar into { atsChecked, atsCoverage }.
+// Accepts the keys ats-coverage.mjs / pdf mode write: `coveragePct` (0..100) or
+// `coverage` (0..1 or 0..100). Tolerant by construction — a missing or malformed
+// sidecar yields { atsChecked: false } (CV present but unverified), never throws.
+export function parseAtsSidecar(jsonText) {
+  if (jsonText == null || String(jsonText).trim() === '') {
+    return { atsChecked: false }
+  }
+  let obj
+  try {
+    obj = JSON.parse(String(jsonText))
+  } catch {
+    return { atsChecked: false }
+  }
+  if (!obj || typeof obj !== 'object') return { atsChecked: false }
+  // Prefer an explicit percentage field, then a fractional/percent `coverage`.
+  const raw = obj.coveragePct != null ? obj.coveragePct
+    : obj.coverage != null ? obj.coverage
+    : obj.coveragePercent != null ? obj.coveragePercent
+    : null
+  const frac = normalizeCoverageFraction(raw)
+  if (frac == null) return { atsChecked: false }
+  // Round to 2 decimals so the readiness number is stable across re-reads.
+  return { atsChecked: true, atsCoverage: Math.round(frac * 100) / 100 }
+}
+
+// Compose the fact object cvCheck consumes from the resolved file facts. The CLI
+// passes whether the CV exists, its path, and the sidecar's raw text (or null if
+// no sidecar on disk). Keeping this pure means the CLI is a one-line read and the
+// whole "exists + ATS-verified?" decision is unit-tested here.
+//
+//   { exists, path?, sidecarText? } → { exists, path?, atsChecked?, atsCoverage? }
+export function cvFactsFromFiles({ exists = false, path = null, sidecarText = null } = {}) {
+  if (!exists) return { exists: false }
+  const out = { exists: true, path: path || null }
+  const ats = parseAtsSidecar(sidecarText)
+  out.atsChecked = ats.atsChecked === true
+  if (Number.isFinite(ats.atsCoverage)) out.atsCoverage = ats.atsCoverage
+  return out
+}
+
 /**
  * Drafted-application-answers check. We treat the per-listing prep file
  * (interview-prep/{Company} - {Role}.md, written by apply/interview-prep) as the

@@ -77,7 +77,17 @@
     - `coveragePct < 55` con múltiples keywords core sin cubrir → señal de fit bajo; repórtalo en el output final.
 
 11. Ejecuta: `node scripts/generate-pdf.mjs /tmp/cv-{candidate}-{company}.html output/cv-{candidate}-{company}-{YYYY-MM-DD}.pdf --format={letter|a4}`
-12. Reporta: ruta del PDF, nº páginas, **% cobertura ATS medida** (del paso 10, no estimada), keywords cubiertas vs. sin cubrir, y si las keywords sin cubrir son "fuera del perfil" o "cierre pendiente".
+
+12. **Persiste la cobertura medida en un sidecar** — escribe el JSON de la última medición del paso 10 a un fichero `.ats.json` con el MISMO stem que el PDF (extensión cambiada), junto al CV en `output/`:
+
+    ```bash
+    node scripts/ats-coverage.mjs --jd /tmp/jd-{company}.txt --cv /tmp/cv-{candidate}-{company}.html --json \
+      > output/cv-{candidate}-{company}-{YYYY-MM-DD}.ats.json
+    ```
+
+    Esto deja la cobertura ATS que *ya mediste* en disco, junto al CV — el JD temporal se borra y la medición se perdería si no. `apply-kit` (`scripts/apply-kit.mjs`) lee ese sidecar para decidir si el CV está "tailored" de verdad o solo "existe": sin sidecar, un CV cuenta como ATS-no-verificado (readiness "stale" → re-tailor), no como listo. El JSON debe contener al menos `coveragePct` (0–100) — es lo que el sidecar parsea; los demás campos del `--json` (missing/covered/keywords) son opcionales y útiles para una re-pasada. El nombre del sidecar lo deriva `atsSidecarName()` en `scripts/lib/apply-kit-core.mjs` cambiando la extensión final del CV por `.ats.json`, así que el PDF y su gemelo HTML comparten un único sidecar.
+
+13. Reporta: ruta del PDF, nº páginas, **% cobertura ATS medida** (del paso 10, no estimada), keywords cubiertas vs. sin cubrir, y si las keywords sin cubrir son "fuera del perfil" o "cierre pendiente".
 
 ## Reglas ATS (parseo limpio)
 
