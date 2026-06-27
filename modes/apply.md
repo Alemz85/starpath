@@ -79,6 +79,8 @@ Identificar TODAS las preguntas visibles:
 
 Para cada pregunta behavioral, hacer **match por competency primero, luego por theme/texto** — es el orden que usa el ranking del banco (`scripts/lib/story-bank.mjs`: clasifica la pregunta a una competency canónica, luego elige la historia que la cubre; el texto desempata). Las competencies canónicas (ownership, leadership, collaboration, conflict, failure, ambiguity, analytical, impact, communication, customer, learning, innovation) son el vocabulario compartido entre la pregunta y la línea `**Themes:**` de cada historia. Una sola historia fuerte > tres historias tibias. Si **ninguna** historia cubre la competency de la pregunta, marcarlo como gap (Paso 5D) — no fabriques una historia nueva sobre la marcha para un formulario en vivo.
 
+**La clasificación de la tabla de arriba está implementada de forma determinista** en `classifyQuestion()` (`scripts/lib/apply-core.mjs`) — recorre las mismas filas en el mismo orden (logística primero), detecta campos **compuestos** (devuelve un `secondary` recipe cuando una segunda receta también dispara) y, para preguntas behavioral, infiere la competency con la MISMA taxonomía compartida (`story-bank.mjs`) que usa el ranking de historias. Úsala para fijar el tipo de cada campo antes de redactar — así la receta (5A/5B/5C/5F) y la fuente quedan determinadas por código, no por criterio variable campo a campo. Para un campo que la función marque `defaulted: true` (no matcheó ninguna señal), lee el contexto y decide tú; el default es solo un punto de partida seguro.
+
 ## Paso 5 — Generar respuestas (la artesanía de conversión)
 
 El objetivo no es "responder la pregunta": es producir texto que un reclutador con 200 aplicaciones leería completo y recordaría. Genérico = descartado. Estas recetas convierten material que YA existe (CV + story bank + report) en respuestas específicas, no en plantillas rellenadas.
@@ -114,7 +116,7 @@ Estructura de 4 movimientos (≈250-350 palabras salvo que el campo pida otra co
 - **Bans duros:** "passionate about", "fast-paced environment", "team player", "hit the ground running", "wear many hats", "results-driven", "think outside the box", "synergy", "I believe I would be a great fit". Si aparecen, reescribe.
 - **NUNCA inventes métricas ni experiencia.** Los números salen de `user/cv.md` / `user/article-digest.md`. Si una historia del banco no tiene número, úsala pero no inventes uno — marca al usuario que ese Result debería cuantificarse.
 - **Gap sin historia:** si una pregunta behavioral no tiene historia en el banco que matchee, dilo en las Notas (Paso "Notas") como `[gap: no hay historia para '{theme}' — considera añadir una desde {experiencia del CV}]`. No rellenes con una historia tibia ni fabriques una.
-- **No re-uses el mismo proof point dos veces** en el mismo formulario salvo que sea inevitable; un formulario que repite el capstone en cada respuesta lee como un perfil de una nota.
+- **No re-uses el mismo proof point dos veces** en el mismo formulario salvo que sea inevitable; un formulario que repite el capstone en cada respuesta lee como un perfil de una nota. Esto es una propiedad del formulario ENTERO, no de una respuesta aislada — por eso `scripts/lib/apply-core.mjs` lleva un **ledger de proof points** (`createProofLedger` + `recordProofUse`): etiqueta cada respuesta con los proof points que usó (un título de historia, un handle de proyecto, una métrica) y el ledger te avisa (`reused`) cuando uno ya apareció antes. Pásalo entre respuestas; al final, `overusedProofs()` lista los que se repitieron de más.
 - **Idioma:** responde en el idioma del formulario/JD (EN por defecto).
 
 ### 5E — Longitudes objetivo
@@ -151,6 +153,8 @@ Antes de imprimir el output, pasa CADA respuesta por este filtro. Si alguna fall
 4. **¿El mismo proof point se repite** en otra respuesta del formulario? Si sí y es evitable → sustituye por otro del CV/banco.
 5. **¿Las cifras salen de `user/cv.md` / `user/article-digest.md` / `user/profile.yml`** y no de tu memoria? Ninguna métrica inventada.
 6. **Logística:** ¿filtraste el walk-away (`minimum`)? Nunca debe aparecer. ¿La cifra de comp es coherente con `target_range`?
+
+**Las comprobaciones mecánicas (1–4 y 6) están implementadas y testeadas** en `selfCheck()` (`scripts/lib/apply-core.mjs`): detecta los bans duros (`scanForBannedPhrases` con la lista canónica `BANNED_PHRASES`), verifica el concreto (`hasConcrete` — número, o un token del vocabulario de pruebas del CV / del JD que tú le pasas), mide el largo contra la banda de la receta y contra el límite de caracteres visible (`lengthCheck` / `LENGTH_TARGETS`), aplica el ledger anti-reúso del Paso 5D, y respeta un flag `leakedWalkaway` para el gate de logística. Devuelve `{ ok, gates, reasons, ledger }` — si `ok` es `false`, las `reasons` te dicen exactamente qué reescribir, y `ledger` es el estado a pasar a la siguiente respuesta. Lo que la función NO juzga (y sigue siendo tuyo): si una métrica es *inventada* (gate 5 — solo tú sabes si salió de `user/cv.md`) y si el walk-away se filtró de verdad (le pasas `leakedWalkaway`). Los campos de **logística** quedan exentos de los gates de concreto y largo (un campo de salario no tiene un "concreto" que citar ni debe inflarse), pero el gate de ban duro y el de walk-away siguen aplicando.
 
 **Formato de output:**
 
