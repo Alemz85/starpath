@@ -102,11 +102,22 @@ returns three buckets:
 | **orphanContacts** | People the candidate knows at companies **not** in the pipeline | Latent leads — worth a look if any maps to a role they'd want |
 
 **Warmth ranking** (why a path sits where it does): `warmth = strength ×
-degree × recency`. A strong, direct, recently-touched tie tops the list; a weak
-2nd-degree dormant one sits at the bottom but still beats a cold application. The
-constants live in `network-core.mjs` (`STRENGTH_WEIGHT`, `DEGREE_FACTOR`) and are
+degree × recency × leverage`. A strong, direct, recently-touched tie tops the
+list; a weak 2nd-degree dormant one sits at the bottom but still beats a cold
+application. The **leverage** factor reads the contact's `Title` against the
+role(s) that company is hiring for and lifts the people who can actually help —
+the **likely hiring manager** (owns the req), then a **peer** on the target team
+(the best referral path), while a **recruiter** is nudged down (owns the funnel,
+weaker as a referral) and an unrelated-function tie stays neutral. This mirrors
+the priority order in `contacto.md` § Step 2, so the script no longer disagrees
+with the mode: at equal relationship strength, the hiring manager now outranks a
+random same-warmth tie. A *strong* direct tie still beats a *medium*-tie manager
+— you can't be referred by someone who barely knows you. The constants live in
+`network-core.mjs` (`STRENGTH_WEIGHT`, `DEGREE_FACTOR`, `LEVERAGE_FACTOR`) and are
 unit-tested — adjust them there if the candidate wants different weighting, not
-inline.
+inline. The `pathLabel` for a matched contact now spells out the leverage read
+(e.g. *"…, likely hiring manager"*), and a per-company summary line is tagged
+`[hiring-manager path]` / `[peer referral path]` when the warmest contact is one.
 
 ## Step 3 — Recommend the warmest path for a given application
 
