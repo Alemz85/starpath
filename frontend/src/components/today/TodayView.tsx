@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   CalendarClock, MessageSquareReply, Users, Sparkles, ArrowRight,
-  Sun, CheckCircle2, Database, ScanSearch,
+  Sun, CheckCircle2, Database, ScanSearch, Lightbulb, TrendingUp, AlertTriangle,
 } from 'lucide-react'
 import { useDataStore } from '@/store/data'
 import { useNavStore, type ViewId } from '@/store/nav'
@@ -21,6 +21,7 @@ import {
   type CockpitAction,
   type OutreachCadenceEntry,
 } from '@/lib/todayCockpit'
+import { buildOutcomesHeadsUp, type OutcomesHeadsUp } from '@/lib/outcomesHeadsUp'
 
 // Per-kind presentation — icon + label + the accent the chip/border read as.
 // All colours are DESIGN-meta tokens; the four kinds map onto the existing
@@ -50,6 +51,7 @@ function severityTone(sev: CockpitItem['severity']): { ring: string; chip: strin
 export function TodayView() {
   const applications = useDataStore(s => s.applications)
   const scouting = useDataStore(s => s.scouting)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
   const liveness = useDataStore(s => s.liveness)
   const loaded = useDataStore(s => s.loaded)
   const refresh = useDataStore(s => s.refresh)
@@ -75,6 +77,15 @@ export function TodayView() {
   const feed = useMemo(
     () => buildCockpitFeed({ applications, scouting, outreach, liveness }),
     [applications, scouting, outreach, liveness],
+  )
+
+  // Backward-looking counterpart to the forward-looking feed: the one targeting
+  // lesson the user's own decided outcomes (wins vs losses) are teaching. Pure
+  // synthesis over data already in the store — no spawn, no backend. Returns
+  // null (no banner) under the sample floor, so it never shows filler.
+  const headsUp = useMemo(
+    () => buildOutcomesHeadsUp({ applications, scoreHistory }),
+    [applications, scoreHistory],
   )
 
   // ── Action wiring ──────────────────────────────────────────────────────────
@@ -204,6 +215,12 @@ export function TodayView() {
           )}
         </section>
 
+        {/* Outcomes heads-up — the one lesson the user's own wins/losses are
+            teaching, sitting between the forward-looking hero and the action
+            feed. Renders only when there's a real, floor-clearing lesson;
+            otherwise nothing (no generic filler). */}
+        {loaded && headsUp && <OutcomesHeadsUpBanner headsUp={headsUp} onReview={() => navigate('trends')} />}
+
         {/* The ranked feed — one scrolling column, highest-value action first. */}
         <main
           className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1"
@@ -289,6 +306,62 @@ function ActionRow({ item, onAct }: { item: CockpitItem; onAct: () => void }) {
         <ArrowRight size={13} aria-hidden />
       </button>
     </div>
+  )
+}
+
+// ─── Outcomes heads-up banner ─────────────────────────────────────────────────
+
+// The cockpit's one backward-looking note: what the user's own decided
+// outcomes (wins vs losses) are teaching about targeting. Quiet by design — a
+// single full-width plate, tinted by the lesson's tone (success when the
+// signal is positive, warning when it's corrective), with a "See trends" link
+// out to the analytics that go deeper. It's a *note*, not an action, so it
+// carries no primary CTA and never competes with the ranked feed below.
+const HEADSUP_TONE: Record<OutcomesHeadsUp['tone'], { wrap: string; icon: string; eyebrow: string }> = {
+  positive: { wrap: 'border-success/30 bg-success/[0.06]', icon: 'text-success', eyebrow: 'text-success' },
+  caution:  { wrap: 'border-warning/40 bg-warning/[0.07]', icon: 'text-warning', eyebrow: 'text-warning' },
+  neutral:  { wrap: 'border-accent/30 bg-accent/[0.05]',   icon: 'text-accent',  eyebrow: 'text-accent-text' },
+}
+
+function OutcomesHeadsUpBanner({ headsUp, onReview }: { headsUp: OutcomesHeadsUp; onReview: () => void }) {
+  const tone = HEADSUP_TONE[headsUp.tone]
+  // Win-streak / predictive-gap read as momentum; a corrective lesson reads as
+  // a flag. The icon just reinforces the tone the tint already carries.
+  const Icon =
+    headsUp.tone === 'caution' ? AlertTriangle :
+    headsUp.kind === 'win-streak' ? TrendingUp :
+    Lightbulb
+  return (
+    <section
+      className={cn('shrink-0 max-w-3xl rounded-lg border px-4 py-3 flex items-start gap-3', tone.wrap)}
+      aria-label="Lesson from your outcomes"
+    >
+      <Icon size={16} className={cn('shrink-0 mt-0.5', tone.icon)} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className={cn('text-[10px] font-semibold uppercase tracking-[0.08em]', tone.eyebrow)}>
+            From your outcomes
+          </span>
+          {/* Sample caption — keeps the lesson honest about how much it's
+              built on, the way the Trends cards caption their n. */}
+          <span className="text-[10px] font-mono tabular-nums text-text-4">
+            {headsUp.wins} won · {headsUp.losses} lost
+          </span>
+        </div>
+        <p className="text-[13px] font-medium text-text-1 leading-tight mt-1">{headsUp.title}</p>
+        <p className="text-[11.5px] text-text-3 leading-snug mt-1">{headsUp.detail}</p>
+      </div>
+      {/* Quiet link out to the deeper analytics — a text affordance, not a
+          pill, so it stays subordinate to the action feed's CTAs. */}
+      <button
+        onClick={onReview}
+        className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-text-3 hover:text-accent-text transition-colors mt-0.5"
+        aria-label="Open Trends to review your outcome analytics"
+      >
+        See trends
+        <ArrowRight size={11} aria-hidden />
+      </button>
+    </section>
   )
 }
 
