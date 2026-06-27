@@ -23,7 +23,15 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
-import { buildReplyPlan, suggestedStatus, compRange, detectAskIds } from './respond-core.mjs';
+import {
+  buildReplyPlan,
+  suggestedStatus,
+  compRange,
+  detectAskIds,
+  detectCompDisclosure,
+  evaluateCompOffer,
+  COMP_OFFER_HANDLING,
+} from './respond-core.mjs';
 
 const args = process.argv.slice(2);
 const jsonMode = args.includes('--json');
@@ -63,16 +71,27 @@ if (!message || !message.trim()) {
 const plan = buildReplyPlan(message);
 const status = suggestedStatus(message);
 
-// Optional comp framing if the caller passed numbers AND comp is asked.
-let comp = null;
 const targetArg = flag('--target');
 const floorArg = flag('--floor');
-if (targetArg != null || detectAskIds(message).includes('comp')) {
+const disclosure = detectCompDisclosure(message);
+
+// Comp framing. Two cases, opposite postures:
+//   - DISCLOSURE: the recruiter stated a number → evaluate it against the
+//     candidate's floor/target (evaluateCompOffer), don't compute our own range.
+//   - QUESTION:   they asked → compute the anchor range to STATE (compRange).
+let comp = null;
+let offer = null;
+if (disclosure.disclosed) {
+  const ev = evaluateCompOffer(disclosure, targetArg, floorArg);
+  offer = { ...ev, posture: ev.ok ? COMP_OFFER_HANDLING[ev.verdict] : null };
+} else if (targetArg != null || detectAskIds(message).includes('comp')) {
   comp = compRange(targetArg, floorArg);
 }
 
 if (jsonMode) {
-  process.stdout.write(JSON.stringify({ plan, suggestedStatus: status, comp }, null, 2) + '\n');
+  process.stdout.write(
+    JSON.stringify({ plan, suggestedStatus: status, urgency: plan.urgency, comp, offer }, null, 2) + '\n',
+  );
   process.exit(0);
 }
 
@@ -85,13 +104,42 @@ const KIND_LABEL = {
 };
 
 console.log(`\n  Reply plan: ${KIND_LABEL[plan.kind] || plan.kind}`);
-console.log(`  Suggested pipeline status (for review, not written): ${status}\n`);
+console.log(`  Suggested pipeline status (for review, not written): ${status}`);
+if (plan.urgency && plan.urgency.urgent) {
+  console.log(`  ⏰ TIME-SENSITIVE — they signalled "${plan.urgency.cue}". Reply today; lead with availability.`);
+}
+console.log('');
 
 plan.steps.forEach((step, i) => {
   console.log(`  ${i + 1}. ${step.label}`);
-  console.log(`     → ${step.handling}\n`);
+  console.log(`     → ${step.handling}`);
+  if (step.compDisclosure) {
+    const { low, high } = step.compDisclosure;
+    const band = low === high ? `${low}` : `${low}–${high}`;
+    console.log(`     (recruiter disclosed: ${band})`);
+  }
+  console.log('');
 });
 
+// Comp DISCLOSURE: evaluate the recruiter's number against floor/target.
+if (offer) {
+  if (offer.ok) {
+    const band = offer.low === offer.high ? `${offer.low}` : `${offer.low}–${offer.high}`;
+    const VERDICT_LABEL = {
+      below_floor: 'BELOW your floor',
+      spans_floor: 'STRADDLES your floor (only the top works)',
+      below_target: 'clears the floor but UNDER target',
+      at_or_above_target: 'AT/ABOVE target',
+    };
+    console.log(`  Disclosed comp ${band} is ${VERDICT_LABEL[offer.verdict] || offer.verdict}.`);
+    if (offer.posture) console.log(`    → ${offer.posture}`);
+  } else {
+    console.log(`  Disclosed comp: ${offer.reason} — pass --target/--floor (from user/profile.yml) to get the posture.`);
+  }
+  console.log('');
+}
+
+// Comp QUESTION: the range to STATE.
 if (comp) {
   if (comp.ok) {
     console.log(`  Comp anchor range: ${comp.low}–${comp.high} (state as total comp; never go below ${comp.low}).`);
