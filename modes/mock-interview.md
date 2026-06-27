@@ -115,15 +115,21 @@ For each question, in order:
 3. **Tie it back to the bank.** If a strong bank story covers this question's competency, say which one and how to open with it. If this question is a **gap**, say so plainly: "you have no prepared story for {competency} — here's the experience from your CV that should become one."
 4. **Advance** to the next question only when the candidate signals they're ready (e.g. "next", "again", or a fresh answer to re-grade). Let them retry a question — re-grade the new answer.
 
-Track progress as you go ("Question 3 of 8 · you're averaging 3.6/5 · weakest beat so far: quantified Result"). The scoring bands: **5 = strong, 3–4 = solid, 1.5–2.5 = developing, <1.5 = weak.**
+**Track the session as a running tally, not a fresh judgement each turn.** Each critique is one STAR+R record (the same five-beat scoring `scripts/lib/mock-interview-core.mjs` exposes via `scoreCritique`/`buildCritique`); accumulate them across questions so the wrap-up reflects the *whole* session, not the last answer. Report progress as you go ("Question 3 of 8 · you're averaging 3.6/5 · weakest beat so far: quantified Result"). The scoring bands: **5 = strong, 3–4 = solid, 1.5–2.5 = developing, <1.5 = weak.**
 
 ## Step 6 — Wrap-up (interactive only)
 
-When the candidate finishes (or says stop), summarise:
+When the candidate finishes (or says stop), **diagnose the whole session** rather than re-judging it from memory. `scripts/lib/mock-interview-core.mjs`'s `diagnoseSession(session)` rolls every recorded critique up into the coaching read this step needs — feed it the accumulated session and report what it surfaces:
 
-- **Average score** + the weakest STAR+R beat across answers (the pattern to drill — usually "quantify the Result").
-- **Best answers** — which 2–3 landed, so they lean on those.
-- **Open gaps** — competencies still without a story; offer to draft them into the bank now.
+- **`recurringWeakness`** — the single STAR+R beat the candidate dropped in ≥ half their answers (and more than once). This is the *one habit to drill*, and it's higher-leverage than any single question because it costs the same point on every answer (most often the unquantified **Result**). If it's `null`, the candidate was consistent — say so.
+- **`avgScore` + `band`** — the session average and its band, plus `dimensionMissRates` (each beat's miss count) if the candidate wants the breakdown.
+- **`strongAnswers`** — the answers that landed (solid+), best first. Name the 2–3 they should lean on, so they walk in leading with their strengths.
+- **`weakCompetencies`** — competencies whose *spoken answers* averaged weak/developing. This is an **execution gap** (a story exists but the delivery was thin) — distinct from the prediction-time **coverage gap** in Step 0's `gaps[]` (no story exists at all). Treat them differently: an execution gap → re-drill the answer; a coverage gap → draft a new story.
+- **`coachingFocus`** — the ordered "what to drill" list (habit first, then weakest competency). Use it as the spine of the wrap-up.
+
+Then close with:
+
+- **Open coverage gaps** — competencies still without *any* story (Step 0's `gaps[]`); offer to draft them into the bank now.
 - One concrete next action: re-run a specific weak question, draft a gap story, or run `interview-prep` for deeper round-by-round intel. (No fabricated multi-week plans — just the next useful step.)
 
 Do **not** auto-write anything to disk during practice. If the candidate asks to save a newly-drafted story, append it to `interview-prep/story-bank.md` per the template contract and re-run `node scripts/check-story-bank.mjs` to confirm the bank stays clean.
