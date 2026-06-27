@@ -17,6 +17,10 @@ import {
   warmthScore,
   STRENGTH_WEIGHT,
   DEGREE_FACTOR,
+  LEVERAGE_FACTOR,
+  sharesFunction,
+  leverageTier,
+  leverageFactor,
   isDataRow,
   parseContactRow,
   parseNetwork,
@@ -529,4 +533,185 @@ test('pathLabel omits title segment when title is empty', () => {
   // No " · <title>" in the output when title is empty.
   assert.ok(!label.includes(' · '));
   assert.equal(label, 'Ada — strong tie, 1st-degree (direct)');
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Referral leverage — title × target-role classification
+ * The contact's *title relative to the role you want* is now a warmth factor,
+ * so the script's ranking matches modes/contacto.md § Step 2 (Hiring Manager >
+ * Peer > Recruiter > anyone-else). Fictional roles/titles only.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ───── sharesFunction ───────────────────────────────────────────────────── */
+
+test('sharesFunction matches on a function word, ignoring generic seniority words', () => {
+  assert.equal(sharesFunction('Senior Product Designer', ['Product Designer']), true); // product/designer
+  assert.equal(sharesFunction('Staff Data Engineer', ['Data Scientist']), true);       // data
+  assert.equal(sharesFunction('Marketing Lead', ['Growth Marketing Manager']), true);  // marketing
+});
+
+test('sharesFunction does NOT match on seniority words alone', () => {
+  // "Senior" / "Manager" are generic — they must not make a recruiter a peer.
+  assert.equal(sharesFunction('Senior Recruiter', ['Senior Engineer']), false);
+  assert.equal(sharesFunction('Engineering Manager', ['Product Manager']), false); // only "manager" overlaps → generic
+});
+
+test('sharesFunction collides morphological variants via stemming', () => {
+  // "Head of Engineering" should read as the same function as "Software Engineer".
+  assert.equal(sharesFunction('Head of Engineering', ['Software Engineer']), true);
+  assert.equal(sharesFunction('Marketing Lead', ['Growth Marketer']), true);   // market(ing) ≈ market(er)
+  assert.equal(sharesFunction('Design Lead', ['Product Designer']), true);       // design ≈ design(er)
+  // Distinct functions must NOT collide just because they share a suffix.
+  assert.equal(sharesFunction('Recruiter', ['Engineer']), false);
+});
+
+test('sharesFunction is false for empty title or empty target list', () => {
+  assert.equal(sharesFunction('', ['Engineer']), false);
+  assert.equal(sharesFunction('Engineer', []), false);
+  assert.equal(sharesFunction('Engineer', null), false);
+  assert.equal(sharesFunction(null, ['Engineer']), false);
+});
+
+/* ───── leverageTier ─────────────────────────────────────────────────────── */
+
+test('leverageTier: a manager in the role function is the hiring-manager tier', () => {
+  assert.equal(leverageTier('Head of Data', ['Data Engineer']), 'manager');
+  assert.equal(leverageTier('Engineering Director', ['Software Engineer']), 'manager');
+  assert.equal(leverageTier('VP Product', ['Product Manager']), 'manager');
+});
+
+test('leverageTier: a non-manager doing the same work is a peer', () => {
+  assert.equal(leverageTier('Data Engineer', ['Data Engineer']), 'peer');
+  assert.equal(leverageTier('Product Designer', ['Senior Product Designer']), 'peer');
+});
+
+test('leverageTier: a manager in an unrelated function is peer-level (leads a team, not yours)', () => {
+  assert.equal(leverageTier('Head of Finance', ['Software Engineer']), 'peer');
+  assert.equal(leverageTier('Sales Director', ['Data Scientist']), 'peer');
+});
+
+test('leverageTier: recruiter/talent cues win over manager cues', () => {
+  assert.equal(leverageTier('Talent Acquisition Manager', ['Software Engineer']), 'recruiter');
+  assert.equal(leverageTier('Technical Recruiter', ['Software Engineer']), 'recruiter');
+  assert.equal(leverageTier('Head of People', ['Software Engineer']), 'recruiter');
+});
+
+test('leverageTier: unreadable or unrelated non-leadership title is neutral', () => {
+  assert.equal(leverageTier('Office Coordinator', ['Software Engineer']), 'neutral'); // not a manager cue, no function overlap
+  assert.equal(leverageTier('Accountant', ['Software Engineer']), 'neutral');
+  assert.equal(leverageTier('', ['Software Engineer']), 'neutral');
+});
+
+test('leverageTier: with no target roles, only the role-independent recruiter signal applies', () => {
+  // Manager/peer lifts need a role to judge against → neutral without one.
+  assert.equal(leverageTier('Head of Data', []), 'neutral');
+  assert.equal(leverageTier('Data Engineer', []), 'neutral');
+  // Recruiter is role-independent (it's a downweight) → still classified.
+  assert.equal(leverageTier('Technical Recruiter', []), 'recruiter');
+});
+
+/* ───── leverageFactor + warmthScore integration ─────────────────────────── */
+
+test('leverageFactor returns the tier multiplier', () => {
+  assert.equal(leverageFactor('Head of Data', ['Data Engineer']), LEVERAGE_FACTOR.manager);
+  assert.equal(leverageFactor('Data Engineer', ['Data Engineer']), LEVERAGE_FACTOR.peer);
+  assert.equal(leverageFactor('Recruiter', ['Data Engineer']), LEVERAGE_FACTOR.recruiter);
+  assert.equal(leverageFactor('Office Coordinator', ['Data Engineer']), LEVERAGE_FACTOR.neutral);
+});
+
+test('warmthScore with no target roles equals the old strength × degree × recency formula', () => {
+  // Back-compat lock: a titled contact with no roles scores exactly as before.
+  const c = { relationship: 'strong', degree: 1, lastContact: '2026-06-01', title: 'Head of Data' };
+  assert.equal(warmthScore(c, '2026-06-25'), 3.0); // 3 × 1.0 × 1.0 × 1.0 (neutral leverage)
+});
+
+test('warmthScore folds in leverage when target roles are supplied', () => {
+  const mgr = { relationship: 'medium', degree: 1, lastContact: '2026-06-01', title: 'Head of Data' };
+  // medium(2) × 1st(1.0) × recent(1.0) × manager(1.3) = 2.6
+  assert.equal(warmthScore(mgr, '2026-06-25', ['Data Engineer']), 2.6);
+  const peer = { relationship: 'medium', degree: 1, lastContact: '2026-06-01', title: 'Data Engineer' };
+  // medium(2) × 1st × recent × peer(1.2) = 2.4
+  assert.equal(warmthScore(peer, '2026-06-25', ['Data Engineer']), 2.4);
+  const recruiter = { relationship: 'medium', degree: 1, lastContact: '2026-06-01', title: 'Recruiter' };
+  // medium(2) × 1st × recent × recruiter(0.95) = 1.9
+  assert.equal(warmthScore(recruiter, '2026-06-25', ['Data Engineer']), 1.9);
+});
+
+test('leverage surfaces the hiring-manager path and ranks it by leverage among equal-warmth ties', () => {
+  // The leverage factor surfaces WHO can refer you, not just how warm they are.
+  // A non-managerial, unrelated-function contact stays neutral; the hiring
+  // manager gets the manager lift and carries the tier for the UI to flag.
+  const network = `| 1 | Unrelated Accountant | Acme | Accountant | strong | 1 |  | 2026-06-01 | x |
+| 2 | The Hiring Manager | Acme | Head of Data | medium | 1 |  | 2026-06-01 | owns the req |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5/10 | T1 |`;
+  const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
+  const match = res.matches[0];
+  // "Accountant" shares no function with "Data Engineer" and isn't a manager cue
+  // → neutral (warmth 3.0). "Head of Data" is the hiring manager → 2 × 1.3 = 2.6.
+  // A strong direct tie still outranks a medium-tie manager (relationship
+  // dominates), but the manager's leverage is now visible on the contact.
+  assert.equal(match.contacts[0].name, 'Unrelated Accountant');
+  assert.equal(match.contacts[0].leverage, 'neutral');
+  const hm = match.contacts.find((c) => c.name === 'The Hiring Manager');
+  assert.equal(hm.leverage, 'manager');
+  assert.equal(hm.warmth, 2.6);
+});
+
+test('a medium-tie hiring manager DOES outrank a medium-tie unrelated contact (the realignment)', () => {
+  // The core fix: at equal relationship strength, the person who owns the req
+  // now ranks above a random same-warmth tie — matching contacto.md § Step 2.
+  const network = `| 1 | Random Mediumtie | Acme | Accountant | medium | 1 |  | 2026-06-01 | x |
+| 2 | The Hiring Manager | Acme | Head of Data | medium | 1 |  | 2026-06-01 | owns the req |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5/10 | T1 |`;
+  const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
+  const match = res.matches[0];
+  // Both medium+1st+recent; the manager's 1.3 lift (2.6) beats the neutral 2.0.
+  assert.equal(match.contacts[0].name, 'The Hiring Manager');
+  assert.equal(match.bestLeverage, 'manager');
+  assert.ok(match.contacts[0].warmth > match.contacts[1].warmth);
+});
+
+test('a weak-tie hiring manager does NOT beat a strong direct peer (relationship still dominates)', () => {
+  const network = `| 1 | Strong Peer | Acme | Data Engineer | strong | 1 |  | 2026-06-01 | x |
+| 2 | Weak Manager | Acme | Head of Data | weak | 1 |  | 2026-06-01 | barely know them |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5/10 | T1 |`;
+  const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
+  const match = res.matches[0];
+  // Strong peer: 3 × 1.0 × 1.0 × 1.2 = 3.6 ; weak manager: 1 × 1.0 × 1.0 × 1.3 = 1.3.
+  assert.equal(match.contacts[0].name, 'Strong Peer');
+  assert.equal(match.bestLeverage, 'peer');
+});
+
+test('matchNetworkToPipeline carries the leverage tier onto each matched contact', () => {
+  const network = `| 1 | Manager Person | Acme | Head of Engineering | medium | 1 |  | 2026-06-01 | x |
+| 2 | Recruiter Person | Acme | Technical Recruiter | medium | 1 |  | 2026-06-01 | y |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Software Engineer | 8.0/10 | T1 |`;
+  const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
+  const byName = Object.fromEntries(res.matches[0].contacts.map((c) => [c.name, c.leverage]));
+  assert.equal(byName['Manager Person'], 'manager');
+  assert.equal(byName['Recruiter Person'], 'recruiter');
+});
+
+test('pathsForCompany applies leverage from the matching pipeline roles', () => {
+  const contacts = parseNetwork('| 1 | Ada | Acme | Head of Data | medium | 1 |  | 2026-06-01 | x |');
+  const pipeline = parsePipeline('| 1 | 2026-05-01 | Acme | Data Engineer | 7.0/10 | Applied |', '');
+  const r = pathsForCompany('Acme', contacts, pipeline, '2026-06-25');
+  assert.equal(r.contacts[0].leverage, 'manager');
+  assert.equal(r.contacts[0].warmth, 2.6); // medium × 1st × recent × manager(1.3)
+});
+
+test('pathLabel surfaces the leverage read when present', () => {
+  assert.equal(
+    pathLabel({ name: 'Ada', title: 'Head of Data', relationship: 'medium', degree: 1, via: '', leverage: 'manager' }),
+    'Ada · Head of Data — medium tie, 1st-degree (direct), likely hiring manager',
+  );
+  assert.equal(
+    pathLabel({ name: 'Lee', title: 'Recruiter', relationship: 'weak', degree: 1, via: '', leverage: 'recruiter' }),
+    'Lee · Recruiter — weak tie, 1st-degree (direct), recruiter / talent',
+  );
+  // No leverage field (e.g. orphan/standalone) → no leverage clause.
+  assert.equal(
+    pathLabel({ name: 'Sam', title: 'Analyst', relationship: 'medium', degree: 1, via: '' }),
+    'Sam · Analyst — medium tie, 1st-degree (direct)',
+  );
 });
