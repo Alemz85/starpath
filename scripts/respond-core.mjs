@@ -248,6 +248,196 @@ export function compRange(target, floor, { spreadHigh = 1.15, minSpread = 1.08 }
   return { ok: true, low: Math.round(low), high, reason: null };
 }
 
+/* ───── comp DISCLOSURE vs. comp QUESTION ─────────────────────────────────────
+ *
+ * The comp ask has two opposite shapes that need opposite replies, and the bare
+ * cue list above can't tell them apart:
+ *
+ *   QUESTION   — "what are your salary expectations?" → the candidate states a
+ *                range (compRange): anchor at target, never below floor.
+ *   DISCLOSURE — "the band for this role is €55–65k" / "we're budgeting 60k" →
+ *                the RECRUITER put a number on the table. The candidate doesn't
+ *                answer with their own range; they EVALUATE the number against
+ *                their floor/target and react: accept warmly (at/above target),
+ *                engage but anchor up (between floor and target), or push back /
+ *                surface the floor (below floor). Replying to a disclosure as if
+ *                it were a question — blurting your own range over a number
+ *                already on the table — wastes the anchor they just handed you.
+ *
+ * detectCompDisclosure pulls the number(s) the recruiter stated. It only fires
+ * when a comp CONTEXT word is near a figure (so "we have 200 engineers" or "by
+ * the 15th" doesn't read as comp) AND a disclosure phrasing is present (so a
+ * bare question like "can you do 60k?" doesn't read as a firm offer).
+ */
+
+// Currency/figure token: €55k, $60,000, 55k, 55.000, 55-65k, 55 000.
+const FIGURE_RE = /(?:[€$£]\s?)?(\d[\d.,\s]*\d|\d)\s*([kK])?/g;
+// Words near a figure that mark it as compensation (vs. headcount, dates, etc.).
+const COMP_CONTEXT_RE =
+  /\b(?:comp(?:ensation)?|salary|salaries|pay|package|budget(?:ed|ing)?|band|range|base|offer(?:ing)?|remuneration|total|ote|on[- ]target|day\s?rate|gross|annual|per\s?(?:year|annum|month)|€|\$|£)\b/i;
+// Phrasings that mark the recruiter as DISCLOSING a number, not asking for one.
+const DISCLOSURE_CUE_RE =
+  /\b(?:budget(?:ed|ing)?|the\s+(?:band|range|salary|comp(?:ensation)?|package|base)|(?:we|this role|the role|it)\s*(?:can\s+)?(?:pay|pays|offers?|is\s+offering|starts?\s+at|sits?\s+at)|paying|offering|range\s*(?:is|of|from|sits)|band\s*(?:is|of|sits)|comp(?:ensation)?\s*(?:is|of|for\s+this)|salary\s*(?:is|of|for\s+this|range)|up\s+to|between)\b/i;
+
+// A "N–M k" / "N to M k" band shares one magnitude suffix across both ends:
+// "55-65k" means 55k–65k, not 55 and 65000. The figure scanner alone can't see
+// that (the trailing k is glued only to the second number), so we first expand
+// any such range to give BOTH numbers the suffix, e.g. "55-65k" → "55k-65k".
+const COMP_RANGE_RE =
+  /(?<![\d.,])(\d[\d.,\s]*\d|\d)\s*(?:[-–—]|to)\s*(\d[\d.,\s]*\d|\d)\s*([kK])\b/g;
+function expandSharedKSuffix(text) {
+  return String(text || '').replace(COMP_RANGE_RE, (full, a, b, k) => `${a}${k}-${b}${k}`);
+}
+
+// Extract every comp figure from text, in document order, as numbers.
+// Used by detectCompDisclosure to capture a single number or a "55–65k" band.
+export function extractCompFigures(text) {
+  const s = expandSharedKSuffix(text);
+  const out = [];
+  let m;
+  FIGURE_RE.lastIndex = 0;
+  while ((m = FIGURE_RE.exec(s)) !== null) {
+    const raw = m[0];
+    const idx = m.index;
+    const hasCurrencyGlued = /[€$£]/.test(raw) || !!m[2]; // €/$/£ on it, or a k-suffix
+    // Window around the figure to test for a comp context word nearby.
+    const window = s.slice(Math.max(0, idx - 24), idx + raw.length + 14);
+    if (!hasCurrencyGlued && !COMP_CONTEXT_RE.test(window)) continue;
+    const n = parseCompNumber(raw);
+    if (n == null) continue;
+    // A bare integer below 1000 with no k/currency cue is almost never a salary
+    // ("200 engineers", "by 2026" already filtered, but guard low magnitudes).
+    if (!hasCurrencyGlued && n < 1000) continue;
+    out.push(n);
+  }
+  return out;
+}
+
+/**
+ * Detect whether the recruiter DISCLOSED a comp number (vs. asked for one).
+ * Returns { disclosed:boolean, figures:number[], low:number|null, high:number|null }.
+ * `disclosed` is true only when a disclosure phrasing co-occurs with at least one
+ * comp figure. A pure question ("what are your expectations?") returns
+ * disclosed:false even though it's a comp ask — the two are handled differently.
+ */
+export function detectCompDisclosure(message) {
+  const text = String(message || '');
+  if (!text.trim()) return { disclosed: false, figures: [], low: null, high: null };
+  const figures = extractCompFigures(text);
+  if (!figures.length) return { disclosed: false, figures: [], low: null, high: null };
+  if (!DISCLOSURE_CUE_RE.test(text)) {
+    return { disclosed: false, figures, low: null, high: null };
+  }
+  const low = Math.min(...figures);
+  const high = Math.max(...figures);
+  return { disclosed: true, figures, low, high };
+}
+
+/**
+ * Evaluate a comp number (or band) the recruiter disclosed against the
+ * candidate's target + floor, and return the reply posture. Pure.
+ *
+ * Accepts either a disclosure object ({ low, high } from detectCompDisclosure)
+ * or a single number/string. `target` and `floor` are whatever the caller parsed
+ * from user/profile.yml.
+ *
+ *   verdict ∈ {
+ *     below_floor          — top of the disclosed band is under the walk-away
+ *                            floor: it doesn't clear the minimum.
+ *     spans_floor          — band straddles the floor (low < floor ≤ high):
+ *                            workable only at the top; anchor to the upper half.
+ *     below_target         — clears the floor but tops out under target: engage,
+ *                            but anchor up toward target on the full package.
+ *     at_or_above_target   — meets/exceeds target: accept warmly, light note that
+ *                            the final number depends on scope.
+ *   }
+ *
+ * `ok:false` when there's no number to evaluate, or no floor/target on file to
+ * judge against (the caller then just acknowledges the number without a posture).
+ */
+export function evaluateCompOffer(disclosed, target, floor) {
+  let low = null;
+  let high = null;
+  if (disclosed && typeof disclosed === 'object') {
+    low = parseCompNumber(disclosed.low);
+    high = parseCompNumber(disclosed.high);
+  } else {
+    low = parseCompNumber(disclosed);
+    high = low;
+  }
+  if (low == null && high == null) {
+    return { ok: false, verdict: null, reason: 'no disclosed number to evaluate' };
+  }
+  if (low == null) low = high;
+  if (high == null) high = low;
+  if (low > high) { const tmp = low; low = high; high = tmp; }
+
+  const t = parseCompNumber(target);
+  const f = parseCompNumber(floor);
+  if (t == null && f == null) {
+    return { ok: false, verdict: null, reason: 'no target/floor on file to judge against', low, high };
+  }
+
+  let verdict;
+  if (f != null && high < f) {
+    verdict = 'below_floor';
+  } else if (f != null && low < f && high >= f) {
+    verdict = 'spans_floor';
+  } else if (t != null && high < t) {
+    verdict = 'below_target';
+  } else {
+    // Meets/beats target, or floor is cleared with no target on file.
+    verdict = 'at_or_above_target';
+  }
+  return { ok: true, verdict, low, high, target: t, floor: f, reason: null };
+}
+
+// Plain-words handling for each disclosure verdict — the mode expands this into
+// prose. Keeps the *posture* deterministic while the words stay grounded in the
+// candidate's files.
+export const COMP_OFFER_HANDLING = {
+  below_floor:
+    "The disclosed number is under the candidate's walk-away floor. Don't reject " +
+    'outright in the first reply: warmly note the band is below what they can ' +
+    'consider, state the floor as total comp, and ask whether there is any ' +
+    'flexibility on the package. If there is none, this is a graceful decline.',
+  spans_floor:
+    'The disclosed band straddles the floor — only the top is workable. Express ' +
+    'genuine interest, then anchor explicitly to the upper end and frame the ' +
+    "candidate's floor as the realistic starting point, citing fit.",
+  below_target:
+    'The number clears the floor but lands under target. Stay engaged and ' +
+    'positive; anchor up toward the target on the basis of scope/fit, and note ' +
+    'that total comp (not just base) is what matters. Do not accept the figure as final.',
+  at_or_above_target:
+    'The number meets or beats target. Respond warmly and confirm strong fit; ' +
+    'keep a light note that the final figure depends on the full scope/level so ' +
+    'you preserve room without haggling over an already-good offer.',
+};
+
+/* ───── reply URGENCY (a deadline raises a reply to the top of the pipeline) ───
+ *
+ * Thrust #4 of the funnel is response *rate* and *speed*: a fast, well-framed
+ * reply beats a slow one. A recruiter message often carries a soft or hard
+ * deadline ("can you get back to me by Friday?", "the role closes Monday",
+ * "we're moving quickly"). detectUrgency flags those so the mode can tell the
+ * user "this one is time-critical — reply today", and so a frontend could float
+ * it above the rest. Pure; no clock needed — it reads the language, not a date.
+ */
+const URGENCY_CUE_RE =
+  /\b(?:by\s+(?:end\s+of\s+(?:day|week)|eod|eow|cob|today|tomorrow|tonight|this\s+(?:week|afternoon|morning)|mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|fri(?:day)?|sat(?:urday)?|sun(?:day)?)|asap|as\s+soon\s+as\s+possible|urgent(?:ly)?|time[- ]sensitive|moving\s+(?:quickly|fast)|closes?\s+(?:soon|on|this|tomorrow|today)|closing\s+(?:soon|date)|deadline|short\s+notice|right\s+away|get\s+back\s+to\s+(?:me|us)\s+(?:by|asap|today|soon)|quick\s+turnaround|within\s+\d+\s+(?:hours?|days?)|last\s+round\s+of)\b/i;
+
+/**
+ * Does the recruiter message imply a reply deadline / time pressure? Pure.
+ * Returns { urgent:boolean, cue:string|null } — `cue` is the matched phrase so
+ * the mode can echo *why* it's urgent ("they said 'by Friday'").
+ */
+export function detectUrgency(message) {
+  const text = String(message || '');
+  const m = text.match(URGENCY_CUE_RE);
+  return { urgent: !!m, cue: m ? m[0] : null };
+}
+
 /* ───── per-ask drafting guidance ────────────────────────────────────────────
  *
  * Each ask id maps to a compact "how to answer" spec the agent expands into
@@ -299,16 +489,43 @@ export function handlingFor(askId) {
 
 /* ───── reply plan ───────────────────────────────────────────────────────────*/
 
+// Build the comp step for the plan. If the recruiter DISCLOSED a number, the
+// step routes to disclosure-evaluation guidance (evaluate against floor/target,
+// don't blurt your own range) and carries the parsed figures so the wrapper can
+// echo them; otherwise it's the normal "state your range" question handling.
+function buildCompStep(message) {
+  const disc = detectCompDisclosure(message);
+  if (disc.disclosed) {
+    return {
+      id: 'comp',
+      label: 'Compensation — recruiter disclosed a number (evaluate, don’t over-ask)',
+      handling:
+        'The recruiter put a figure on the table — do NOT answer with your own ' +
+        'range as if asked. Run evaluateCompOffer(disclosure, target, floor) and ' +
+        'follow the verdict’s posture (COMP_OFFER_HANDLING): accept warmly ' +
+        'at/above target, anchor up if it clears the floor but lands under target, ' +
+        'surface the floor if it’s below. Read target/floor from user/profile.yml.',
+      compDisclosure: { low: disc.low, high: disc.high, figures: disc.figures },
+    };
+  }
+  return { id: 'comp', label: 'Compensation expectations', handling: HANDLING.comp };
+}
+
 // Build an ordered, deduped plan for replying to a message: one step per
 // detected ask, each carrying its label + handling guidance. A rejection
 // short-circuits to a single graceful-decline step (you don't "also answer the
 // comp question" in a rejection reply). An empty message / no cues yields a
 // single 'freeform' step telling the agent to answer the message directly.
+//
+// Every plan also carries `urgency: { urgent, cue }` so a time-sensitive reply
+// ("by Friday", "ASAP") floats to the top — speed is part of response rate.
 export function buildReplyPlan(message) {
   const text = String(message || '');
+  const urgency = detectUrgency(text);
   if (isRejection(text)) {
     return {
       kind: 'rejection',
+      urgency,
       steps: [
         { id: 'rejection', label: 'Graceful decline + door open', handling: HANDLING.decline_gracefully },
       ],
@@ -318,6 +535,7 @@ export function buildReplyPlan(message) {
   if (asks.length === 0) {
     return {
       kind: 'freeform',
+      urgency,
       steps: [
         {
           id: 'freeform',
@@ -331,7 +549,12 @@ export function buildReplyPlan(message) {
   }
   return {
     kind: 'reply',
-    steps: asks.map((a) => ({ id: a.id, label: a.label, handling: HANDLING[a.handling] })),
+    urgency,
+    steps: asks.map((a) =>
+      a.id === 'comp'
+        ? buildCompStep(text)
+        : { id: a.id, label: a.label, handling: HANDLING[a.handling] },
+    ),
   };
 }
 

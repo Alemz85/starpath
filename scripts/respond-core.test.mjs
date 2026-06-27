@@ -18,6 +18,11 @@ import {
   buildReplyPlan,
   suggestedStatus,
   HANDLING,
+  extractCompFigures,
+  detectCompDisclosure,
+  evaluateCompOffer,
+  COMP_OFFER_HANDLING,
+  detectUrgency,
 } from './respond-core.mjs';
 
 /* ───── detectAsks ─────────────────────────────────────────────────────────── */
@@ -170,4 +175,168 @@ test('suggestedStatus maps the reply to a canonical pipeline status', () => {
   assert.equal(suggestedStatus('We have a take-home assignment for you.'), 'Interview');
   assert.equal(suggestedStatus('What are your salary expectations?'), 'Responded');
   assert.equal(suggestedStatus('Thanks, received your application.'), 'Responded');
+});
+
+/* ───── extractCompFigures ─────────────────────────────────────────────────── */
+
+test('extractCompFigures pulls currency/k figures, ignores non-comp numbers', () => {
+  assert.deepEqual(extractCompFigures('The band is €55k–65k for this role.'), [55000, 65000]);
+  assert.deepEqual(extractCompFigures('We can offer $90,000 base.'), [90000]);
+  // Headcount / dates / versions are not comp → ignored (no currency/k, <1000 or no context).
+  assert.deepEqual(extractCompFigures('We have 200 engineers and ship by 2026.'), []);
+  // A bare "60" with no currency/k cue is not a salary even with a comp word nearby.
+  assert.deepEqual(extractCompFigures('salary review every 6 months'), []);
+});
+
+test('extractCompFigures reads a k-suffix and EU thousands dot as comp', () => {
+  assert.deepEqual(extractCompFigures('base around 70k'), [70000]);
+  assert.deepEqual(extractCompFigures('package of €60.000'), [60000]);
+});
+
+test('extractCompFigures shares a trailing k across a hyphenated band', () => {
+  // "55-65k" = 55k–65k; the k applies to both ends, not just the second.
+  assert.deepEqual(extractCompFigures('band is 55-65k'), [55000, 65000]);
+  assert.deepEqual(extractCompFigures('€55-65k'), [55000, 65000]);
+  assert.deepEqual(extractCompFigures('55 to 65k base'), [55000, 65000]);
+  assert.deepEqual(extractCompFigures('the band is €55k–65k'), [55000, 65000]);
+});
+
+/* ───── detectCompDisclosure ───────────────────────────────────────────────── */
+
+test('detectCompDisclosure: a stated band is a disclosure, not a question', () => {
+  const d = detectCompDisclosure('The salary band for this role is €55k–65k.');
+  assert.equal(d.disclosed, true);
+  assert.equal(d.low, 55000);
+  assert.equal(d.high, 65000);
+});
+
+test('detectCompDisclosure: a single budgeted number is a disclosure', () => {
+  const d = detectCompDisclosure("We're budgeting around 60k for this position.");
+  assert.equal(d.disclosed, true);
+  assert.equal(d.low, 60000);
+  assert.equal(d.high, 60000);
+});
+
+test('detectCompDisclosure: a pure question is NOT a disclosure', () => {
+  // Has a comp ask but no number stated → not a disclosure.
+  const d = detectCompDisclosure('What are your salary expectations for this role?');
+  assert.equal(d.disclosed, false);
+  assert.deepEqual(d.figures, []);
+});
+
+test('detectCompDisclosure: a number inside a question is not a firm disclosure', () => {
+  // "can you do €50k?" carries a figure but no disclosure phrasing → treat as a
+  // question/probe, not an offer on the table.
+  const d = detectCompDisclosure('Can you work with €50k?');
+  assert.equal(d.disclosed, false);
+  assert.deepEqual(d.figures, [50000]); // figure still extracted for context
+});
+
+test('detectCompDisclosure: empty / numberless message → not disclosed', () => {
+  assert.equal(detectCompDisclosure('').disclosed, false);
+  assert.equal(detectCompDisclosure('Thanks for your application!').disclosed, false);
+});
+
+/* ───── evaluateCompOffer ──────────────────────────────────────────────────── */
+
+test('evaluateCompOffer: at/above target → accept warmly', () => {
+  const r = evaluateCompOffer({ low: 60000, high: 70000 }, 60000, 50000);
+  assert.equal(r.ok, true);
+  assert.equal(r.verdict, 'at_or_above_target');
+});
+
+test('evaluateCompOffer: clears floor, under target → anchor up', () => {
+  const r = evaluateCompOffer({ low: 52000, high: 55000 }, 60000, 50000);
+  assert.equal(r.verdict, 'below_target');
+});
+
+test('evaluateCompOffer: top of band under floor → below_floor', () => {
+  const r = evaluateCompOffer({ low: 40000, high: 45000 }, 60000, 50000);
+  assert.equal(r.verdict, 'below_floor');
+});
+
+test('evaluateCompOffer: band straddling the floor → spans_floor', () => {
+  const r = evaluateCompOffer({ low: 45000, high: 55000 }, 60000, 50000);
+  assert.equal(r.verdict, 'spans_floor');
+});
+
+test('evaluateCompOffer: accepts a single number too, and orders low/high', () => {
+  assert.equal(evaluateCompOffer(70000, 60000, 50000).verdict, 'at_or_above_target');
+  // swapped inputs are normalized
+  const r = evaluateCompOffer({ low: 65000, high: 55000 }, 60000, 50000);
+  assert.equal(r.low, 55000);
+  assert.equal(r.high, 65000);
+});
+
+test('evaluateCompOffer: floor only (no target) → clearing floor is acceptable', () => {
+  const r = evaluateCompOffer({ low: 55000, high: 58000 }, null, 50000);
+  assert.equal(r.verdict, 'at_or_above_target');
+});
+
+test('evaluateCompOffer: no floor/target on file → ok:false', () => {
+  const r = evaluateCompOffer({ low: 55000, high: 58000 }, null, null);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /no target\/floor/);
+});
+
+test('evaluateCompOffer: no number to evaluate → ok:false', () => {
+  const r = evaluateCompOffer({ low: null, high: null }, 60000, 50000);
+  assert.equal(r.ok, false);
+  assert.match(r.reason, /no disclosed number/);
+});
+
+test('every COMP_OFFER_HANDLING verdict has non-empty guidance', () => {
+  for (const v of ['below_floor', 'spans_floor', 'below_target', 'at_or_above_target']) {
+    assert.ok(COMP_OFFER_HANDLING[v] && COMP_OFFER_HANDLING[v].length > 0, `missing ${v}`);
+  }
+});
+
+/* ───── detectUrgency ──────────────────────────────────────────────────────── */
+
+test('detectUrgency fires on a reply deadline', () => {
+  assert.equal(detectUrgency('Can you get back to me by Friday?').urgent, true);
+  assert.equal(detectUrgency('We need an answer ASAP.').urgent, true);
+  assert.equal(detectUrgency('This role closes soon, so reply quickly.').urgent, true);
+  assert.equal(detectUrgency('We are moving fast on this.').urgent, true);
+});
+
+test('detectUrgency echoes the matched cue', () => {
+  const u = detectUrgency('Please respond by end of week.');
+  assert.equal(u.urgent, true);
+  assert.match(u.cue, /by\s+end\s+of\s+week/i);
+});
+
+test('detectUrgency stays quiet on a relaxed message', () => {
+  assert.equal(detectUrgency('No rush at all — whenever works for you.').urgent, false);
+  assert.equal(detectUrgency('').urgent, false);
+});
+
+/* ───── buildReplyPlan: disclosure + urgency integration ───────────────────── */
+
+test('buildReplyPlan routes a comp disclosure to the evaluate-not-overask step', () => {
+  const plan = buildReplyPlan('Good news — the band for this role is €55k–65k. Thoughts?');
+  const comp = plan.steps.find((s) => s.id === 'comp');
+  assert.ok(comp, 'expected a comp step');
+  assert.ok(comp.compDisclosure, 'comp step should carry the disclosure');
+  assert.equal(comp.compDisclosure.low, 55000);
+  assert.equal(comp.compDisclosure.high, 65000);
+  assert.match(comp.label, /disclosed/i);
+});
+
+test('buildReplyPlan keeps the question-handling comp step when no number is stated', () => {
+  const plan = buildReplyPlan('What are your salary expectations?');
+  const comp = plan.steps.find((s) => s.id === 'comp');
+  assert.ok(comp);
+  assert.equal(comp.compDisclosure, undefined);
+  assert.equal(comp.handling, HANDLING.comp);
+});
+
+test('buildReplyPlan attaches urgency to every plan kind', () => {
+  const urgent = buildReplyPlan('We are moving quickly — can you reply by Monday and share comp?');
+  assert.equal(urgent.urgency.urgent, true);
+  const calm = buildReplyPlan('What are your salary expectations?');
+  assert.equal(calm.urgency.urgent, false);
+  // urgency present on rejection + freeform shapes too
+  assert.equal(buildReplyPlan('Unfortunately, not moving forward.').urgency.urgent, false);
+  assert.ok('urgency' in buildReplyPlan('Hello there!'));
 });
