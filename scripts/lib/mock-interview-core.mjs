@@ -504,6 +504,181 @@ export function sessionProgress(session) {
   };
 }
 
+/* ───── cross-answer session diagnosis (the coaching rollup) ───────────────── */
+//
+// sessionProgress answers "how far along + what's the average". diagnoseSession
+// answers the harder, higher-leverage question modes/mock-interview.md Step 6
+// asks: across EVERY answer this session, *what is the candidate's one recurring
+// habit to fix*, *which answers landed*, and *which competencies they struggle to
+// answer live* (distinct from the prediction-time "no story exists" gap — this is
+// "a story exists but the spoken answer was weak").
+//
+// A per-answer 0–5 critique tells you a single answer was thin. The pattern only
+// shows up in aggregate: a candidate who sets Situation/Task/Action every time but
+// quantifies the Result in 2 of 8 answers has ONE fixable habit, not eight bad
+// answers. Rolling the per-dimension hit-rate up across the session is what turns
+// scattered critiques into a single coaching focus — and keeping it pure + tested
+// means the wrap-up is deterministic, not eyeballed by the agent.
+
+// A dimension's miss-rate >= this fraction of scored answers makes it a "recurring
+// weakness" worth naming as the drill target. 0.5 = missed in at least half.
+const RECURRING_MISS_THRESHOLD = 0.5;
+
+/**
+ * Diagnose a finished (or in-progress) practice session: roll every recorded
+ * STAR+R critique up into a coaching read. Pure — reads the session, returns a
+ * plain object, mutates nothing.
+ *
+ *   diagnoseSession(session) → {
+ *     answered,            — count of scored answers considered
+ *     avgScore, maxScore,  — mean score and the per-answer max (from the STAR+R rubric)
+ *     band,                — overall band for the average ('strong'|'solid'|'developing'|'weak'|null)
+ *     dimensionMissRates,  — [{ id, label, missed, of, missRate }] per STAR+R beat, worst first
+ *     recurringWeakness,   — the single beat missed in ≥ RECURRING_MISS_THRESHOLD of answers
+ *                            (and more than once), or null. The "one habit to drill".
+ *                            `{ id, label, missed, of }`.
+ *     strongAnswers,       — [{ question, competency, score, band }] the answers that landed
+ *                            (band 'strong' or 'solid'), best first — the ones to lean on.
+ *     weakCompetencies,    — [{ id, label, attempts, avgScore }] competencies whose
+ *                            spoken answers averaged weak/developing, worst first. This is
+ *                            an EXECUTION gap (story exists, delivery was thin), NOT the
+ *                            prediction-time coverage gap predictedCompetencyGaps reports.
+ *     coachingFocus,       — a short, ordered list of what to drill, highest-leverage
+ *                            first: the recurring beat, then the weakest competency.
+ *   }
+ *
+ * An empty / unscored session yields zeroed counts and null focuses (nothing to
+ * diagnose yet), never throws.
+ */
+export function diagnoseSession(session) {
+  const results = (session && Array.isArray(session.results) ? session.results : [])
+    .filter((r) => r && r.critique && typeof r.critique.score === 'number' && !Number.isNaN(r.critique.score));
+
+  const maxScore = CRITIQUE_DIMENSIONS.reduce((a, d) => a + d.weight, 0);
+  const answered = results.length;
+
+  if (answered === 0) {
+    return {
+      answered: 0,
+      avgScore: null,
+      maxScore,
+      band: null,
+      dimensionMissRates: CRITIQUE_DIMENSIONS.map((d) => ({ id: d.id, label: d.label, missed: 0, of: 0, missRate: 0 })),
+      recurringWeakness: null,
+      strongAnswers: [],
+      weakCompetencies: [],
+      coachingFocus: [],
+    };
+  }
+
+  const avgScore = Math.round((results.reduce((a, r) => a + r.critique.score, 0) / answered) * 10) / 10;
+
+  // ── Per-dimension miss-rate across the session. A dimension is "missed" for an
+  //    answer when it appears in that critique's `missing` list (the labels
+  //    scoreCritique flagged). Worst (highest miss-rate) first; ties keep the
+  //    canonical STAR+R order so "Result" beats "Reflection" on equal misses. ──
+  const dimensionMissRates = CRITIQUE_DIMENSIONS.map((d, idx) => {
+    const missed = results.filter((r) => critiqueMissed(r.critique, d.label)).length;
+    return { id: d.id, label: d.label, missed, of: answered, missRate: missed / answered, _idx: idx };
+  });
+  dimensionMissRates.sort((a, b) => b.missRate - a.missRate || a._idx - b._idx);
+  // Round the rate for stable output and drop the private sort key.
+  for (const d of dimensionMissRates) {
+    d.missRate = Math.round(d.missRate * 100) / 100;
+    delete d._idx;
+  }
+
+  // ── The single recurring weakness: the worst beat, if it's missed often enough
+  //    to be a habit (≥ threshold) AND missed more than once (a single miss isn't
+  //    a pattern). Null when no beat clears the bar — the candidate is consistent. ──
+  const worst = dimensionMissRates[0];
+  const recurringWeakness = worst && worst.missed > 1 && worst.missRate >= RECURRING_MISS_THRESHOLD
+    ? { id: worst.id, label: worst.label, missed: worst.missed, of: worst.of }
+    : null;
+
+  // ── Strong answers: the ones that landed (band solid or better), best first. ──
+  const strongAnswers = results
+    .filter((r) => r.critique.band === 'strong' || r.critique.band === 'solid')
+    .sort((a, b) => b.critique.score - a.critique.score)
+    .map((r) => ({
+      question: r.question ? r.question.text : '',
+      competency: r.question ? r.question.competency || null : null,
+      score: r.critique.score,
+      band: r.critique.band,
+    }));
+
+  // ── Weak competencies (EXECUTION gaps): group scored answers by the question's
+  //    competency and average; surface the ones averaging weak/developing. This
+  //    is "you have a story but didn't deliver it well", distinct from the
+  //    prediction-time "no story covers this competency" gap. ──
+  const byComp = new Map();
+  for (const r of results) {
+    const comp = r.question && r.question.competency;
+    if (!comp) continue;
+    if (!byComp.has(comp)) byComp.set(comp, []);
+    byComp.get(comp).push(r.critique.score);
+  }
+  const weakCompetencies = [];
+  for (const [id, scores] of byComp) {
+    const avg = Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10;
+    const b = bandForScore(avg);
+    if (b === 'weak' || b === 'developing') {
+      weakCompetencies.push({ id, label: competencyLabel(id), attempts: scores.length, avgScore: avg });
+    }
+  }
+  weakCompetencies.sort((a, b) => a.avgScore - b.avgScore);
+
+  // ── Coaching focus: the ordered, deduped "what to drill" list. The recurring
+  //    STAR+R habit is the highest-leverage fix (it costs the same point on every
+  //    answer); the weakest competency is next. ──
+  const coachingFocus = [];
+  if (recurringWeakness) {
+    coachingFocus.push(`Drill the ${recurringWeakness.label.toLowerCase()} beat — missed in ${recurringWeakness.missed} of ${recurringWeakness.of} answers.`);
+  }
+  if (weakCompetencies.length) {
+    const w = weakCompetencies[0];
+    coachingFocus.push(`Sharpen ${w.label} answers (averaged ${w.avgScore}/${maxScore} over ${w.attempts}).`);
+  }
+  if (!coachingFocus.length && avgScore >= 4) {
+    coachingFocus.push('Consistent and strong — keep the same shape and add company-specific detail.');
+  }
+
+  return {
+    answered,
+    avgScore,
+    maxScore,
+    band: bandForScore(avgScore),
+    dimensionMissRates,
+    recurringWeakness,
+    strongAnswers,
+    weakCompetencies,
+    coachingFocus,
+  };
+}
+
+// Was `dimensionLabel` flagged in this critique's `missing` list? scoreCritique
+// stores the human labels (not ids); compare on the label so the two stay in sync.
+function critiqueMissed(critique, dimensionLabel) {
+  const missing = (critique && Array.isArray(critique.missing)) ? critique.missing : [];
+  return missing.includes(dimensionLabel);
+}
+
+// Band a 0..max score with the same thresholds scoreCritique uses, so the
+// session-level band and the per-answer band agree.
+function bandForScore(score) {
+  if (!Number.isFinite(score)) return null;
+  if (score >= 4.5) return 'strong';
+  if (score >= 3) return 'solid';
+  if (score >= 1.5) return 'developing';
+  return 'weak';
+}
+
+// Human label for a competency id, falling back to the id itself.
+function competencyLabel(id) {
+  const c = COMPETENCIES.find((x) => x.id === id);
+  return c ? c.label : id;
+}
+
 /* ───── STAR+R critique rubric ────────────────────────────────────────────── */
 //
 // Grading a practice answer. The agent reads the candidate's spoken/typed answer
@@ -539,11 +714,9 @@ export function scoreCritique(dimResults = {}) {
     else missing.push(d.label);
   }
   const max = CRITIQUE_DIMENSIONS.reduce((a, d) => a + d.weight, 0);
-  let band = 'weak';
-  if (score >= 4.5) band = 'strong';
-  else if (score >= 3) band = 'solid';
-  else if (score >= 1.5) band = 'developing';
-  return { score, max, band, missing };
+  // Band via the shared helper so the per-answer band and the session-level band
+  // (diagnoseSession) never drift apart.
+  return { score, max, band: bandForScore(score) || 'weak', missing };
 }
 
 /**
