@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from 'react'
 import { GitBranch } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { useAppStore } from '@/store/app'
@@ -87,8 +88,13 @@ export function PipelineView() {
         <h1 className="text-[15px] font-semibold text-text-1">Pipeline</h1>
         <span className="text-[11.5px] text-text-3">Triage the inbox · track every application</span>
         <span className="flex-1" />
-        <span className="text-[11px] font-mono text-text-4">
-          {pipeline.length} pending · {activeCount} active
+        {/* The pending count is the one act-now signal here — it gets the
+            accent treatment when there's something to triage (mirroring the
+            sidebar's pending-accent convention), and falls back to muted when
+            the inbox is clear so the read-out doesn't cry wolf at zero. */}
+        <span className="text-[11px] font-mono tabular-nums text-text-4">
+          <span className={cn(pipeline.length > 0 && 'text-accent')}>{pipeline.length} pending</span>
+          {' · '}{activeCount} active
         </span>
       </header>
 
