@@ -100,10 +100,18 @@ test('cancelling a pending nav drops the captured slug', () => {
   assert.equal(nav().view, 'profile')
 })
 
+test('navigate to pipeline sets the view and clears the company slug', () => {
+  nav().navigate('company', '', 'acme')
+  nav().navigate('pipeline')
+  assert.equal(nav().view, 'pipeline')
+  assert.equal(nav().companySlug, '')
+  assert.equal(VIEW_LABELS.pipeline, 'Pipeline')
+})
+
 test('VIEW_LABELS covers every ViewId including company', () => {
   const ids: ViewId[] = [
     'today', 'scouting', 'applying', 'outreach', 'offers', 'database', 'reports', 'trends',
-    'scoretrend', 'scan', 'config', 'settings', 'profile', 'company',
+    'scoretrend', 'pipeline', 'scan', 'config', 'settings', 'profile', 'company',
   ]
   for (const id of ids) {
     assert.equal(typeof VIEW_LABELS[id], 'string')
