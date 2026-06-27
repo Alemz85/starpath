@@ -63,54 +63,106 @@ HISTORY_HEADER = (
 )
 
 
-# ── Filter logic — mirrors scripts/scan.mjs ──────────────────────────────
+# ── Filter logic — mirrors scripts/scan-core.mjs (word-boundary matching) ──
+#
+# ── Why word-aware matching (the bug this section fixes) ──────────────────
+# The aggregator scanner is the highest-VOLUME source (Indeed + Google), yet it
+# used to filter with raw Python `substring in title`, while the ATS scanner
+# (scan-core.mjs) was upgraded to WORD-BOUNDARY matching. Same portals.yml
+# keyword lists, two different — and on the aggregator side, worse — results:
+#
+#   FALSE POSITIVE (good junior roles wrongly DROPPED): a bare negative "Lead"
+#   killed "Leadership Operations Analyst" and "Leading Strategy Analyst"; the
+#   exact junior roles the funnel exists to surface vanished from the inbox.
+#
+#   FALSE POSITIVE (junk wrongly KEPT): a positive "Ops" matched inside
+#   "Synopsys", "BI" inside "ambitious" — postings with no real topical signal
+#   slipped through. On the language side, the FR/NL token "stage" nuked the
+#   English "Staged Rollout Manager".
+#
+# keyword_matches() now mirrors scan-core.mjs's compileKeyword EXACTLY: a
+# keyword matches only as a whole word/phrase. "Boundary" means the char before
+# and after is not a letter or digit (so spaces, punctuation, accented letters,
+# and string ends all qualify — deliberately looser than \b so "R&D", "Pre-Sales"
+# and "(m/w/d)" still match). Multi-word phrases are whitespace-tolerant. This
+# also retires the bespoke _UK_TOKEN_RE special-case: "uk" is now word-aware like
+# every other token, for free.
 
-# Copy of scan.mjs:273-289 ALLOWED_LOCATIONS — kept in sync with the Node version.
-# This list is EU city/country names used for substring matching against the
-# location field returned by JobSpy.  Entries are lowercase; matching is also
-# done in lowercase so case doesn't matter.
+# Generic European target-geography allowlist — kept in lockstep with
+# scan-core.mjs › DEFAULT_LOCATION_ALLOWLIST (system-layer reference data, NOT
+# one user's preference; a user narrows/widens it via location_allowlist in
+# portals.yml). Matching is word-aware, so "rome" no longer hits "Jerome" and
+# "milan" needs its own entry to also accept "Milano" (both are listed, exactly
+# as the Node side does).
 ALLOWED_LOCATIONS = [
-    "spain", "barcelona", "madrid",
+    "spain", "barcelona", "madrid", "valencia",
     "ireland", "dublin",
-    "netherlands", "amsterdam", "rotterdam",
+    "netherlands", "amsterdam", "rotterdam", "eindhoven", "the hague",
     "denmark", "copenhagen",
-    # "united kingdom" covers "United Kingdom"; "uk" (bare, word-boundary aware)
-    # catches "UK", "uk", "UK," etc.  The old entry " uk" (with leading space)
-    # was fragile — it missed "UK" at string start and bare "UK" strings.
-    "united kingdom", "uk",
-    "london",
-    "italy", "milan", "rome",
-    "germany", "munich", "berlin", "hamburg", "frankfurt",
+    "united kingdom", "uk", "london", "manchester", "cambridge",
+    "italy", "milan", "milano", "rome",
+    "germany", "munich", "münchen", "berlin", "hamburg", "frankfurt", "cologne",
     "france", "paris",
-    "portugal", "lisbon",
+    "portugal", "lisbon", "porto",
     "belgium", "brussels",
     "sweden", "stockholm",
-    "switzerland", "zurich", "geneva",
+    "switzerland", "zurich", "zürich", "geneva",
     "austria", "vienna",
     "finland", "helsinki",
     "norway", "oslo",
+    "poland", "warsaw", "krakow",
+    "remote",
     # EU-scoped remote/EMEA phrases — EU companies often use these for positions
-    # that are technically open to the candidate's target cities.
+    # that are technically open to the candidate's target cities. (scan-core.mjs
+    # leans on its own GENERIC_LOCATION_TOKENS set for the same intent; here we
+    # keep them inline so the aggregator accepts "Remote - Europe" / "EMEA".)
     "europe", "emea",
 ]
 
-# Regex that matches a standalone "UK" token (not part of a longer word like
-# "bulk", "duke").  Used in is_allowed_location() for precision when the bare
-# "uk" entry in ALLOWED_LOCATIONS could create false positives via substring.
-_UK_TOKEN_RE = re.compile(r"\buk\b", re.IGNORECASE)
+
+def _keyword_pattern(keyword: str) -> "re.Pattern | None":
+    """Compile a word-boundary matcher for one keyword, or None if it's blank.
+
+    Mirrors scan-core.mjs › compileKeyword:
+      - left boundary:  start-of-string OR a non-[a-z0-9] char
+      - right boundary: end-of-string  OR a non-[a-z0-9] char
+      - internal whitespace is collapsed to \\s+ so "Head of" tolerates
+        "Head  of" / "Head\\tof".
+    Lookarounds are used so adjacent matches don't consume the boundary char.
+    The keyword is trimmed and lowercased; the haystack is lowercased by callers.
+    """
+    trimmed = keyword.strip().lower()
+    if not trimmed:
+        return None
+    # Split on whitespace, escape each token, rejoin with \s+ so multi-word
+    # phrases ("Head of") tolerate odd internal spacing. Splitting BEFORE
+    # escaping avoids Python's re.escape escaping the space itself (it does on
+    # 3.7+), which is the only divergence from scan-core.mjs's escapeRegExp.
+    body = r"\s+".join(re.escape(tok) for tok in trimmed.split())
+    return re.compile(rf"(?:^|[^a-z0-9]){body}(?:$|[^a-z0-9])", re.IGNORECASE)
+
+
+def keyword_matches(text: str, keyword: str) -> bool:
+    """True when `text` contains `keyword` as a whole word/phrase (case-insensitive)."""
+    if not text or not keyword:
+        return False
+    pat = _keyword_pattern(keyword)
+    return bool(pat and pat.search(text.lower()))
 
 
 def build_title_filter(positive_kw, negative_kw):
-    pos = [k.lower() for k in (positive_kw or [])]
-    neg = [k.lower() for k in (negative_kw or [])]
+    """A title passes when ≥1 positive matches (or there are no positives) AND
+    no negative matches — word-boundary aware, identical to scan-core.mjs."""
+    pos = [p for p in (_keyword_pattern(k) for k in (positive_kw or [])) if p]
+    neg = [p for p in (_keyword_pattern(k) for k in (negative_kw or [])) if p]
 
     def check(title: str) -> bool:
         if not title:
             return False
         lower = title.lower()
-        if pos and not any(k in lower for k in pos):
+        if pos and not any(p.search(lower) for p in pos):
             return False
-        if any(k in lower for k in neg):
+        if any(p.search(lower) for p in neg):
             return False
         return True
 
@@ -118,7 +170,9 @@ def build_title_filter(positive_kw, negative_kw):
 
 
 def build_lang_filter(blocklist):
-    bl = [t.lower() for t in (blocklist or [])]
+    """Reject a title containing any blocklist token (word-boundary aware), so a
+    FR/NL token like "stage" no longer nukes the English "Staged Rollout"."""
+    bl = [p for p in (_keyword_pattern(t) for t in (blocklist or [])) if p]
     if not bl:
         return lambda title: True
 
@@ -126,37 +180,28 @@ def build_lang_filter(blocklist):
         if not title:
             return True
         lower = title.lower()
-        return not any(t in lower for t in bl)
+        return not any(p.search(lower) for p in bl)
 
     return check
 
 
+# Pre-compiled location matchers — word-aware, so "uk" no longer needs a bespoke
+# regex and "rome" no longer hits "Jerome".
+_LOCATION_PATTERNS = [p for p in (_keyword_pattern(t) for t in ALLOWED_LOCATIONS) if p]
+
+
 def is_allowed_location(loc: str) -> bool:
-    """Return True if the location field indicates an EU/allowed city or is empty/unknown.
+    """Return True if the location names an allowed EU city/country/region, or is
+    empty/unknown (soft filter — the API often omits location).
 
-    Pass-through cases (return True):
-    - Empty / whitespace-only strings (location unknown → don't reject)
-    - Any string containing an allowed city, country name, or EU-scoped region
-
-    Special handling:
-    - "uk" uses a word-boundary regex to avoid false matches on unrelated
-      substrings like "duke" or "truck".
-    - "europe" / "emea" catch EU-scoped remote postings.
+    Word-boundary aware throughout: "Duke University" / "Fukuoka" no longer match
+    "uk", and "Jerome, USA" no longer matches "rome". EU-scoped remote strings
+    ("Remote - Europe", "EMEA") still pass via their own tokens.
     """
     if not loc or not loc.strip():
         return True
     lower = loc.lower()
-
-    for token in ALLOWED_LOCATIONS:
-        if token == "uk":
-            # Word-boundary match for bare "UK" to avoid false positives
-            # on substrings like "duke", "truck", "bulk".
-            if _UK_TOKEN_RE.search(lower):
-                return True
-        else:
-            if token in lower:
-                return True
-    return False
+    return any(p.search(lower) for p in _LOCATION_PATTERNS)
 
 
 # ── Dedup — read URLs from canonical files ──────────────────────────────

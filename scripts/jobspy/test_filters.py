@@ -37,10 +37,124 @@ _spec.loader.exec_module(_scan)  # type: ignore[union-attr]
 build_title_filter = _scan.build_title_filter
 build_lang_filter = _scan.build_lang_filter
 is_allowed_location = _scan.is_allowed_location
+keyword_matches = _scan.keyword_matches
 derive_keywords_from_target_roles = _scan.derive_keywords_from_target_roles
 make_company_role_key = _scan.make_company_role_key
 _normalize_company = _scan._normalize_company
 _normalize_title = _scan._normalize_title
+
+
+# ── Word-boundary matching parity with scan-core.mjs ───────────────────────────
+#
+# The aggregator scanner (this file's scan.py) used to filter with raw
+# `substring in title`, while the ATS scanner (scan-core.mjs) matches on WORD
+# boundaries. Same portals.yml lists, two different results. These tests pin the
+# corrected, identical-to-Node behavior so the divergence can't silently return.
+# They mirror the headline cases in scripts/scan-core.test.mjs.
+
+class TestKeywordMatches(unittest.TestCase):
+    """keyword_matches — the word-boundary primitive (mirrors keywordMatches)."""
+
+    def test_standalone_word_matches_anywhere(self):
+        self.assertTrue(keyword_matches("Operations Lead", "Lead"))
+        self.assertTrue(keyword_matches("Lead, Strategy", "Lead"))
+        self.assertTrue(keyword_matches("Engineering Lead Role", "Lead"))
+        self.assertTrue(keyword_matches("Lead", "Lead"))
+
+    def test_does_not_match_inside_another_word(self):
+        # The substring matcher killed these "Lead"-bearing junior titles.
+        self.assertFalse(keyword_matches("Leadership Analyst", "Lead"))
+        self.assertFalse(keyword_matches("Leading Indicators PM", "Lead"))
+        self.assertFalse(keyword_matches("Ambitious Analyst", "BI"))
+        self.assertFalse(keyword_matches("Synopsys Engineer", "Ops"))
+
+    def test_case_insensitive(self):
+        self.assertTrue(keyword_matches("SENIOR ANALYST", "senior"))
+        self.assertTrue(keyword_matches("senior analyst", "Senior"))
+
+    def test_trailing_leading_spaces_trimmed(self):
+        # Legacy portals.yml wrote "Lead " / "Senior " with trailing spaces.
+        self.assertTrue(keyword_matches("Operations Lead", "Lead "))
+        self.assertTrue(keyword_matches("Senior Analyst", " Senior"))
+
+    def test_punctuation_is_a_boundary(self):
+        self.assertTrue(keyword_matches("R&D Analyst", "R&D"))
+        self.assertTrue(keyword_matches("Pre-Sales Engineer", "Pre-Sales"))
+        self.assertTrue(keyword_matches("Sales Manager (m/w/d)", "(m/w/d)"))
+
+    def test_multiword_phrase_whitespace_tolerant(self):
+        self.assertTrue(
+            keyword_matches("Strategy & Operations Associate", "Strategy & Operations")
+        )
+        self.assertTrue(keyword_matches("Head  of   Growth", "Head of"))
+        self.assertFalse(keyword_matches("Heads of State", "Head of"))
+
+    def test_empty_inputs_safe(self):
+        self.assertFalse(keyword_matches("", "Lead"))
+        self.assertFalse(keyword_matches("Lead", ""))
+        self.assertFalse(keyword_matches("Lead", "   "))
+
+
+class TestTitleFilterWordBoundary(unittest.TestCase):
+    """build_title_filter regressions for the substring → word-boundary fix."""
+
+    def test_substring_negatives_no_longer_drop_good_juniors(self):
+        f = build_title_filter(
+            ["Analyst", "Operations", "Strategy"],
+            ["Lead", "Senior", "VP", "Manager"],
+        )
+        # All wrongly DROPPED under substring matching; must pass now.
+        self.assertTrue(f("Leadership Operations Analyst"))
+        self.assertTrue(f("Leading Strategy Analyst"))
+        # And genuine seniorities still drop.
+        self.assertFalse(f("Operations Lead"))
+        self.assertFalse(f("Senior Strategy Analyst"))
+
+    def test_substring_positives_no_longer_keep_junk(self):
+        f = build_title_filter(["Ops", "BI"], [])
+        # Wrongly KEPT under substring matching ("ops" in "synopsys", "bi" in
+        # "ambitious"); must drop now (no real positive word present).
+        self.assertFalse(f("Synopsys Hardware Engineer"))
+        self.assertFalse(f("Ambitious Designer"))
+        # A real "Ops" / "BI" word still passes.
+        self.assertTrue(f("Ops Analyst"))
+        self.assertTrue(f("BI Developer"))
+
+
+class TestLangFilterWordBoundary(unittest.TestCase):
+    """build_lang_filter regression: a FR/NL token must not nuke English words."""
+
+    def test_stage_token_does_not_kill_staged(self):
+        f = build_lang_filter(["stage"])
+        self.assertTrue(f("Staged Rollout Manager"))
+        self.assertTrue(f("Backstage Operations"))
+        # The real French/Dutch token still blocks.
+        self.assertFalse(f("Stage Marketing Paris"))
+
+
+class TestLocationWordBoundary(unittest.TestCase):
+    """is_allowed_location regressions + Node allowlist parity."""
+
+    def test_rome_does_not_match_jerome(self):
+        self.assertFalse(is_allowed_location("Jerome, AZ, USA"))
+        self.assertTrue(is_allowed_location("Rome, Italy"))
+
+    def test_uk_word_boundary_without_bespoke_regex(self):
+        self.assertTrue(is_allowed_location("London, UK"))
+        self.assertTrue(is_allowed_location("UK"))
+        self.assertFalse(is_allowed_location("Fukuoka, Japan"))
+        self.assertFalse(is_allowed_location("Duke University Campus"))
+
+    def test_node_parity_cities_now_accepted(self):
+        # These EU hubs are in scan-core.mjs's allowlist but were missing here,
+        # so the aggregator silently rejected them. Now at parity.
+        for loc in [
+            "Milano, Italy", "Valencia, Spain", "Manchester, UK",
+            "Cambridge, UK", "Porto, Portugal", "Warsaw, Poland",
+            "Krakow, Poland", "Eindhoven, Netherlands", "The Hague, Netherlands",
+            "Cologne, Germany", "München, Germany", "Zürich, Switzerland",
+        ]:
+            self.assertTrue(is_allowed_location(loc), loc)
 
 
 # ── Title filter ─────────────────────────────────────────────────────────────
@@ -284,7 +398,15 @@ class TestLocationFilter(unittest.TestCase):
         self.assertFalse(is_allowed_location("Toronto, Canada"))
         self.assertFalse(is_allowed_location("Singapore"))
         self.assertFalse(is_allowed_location("Sydney, Australia"))
-        self.assertFalse(is_allowed_location("Remote"))  # bare Remote = not EU-scoped
+
+    def test_bare_remote_passes_parity_with_node(self):
+        """Bare 'Remote' now PASSES — parity with scan-core.mjs, whose
+        DEFAULT_LOCATION_ALLOWLIST includes 'remote'. A remote posting that
+        cleared the title/language gates is a legitimate keep (EU-remote roles
+        routinely list just 'Remote'); the title filter is the real geography
+        proxy. The aggregator previously rejected it, diverging from the ATS
+        scanner on the same posting."""
+        self.assertTrue(is_allowed_location("Remote"))
 
 
 # ── Company / title normalization ─────────────────────────────────────────────
