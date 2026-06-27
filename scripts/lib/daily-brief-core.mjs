@@ -8,6 +8,8 @@
 //   • outreach-core.mjs     — outreach threads where a nudge is due now.
 //   • positioning-core.mjs  — the one standing targeting insight across the corpus.
 //   • deadlines-core.mjs    — closing-date urgency bucketing (import-only, never modified).
+//   • analyze-patterns.mjs  — one learned targeting lesson from outcomes (a "stop
+//                             wasting effort on X" heads-up, import-only).
 //
 // Nothing bundles them into a single "what should I do now?" artifact the user
 // can read, cron, or email. That is this module's job. It does NOT re-implement
@@ -17,7 +19,11 @@
 //
 //   1. normalizes each core's output into a uniform list of "action" items,
 //   2. ranks them into sections by urgency / leverage,
-//   3. renders one dated markdown brief (with pipeline health summary + deadlines).
+//   3. picks the single "do this first" action by genuine cross-section
+//      time-criticality (globalPriority) — NOT by section position, so a deadline
+//      closing today outranks a mildly-overdue follow-up,
+//   4. renders one dated markdown brief (with pipeline health, deadlines, and a
+//      learned-lesson heads-up).
 //
 // Everything here is a pure function of its inputs — no filesystem, no clock,
 // no globals, no mutation. That keeps it exhaustively unit-testable, and keeps
@@ -37,16 +43,19 @@
  *                classified output — import-only.
  *   outreach   — outreach threads where a nudge is due now.
  *   newhits    — fresh, high-fit postings worth evaluating/applying to.
+ *   headsup    — one learned targeting lesson from rejection/outcome patterns
+ *                ("stop wasting effort on X"). A note, not a to-do.
  *   insight    — one standing positioning insight (not an item to "do today",
  *                but the lens to keep in mind while doing the above).
  */
-export const SECTION_ORDER = ['followups', 'deadlines', 'outreach', 'newhits', 'insight']
+export const SECTION_ORDER = ['followups', 'deadlines', 'outreach', 'newhits', 'headsup', 'insight']
 
 export const SECTION_META = {
   followups: { title: 'Follow-ups due', kind: 'action' },
   deadlines: { title: 'Deadlines closing soon', kind: 'action' },
   outreach: { title: 'Outreach nudges due', kind: 'action' },
   newhits: { title: 'Fresh high-fit postings', kind: 'action' },
+  headsup: { title: 'Heads-up from your outcomes', kind: 'insight' },
   insight: { title: 'Standing positioning note', kind: 'insight' },
 }
 
@@ -358,6 +367,145 @@ export function buildPipelineHealthSummary(pipelineHealth) {
   return { active, evaluated, inboxCount, hasData: true }
 }
 
+/* ───── Heads-up: one rejection/targeting recommendation ─────────────────────
+ *
+ * analyze-patterns.mjs already mines outcomes + reports for systematic waste
+ * (geo-restriction blockers, stack mismatches, a score floor under which nothing
+ * converts, the best/worst archetype). Those recommendations never reached the
+ * "what should I do today" surface — so the brief was blind to the single most
+ * useful piece of learned intelligence: "stop wasting effort on X".
+ *
+ * This folds the highest-impact recommendation in as a standing "heads-up" note
+ * (prose, not a to-do) so the reader keeps the lesson in mind while working the
+ * action list. We surface ONE — the first `high`-impact rec, else the first rec —
+ * to keep the brief scannable. It is a note, never the top action.
+ *
+ * Expected input: analyze-patterns.mjs analyze() output, shape:
+ *   { recommendations: [{ action, reasoning, impact }], metadata: {...} }  OR  { error }
+ *
+ * Returns a single-element array (or empty) so it slots into the section model.
+ *
+ * @param {object|null} patterns  analyze-patterns analyze() output, or { error }
+ */
+export function patternHeadsUp(patterns) {
+  if (!patterns || patterns.error || !Array.isArray(patterns.recommendations)) {
+    return []
+  }
+  const recs = patterns.recommendations
+  if (recs.length === 0) return []
+
+  // Prefer the first high-impact rec; fall back to the first rec of any impact.
+  const pick = recs.find((r) => r && r.impact === 'high') || recs[0]
+  if (!pick || !pick.action) return []
+
+  const impact = typeof pick.impact === 'string' ? pick.impact : 'medium'
+  return [{
+    key: `headsup|${impact}`,
+    label: 'Targeting lesson from your outcomes',
+    sub: `${pick.action}.` + (pick.reasoning ? ` ${pick.reasoning}` : ''),
+    urgency: 0,
+    sortKey: 0,
+    meta: { kind: 'pattern-recommendation', impact, action: pick.action },
+  }]
+}
+
+/* ───── Cross-section global priority ────────────────────────────────────────
+ *
+ * The "Do this first" pick used to be section-order-based: the first item of the
+ * first non-empty ACTION section in SECTION_ORDER. That made `followups` *always*
+ * outrank `deadlines` — so a deadline closing TODAY lost to a mildly-overdue
+ * follow-up. The whole brief is built around that one pick, so the ordering has
+ * to reflect genuine, cross-section time-criticality, not section position.
+ *
+ * `globalPriority` maps any normalized action item to a single comparable score
+ * (LOWER = more urgent). The tiers, most-urgent first:
+ *
+ *   0xx  Deadlines — irreversible if missed. Scaled by days left, so a deadline
+ *        closing today (0d) beats one closing in 6 days, and both beat any
+ *        follow-up. A passed/near-zero deadline is the most critical thing there
+ *        is. Tier band 0–99.
+ *   1xx  Urgent follow-ups — a recruiter is actively waiting on YOUR reply
+ *        (status responded/interview). Relationship decays fast but is
+ *        recoverable. Tier band 100–199, sooner-overdue first.
+ *   2xx  Overdue follow-ups — your application has gone quiet past cadence.
+ *        Tier band 200–299, more-days-overdue first.
+ *   3xx  Outreach nudges — a warm thread to keep alive. Tier band 300–399.
+ *   4xx  Fresh high-fit postings — opportunity, not obligation; never decays as
+ *        fast as an open thread. Prioritized hits (scored) before needs-eval.
+ *        Tier band 400–499, higher score first.
+ *
+ * This is intentionally a coarse, explainable ladder (deadlines > obligations >
+ * opportunities), with a continuous within-tier term so ties break sensibly.
+ *
+ * @param {string} sectionId  one of the ACTION section ids
+ * @param {object} item       a normalized action item (from the *Items fns)
+ * @returns {number} priority — lower = surface first
+ */
+export function globalPriority(sectionId, item) {
+  const meta = item && item.meta ? item.meta : {}
+
+  if (sectionId === 'deadlines') {
+    // daysLeft can be negative (missed) → clamp to 0 so "missed/today" is the
+    // most urgent. Cap the spread at 60 so far-out deadlines still rank below
+    // every same-day obligation but above opportunities.
+    const dl = Number.isFinite(meta.daysLeft) ? Math.max(0, meta.daysLeft) : 30
+    return Math.min(dl, 60) // 0..60 → band 0–60
+  }
+
+  if (sectionId === 'followups') {
+    const days = Number.isFinite(meta.daysSince) ? meta.daysSince : 0
+    // urgency 0 = urgent (recruiter waiting), 1 = overdue (app went quiet).
+    if (item.urgency === 0) {
+      // Urgent: band 100–199. Sooner-since-applied is MORE urgent for a
+      // responded/interview thread (a same-day reply matters most), so smaller
+      // `days` → smaller priority. Clamp the spread.
+      return 100 + Math.min(Math.max(days, 0), 99)
+    }
+    // Overdue: band 200–299. More days overdue → MORE urgent → smaller priority.
+    return 200 + Math.max(0, 99 - Math.min(days, 99))
+  }
+
+  if (sectionId === 'outreach') {
+    const days = Number.isFinite(meta.daysSince) ? meta.daysSince : 0
+    // Longer since last touch → more overdue → smaller priority. Band 300–399.
+    return 300 + Math.max(0, 99 - Math.min(days, 99))
+  }
+
+  if (sectionId === 'newhits') {
+    // Prioritized (scored) hits before needs-eval; higher score → earlier.
+    // Band 400–449 for scored, 450–499 for needs-eval.
+    const base = meta.kind === 'needs-eval' ? 450 : 400
+    const score = Number.isFinite(meta.overall) ? meta.overall : 0
+    return base + Math.max(0, 49 - Math.min(Math.round(score * 5), 49))
+  }
+
+  return 999 // unknown section → lowest priority
+}
+
+/**
+ * Pick the single highest-value next action across ALL action sections, ranked
+ * by `globalPriority` (not by section order). Returns the same shape the old
+ * section-order pick returned: { section, sectionTitle, item } or null.
+ *
+ * @param {Array} sections  the assembled section list
+ * @returns {object|null}
+ */
+export function pickTopAction(sections) {
+  let best = null
+  let bestPriority = Infinity
+  for (const s of sections) {
+    if (s.kind !== 'action') continue
+    for (const item of s.items) {
+      const p = globalPriority(s.id, item)
+      if (p < bestPriority) {
+        bestPriority = p
+        best = { section: s.id, sectionTitle: s.title, item, priority: p }
+      }
+    }
+  }
+  return best
+}
+
 /* ───── Assembly ─────────────────────────────────────────────────────────────
  *
  * Compose the normalized items into a single brief object. The caller passes
@@ -390,6 +538,7 @@ export function assembleBrief(inputs = {}, opts = {}) {
     deadlines: deadlineItems(inputs.classifiedDeadlines, opts),
     outreach: outreachItems(inputs.outreachResult),
     newhits: newHitItems(inputs.digest, opts),
+    headsup: patternHeadsUp(inputs.patterns),
     insight: insightItems(inputs.positioningIntel),
   }
 
@@ -407,16 +556,11 @@ export function assembleBrief(inputs = {}, opts = {}) {
     if (s.kind === 'action') totalActions += s.items.length
   }
 
-  // The single highest-value next action: first item of the first non-empty
-  // ACTION section in SECTION_ORDER (insight is a note, never the top action).
-  let topAction = null
-  for (const s of sections) {
-    if (s.kind !== 'action') continue
-    if (s.items.length) {
-      topAction = { section: s.id, sectionTitle: s.title, item: s.items[0] }
-      break
-    }
-  }
+  // The single highest-value next action, ranked across ALL action sections by
+  // genuine time-criticality (globalPriority), not section order — so a deadline
+  // closing today outranks a mildly-overdue follow-up. Insight/heads-up are
+  // notes, never the top action.
+  const topAction = pickTopAction(sections)
 
   const pipelineHealth = buildPipelineHealthSummary(inputs.pipelineHealth || null)
 
