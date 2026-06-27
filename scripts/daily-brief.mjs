@@ -10,8 +10,13 @@
  * It composes (importing, never modifying) the existing cores:
  *   • scripts/lib/whats-new-core.mjs    — fresh high-fit postings since last scan
  *   • scripts/followup-cadence.mjs      — due/overdue application follow-ups
+ *   • scripts/analyze-patterns.mjs      — one learned targeting lesson (outcomes)
  *   • scripts/outreach-core.mjs         — outreach threads where a nudge is due
  *   • scripts/lib/positioning-core.mjs  — one standing targeting insight
+ *
+ * The single "do this first" pick is ranked across ALL action sections by genuine
+ * time-criticality (deadlines closing today > urgent follow-ups > overdue
+ * follow-ups > outreach nudges > fresh postings), not by section position.
  *
  * All ranking/sectioning/rendering lives in the pure, unit-tested
  * scripts/lib/daily-brief-core.mjs; this file is only I/O + invocation.
@@ -52,6 +57,7 @@ const APPS_FILE = join(ROOT, 'data/applications.md')
 const SCOUTING_FILE = join(ROOT, 'data/scouting.md')
 const PIPELINE_FILE = join(ROOT, 'data/pipeline.md')
 const FOLLOWUP_SCRIPT = join(ROOT, 'scripts/followup-cadence.mjs')
+const PATTERNS_SCRIPT = join(ROOT, 'scripts/analyze-patterns.mjs')
 const BRIEFS_DIR = join(ROOT, 'reports/briefs')
 
 // --- CLI args ---
@@ -107,6 +113,28 @@ function getFollowupResult() {
   } catch (e) {
     // The script exits non-zero when there are no applications; it still prints
     // a JSON `{ error }` body on stdout, which execFileSync attaches to e.stdout.
+    if (e && typeof e.stdout === 'string' && e.stdout.trim()) {
+      try { return JSON.parse(e.stdout) } catch { /* fall through */ }
+    }
+    return null
+  }
+}
+
+// 2b. Learned targeting lesson — run analyze-patterns.mjs as a subprocess and
+//     parse its JSON. Like followup-cadence, it auto-runs on import and exits
+//     non-zero when there isn't enough outcome data yet (it still prints a JSON
+//     `{ error }` body, which we tolerate by returning null). A subprocess keeps
+//     analyze-patterns.mjs untouched.
+function getPatternsResult() {
+  if (!existsSync(PATTERNS_SCRIPT)) return null
+  try {
+    const out = execFileSync('node', [PATTERNS_SCRIPT], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    return JSON.parse(out)
+  } catch (e) {
     if (e && typeof e.stdout === 'string' && e.stdout.trim()) {
       try { return JSON.parse(e.stdout) } catch { /* fall through */ }
     }
@@ -180,6 +208,7 @@ function getPipelineHealth() {
 const inputs = {
   digest: getDigest(),
   followupResult: getFollowupResult(),
+  patterns: getPatternsResult(),
   outreachResult: getOutreachResult(),
   positioningIntel: getPositioningIntel(),
   classifiedDeadlines: getClassifiedDeadlines(),
