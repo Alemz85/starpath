@@ -115,6 +115,14 @@ function detectApi(company) {
 }
 
 // ── API parsers ─────────────────────────────────────────────────────
+//
+// Each parser also carries `postedDate` — the role's TRUE posting/update date
+// straight from the ATS payload — so scan-core's relevance ranking can reward
+// genuinely-fresh roles over long-open reposts (instead of treating every offer
+// in a batch as "posted today", which is all `first_seen` can tell it).
+// scan-core.parsePostingDate normalizes the varied shapes (ISO ts, epoch ms,
+// bare date); a missing/odd value is fail-open (null → falls back to the scan
+// date, i.e. the prior behaviour, never worse).
 
 function parseGreenhouse(json, companyName) {
   const jobs = json.jobs || [];
@@ -123,6 +131,7 @@ function parseGreenhouse(json, companyName) {
     url: j.absolute_url || '',
     company: companyName,
     location: j.location?.name || '',
+    postedDate: j.first_published || j.updated_at || null,
   }));
 }
 
@@ -133,6 +142,7 @@ function parseAshby(json, companyName) {
     url: j.jobUrl || '',
     company: companyName,
     location: j.location || '',
+    postedDate: j.publishedAt || j.updatedAt || null,
   }));
 }
 
@@ -143,6 +153,7 @@ function parseLever(json, companyName) {
     url: j.hostedUrl || '',
     company: companyName,
     location: j.categories?.location || '',
+    postedDate: j.createdAt ?? null, // epoch ms
   }));
 }
 
@@ -158,6 +169,7 @@ function parseSmartRecruiters(jobs, companyName, brandFilter) {
     url: `https://careers.smartrecruiters.com/${j.company?.identifier || companyName}/${j.id}`,
     company: companyName,
     location: j.location?.city || j.location?.fullLocation || '',
+    postedDate: j.releasedDate || j.createdOn || null,
   }));
 }
 
@@ -168,6 +180,9 @@ function parseWorkday(json, companyName, baseUrl) {
     url: baseUrl && j.externalPath ? `${baseUrl}${j.externalPath}` : j.externalPath || '',
     company: companyName,
     location: j.locationsText || '',
+    // Workday exposes only a relative "Posted Today / 30+ Days Ago" string, not
+    // an absolute date — too lossy to trust, so leave the scan-date fallback.
+    postedDate: null,
   }));
 }
 
@@ -537,11 +552,12 @@ async function main() {
   await parallelFetch(tasks, CONCURRENCY);
 
   // 4b. Rank survivors best-first by relevance, so the strongest matches land at
-  // the top of the pipeline (and surface first when the user evaluates). All
-  // newOffers are first-seen today, so freshness is uniform across this batch —
-  // ranking is driven by title/keyword/seniority/location signals. Weights and
-  // the seniority_boost list both come from user/portals.yml (no hardcoded user
-  // data). See scan-core.mjs › rankOffers / scoreRelevance.
+  // the top of the pipeline (and surface first when the user evaluates). Every
+  // offer in this batch is first-SEEN today, but each carries the ATS payload's
+  // true `postedDate`, so freshness now separates a role posted this morning
+  // from a long-open repost instead of treating the whole batch as equally new.
+  // Weights and the seniority_boost list both come from user/portals.yml (no
+  // hardcoded user data). See scan-core.mjs › rankOffers / scoreRelevance.
   const rankedOffers = rankOffers(newOffers, config.title_filter || {}, {
     now: date,
     locationAllowlist: config.location_allowlist,
