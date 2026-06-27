@@ -41,7 +41,7 @@ import { slugify, freshness, validateArtifact, parseFrontmatter } from './lib/co
 import { parseStoryBank, validateBank } from './lib/story-bank.mjs'
 import { parseLog, collapse } from './outreach-cadence.mjs'
 import { classifyContact } from './outreach-core.mjs'
-import { assembleKit, renderKit } from './lib/apply-kit-core.mjs'
+import { assembleKit, renderKit, atsSidecarName, cvFactsFromFiles } from './lib/apply-kit-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const REPORTS_DIR = join(ROOT, 'reports')
@@ -127,6 +127,11 @@ function resolveReport(co, ro) {
 // 2. Tailored CV: output/cv-…-{date}.{pdf,html}. The company token is embedded in
 //    the filename (cv-{candidate}-{company}-{date}). Match on the company slug
 //    token; prefer the most recent (filenames sort lexicographically by date).
+//    Then read the ATS-coverage sidecar pdf mode wrote next to the CV
+//    (cv-….ats.json) so the readiness verdict reflects whether the CV is actually
+//    tailored to this role — not just that some PDF exists. No sidecar → the CV
+//    reads as ATS-unverified (stale), which honestly nudges a re-tailor. All the
+//    sidecar-parsing / fact-shaping logic lives in the pure apply-kit-core.
 function resolveCv(co) {
   if (!existsSync(OUTPUT_DIR)) return { exists: false }
   const coSlug = slugify(co)
@@ -136,7 +141,15 @@ function resolveCv(co) {
     .filter((f) => slugify(f).includes(coSlug))
     .sort() // date suffix → lexicographic = chronological; last = newest
   if (matches.length === 0) return { exists: false }
-  return { exists: true, path: `output/${matches[matches.length - 1]}` }
+  const cvFile = matches[matches.length - 1]
+  const cvPath = `output/${cvFile}`
+  // The sidecar shares the CV's stem with a .ats.json extension. A PDF and its
+  // HTML twin produce the same sidecar name, so a coverage record written for
+  // either is found.
+  const sidecarRel = atsSidecarName(cvPath)
+  const sidecarAbs = join(ROOT, sidecarRel)
+  const sidecarText = existsSync(sidecarAbs) ? readFileSync(sidecarAbs, 'utf8') : null
+  return cvFactsFromFiles({ exists: true, path: cvPath, sidecarText })
 }
 
 // 3. Drafted answers: interview-prep/{Company} - {Role}.md (mirrors report naming).
