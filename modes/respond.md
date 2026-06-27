@@ -41,24 +41,37 @@ node scripts/respond-plan.mjs --message "<paste>" --json # machine-readable
 
 It detects, in canonical order, any of: **comp · availability · scheduling · take-home · screening · logistics · rejection**, prints the handling strategy for each, and suggests a pipeline status. Logic is the pure, unit-tested module `scripts/respond-core.mjs`. A rejection short-circuits to a single graceful-decline step; a message with no recognized ask falls back to "answer it directly."
 
+Two signals the classifier surfaces that change *how* you reply, not just *what* it's about:
+
+- **Urgency.** If the message carries a reply deadline or time pressure (*"by Friday"*, *"ASAP"*, *"we're moving quickly"*, *"the role closes soon"*), the plan flags it (`urgency.urgent` / a `⏰ TIME-SENSITIVE` banner). Treat a flagged reply as the **highest-priority item in the pipeline** — draft it first and tell the user to send today. Speed is part of response rate.
+- **Comp disclosure vs. comp question.** A comp ask has two opposite shapes (see § Comp below). The classifier distinguishes them: if the recruiter **stated a number**, the comp step is relabelled *"recruiter disclosed a number (evaluate, don't over-ask)"* and carries the parsed figures.
+
 You still **read the full message yourself** — the classifier is a router that guarantees you don't miss the awkward asks, not a substitute for understanding the email.
 
 ## Step 2 — Answer each ask, grounded in the candidate's files
 
 Address the asks **in the order the classifier returned** (comp first, then availability, etc.) so the reply is predictable. For each:
 
-### Comp expectations (the one candidates fumble)
-Pass the candidate's target + floor (read from `user/profile.yml`) to get the anchor range:
+### Comp (the one candidates fumble) — two opposite shapes
+Always pass the candidate's target + floor (read from `user/profile.yml`); the classifier routes to the right posture automatically:
 
 ```bash
 node scripts/respond-plan.mjs --message "<paste>" --target <target> --floor <floor>
 ```
 
+**(a) They ASKED ("what are your expectations?")** → you state the anchor range (`compRange`):
 - **Always a range, never a single number** — a point answer caps you.
 - Anchor the bottom **at or above the target**, not at the floor; state it as **total comp**; add one flexibility clause (*"for the right role, depending on the full package"*).
 - **Never** state a number below the walk-away floor.
 - **No target on file** → don't invent one. Defer politely and turn the question around: *"Happy to discuss — what range is budgeted for the role?"* (the classifier returns `comp.ok:false` in this case).
 - If `user/_profile.md` has a user-written negotiation script, prefer its language.
+
+**(b) They DISCLOSED a number ("the band is X–Y", "we're budgeting Z")** → do **not** blurt your own range over a number already on the table. The classifier evaluates the disclosed figure against the candidate's floor/target (`evaluateCompOffer`) and returns a posture verdict; follow it:
+- **`at_or_above_target`** → respond warmly, confirm strong fit; keep a light note that the final figure depends on full scope/level (preserves room without haggling over an already-good offer).
+- **`below_target`** (clears the floor, under target) → stay engaged; anchor up toward target on the basis of scope/fit; note that **total comp**, not just base, is what matters. Don't accept the figure as final.
+- **`spans_floor`** (band straddles the floor) → interested, but anchor explicitly to the **upper end** and frame the floor as the realistic starting point.
+- **`below_floor`** (top of band under the floor) → don't reject outright; warmly note it's below what they can consider, state the floor as total comp, ask if there's flexibility. If none, it's a graceful decline.
+- **No target/floor on file** → just acknowledge the number and tell the user to set their band so the next disclosure can be judged (the classifier returns `offer.ok:false`).
 
 ### Availability / notice period / start date
 State the real notice period / earliest start from `user/profile.yml`. If a known constraint exists (a program start window, an exchange/relocation period), name it plainly as a **fixed date**, framed as a plan — not an apology.
@@ -97,12 +110,14 @@ Show the draft in a copy-pasteable block, then a short rationale:
 
 **Channel:** Email · LinkedIn
 **Asks handled:** {comp, availability, scheduling, …}
+{if urgency flagged} **⏰ Time-sensitive:** they signalled "{cue}" — send today.
 
 {the drafted reply, ready to copy}
 
 ---
 **Why this framing:**
-- Comp: anchored at {range} (your target {X}, floor {Y}) — stated as a range, not a point.
+- Comp (asked): anchored at {range} (your target {X}, floor {Y}) — stated as a range, not a point.
+  — OR — Comp (disclosed): their {number} is {verdict} → {posture, e.g. "below floor — surfaced the floor, asked for flex"}.
 - Availability: {the real date/notice}.
 - {any flag, e.g. "the take-home is ~6h unpaid — push back?"}
 
