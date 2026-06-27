@@ -128,19 +128,33 @@ function main() {
   }
 }
 
+// Short leverage label for the dashboard — mirrors contacto.md § Step 2's
+// priority order. Blank for neutral so the column stays quiet when the contact
+// type is unreadable (no noise where there's no signal).
+const LEVERAGE_LABEL = { manager: 'hiring-mgr', peer: 'peer/ref', recruiter: 'recruiter', neutral: '' };
+
 function printSummary(entries, counts, today, total) {
   const ICON = { nudge: 'NUDGE  ', waiting: 'waiting', cold: 'COLD   ', done: 'replied' };
   console.log(`Outreach Cadence Dashboard — ${today}`);
-  console.log(`${total} contacts tracked · ${counts.nudge} need a nudge · ${counts.waiting} waiting · ${counts.cold} cold · ${counts.done} replied\n`);
+  console.log(`${total} contacts tracked · ${counts.nudge} need a nudge · ${counts.waiting} waiting · ${counts.cold} cold · ${counts.done} replied`);
+  // When a nudge is due, name the single most valuable one (top of the sort).
+  const topNudge = entries.find((e) => e.action === 'nudge');
+  if (topNudge) {
+    const who = LEVERAGE_LABEL[topNudge.leverage]
+      ? ` (${LEVERAGE_LABEL[topNudge.leverage]})`
+      : '';
+    console.log(`→ Most valuable nudge: ${topNudge.contact} @ ${topNudge.company}${who}`);
+  }
+  console.log('');
   if (entries.length === 0) {
     console.log('Nothing to show.');
     return;
   }
   const w = (s, n) => String(s ?? '').slice(0, n).padEnd(n);
-  console.log(`| ${w('Action', 7)} | ${w('Company', 18)} | ${w('Contact', 18)} | ${w('Chan', 10)} | ${w('Days', 4)} | ${w('Next nudge', 10)} |`);
-  console.log(`|${'-'.repeat(9)}|${'-'.repeat(20)}|${'-'.repeat(20)}|${'-'.repeat(12)}|${'-'.repeat(6)}|${'-'.repeat(12)}|`);
+  console.log(`| ${w('Action', 7)} | ${w('Company', 18)} | ${w('Contact', 18)} | ${w('Lever', 10)} | ${w('Chan', 10)} | ${w('Days', 4)} | ${w('Next nudge', 10)} |`);
+  console.log(`|${'-'.repeat(9)}|${'-'.repeat(20)}|${'-'.repeat(20)}|${'-'.repeat(12)}|${'-'.repeat(12)}|${'-'.repeat(6)}|${'-'.repeat(12)}|`);
   for (const e of entries) {
-    console.log(`| ${w(ICON[e.action] || e.action, 7)} | ${w(e.company, 18)} | ${w(e.contact, 18)} | ${w(e.channel, 10)} | ${w(e.daysSince ?? '?', 4)} | ${w(e.nextNudge ?? '-', 10)} |`);
+    console.log(`| ${w(ICON[e.action] || e.action, 7)} | ${w(e.company, 18)} | ${w(e.contact, 18)} | ${w(LEVERAGE_LABEL[e.leverage] ?? '', 10)} | ${w(e.channel, 10)} | ${w(e.daysSince ?? '?', 4)} | ${w(e.nextNudge ?? '-', 10)} |`);
   }
 }
 
