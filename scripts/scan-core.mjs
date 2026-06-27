@@ -209,6 +209,59 @@ export function isAllowedLocation(location) {
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
+ * Normalize a raw posting/update date from any ATS payload to a bare
+ * `YYYY-MM-DD` string, or null if it can't be confidently parsed.
+ *
+ * ── Why this exists ─────────────────────────────────────────────────────────
+ * Every ATS exposes *when a job was actually posted*, but in different shapes:
+ *   • Greenhouse `updated_at` / `first_published` → ISO ts "2026-06-01T09:00:00-04:00"
+ *   • Lever      `createdAt`                       → epoch ms (number) 1717225200000
+ *   • Ashby      `publishedAt`                      → ISO ts "2026-06-01T09:00:00.000Z"
+ *   • JobSpy     `date`                             → bare "2026-06-01"
+ * The scanner used to discard all of these and stamp `first_seen = today`, so a
+ * job posted 60 days ago that a newly-tracked company surfaces today looked
+ * "freshly posted" and won the full freshness bonus — a sourcing-quality false
+ * positive that polluted the relevance ranking. This collapses the four shapes
+ * to one comparable date so freshness reflects the TRUE posting age.
+ *
+ * Fail-open: anything we can't confidently parse returns null, and the caller
+ * falls back to first_seen (today) — i.e. exactly the old behaviour, never worse.
+ *
+ * @param {string|number|Date|null|undefined} raw
+ * @returns {string|null} YYYY-MM-DD or null
+ */
+export function parsePostingDate(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+
+  // Already a bare YYYY-MM-DD — accept verbatim (cheap, avoids any TZ drift).
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  }
+
+  let d;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    // Epoch — ms vs seconds: 10-digit values are seconds (until ~2286).
+    d = new Date(Math.abs(raw) < 1e11 ? raw * 1000 : raw);
+  } else if (typeof raw === 'string' && /^\d{10,}$/.test(raw.trim())) {
+    const n = Number(raw.trim());
+    d = new Date(raw.trim().length <= 11 ? n * 1000 : n);
+  } else if (raw instanceof Date) {
+    d = raw;
+  } else {
+    // ISO timestamp / date string — let the engine parse it.
+    d = new Date(raw);
+  }
+  if (!(d instanceof Date) || Number.isNaN(d.getTime())) return null;
+
+  // Render in UTC so an ISO ts near midnight doesn't slide a day under local TZ.
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
  * Age in whole days of a posting given its scan-history row's first_seen date.
  * Returns null for unparseable input.
  * @param {string} firstSeen ISO date (YYYY-MM-DD)
@@ -277,8 +330,9 @@ export const DEFAULT_RELEVANCE_WEIGHTS = Object.freeze({
   positivePhrase: 2.0, // each matched multi-word positive keyword
   positiveWord: 1.0,   // each matched single-word positive keyword
   seniorityBoost: 2.5, // any seniority_boost token present (counted once)
-  freshFresh: 1.5,     // first seen within the fresh window
-  freshRecent: 0.5,    // first seen within the recent window
+  freshFresh: 1.5,     // posted (or, fallback, first seen) within the fresh window
+  freshRecent: 0.5,    // posted (or, fallback, first seen) within the recent window
+  staleRepost: -1.0,   // posted before the stale window — a long-open repost; demote
   cityMatch: 1.0,      // location names a specific allowlisted city (not just country/remote)
 });
 
@@ -302,10 +356,17 @@ const COUNTRY_TOKENS = new Set([
   'switzerland', 'austria', 'finland', 'norway', 'poland',
 ]);
 
+// Weights that are penalties (≤ 0) rather than bonuses. For these a positive
+// override would invert the intent (rewarding a stale repost), so we clamp them
+// to be non-positive; all others are clamped non-negative. Either way a typo
+// can't flip a signal's sign.
+const PENALTY_WEIGHT_KEYS = new Set(['staleRepost']);
+
 /**
  * Merge user-supplied relevance weights (portals.yml › relevance_weights) over
- * the system defaults. Unknown keys are ignored; non-finite/negative values fall
- * back to the default for that key (fail-safe — a typo can't zero out scoring).
+ * the system defaults. Unknown keys are ignored; non-finite values fall back to
+ * the default for that key. Bonus weights are clamped to ≥ 0 and penalty weights
+ * (e.g. staleRepost) to ≤ 0, so a typo can't zero out or invert scoring.
  * @param {Record<string, number>} [overrides]
  * @returns {typeof DEFAULT_RELEVANCE_WEIGHTS}
  */
@@ -314,7 +375,9 @@ export function resolveRelevanceWeights(overrides) {
   if (overrides && typeof overrides === 'object') {
     for (const key of Object.keys(DEFAULT_RELEVANCE_WEIGHTS)) {
       const v = overrides[key];
-      if (typeof v === 'number' && Number.isFinite(v) && v >= 0) out[key] = v;
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+      const isPenalty = PENALTY_WEIGHT_KEYS.has(key);
+      if (isPenalty ? v <= 0 : v >= 0) out[key] = v;
     }
   }
   return out;
@@ -335,7 +398,14 @@ function isPhrase(keyword) {
  * ranked where it did. Assumes the posting already passed the filter funnel —
  * this ranks keeps, it does not re-filter.
  *
- * @param {{title?:string, location?:string, firstSeen?:string}} posting
+ * Freshness prefers the TRUE posting date (`posting.postedDate`, normalized via
+ * parsePostingDate) over `firstSeen`. Within a single scan run every offer is
+ * first-seen today, so without the posting date freshness was uniform and did
+ * nothing to separate a job posted this morning from one open for two months.
+ * With it, the genuinely-new posting outranks the long-stale repost — and a
+ * repost older than the stale window is actively demoted (staleRepost weight).
+ *
+ * @param {{title?:string, location?:string, firstSeen?:string, postedDate?:string|number}} posting
  * @param {{positive?:string[], seniority_boost?:string[]}} titleFilter
  * @param {object} [opts]
  * @param {Record<string,number>} [opts.weights] resolved relevance weights
@@ -379,18 +449,33 @@ export function scoreRelevance(posting, titleFilter, opts = {}) {
     reasons.push(`right seniority band (${matchedBoosts.join(', ')})`);
   }
 
-  // ── 3. Freshness ──
-  const bucket = freshnessBucket(posting?.firstSeen, {
+  // ── 3. Freshness — prefer the TRUE posting date over the scan date ──
+  // postedDate (from the ATS payload) tells us when the role was actually
+  // posted; firstSeen is just when our scanner first noticed it (≈ today for a
+  // fresh batch). Use posting age when we have it, falling back to first-seen.
+  const postedDate = parsePostingDate(posting?.postedDate);
+  const freshnessDate = postedDate || posting?.firstSeen;
+  const usingPostedDate = Boolean(postedDate);
+  const bucket = freshnessBucket(freshnessDate, {
     now: opts.now || new Date(),
     freshDays: opts.freshDays,
     staleDays: opts.staleDays,
   });
+  // When the date is the real posting date we can phrase it precisely; when we
+  // only have first-seen, say "newly listed" so the user knows it's a scan
+  // signal, not a confirmed post date.
   if (bucket === 'fresh') {
     score += weights.freshFresh;
-    reasons.push('freshly posted');
+    reasons.push(usingPostedDate ? 'freshly posted' : 'newly listed');
   } else if (bucket === 'recent') {
     score += weights.freshRecent;
-    reasons.push('recently posted');
+    reasons.push(usingPostedDate ? 'posted recently' : 'recently listed');
+  } else if (bucket === 'stale' && usingPostedDate) {
+    // A confirmed-stale repost: it's been open past the stale window, so it's
+    // likely been passed over by many already. Demote it. We only penalize when
+    // we KNOW the post date — never punish a role merely for an old scan date.
+    score += weights.staleRepost;
+    reasons.push('stale repost (long open)');
   }
 
   // ── 4. Location specificity (named target city > country/remote/unknown) ──
@@ -416,6 +501,9 @@ export function scoreRelevance(posting, titleFilter, opts = {}) {
     positiveWords: matchedWords.length,
     seniorityBoost: matchedBoosts.length > 0,
     freshness: bucket,
+    // True when the freshness bucket came from a real ATS posting date rather
+    // than the (≈today) scan date — lets callers trust the recency signal.
+    postedDateKnown: usingPostedDate,
     cityMatch: cityMatched,
   };
 
