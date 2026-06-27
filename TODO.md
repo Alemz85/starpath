@@ -39,16 +39,16 @@ Levers, by impact:
 **FIRST STEP: measure** — add per-step/per-spawn token accounting so we optimize
 the real hotspot, not a guess. A focused "go deep" project, not a bolt-on.
 
-## 🔌 Quick: wire the Pipeline view into nav
+## ✅ Done (2026-06-27): Pipeline view wired into nav
 
-`frontend/src/components/pipeline/PipelineView.tsx` is built + merged but **not
-reachable yet** — add `pipeline` to `store/nav.ts` (ViewId + VIEW_LABELS), render
-it in `AppShell.tsx`, and add a Sidebar + CmdK entry (mirror the `scoretrend`
-wiring). ~6 one-line edits.
+`frontend/src/components/pipeline/PipelineView.tsx` is now reachable — `pipeline`
+ViewId + VIEW_LABELS in `store/nav.ts`, render branch in `AppShell.tsx`, Sidebar
+item + CmdK command (mirrors the `scoretrend` wiring). Shipped in the 15-agent
+freestyle session (FE round 1).
 
-_(The six interrupted freestyle lanes that were parked here on 2026-06-25 were all
-recovered + merged in the 2-run encore — Pipeline, Reports-rendering, Database,
-Scoring-depth, JobSpy, Scan-merge-dedup.)_
+_(The six interrupted freestyle lanes parked here on 2026-06-25 were all
+recovered + merged in the earlier 2-run encore — Pipeline, Reports-rendering,
+Database, Scoring-depth, JobSpy, Scan-merge-dedup.)_
 
 ---
 
