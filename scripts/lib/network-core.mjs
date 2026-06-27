@@ -54,11 +54,12 @@ export function companyKey(name) {
   return String(name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
-/* ───── Relationship strength & degree → a referral "warmth" score ──────────
- * The score ranks referral paths so the strongest, closest contact floats to
- * the top for a given company. It is intentionally simple and explainable:
+/* ───── Relationship strength, degree & referral leverage → a "warmth" score ─
+ * The score ranks referral paths so the contact who can most help you land
+ * *this* job floats to the top for a given company. It is intentionally simple
+ * and explainable:
  *
- *   warmth = strengthWeight × degreeFactor × recencyFactor
+ *   warmth = strengthWeight × degreeFactor × recencyFactor × leverageFactor
  *
  * - strength: a direct, strong tie is worth far more than a weak acquaintance.
  * - degree:   a 1st-degree contact you can message directly beats a 2nd-degree
@@ -66,10 +67,144 @@ export function companyKey(name) {
  * - recency:  a tie you've touched recently is "warmer" than a dormant one; an
  *             unknown/never date is treated as neutral, never penalized to zero
  *             (an old colleague is still a real tie).
+ * - leverage: WHO they are relative to the role you want. `contacto.md` § Step 2
+ *             ranks referral paths Hiring Manager > Peer > Recruiter > anyone-
+ *             else, because the person who owns the req (or does the job) can
+ *             actually move you forward, while a strong tie in an unrelated
+ *             function mostly can't. Without this the script disagreed with its
+ *             own mode — a strong-but-irrelevant contact outranked the medium-
+ *             tie hiring manager. Leverage realigns them. A contact whose role
+ *             we can't read is neutral (1.0), never penalized.
  */
 
 export const STRENGTH_WEIGHT = { strong: 3, medium: 2, weak: 1 };
 export const DEGREE_FACTOR = { 1: 1.0, 2: 0.6 };
+
+/* ───── Referral leverage from the contact's title ───────────────────────────
+ * Four tiers, mirroring the priority order in modes/contacto.md § Step 2:
+ *   manager   — leads/owns the team that's hiring for the role's function
+ *               (highest: owns the req, feels the pain it's meant to solve).
+ *   peer      — does the same kind of work the target role is (best *referral*
+ *               path; a peer who likes you drops your name internally). A
+ *               manager in an *unrelated* function also lands here — they lead a
+ *               team, just not yours.
+ *   recruiter — owns the funnel; useful for logistics, weaker as a referral.
+ *   neutral   — title unreadable or in an unrelated, non-leadership function; a
+ *               tie is still a tie (never zeroed), it just gets no role lift.
+ *
+ * The multipliers are deliberately bounded (≤1.3) so relationship strength
+ * stays the dominant axis: leverage breaks ties between *comparable* contacts —
+ * at equal strength/degree/recency, the hiring manager (×1.3 = 2.6 for a medium
+ * tie) edges out a random same-warmth tie (×1.0 = 2.0) — but it never lets a
+ * weak-tie manager (×1.3 = 1.3) leapfrog a strong direct peer (×1.2 = 3.6). You
+ * can't be referred by someone who barely knows you, however senior they are.
+ */
+export const LEVERAGE_FACTOR = { manager: 1.3, peer: 1.2, recruiter: 0.95, neutral: 1.0 };
+
+// Seniority/leadership cues (function-agnostic). A title hitting these leads a
+// team; whether it's *your* team is decided by sharesFunction below.
+const MANAGER_CUES = [
+  /\b(?:head|chief|vp|vice[- ]president|director|lead|leads?|manager|principal|founder|co-?founder|owner|partner|cto|cpo|ceo|coo|cfo|cmo|gm)\b/i,
+  /\bgeneral manager\b/i,
+];
+// Talent/HR cues — these win over manager cues so a "Talent Acquisition
+// Manager" reads as a recruiter, not the hiring manager.
+const RECRUITER_CUES = [
+  /\b(?:recruit(?:er|ing|ment)?|talent|sourcer|sourcing|hr\b|human resources|talent acquisition|ta\b)\b/i,
+  // "People" team / People ops / Head of People = HR/talent, not the hiring mgr.
+  /\bpeople\b/i,
+];
+
+/** Normalize free-text into significant lowercase word tokens (≥3 chars). */
+function titleTokens(s) {
+  return String(s ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3);
+}
+
+// Generic role/seniority words that don't signal a shared *function*, so they
+// shouldn't make a "Senior Recruiter" read as a peer of a "Senior Engineer".
+const GENERIC_ROLE_WORDS = new Set([
+  'senior', 'junior', 'staff', 'principal', 'lead', 'head', 'chief', 'manager',
+  'director', 'associate', 'intern', 'trainee', 'specialist', 'officer',
+  'executive', 'coordinator', 'the', 'and', 'for', 'team', 'global', 'group',
+]);
+
+/** Stem a function word so morphological variants collide: engineer ≈
+ * engineering (both → "engin"), design ≈ designer, market ≈ marketing, analyst
+ * ≈ analytics. Crude but deterministic: lowercase, then repeatedly trim common
+ * suffixes until stable (so multi-suffix words like "engineering" reduce to the
+ * same base as "engineer"), never below a 4-char stem. (No external stemmer —
+ * this stays a zero-dep leaf module.) */
+const STEM_SUFFIXES = ['ing', 'eer', 'ers', 'er', 'or', 'ics', 'ist', 'es', 's'];
+function stem(word) {
+  let w = word;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const suf of STEM_SUFFIXES) {
+      if (w.length - suf.length >= 4 && w.endsWith(suf)) {
+        w = w.slice(0, -suf.length);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return w;
+}
+
+/**
+ * Does the contact's title share a *function* with any target role title?
+ * e.g. contact "Product Designer" vs target "Senior Product Designer" → true
+ * (product/design); "Head of Engineering" vs "Software Engineer" → true (both
+ * stem to "engine"); "Recruiter" vs "Software Engineer" → false. Generic
+ * seniority words are ignored so they don't create false peers. Pure.
+ */
+export function sharesFunction(title, targetRoles = []) {
+  const cstems = new Set(
+    titleTokens(title).filter((w) => !GENERIC_ROLE_WORDS.has(w)).map(stem),
+  );
+  if (!cstems.size) return false;
+  for (const role of targetRoles || []) {
+    for (const w of titleTokens(role)) {
+      if (!GENERIC_ROLE_WORDS.has(w) && cstems.has(stem(w))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Classify a contact's referral-leverage tier from their title and the roles the
+ * target company is hiring for. Recruiter cues win over manager cues (a "Talent
+ * Acquisition Manager" is a recruiter, not the hiring manager). A manager whose
+ * title shares the target function is the hiring manager; a manager in an
+ * unrelated function, or a non-manager who shares the function, is a peer-level
+ * path. Pure; returns one of LEVERAGE_FACTOR's keys.
+ *
+ * Leverage is only meaningful *relative to a role*: a "manager" lift answers
+ * "do they likely own this req?", which needs the target role(s) to judge. So
+ * with no target roles, only the role-independent recruiter signal applies; the
+ * manager/peer lifts stay neutral. This also keeps a bare `warmthScore(contact,
+ * today)` exactly equal to the old strength × degree × recency formula.
+ */
+export function leverageTier(title, targetRoles = []) {
+  const t = String(title ?? '').trim();
+  if (!t) return 'neutral';
+  if (RECRUITER_CUES.some((re) => re.test(t))) return 'recruiter';
+  const roles = Array.isArray(targetRoles) ? targetRoles.filter(Boolean) : [];
+  if (!roles.length) return 'neutral'; // no role to judge leverage against
+  const isManager = MANAGER_CUES.some((re) => re.test(t));
+  const inFunction = sharesFunction(t, roles);
+  if (isManager) return inFunction ? 'manager' : 'peer';
+  if (inFunction) return 'peer';
+  return 'neutral';
+}
+
+/** Leverage multiplier for a contact relative to the target role(s). */
+export function leverageFactor(title, targetRoles = []) {
+  return LEVERAGE_FACTOR[leverageTier(title, targetRoles)] ?? LEVERAGE_FACTOR.neutral;
+}
 
 /** Normalize a free-text relationship into strong | medium | weak (default medium). */
 export function normalizeStrength(rel) {
@@ -116,15 +251,19 @@ export function recencyFactor(lastContact, todayStr) {
 /**
  * Compute a referral-warmth score for one contact (higher = better path in).
  * Pure: returns a number rounded to 2dp. `todayStr` is injected for testability
- * and may be omitted (recency then neutral).
+ * and may be omitted (recency then neutral). `targetRoles` are the role titles
+ * the contact's company is hiring for (used to read the contact's referral
+ * leverage); omit them and leverage stays neutral (back-compatible: a call with
+ * no roles scores exactly as the old strength × degree × recency formula did).
  */
-export function warmthScore(contact, todayStr) {
+export function warmthScore(contact, todayStr, targetRoles = []) {
   const strength = normalizeStrength(contact.relationship);
   const degree = normalizeDegree(contact.degree);
   const sw = STRENGTH_WEIGHT[strength] ?? STRENGTH_WEIGHT.medium;
   const df = DEGREE_FACTOR[degree] ?? DEGREE_FACTOR[1];
   const rf = recencyFactor(contact.lastContact, todayStr);
-  return Math.round(sw * df * rf * 100) / 100;
+  const lf = leverageFactor(contact.title, targetRoles);
+  return Math.round(sw * df * rf * lf * 100) / 100;
 }
 
 /* ───── Parse data/network.md ──────────────────────────────────────────────── */
@@ -272,12 +411,14 @@ export function matchNetworkToPipeline(contacts, pipeline, todayStr) {
     pipeByCompany.set(p.companyKey, arr);
   }
 
-  // Index contacts by company key, each carrying its computed warmth.
+  // Index contacts by company key. Warmth is computed *with* the roles that
+  // company is hiring for, so a contact's referral leverage (hiring manager /
+  // peer / recruiter) folds into their rank. For orphan companies (not in the
+  // pipeline) there are no target roles, so leverage stays neutral.
   const contactsByCompany = new Map();
   for (const c of contacts) {
-    const scored = { ...c, warmth: warmthScore(c, todayStr) };
     const arr = contactsByCompany.get(c.companyKey) || [];
-    arr.push(scored);
+    arr.push(c);
     contactsByCompany.set(c.companyKey, arr);
   }
 
@@ -286,7 +427,12 @@ export function matchNetworkToPipeline(contacts, pipeline, todayStr) {
 
   for (const [ck, cs] of contactsByCompany) {
     const targets = pipeByCompany.get(ck);
-    const ranked = cs.slice().sort(rankContacts);
+    const targetRoles = (targets || []).map((t) => t.role);
+    const scored = cs.map((c) => {
+      const tier = leverageTier(c.title, targetRoles);
+      return { ...c, warmth: warmthScore(c, todayStr, targetRoles), leverage: tier };
+    });
+    const ranked = scored.sort(rankContacts);
     if (!targets) {
       // Person you know at a company not in the pipeline — a latent lead.
       for (const c of ranked) orphanContacts.push(c);
@@ -300,6 +446,7 @@ export function matchNetworkToPipeline(contacts, pipeline, todayStr) {
       company: cs[0].company, // display name from the first contact's spelling
       companyKey: ck,
       bestWarmth: ranked[0].warmth,
+      bestLeverage: ranked[0].leverage,
       topScore: roles[0]?.score ?? 0,
       contacts: ranked,
       roles,
@@ -339,9 +486,19 @@ export function matchNetworkToPipeline(contacts, pipeline, todayStr) {
   };
 }
 
-/** Sort comparator: warmer first, then 1st-degree before 2nd, then by name. */
+/** Rank order for a leverage tier when warmth ties (manager > peer > … ). */
+const LEVERAGE_RANK = { manager: 3, peer: 2, neutral: 1, recruiter: 0 };
+
+/**
+ * Sort comparator: warmer first (warmth already folds in leverage), then by
+ * leverage tier (a hiring-manager path edges out an equal-warmth random tie),
+ * then 1st-degree before 2nd, then by name. Stable and total.
+ */
 function rankContacts(a, b) {
   if (b.warmth !== a.warmth) return b.warmth - a.warmth;
+  const la = LEVERAGE_RANK[a.leverage] ?? LEVERAGE_RANK.neutral;
+  const lb = LEVERAGE_RANK[b.leverage] ?? LEVERAGE_RANK.neutral;
+  if (lb !== la) return lb - la;
   if (a.degree !== b.degree) return a.degree - b.degree;
   return String(a.name).localeCompare(String(b.name));
 }
@@ -353,14 +510,19 @@ function rankContacts(a, b) {
  */
 export function pathsForCompany(companyName, contacts, pipeline, todayStr) {
   const ck = companyKey(companyName);
-  const ranked = contacts
-    .filter((c) => c.companyKey === ck)
-    .map((c) => ({ ...c, warmth: warmthScore(c, todayStr) }))
-    .sort(rankContacts);
   const roles = pipeline
     .filter((p) => p.companyKey === ck)
     .sort((a, b) => b.score - a.score)
     .map((p) => ({ role: p.role, score: p.score, source: p.source }));
+  const targetRoles = roles.map((r) => r.role);
+  const ranked = contacts
+    .filter((c) => c.companyKey === ck)
+    .map((c) => ({
+      ...c,
+      warmth: warmthScore(c, todayStr, targetRoles),
+      leverage: leverageTier(c.title, targetRoles),
+    }))
+    .sort(rankContacts);
   return {
     company: companyName,
     companyKey: ck,
@@ -373,13 +535,21 @@ export function pathsForCompany(companyName, contacts, pipeline, todayStr) {
 
 /* ───── A one-line, human-readable label for a referral path ─────────────────
  * Used by the CLI summary and re-usable by the mode/frontend. Explains WHY a
- * path ranks where it does, in plain words.
+ * path ranks where it does, in plain words — including the referral-leverage
+ * read (hiring manager / peer / recruiter) when it's known, so the user sees
+ * not just how warm a contact is but how useful they are for *this* role.
  */
+const LEVERAGE_LABEL = {
+  manager: 'likely hiring manager',
+  peer: 'peer on the team',
+  recruiter: 'recruiter / talent',
+};
 export function pathLabel(contact) {
   const deg = contact.degree === 2
     ? (contact.via ? `2nd-degree via ${contact.via}` : '2nd-degree (needs an intro)')
     : '1st-degree (direct)';
   const rel = `${contact.relationship} tie`;
   const title = contact.title ? ` · ${contact.title}` : '';
-  return `${contact.name}${title} — ${rel}, ${deg}`;
+  const lev = LEVERAGE_LABEL[contact.leverage] ? `, ${LEVERAGE_LABEL[contact.leverage]}` : '';
+  return `${contact.name}${title} — ${rel}, ${deg}${lev}`;
 }

@@ -131,7 +131,14 @@ function printSummary(res, today, totalContacts) {
     for (const m of res.matches) {
       const topRole = m.roles[0];
       const roleStr = topRole ? `${topRole.role} (${topRole.score}/10)` : '(no role)';
-      console.log(`\n  ${m.company} → ${roleStr}`);
+      // Flag the strongest referral path's leverage so the user sees at a glance
+      // whether their warmest contact here is actually a useful referrer.
+      const levTag = m.bestLeverage === 'manager'
+        ? '  [hiring-manager path]'
+        : m.bestLeverage === 'peer'
+          ? '  [peer referral path]'
+          : '';
+      console.log(`\n  ${m.company} → ${roleStr}${levTag}`);
       for (const ct of m.contacts) {
         console.log(`    • [${ct.warmth.toFixed(1)}] ${pathLabel(ct)}${ct.notes ? `  — ${ct.notes}` : ''}`);
       }
