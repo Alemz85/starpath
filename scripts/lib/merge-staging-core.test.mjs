@@ -18,6 +18,8 @@ import {
   mergeHistory,
   parsePipelineLine,
   filterPipelineLines,
+  seedScanSeen,
+  classifyScanOffer,
 } from './merge-staging-core.mjs';
 
 // scan-history.tsv: url, first_seen, portal, title, company, location, status, scan_dates
@@ -415,4 +417,126 @@ test('HISTORY_HEADER matches the canonical scan-history column order', () => {
     'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates'
   );
   assert.equal(HISTORY_HEADER.split('\t').length, 8);
+});
+
+// ── seedScanSeen (live ATS-scanner dedup seeding) ───────────────────────────
+test('seedScanSeen canonicalizes seed URLs into the dedup space', () => {
+  const { seenUrls } = seedScanSeen({
+    urls: ['https://x.com/job?utm_source=indeed', 'https://y.com/2#section'],
+  });
+  // tracking param stripped + fragment dropped → canonical form is in the set
+  assert.ok(seenUrls.has(canonicalizeUrl('https://x.com/job')));
+  assert.ok(seenUrls.has('https://y.com/2'));
+  // the raw (un-canonical) variant is NOT what's stored
+  assert.ok(!seenUrls.has('https://x.com/job?utm_source=indeed'));
+});
+
+test('seedScanSeen folds scan-history rows into BOTH url and (company,role) sets', () => {
+  const rows = [
+    row('https://boards.greenhouse.io/acme/jobs/1', 'Data Analyst', 'Acme'),
+    row('https://jobs.lever.co/globex/2', 'Product Manager', 'Globex'),
+  ];
+  const { seenUrls, seenKeys } = seedScanSeen({ historyRows: rows });
+  assert.ok(seenUrls.has(canonicalizeUrl('https://boards.greenhouse.io/acme/jobs/1')));
+  assert.ok(seenKeys.has(companyRoleKey('Acme', 'Data Analyst')));
+  assert.ok(seenKeys.has(companyRoleKey('Globex', 'Product Manager')));
+});
+
+test('seedScanSeen normalizes companyRolePairs (boilerplate-tolerant key)', () => {
+  const { seenKeys } = seedScanSeen({
+    companyRolePairs: [['Acme', 'Data Analyst (m/f/d)']],
+  });
+  // the (m/f/d) tag is stripped by canonicalizeRole → matches the bare role key
+  assert.ok(seenKeys.has(companyRoleKey('Acme', 'Data Analyst')));
+  // company punctuation/spacing variants collapse to the same key too
+  const { seenKeys: k2 } = seedScanSeen({ companyRolePairs: [['Acme, Inc.', 'Data Analyst']] });
+  assert.ok(k2.has(companyRoleKey('Acme Inc', 'Data Analyst')));
+});
+
+test('seedScanSeen ignores blank URLs and blank-keyed pairs', () => {
+  const { seenUrls, seenKeys } = seedScanSeen({
+    urls: ['', null],
+    companyRolePairs: [['', 'Role'], ['Acme', '']],
+  });
+  assert.equal(seenUrls.size, 0);
+  assert.equal(seenKeys.size, 0);
+});
+
+test('seedScanSeen returns empty sets for empty input', () => {
+  const { seenUrls, seenKeys } = seedScanSeen();
+  assert.equal(seenUrls.size, 0);
+  assert.equal(seenKeys.size, 0);
+});
+
+// ── classifyScanOffer (per-offer dedup decision) ────────────────────────────
+test('classifyScanOffer: genuinely new offer → new', () => {
+  const seen = { seenUrls: new Set(), seenKeys: new Set() };
+  const r = classifyScanOffer(
+    { url: 'https://x.com/1', company: 'Acme', title: 'Data Analyst' },
+    seen
+  );
+  assert.equal(r.decision, 'new');
+  assert.equal(r.canonicalUrl, 'https://x.com/1');
+  assert.equal(r.key, companyRoleKey('Acme', 'Data Analyst'));
+});
+
+test('classifyScanOffer: same canonical URL (tracking-param twin) → duplicate-url', () => {
+  const seen = {
+    seenUrls: new Set([canonicalizeUrl('https://x.com/1')]),
+    seenKeys: new Set(),
+  };
+  const r = classifyScanOffer(
+    { url: 'https://x.com/1?utm_source=lever', company: 'Acme', title: 'Data Analyst' },
+    seen
+  );
+  assert.equal(r.decision, 'duplicate-url');
+  assert.equal(r.canonicalUrl, 'https://x.com/1');
+});
+
+test('classifyScanOffer: same (company,role) under a different URL → duplicate-role', () => {
+  const seen = {
+    seenUrls: new Set(),
+    seenKeys: new Set([companyRoleKey('Acme', 'Data Analyst')]),
+  };
+  const r = classifyScanOffer(
+    { url: 'https://other.com/9', company: 'Acme', title: 'Data Analyst (m/f/d)' },
+    seen
+  );
+  // (m/f/d) variant collapses onto the bare role key → caught as a role dup
+  assert.equal(r.decision, 'duplicate-role');
+});
+
+test('classifyScanOffer: URL match takes precedence over role match', () => {
+  const seen = {
+    seenUrls: new Set([canonicalizeUrl('https://x.com/1')]),
+    seenKeys: new Set([companyRoleKey('Acme', 'Data Analyst')]),
+  };
+  const r = classifyScanOffer(
+    { url: 'https://x.com/1', company: 'Acme', title: 'Data Analyst' },
+    seen
+  );
+  assert.equal(r.decision, 'duplicate-url', 'URL precedence so re-seen rows get scan_dates bumped');
+});
+
+test('classifyScanOffer: blank-key offer with a new URL is still new (no false role-dup)', () => {
+  const seen = { seenUrls: new Set(), seenKeys: new Set(['anything']) };
+  const r = classifyScanOffer({ url: 'https://x.com/1', company: '', title: '' }, seen);
+  assert.equal(r.decision, 'new');
+  assert.equal(r.key, '');
+});
+
+test('classifyScanOffer matches mergeHistory precedence on the same inputs', () => {
+  // A role already in history under URL A; the scanner re-finds it under URL B.
+  // mergeHistory drops it as a (company,role) dup; classifyScanOffer must agree.
+  const existing = [row('https://a.com/1', 'Data Analyst', 'Acme')];
+  const stagingLine = row('https://b.com/2', 'Data Analyst', 'Acme');
+  const mh = mergeHistory(existing, [stagingLine], '2026-06-02');
+  assert.equal(mh.droppedDuplicateRole, 1, 'sanity: mergeHistory drops it');
+
+  const { seenUrls, seenKeys } = seedScanSeen({ historyRows: existing });
+  const r = classifyScanOffer(
+    { url: 'https://b.com/2', company: 'Acme', title: 'Data Analyst' },
+    { seenUrls, seenKeys }
+  );
+  assert.equal(r.decision, 'duplicate-role', 'classifyScanOffer agrees with mergeHistory');
 });
