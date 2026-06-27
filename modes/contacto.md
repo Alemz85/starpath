@@ -235,6 +235,26 @@ just the nudges). The cadence windows live in `scripts/outreach-core.mjs`
 (`CADENCE`): a LinkedIn connection request gets a longer leash (it's silent until
 accepted); a sent message/InMail/email gets a tighter, value-add nudge.
 
+**Leverage shapes the cadence — who you're chasing, and how hard.** The `Title`
+column you log (Step 3: Hiring Manager · Peer · Recruiter · Interviewer) sets a
+referral-leverage tier, mirroring Step 2's priority order (Hiring Manager > Peer
+> Recruiter). Two things follow from it, so the cadence agrees with how
+`network` ranks who's worth pursuing:
+- **The hiring manager earns one extra patient touch** before the thread goes
+  COLD — the person who owns the req can actually move you forward, so they're
+  worth a little more persistence than a recruiter who owns only logistics
+  (everyone else keeps the channel's base ceiling).
+- **The dashboard ranks due nudges by leverage**, not just by how overdue they
+  are, and names the single **most valuable nudge** at the top — so when several
+  are due you draft the hiring-manager one first. The `Lever` column shows each
+  contact's tier (`hiring-mgr` / `peer/ref` / `recruiter`); a neutral/unreadable
+  title leaves it blank.
+
+To get the lift, **log the contact type accurately in the `Title` column** — a
+clear "Hiring Manager" reads as the highest tier; a bare job title still
+classifies (a leadership title → manager, an IC role word → peer, a talent/HR
+title → recruiter), but the explicit label is the most reliable signal.
+
 ## Step 8 — Draft a nudge (for NUDGE-state contacts)
 
 Take a **new angle** — never resend the first message:
