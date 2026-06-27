@@ -25,7 +25,7 @@ Usage (run from repo root):
 import argparse
 import re
 import sys
-from datetime import date as _date
+from datetime import date as _date, datetime as _datetime, timezone as _timezone
 from pathlib import Path
 
 try:
@@ -272,6 +272,78 @@ def make_company_role_key(company: str, title: str) -> str:
     )
 
 
+# ── Posting-date recency (parity with scan-core.mjs › parsePostingDate) ──────
+#
+# JobSpy exposes the role's TRUE posting date per row (the `date` column, an
+# ISO YYYY-MM-DD string). The scanner stamps first_seen=today, so a job posted
+# 60 days ago that JobSpy surfaces today looks brand-new. We can't widen the
+# staging TSV schema here (the merge keys off fixed columns + the pipeline-line
+# format), but we CAN read the posting date to report a sourcing-quality signal:
+# what fraction of "new" rows are actually long-open reposts. That tells the
+# user (and a future scoring pass) how fresh this aggregator batch really is.
+
+
+def normalize_posting_date(raw) -> "str | None":
+    """Normalise a raw posting date to bare 'YYYY-MM-DD', or None.
+
+    Mirrors scan-core.mjs › parsePostingDate: accepts a bare date verbatim, an
+    ISO timestamp, or epoch seconds/ms; fails open (None) on anything dubious
+    (incl. pandas NaN / NaT, which compare unequal to themselves).
+    """
+    if raw is None:
+        return None
+    # pandas NaN / NaT are floats/objects that are not equal to themselves.
+    try:
+        if raw != raw:  # NaN/NaT
+            return None
+    except Exception:
+        pass
+
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return None
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            return s
+        if re.fullmatch(r"\d{10,}", s):  # epoch as string
+            raw = int(s)
+        else:
+            try:
+                dt = _datetime.fromisoformat(s.replace("Z", "+00:00"))
+                return dt.astimezone(_timezone.utc).date().isoformat()
+            except ValueError:
+                return None
+
+    if isinstance(raw, (int, float)):
+        try:
+            secs = raw / 1000.0 if abs(raw) >= 1e11 else float(raw)
+            return _datetime.fromtimestamp(secs, _timezone.utc).date().isoformat()
+        except (ValueError, OverflowError, OSError):
+            return None
+
+    # date / datetime objects
+    if isinstance(raw, _datetime):
+        return raw.astimezone(_timezone.utc).date().isoformat() if raw.tzinfo else raw.date().isoformat()
+    if isinstance(raw, _date):
+        return raw.isoformat()
+    return None
+
+
+def posting_age_days(posted_date: "str | None", today: str) -> "int | None":
+    """Whole days between a normalised posting date and `today` (YYYY-MM-DD).
+
+    None for unparseable input. Negative (future-dated) collapses to 0.
+    """
+    if not posted_date:
+        return None
+    try:
+        p = _date.fromisoformat(posted_date)
+        t = _date.fromisoformat(today)
+    except ValueError:
+        return None
+    return max(0, (t - p).days)
+
+
 def _load_tsv_urls(path: Path) -> set:
     """Extract the first tab-separated column (URL) from a TSV file."""
     urls = set()
@@ -500,6 +572,10 @@ def main() -> int:
     total_lang_filtered = 0
     total_loc_filtered = 0
     total_dupes = 0
+    # Recency accounting over the rows we KEPT (sourcing-quality signal).
+    kept_with_date = 0
+    kept_stale_repost = 0  # posted before the stale window (default 90d)
+    STALE_DAYS = 90
 
     capped = False
     for keyword in keywords:
@@ -565,6 +641,17 @@ def main() -> int:
                 intra_run_seen_urls.add(url)
                 intra_run_seen_company_role.add(role_key)
 
+                # Recency accounting: JobSpy gives the role's true posting date
+                # (the `date` column). We don't widen the staging schema, but we
+                # tally how many kept rows are long-open reposts so the summary
+                # reflects how fresh this aggregator batch actually is.
+                posted = normalize_posting_date(row.get("date"))
+                if posted is not None:
+                    kept_with_date += 1
+                    age = posting_age_days(posted, today)
+                    if age is not None and age > STALE_DAYS:
+                        kept_stale_repost += 1
+
                 new_rows.append({
                     "url": url,
                     "first_seen": today,
@@ -594,6 +681,14 @@ def main() -> int:
         f"{len(new_rows)} kept",
         flush=True,
     )
+    if kept_with_date:
+        pct = round(100 * kept_stale_repost / kept_with_date)
+        print(
+            f"[JobSpy] Recency: {kept_stale_repost}/{kept_with_date} kept rows "
+            f"are reposts older than {STALE_DAYS}d ({pct}%) — these are long-open "
+            f"listings, not fresh openings.",
+            flush=True,
+        )
 
     if args.dry_run:
         print(f"[JobSpy] Dry run complete. Would have staged {len(new_rows)} rows.",

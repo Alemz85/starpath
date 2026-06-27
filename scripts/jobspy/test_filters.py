@@ -42,6 +42,8 @@ derive_keywords_from_target_roles = _scan.derive_keywords_from_target_roles
 make_company_role_key = _scan.make_company_role_key
 _normalize_company = _scan._normalize_company
 _normalize_title = _scan._normalize_title
+normalize_posting_date = _scan.normalize_posting_date
+posting_age_days = _scan.posting_age_days
 
 
 # ── Word-boundary matching parity with scan-core.mjs ───────────────────────────
@@ -540,6 +542,68 @@ class TestDeriveKeywords(unittest.TestCase):
         result = derive_keywords_from_target_roles(["Strategy—Operations"])
         self.assertIn("Strategy", result)
         self.assertIn("Operations", result)
+
+
+# ── Posting-date recency (parity with scan-core.mjs › parsePostingDate) ────────
+#
+# JobSpy gives each row a true posting date. These pin normalization of the
+# shapes it can emit (bare date, ISO ts, epoch, NaN) and the age math used to
+# flag long-open reposts in the filter summary — mirroring scan-core.test.mjs.
+
+class TestNormalizePostingDate(unittest.TestCase):
+    def test_bare_date_passthrough(self):
+        self.assertEqual(normalize_posting_date("2026-06-01"), "2026-06-01")
+        self.assertEqual(normalize_posting_date("  2026-06-01  "), "2026-06-01")
+
+    def test_iso_timestamp_to_utc_date(self):
+        self.assertEqual(
+            normalize_posting_date("2026-06-01T09:00:00.000Z"), "2026-06-01"
+        )
+        # Late local time that rolls into the next UTC day renders in UTC.
+        self.assertEqual(
+            normalize_posting_date("2026-06-01T23:30:00-04:00"), "2026-06-02"
+        )
+
+    def test_epoch_ms_and_seconds(self):
+        from datetime import datetime, timezone
+        ms = int(datetime(2026, 6, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        self.assertEqual(normalize_posting_date(ms), "2026-06-01")
+        self.assertEqual(normalize_posting_date(str(ms)), "2026-06-01")
+        secs = ms // 1000  # 10-digit
+        self.assertEqual(normalize_posting_date(secs), "2026-06-01")
+
+    def test_date_objects(self):
+        from datetime import date, datetime, timezone
+        self.assertEqual(normalize_posting_date(date(2026, 6, 1)), "2026-06-01")
+        self.assertEqual(
+            normalize_posting_date(datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)),
+            "2026-06-01",
+        )
+
+    def test_junk_and_nan_fail_open(self):
+        self.assertIsNone(normalize_posting_date(None))
+        self.assertIsNone(normalize_posting_date(""))
+        self.assertIsNone(normalize_posting_date("not a date"))
+        self.assertIsNone(normalize_posting_date(float("nan")))
+
+
+class TestPostingAgeDays(unittest.TestCase):
+    def test_age_math(self):
+        self.assertEqual(posting_age_days("2026-06-01", "2026-06-01"), 0)
+        self.assertEqual(posting_age_days("2026-05-02", "2026-06-01"), 30)
+
+    def test_future_date_clamps_to_zero(self):
+        self.assertEqual(posting_age_days("2026-06-10", "2026-06-01"), 0)
+
+    def test_unparseable_is_none(self):
+        self.assertIsNone(posting_age_days(None, "2026-06-01"))
+        self.assertIsNone(posting_age_days("garbage", "2026-06-01"))
+
+    def test_stale_repost_threshold(self):
+        # A row posted 100 days before "today" is past the 90-day stale window.
+        age = posting_age_days("2026-02-21", "2026-06-01")
+        self.assertIsNotNone(age)
+        self.assertGreater(age, 90)
 
 
 if __name__ == "__main__":
