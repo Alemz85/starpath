@@ -34,6 +34,11 @@ import {
   rankOffers,
   formatRelevanceNote,
 } from './scan-core.mjs';
+import {
+  canonicalizeUrl,
+  seedScanSeen,
+  classifyScanOffer,
+} from './lib/merge-staging-core.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -270,8 +275,12 @@ const HISTORY_HEADER = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatu
 
 /**
  * Load scan-history.tsv into memory.
- * Returns { rows: string[], urlToIndex: Map<url, rowIndex> }
+ * Returns { rows: string[], urlToIndex: Map<canonicalUrl, rowIndex> }
  * Rows are the data lines (no header), ready to be mutated and re-saved.
+ *
+ * URLs are keyed under their CANONICAL form (canonicalizeUrl) so a re-seen
+ * posting whose URL only differs by a tracking param / redirect wrapper maps
+ * back onto the existing row — the same canonical space the dedup pass uses.
  */
 function loadHistory() {
   if (!existsSync(SCAN_HISTORY_PATH)) {
@@ -285,7 +294,7 @@ function loadHistory() {
   for (const line of lines.slice(1)) { // skip header
     if (!line.trim()) continue;
     const url = line.split('\t')[0];
-    if (url) urlToIndex.set(url, rows.length);
+    if (url) urlToIndex.set(canonicalizeUrl(url), rows.length);
     rows.push(line);
   }
 
@@ -321,9 +330,13 @@ function updateScanDates(rows, urlToIndex, reseenUrls, date) {
   }
 }
 
-function loadSeenUrls(historyUrlToIndex) {
-  // Start from history URLs
-  const seen = new Set(historyUrlToIndex.keys());
+/**
+ * Collect every raw URL already seen across pipeline.md + applications.md (the
+ * scan-history URLs are folded in separately via seedScanSeen's historyRows).
+ * Returned RAW — seedScanSeen canonicalizes them into the dedup space.
+ */
+function loadSeenUrls() {
+  const seen = new Set();
 
   // pipeline.md — extract URLs from checkbox lines
   if (existsSync(PIPELINE_PATH)) {
@@ -344,20 +357,26 @@ function loadSeenUrls(historyUrlToIndex) {
   return seen;
 }
 
+/**
+ * Collect [company, role] pairs already in applications.md (scan-history's own
+ * (company, role) keys are folded in by seedScanSeen via historyRows). Returned
+ * as raw tuples; seedScanSeen normalizes + canonicalizes them so a `(m/f/d)` /
+ * trailing-location title variant collapses onto the same dedup key.
+ */
 function loadSeenCompanyRoles() {
-  const seen = new Set();
+  const pairs = [];
   if (existsSync(APPLICATIONS_PATH)) {
     const text = readFileSync(APPLICATIONS_PATH, 'utf-8');
     // Parse markdown table rows: | # | Date | Company | Role | ...
     for (const match of text.matchAll(/\|[^|]+\|[^|]+\|\s*([^|]+)\s*\|\s*([^|]+)\s*\|/g)) {
-      const company = match[1].trim().toLowerCase();
-      const role = match[2].trim().toLowerCase();
-      if (company && role && company !== 'company') {
-        seen.add(`${company}::${role}`);
+      const company = match[1].trim();
+      const role = match[2].trim();
+      if (company && role && company.toLowerCase() !== 'company') {
+        pairs.push([company, role]);
       }
     }
   }
-  return seen;
+  return pairs;
 }
 
 // ── Pipeline writer ─────────────────────────────────────────────────
@@ -405,7 +424,7 @@ function appendToPipeline(offers) {
 /** Append new offer rows to the in-memory history rows array. */
 function addToHistory(rows, urlToIndex, offers, date) {
   for (const o of offers) {
-    urlToIndex.set(o.url, rows.length);
+    urlToIndex.set(canonicalizeUrl(o.url), rows.length);
     const location = (o.location || '').replace(/\t/g, ' '); // sanitize tabs
     rows.push(`${o.url}\t${date}\t${o.source}\t${o.title}\t${o.company}\t${location}\tadded\t${date}`);
   }
@@ -473,10 +492,17 @@ async function main() {
   console.log(`Scanning ${targets.length} companies via API (${skippedCount} skipped — no API detected)`);
   if (dryRun) console.log('(dry run — no files will be written)\n');
 
-  // 3. Load dedup sets
+  // 3. Load dedup sets — seeded through the SAME canonical primitives the
+  //    JobSpy merge path uses (canonicalizeUrl + companyRoleKey), so a re-seen
+  //    posting whose URL only differs by a tracking param, or a `(m/f/d)` /
+  //    trailing-location title variant of a role already in scan-history,
+  //    collapses onto the existing entry instead of re-entering the pipeline.
   const history = loadHistory();
-  const seenUrls = loadSeenUrls(history.urlToIndex);
-  const seenCompanyRoles = loadSeenCompanyRoles();
+  const { seenUrls, seenKeys } = seedScanSeen({
+    urls: loadSeenUrls(),                       // pipeline.md + applications.md URLs
+    historyRows: history.rows,                  // scan-history URLs + (company, role) keys
+    companyRolePairs: loadSeenCompanyRoles(),   // applications.md (company, role) pairs
+  });
 
   // 4. Fetch all APIs
   const date = new Date().toISOString().slice(0, 10);
@@ -520,23 +546,27 @@ async function main() {
           totalLocationFiltered++;
           continue;
         }
-        if (seenUrls.has(job.url)) {
+        // Canonical dedup: exact (canonical) URL first, then normalized
+        // (company, role). Mirrors mergeHistory's precedence so the live
+        // scanner and the merge path agree on "already seen".
+        const { decision, canonicalUrl, key } = classifyScanOffer(job, { seenUrls, seenKeys });
+        if (decision === 'duplicate-url') {
           totalDupes++;
-          // Track for scan_dates update if URL came from history (not pipeline/apps)
-          if (history.urlToIndex.has(job.url)) {
-            reseenUrls.add(job.url);
+          // Bump scan_dates only when the canonical URL is a known scan-history
+          // row (not a pipeline/apps-only URL we don't own).
+          if (history.urlToIndex.has(canonicalUrl)) {
+            reseenUrls.add(canonicalUrl);
             totalReseen++;
           }
           continue;
         }
-        const key = `${job.company.toLowerCase()}::${job.title.toLowerCase()}`;
-        if (seenCompanyRoles.has(key)) {
+        if (decision === 'duplicate-role') {
           totalDupes++;
           continue;
         }
-        // Mark as seen to avoid intra-scan dupes
-        seenUrls.add(job.url);
-        seenCompanyRoles.add(key);
+        // New: mark as seen (canonical) to avoid intra-scan dupes.
+        seenUrls.add(canonicalUrl);
+        if (key) seenKeys.add(key);
         newOffers.push({ ...job, source: `${type}-api` });
         kept++;
       }

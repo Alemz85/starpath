@@ -323,6 +323,96 @@ export function mergeHistory(existingRows, stagingLines, today) {
   };
 }
 
+// ── Live ATS-scanner dedup (scan.mjs) ───────────────────────────────────────
+//
+// scan.mjs hits Greenhouse/Ashby/Lever/Workday/SmartRecruiters directly and used
+// to dedup with two *un-canonicalized* checks of its own:
+//   • URLs by RAW string equality (so a tracking-param or redirect twin of a
+//     URL already in history slipped through as "new"), and
+//   • (company, role) by a bare `company.toLowerCase()::title.toLowerCase()` key
+//     seeded ONLY from applications.md — so a role already discovered in
+//     scan-history under a slightly different URL, or a `(m/f/d)` / trailing-
+//     location title variant, was re-added on every scan.
+//
+// That left the highest-volume *canonical* source (the ATS scanner) on a weaker
+// dedup standard than the JobSpy merge path, which already canonicalizes URLs
+// (canonicalizeUrl) and roles (companyRoleKey → canonicalizeRole). The two
+// helpers below let scan.mjs reuse the SAME canonical primitives so all three
+// sourcing paths (ATS live, JobSpy staging, the merge) agree on what "already
+// seen" means. Pure + unit-tested; scan.mjs keeps only the file IO.
+
+/**
+ * Seed the canonical "already seen" sets for the live ATS scanner from the
+ * strings it can cheaply collect off disk:
+ *   - `urls`: every URL already known (scan-history rows + pipeline + apps), and
+ *   - `keys`: every (company, role) pair already known.
+ *
+ * URLs are stored under their CANONICAL form (canonicalizeUrl) so a re-seen
+ * posting whose URL only differs by a tracking param / redirect wrapper still
+ * matches. `historyRows` (raw scan-history TSV data lines) additionally
+ * contribute their (company, role) keys via indexHistory — the bit scan.mjs
+ * used to miss by reading company/role dedup from applications.md alone.
+ *
+ * @param {object} [opts]
+ * @param {Iterable<string>} [opts.urls] raw URLs already seen anywhere
+ * @param {string[]} [opts.historyRows] raw scan-history.tsv data lines (no header)
+ * @param {Iterable<[string,string]>} [opts.companyRolePairs] extra `[company, role]`
+ *        tuples (e.g. parsed from applications.md)
+ * @returns {{seenUrls: Set<string>, seenKeys: Set<string>}}
+ */
+export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [] } = {}) {
+  const seenUrls = new Set();
+  for (const u of urls) {
+    if (u) seenUrls.add(canonicalizeUrl(u));
+  }
+  const seenKeys = new Set();
+  // Scan-history rows contribute BOTH their canonical URLs (so a re-seen
+  // posting maps back onto its row) and their (company, role) keys (the
+  // cross-run safety net scan.mjs used to miss by reading role dedup from
+  // applications.md alone). indexHistory canonicalizes URLs the same way.
+  if (historyRows.length) {
+    const { urlToIndex, companyRoleSeen } = indexHistory(historyRows);
+    for (const u of urlToIndex.keys()) seenUrls.add(u);
+    for (const k of companyRoleSeen) seenKeys.add(k);
+  }
+  for (const [company, role] of companyRolePairs) {
+    const key = companyRoleKey(company, role);
+    if (key) seenKeys.add(key);
+  }
+  return { seenUrls, seenKeys };
+}
+
+/**
+ * Decide what to do with one freshly-fetched ATS offer, applying the SAME
+ * canonical dedup precedence the merge path uses:
+ *
+ *   1. canonical URL already seen     → 'duplicate-url'  (re-seen; bump scan_dates)
+ *   2. canonical (company, role) seen → 'duplicate-role' (cross-URL/boilerplate dup; skip)
+ *   3. otherwise                      → 'new'            (keep)
+ *
+ * Pure and side-effect-free. The caller owns mutation: on 'new' it should add
+ * the returned `canonicalUrl` and `key` to the seen sets so later offers in the
+ * same scan dedup against it (matching the previous intra-scan behaviour). The
+ * returned `canonicalUrl` is also what the caller compares against the history
+ * URL→index map to decide whether a 'duplicate-url' is a known-history re-seen
+ * (bump scan_dates) versus a pipeline/apps URL it shouldn't touch.
+ *
+ * @param {{url?:string, company?:string, title?:string}} offer
+ * @param {{seenUrls:Set<string>, seenKeys:Set<string>}} seen
+ * @returns {{decision:'new'|'duplicate-url'|'duplicate-role', canonicalUrl:string, key:string}}
+ */
+export function classifyScanOffer(offer, { seenUrls, seenKeys }) {
+  const canonicalUrl = canonicalizeUrl(offer?.url || '');
+  const key = companyRoleKey(offer?.company || '', offer?.title || '');
+  if (canonicalUrl && seenUrls.has(canonicalUrl)) {
+    return { decision: 'duplicate-url', canonicalUrl, key };
+  }
+  if (key && seenKeys.has(key)) {
+    return { decision: 'duplicate-role', canonicalUrl, key };
+  }
+  return { decision: 'new', canonicalUrl, key };
+}
+
 const PIPELINE_LINE_RE = /- \[[ x]\] (https?:\/\/\S+)(?:\s*\|\s*([^|]*?)\s*\|\s*(.*))?$/;
 
 /** Parse a staging pipeline line `- [ ] URL | Company | Title`. */
