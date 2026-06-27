@@ -17,6 +17,7 @@ import { DatabaseView } from '@/components/database/DatabaseView'
 import { ReportsView } from '@/components/reports/ReportsView'
 import { TrendsView } from '@/components/trends/TrendsView'
 import { ScoreTrendView } from '@/components/scoretrend/ScoreTrendView'
+import { PipelineView } from '@/components/pipeline/PipelineView'
 import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
 import { ConfigurationView } from '@/components/configuration/ConfigurationView'
@@ -84,6 +85,7 @@ export function AppShell() {
           {view === 'reports'  && <ReportsView />}
           {view === 'trends'   && <TrendsView />}
           {view === 'scoretrend' && <ScoreTrendView />}
+          {view === 'pipeline' && <PipelineView />}
           {view === 'scan'     && <ScanView />}
           {view === 'config'   && <ConfigurationView />}
           {view === 'settings' && <SettingsView />}

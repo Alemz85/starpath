@@ -14,6 +14,7 @@ import {
   FileText,
   TrendingUp,
   Route,
+  GitBranch,
   Scale,
   Search,
   Settings,
@@ -63,6 +64,7 @@ const SECONDARY_NAV: NavItem[] = [
   { view: 'reports',    label: 'Reports',     icon: FileText   },
   { view: 'trends',     label: 'Trends',      icon: TrendingUp },
   { view: 'scoretrend', label: 'Score Trend', icon: Route      },
+  { view: 'pipeline',   label: 'Pipeline',    icon: GitBranch  },
   { view: 'scan',       label: 'Activity',    icon: Activity   },
 ]
 
