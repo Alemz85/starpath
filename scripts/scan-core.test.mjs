@@ -18,6 +18,7 @@ import {
   isAllowedLocation,
   ageInDays,
   freshnessBucket,
+  parsePostingDate,
   DEFAULT_LOCATION_ALLOWLIST,
   scoreRelevance,
   rankOffers,
@@ -237,6 +238,51 @@ test('freshnessBucket: custom thresholds respected', () => {
   assert.equal(freshnessBucket('2026-06-17', { now: NOW, freshDays: 7 }), 'recent');  // 8d
 });
 
+// ── parsePostingDate: normalize the varied ATS date shapes ────────────────────
+//
+// The whole point of capturing the true posting date is to feed it to the
+// freshness signal — so it must collapse Greenhouse/Ashby ISO timestamps,
+// Lever's epoch ms, and JobSpy's bare date to one comparable YYYY-MM-DD, and
+// fail-open (null) on anything dubious so the caller falls back to first_seen.
+
+test('parsePostingDate: bare YYYY-MM-DD passes through verbatim', () => {
+  assert.equal(parsePostingDate('2026-06-01'), '2026-06-01');
+  assert.equal(parsePostingDate('  2026-06-01  '), '2026-06-01'); // trimmed
+});
+
+test('parsePostingDate: ISO timestamps (Greenhouse/Ashby) → UTC date', () => {
+  assert.equal(parsePostingDate('2026-06-01T09:00:00.000Z'), '2026-06-01');
+  // An offset that does NOT cross midnight in UTC stays on the same day.
+  assert.equal(parsePostingDate('2026-06-01T09:00:00-04:00'), '2026-06-01');
+  // Late-evening local time that rolls into the next UTC day renders in UTC.
+  assert.equal(parsePostingDate('2026-06-01T23:30:00-04:00'), '2026-06-02');
+});
+
+test('parsePostingDate: epoch milliseconds (Lever createdAt)', () => {
+  // 2026-06-01T00:00:00Z = 1780272000000 ms
+  const ms = Date.UTC(2026, 5, 1);
+  assert.equal(parsePostingDate(ms), '2026-06-01');
+  assert.equal(parsePostingDate(String(ms)), '2026-06-01'); // numeric string too
+});
+
+test('parsePostingDate: epoch seconds (10-digit) treated as seconds', () => {
+  const secs = Math.floor(Date.UTC(2026, 5, 1) / 1000); // 10-digit
+  assert.equal(parsePostingDate(secs), '2026-06-01');
+  assert.equal(parsePostingDate(String(secs)), '2026-06-01');
+});
+
+test('parsePostingDate: Date instance is accepted', () => {
+  assert.equal(parsePostingDate(new Date('2026-06-01T12:00:00Z')), '2026-06-01');
+});
+
+test('parsePostingDate: junk / empty / nullish → null (fail-open)', () => {
+  assert.equal(parsePostingDate(null), null);
+  assert.equal(parsePostingDate(undefined), null);
+  assert.equal(parsePostingDate(''), null);
+  assert.equal(parsePostingDate('not a date'), null);
+  assert.equal(parsePostingDate(NaN), null);
+});
+
 // ── Relevance ranking ─────────────────────────────────────────────────────────
 //
 // scoreRelevance / rankOffers turn the binary "keep" into a transparent, ranked
@@ -305,16 +351,88 @@ test('scoreRelevance: seniority_boost is finally wired up (counted once)', () =>
 
 test('scoreRelevance: freshness adds fresh > recent > (stale/unknown = 0)', () => {
   const tf = { positive: ['Analyst'] };
+  // No postedDate → freshness comes from firstSeen (scan date). No stale penalty
+  // here: we never punish a role for an old *scan* date, only an old *post* date.
   const fresh = scoreRelevance({ title: 'Analyst', firstSeen: '2026-06-25' }, tf, { now: NOW });
   const recent = scoreRelevance({ title: 'Analyst', firstSeen: '2026-05-01' }, tf, { now: NOW });
   const stale = scoreRelevance({ title: 'Analyst', firstSeen: '2026-01-01' }, tf, { now: NOW });
   assert.equal(fresh.signals.freshness, 'fresh');
   assert.equal(recent.signals.freshness, 'recent');
   assert.equal(stale.signals.freshness, 'stale');
-  // 1.0 base + freshness contribution (1.5 / 0.5 / 0)
+  assert.equal(fresh.signals.postedDateKnown, false);
+  // 1.0 base + freshness contribution (1.5 / 0.5 / 0 — no stale penalty without a post date)
   assert.equal(fresh.score, 2.5);
   assert.equal(recent.score, 1.5);
   assert.equal(stale.score, 1.0);
+  // firstSeen-only freshness is phrased as "listed", not "posted" (it's a scan signal).
+  assert.ok(fresh.reasons.includes('newly listed'));
+  assert.ok(recent.reasons.includes('recently listed'));
+});
+
+test('scoreRelevance: a true postedDate overrides firstSeen for freshness', () => {
+  const tf = { positive: ['Analyst'] };
+  // Classic sourcing false positive: first SEEN today (scan), but actually
+  // POSTED 60 days ago. firstSeen alone would call it fresh; the post date
+  // correctly downgrades it to a confirmed-stale repost (penalty applies).
+  const r = scoreRelevance(
+    { title: 'Analyst', firstSeen: '2026-06-25', postedDate: '2026-01-01' },
+    tf,
+    { now: NOW },
+  );
+  assert.equal(r.signals.freshness, 'stale');
+  assert.equal(r.signals.postedDateKnown, true);
+  // 1.0 base + staleRepost (-1.0) = 0.0
+  assert.equal(r.score, 0.0);
+  assert.ok(r.reasons.includes('stale repost (long open)'));
+});
+
+test('scoreRelevance: postedDate within fresh window → "freshly posted"', () => {
+  const tf = { positive: ['Analyst'] };
+  const r = scoreRelevance(
+    { title: 'Analyst', firstSeen: '2026-06-25', postedDate: '2026-06-20' },
+    tf,
+    { now: NOW },
+  );
+  assert.equal(r.signals.freshness, 'fresh');
+  assert.equal(r.signals.postedDateKnown, true);
+  assert.equal(r.score, 2.5); // 1.0 base + 1.5 fresh
+  assert.ok(r.reasons.includes('freshly posted'));
+});
+
+test('scoreRelevance: postedDate accepts epoch ms (Lever) and ISO ts', () => {
+  const tf = { positive: ['Analyst'] };
+  const ms = Date.UTC(2026, 5, 20); // 2026-06-20, within fresh window
+  const lever = scoreRelevance({ title: 'Analyst', postedDate: ms }, tf, { now: NOW });
+  const ashby = scoreRelevance(
+    { title: 'Analyst', postedDate: '2026-06-20T08:00:00.000Z' }, tf, { now: NOW },
+  );
+  assert.equal(lever.signals.freshness, 'fresh');
+  assert.equal(ashby.signals.freshness, 'fresh');
+  assert.equal(lever.score, 2.5);
+  assert.equal(ashby.score, 2.5);
+});
+
+test('scoreRelevance: a true post date reorders a same-scan batch', () => {
+  // The headline win: every offer is first-seen today, so without the post date
+  // they all score identically on freshness. With it, the genuinely-new posting
+  // outranks the long-open repost even though both were SCANNED today.
+  const tf = { positive: ['Analyst'] };
+  const offers = [
+    { url: 'old', company: 'C', title: 'Analyst', firstSeen: '2026-06-25', postedDate: '2026-01-01' }, // stale repost
+    { url: 'new', company: 'C', title: 'Analyst', firstSeen: '2026-06-25', postedDate: '2026-06-24' }, // posted yesterday
+  ];
+  const ranked = rankOffers(offers, tf, { now: NOW });
+  assert.deepEqual(ranked.map(o => o.url), ['new', 'old']);
+  assert.ok(ranked[0].relevance.score > ranked[1].relevance.score);
+});
+
+test('resolveRelevanceWeights: staleRepost is a penalty — clamped ≤ 0', () => {
+  // A positive override would invert the penalty into a reward; it's rejected.
+  const bad = resolveRelevanceWeights({ staleRepost: 2 });
+  assert.equal(bad.staleRepost, DEFAULT_RELEVANCE_WEIGHTS.staleRepost);
+  // A stronger (more negative) penalty is honored.
+  const strong = resolveRelevanceWeights({ staleRepost: -3 });
+  assert.equal(strong.staleRepost, -3);
 });
 
 test('scoreRelevance: a named target city scores; country/remote/unknown do not', () => {
