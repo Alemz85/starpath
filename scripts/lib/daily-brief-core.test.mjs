@@ -15,6 +15,9 @@ import {
   newHitItems,
   insightItems,
   deadlineItems,
+  patternHeadsUp,
+  globalPriority,
+  pickTopAction,
   buildPipelineHealthSummary,
   assembleBrief,
   renderBrief,
@@ -528,4 +531,197 @@ test('SECTION_ORDER contains deadlines between followups and outreach', () => {
   const oi = SECTION_ORDER.indexOf('outreach')
   assert.ok(fi < di, 'followups should come before deadlines')
   assert.ok(di < oi, 'deadlines should come before outreach')
+})
+
+/* ───── patternHeadsUp ──────────────────────────────────────────────────────*/
+
+test('patternHeadsUp surfaces the first high-impact recommendation', () => {
+  const patterns = {
+    metadata: { total: 14 },
+    recommendations: [
+      { action: 'Set minimum score threshold at 3.6/5', reasoning: 'No positive outcomes below 3.6.', impact: 'medium' },
+      { action: 'Tighten location filters — 36% hit a geo-restriction blocker', reasoning: '5 of 14 are US-only.', impact: 'high' },
+    ],
+  }
+  const items = patternHeadsUp(patterns)
+  assert.equal(items.length, 1)
+  // prefers the high-impact one even though it's second in the list
+  assert.match(items[0].sub, /geo-restriction blocker/)
+  assert.match(items[0].sub, /5 of 14 are US-only/) // reasoning appended
+  assert.equal(items[0].meta.impact, 'high')
+  assert.equal(items[0].meta.kind, 'pattern-recommendation')
+})
+
+test('patternHeadsUp falls back to the first rec when none are high-impact', () => {
+  const items = patternHeadsUp({
+    recommendations: [
+      { action: 'Double down on Strategy roles', reasoning: '40% conversion.', impact: 'medium' },
+      { action: 'Avoid global-remote roles', reasoning: '0% conversion.', impact: 'medium' },
+    ],
+  })
+  assert.equal(items.length, 1)
+  assert.match(items[0].sub, /Double down on Strategy roles/)
+  assert.equal(items[0].meta.impact, 'medium')
+})
+
+test('patternHeadsUp tolerates error / empty / missing input', () => {
+  assert.deepEqual(patternHeadsUp(null), [])
+  assert.deepEqual(patternHeadsUp({ error: 'Not enough data' }), [])
+  assert.deepEqual(patternHeadsUp({}), [])
+  assert.deepEqual(patternHeadsUp({ recommendations: [] }), [])
+  // a malformed rec (no action) yields nothing rather than a half-rendered note
+  assert.deepEqual(patternHeadsUp({ recommendations: [{ reasoning: 'x', impact: 'high' }] }), [])
+})
+
+test('patternHeadsUp is an insight-kind section (a note, never an action)', () => {
+  const brief = assembleBrief(
+    { patterns: { recommendations: [{ action: 'Tighten filters', reasoning: 'waste', impact: 'high' }] } },
+    { asOf: '2026-06-25' },
+  )
+  const headsup = brief.sections.find((s) => s.id === 'headsup')
+  assert.ok(headsup)
+  assert.equal(headsup.kind, 'insight')
+  assert.equal(headsup.items.length, 1)
+  // does NOT inflate the action scoreboard
+  assert.equal(brief.totalActions, 0)
+  assert.equal(brief.topAction, null)
+})
+
+test('renderBrief renders the heads-up section as prose', () => {
+  const brief = assembleBrief(
+    { patterns: { recommendations: [{ action: 'Tighten location filters', reasoning: 'wasted effort', impact: 'high' }] } },
+    { asOf: '2026-06-25' },
+  )
+  const md = renderBrief(brief)
+  assert.match(md, /## Heads-up from your outcomes/)
+  assert.match(md, /Tighten location filters/)
+})
+
+/* ───── globalPriority — cross-section time-criticality ─────────────────────*/
+
+test('globalPriority: deadlines are scaled by days-left and clamped', () => {
+  assert.equal(globalPriority('deadlines', { meta: { daysLeft: 0 } }), 0) // closes today
+  assert.equal(globalPriority('deadlines', { meta: { daysLeft: 3 } }), 3)
+  assert.equal(globalPriority('deadlines', { meta: { daysLeft: -2 } }), 0) // missed → most urgent
+  assert.equal(globalPriority('deadlines', { meta: { daysLeft: 200 } }), 60) // clamped
+})
+
+test('globalPriority: any deadline ≤ 60d outranks every follow-up', () => {
+  const farDeadline = globalPriority('deadlines', { meta: { daysLeft: 60 } })
+  const urgentFollowup = globalPriority('followups', { urgency: 0, meta: { daysSince: 0 } })
+  assert.ok(farDeadline < urgentFollowup, '60d deadline (60) should beat urgent follow-up (100)')
+})
+
+test('globalPriority: urgent follow-ups outrank overdue follow-ups', () => {
+  const urgent = globalPriority('followups', { urgency: 0, meta: { daysSince: 1 } })
+  const overdue = globalPriority('followups', { urgency: 1, meta: { daysSince: 20 } })
+  assert.ok(urgent < overdue, 'urgent band (100s) should beat overdue band (200s)')
+})
+
+test('globalPriority: more-days-overdue follow-up surfaces before less-overdue', () => {
+  const more = globalPriority('followups', { urgency: 1, meta: { daysSince: 30 } })
+  const less = globalPriority('followups', { urgency: 1, meta: { daysSince: 9 } })
+  assert.ok(more < less, 'more days overdue → smaller priority')
+})
+
+test('globalPriority: obligations (follow-ups, outreach) outrank opportunities (new hits)', () => {
+  const overdueFollowup = globalPriority('followups', { urgency: 1, meta: { daysSince: 9 } })
+  const outreach = globalPriority('outreach', { meta: { daysSince: 9 } })
+  const strongHit = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 9.5 } })
+  assert.ok(overdueFollowup < outreach, 'follow-up band (200s) before outreach band (300s)')
+  assert.ok(outreach < strongHit, 'outreach band (300s) before new-hits band (400s)')
+})
+
+test('globalPriority: scored new hits outrank needs-eval, higher score first', () => {
+  const strong = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 9 } })
+  const weakish = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 7 } })
+  const unscored = globalPriority('newhits', { meta: { kind: 'needs-eval' } })
+  assert.ok(strong < weakish, 'higher score → smaller priority')
+  assert.ok(weakish < unscored, 'scored (400s) before needs-eval (450s)')
+})
+
+test('globalPriority: unknown section is lowest priority', () => {
+  assert.equal(globalPriority('mystery', { meta: {} }), 999)
+})
+
+/* ───── pickTopAction — cross-section ranking ───────────────────────────────*/
+
+function actionSections(over = {}) {
+  // Minimal action-section list shaped like assembleBrief's `sections`.
+  const base = { followups: [], deadlines: [], outreach: [], newhits: [], headsup: [], insight: [] }
+  const items = { ...base, ...over }
+  return [
+    { id: 'followups', title: 'Follow-ups due', kind: 'action', items: items.followups },
+    { id: 'deadlines', title: 'Deadlines closing soon', kind: 'action', items: items.deadlines },
+    { id: 'outreach', title: 'Outreach nudges due', kind: 'action', items: items.outreach },
+    { id: 'newhits', title: 'Fresh high-fit postings', kind: 'action', items: items.newhits },
+    { id: 'headsup', title: 'Heads-up from your outcomes', kind: 'insight', items: items.headsup },
+    { id: 'insight', title: 'Standing positioning note', kind: 'insight', items: items.insight },
+  ]
+}
+
+test('pickTopAction: a deadline closing soon beats a mildly-overdue follow-up', () => {
+  // This is the headline behavior change — section order would pick the follow-up.
+  const sections = actionSections({
+    followups: [{ label: 'Acme — Analyst', urgency: 1, meta: { daysSince: 9 } }],
+    deadlines: [{ label: 'Beta — Lead', urgency: 0, meta: { daysLeft: 3 } }],
+  })
+  const top = pickTopAction(sections)
+  assert.equal(top.section, 'deadlines')
+  assert.equal(top.item.label, 'Beta — Lead')
+})
+
+test('pickTopAction: an extremely overdue follow-up still loses to a near deadline', () => {
+  const sections = actionSections({
+    followups: [{ label: 'Acme — Analyst', urgency: 1, meta: { daysSince: 60 } }],
+    deadlines: [{ label: 'Beta — Lead', urgency: 1, meta: { daysLeft: 28 } }],
+  })
+  // deadline 28 (band 28) < overdue follow-up (band ~239) → deadline wins
+  assert.equal(pickTopAction(sections).section, 'deadlines')
+})
+
+test('pickTopAction: with no deadline, the urgent follow-up wins', () => {
+  const sections = actionSections({
+    followups: [{ label: 'Acme — Analyst', urgency: 0, meta: { daysSince: 1 } }],
+    outreach: [{ label: 'Gamma — PM', meta: { daysSince: 14 } }],
+    newhits: [{ label: 'Delta — Growth', meta: { kind: 'prioritize', overall: 9 } }],
+  })
+  const top = pickTopAction(sections)
+  assert.equal(top.section, 'followups')
+})
+
+test('pickTopAction: ignores insight-kind sections and returns null when no actions', () => {
+  const sections = actionSections({
+    headsup: [{ label: 'lesson', meta: {} }],
+    insight: [{ label: 'note', meta: {} }],
+  })
+  assert.equal(pickTopAction(sections), null)
+})
+
+test('pickTopAction: exposes the numeric priority on the result', () => {
+  const sections = actionSections({
+    deadlines: [{ label: 'Beta — Lead', urgency: 0, meta: { daysLeft: 5 } }],
+  })
+  const top = pickTopAction(sections)
+  assert.equal(top.priority, 5)
+})
+
+/* ───── assembleBrief — cross-section top action (integration) ──────────────*/
+
+test('assembleBrief top action prefers a soon deadline over an overdue follow-up', () => {
+  const brief = assembleBrief({
+    followupResult: { entries: [{ company: 'Acme', role: 'Analyst', status: 'applied', urgency: 'overdue', daysSinceApplication: 11, followupCount: 0, contacts: [] }] },
+    classifiedDeadlines: {
+      asOf: '2026-06-25',
+      buckets: {
+        urgent: [{ source: 'scouting', num: 1, company: 'Beta', role: 'Lead', tier: 'T1', deadline: '2026-06-29', parsed: { kind: 'date', iso: '2026-06-29' }, daysLeft: 4 }],
+        near: [], medium: [], far: [], rolling: [], missed: [],
+      },
+      counts: { urgent: 1, near: 0, medium: 0, far: 0, rolling: 0, missed: 0, unknown: 0 },
+    },
+  }, { asOf: '2026-06-25' })
+  assert.equal(brief.topAction.section, 'deadlines')
+  assert.equal(brief.topAction.item.label, 'Beta — Lead')
+  // the overdue follow-up is still listed in its own section
+  assert.equal(brief.counts.followups, 1)
 })
