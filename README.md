@@ -152,7 +152,7 @@ All scripts are in `scripts/`. Run them from the repo root:
 | `npm run compare-offers` | Compare two or more offers side-by-side (CLI wrapper for `modes/ofertas`) |
 | `npm run calibrate` | Run the scoring-calibration advisor |
 | `npm run whats-new` | Fresh-hit digest: what's new and worth your time since the last scan |
-| `npm run brief` | Daily "what should I do now?" brief (deadlines + follow-ups + outreach + fresh hits) |
+| `npm run brief` | Daily "what should I do now?" brief (deadlines + follow-ups + outreach nudges + warm referral paths + fresh hits + inbox triage) |
 | `npm test` | Unit tests for all `scripts/**/*.test.mjs` files |
 | `npm run test:all` | Full test suite including integration fixtures |
 

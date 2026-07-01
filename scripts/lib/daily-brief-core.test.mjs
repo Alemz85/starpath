@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 import {
   followupItems,
   outreachItems,
+  warmPathItems,
   newHitItems,
   insightItems,
   deadlineItems,
@@ -630,7 +631,7 @@ test('globalPriority: obligations (follow-ups, outreach) outrank opportunities (
   const outreach = globalPriority('outreach', { meta: { daysSince: 9 } })
   const strongHit = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 9.5 } })
   assert.ok(overdueFollowup < outreach, 'follow-up band (200s) before outreach band (300s)')
-  assert.ok(outreach < strongHit, 'outreach band (300s) before new-hits band (400s)')
+  assert.ok(outreach < strongHit, 'outreach band (300s) before new-hits band (500s)')
 })
 
 test('globalPriority: scored new hits outrank needs-eval, higher score first', () => {
@@ -638,7 +639,7 @@ test('globalPriority: scored new hits outrank needs-eval, higher score first', (
   const weakish = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 7 } })
   const unscored = globalPriority('newhits', { meta: { kind: 'needs-eval' } })
   assert.ok(strong < weakish, 'higher score → smaller priority')
-  assert.ok(weakish < unscored, 'scored (400s) before needs-eval (450s)')
+  assert.ok(weakish < unscored, 'scored (500s) before needs-eval (550s)')
 })
 
 test('globalPriority: unknown section is lowest priority', () => {
@@ -753,10 +754,10 @@ test('triageItems handles null input and label fallbacks', () => {
   assert.equal(items[0].label, 'https://x.io')
 })
 
-test('globalPriority: triage sits in the 5xx band, higher score first, below newhits', () => {
+test('globalPriority: triage sits in the 6xx band, higher score first, below newhits', () => {
   const high = globalPriority('triage', { meta: { score: 6.5 } })
   const low = globalPriority('triage', { meta: { score: 1.0 } })
-  assert.ok(high >= 500 && high < 600)
+  assert.ok(high >= 600 && high < 700)
   assert.ok(high < low)
   // Any fresh posting beats any triage pick.
   assert.ok(globalPriority('newhits', { meta: { kind: 'needs-eval', overall: 0 } }) < high)
@@ -787,4 +788,102 @@ test('a triage pick becomes the top action only when nothing else exists', () =>
   assert.equal(brief.topAction.item.label, 'Acme — Strategy Analyst')
   const md = renderBrief(brief)
   assert.match(md, /\*\*Do this first:\*\* \*\*\[Acme — Strategy Analyst\]\(https:\/\/a\.io\/1\)\*\*/)
+})
+
+/* ───── warmPathItems — untouched warm referral paths ────────────────────────*/
+
+const warmOpps = [
+  {
+    company: 'Vandelay',
+    play: 'warm-direct',
+    target: { name: 'Dana Fox', title: 'Head of Strategy', leverage: 'manager', warmth: 3.9, degree: 1, via: null },
+    topRole: { role: 'Strategy Analyst', score: 8.7, source: 'application' },
+    reason: 'Dana Fox is your warmest untouched path in (strong tie, manager).',
+    channel: 'Direct message / email',
+    cautions: [],
+    counts: { paths: 2, untouched: 1 },
+  },
+  {
+    company: 'Globex',
+    play: 'warm-intro',
+    target: { name: 'Kim Osei', title: 'Ops Manager', leverage: 'peer', warmth: 1.2, degree: 2, via: 'Dana Fox' },
+    topRole: { role: 'Ops Associate', score: 7.4, source: 'scouting' },
+    reason: 'Kim Osei is a 2nd-degree path.',
+    channel: 'Ask Dana Fox for the introduction',
+    cautions: ['Cold thread — do not re-touch: Raj Patel.'],
+    counts: { paths: 2, untouched: 1 },
+  },
+  {
+    company: 'Initech',
+    play: 'warm-direct',
+    target: { name: 'Ana Ruiz', title: null, leverage: 'neutral', warmth: 2.0, degree: 1, via: null },
+    topRole: { role: 'Analyst', score: 0, source: 'scouting' },
+    reason: 'x',
+    channel: 'y',
+    cautions: [],
+    counts: { paths: 1, untouched: 1 },
+  },
+]
+
+test('warmPathItems: warm-direct says who to message; warm-intro names the bridge', () => {
+  const items = warmPathItems(warmOpps)
+  assert.equal(items.length, 3)
+  assert.equal(items[0].label, 'Vandelay — Strategy Analyst')
+  assert.match(items[0].sub, /Message Dana Fox \(Head of Strategy\) directly — untouched 1st-degree tie/)
+  assert.match(items[0].sub, /8\.7\/10 role/)
+  assert.equal(items[0].meta.kind, 'warm-direct')
+  assert.match(items[1].sub, /Ask Dana Fox for an intro to Kim Osei \(Ops Manager\) — 2nd-degree bridge/)
+  assert.equal(items[1].meta.via, 'Dana Fox')
+  assert.deepEqual(items[1].meta.cautions, ['Cold thread — do not re-touch: Raj Patel.'])
+})
+
+test('warmPathItems: unscored role gets no score suffix; input order is preserved; cap applies', () => {
+  const items = warmPathItems(warmOpps)
+  assert.equal(items[2].label, 'Initech — Analyst')
+  assert.doesNotMatch(items[2].sub, /\/10 role/)
+  const capped = warmPathItems(warmOpps, { maxWarmPaths: 1 })
+  assert.equal(capped.length, 1)
+  assert.equal(capped[0].meta.contact, 'Dana Fox')
+})
+
+test('warmPathItems tolerates null/empty input', () => {
+  assert.deepEqual(warmPathItems(null), [])
+  assert.deepEqual(warmPathItems([]), [])
+})
+
+test('globalPriority: warm paths sit in the 4xx band — after any nudge, before any fresh posting', () => {
+  const warm = globalPriority('warmpaths', { meta: { roleScore: 8.7 } })
+  assert.ok(warm >= 400 && warm < 500)
+  // Even a just-due nudge (0d overdue → worst outreach priority) beats a warm path…
+  assert.ok(globalPriority('outreach', { meta: { daysSince: 0 } }) < warm)
+  // …and even a perfect-score fresh posting loses to any warm path.
+  assert.ok(warm < globalPriority('newhits', { meta: { kind: 'prioritize', overall: 10 } }))
+  // Higher target-role score → earlier within the band.
+  assert.ok(warm < globalPriority('warmpaths', { meta: { roleScore: 6.0 } }))
+})
+
+test('assembleBrief folds warm paths in; a due nudge still wins the top action', () => {
+  const brief = assembleBrief({
+    warmOutreach: warmOpps,
+    outreachResult: { entries: [{ company: 'Acme', role: 'PM', contact: 'Jo', channel: 'Email', action: 'nudge', daysSince: 6, reason: 'No reply yet' }] },
+  }, { asOf: '2026-07-02' })
+  assert.equal(brief.counts.warmpaths, 3)
+  assert.equal(brief.topAction.section, 'outreach')
+  const md = renderBrief(brief)
+  assert.match(md, /## Warm outreach paths/)
+  assert.match(md, /\*\*Vandelay — Strategy Analyst\*\* — Message Dana Fox/)
+  // Section order: nudges render before warm paths.
+  assert.ok(md.indexOf('## Outreach nudges due') < md.indexOf('## Warm outreach paths'))
+})
+
+test('a warm path becomes the top action when only opportunities exist', () => {
+  const brief = assembleBrief({
+    warmOutreach: warmOpps,
+    digest: { items: [{}], prioritize: [{ company: 'X', title: 'Analyst', overall: 9.9, band: 'strong' }], needsEval: [] },
+    triage: [{ url: 'https://a.io/1', company: 'Acme', title: 'Analyst', triageScore: 9.0, triageReasons: [], bucket: 'deep-eval' }],
+  }, { asOf: '2026-07-02' })
+  assert.equal(brief.topAction.section, 'warmpaths')
+  assert.equal(brief.topAction.item.meta.contact, 'Dana Fox')
+  const md = renderBrief(brief)
+  assert.match(md, /\*\*Do this first:\*\* \*\*Vandelay — Strategy Analyst\*\* — Message Dana Fox/)
 })
