@@ -179,7 +179,7 @@ There is **one evaluation mode** (`scouting`). Per-listing follow-up actions (Ta
 - **Frontend cache:** the Electron app mirrors `data/*` and `reports/**` into a SQLite cache at `{userData}/cache.db` for fast queries. It is fully derived from the Markdown/TSV files and rebuilds on launch via mtime comparison + a chokidar watcher. Markdown/TSV remain canonical; backend modes (Claude) never read or write the cache. See `frontend/ARCHITECTURE.md`.
 
 - **RULE: After each batch of evaluations, run `node scripts/merge-tracker.mjs`** to merge tracker additions and avoid duplications.
-- **RULE for backend modes: NEVER create new entries in applications.md if company+role already exists.** Update the existing entry. (The frontend Apply button currently appends without this check — same-role re-evaluation across years is a known gap; manual cleanup if it happens.)
+- **RULE for backend modes: NEVER create new entries in applications.md if company+role already exists.** Update the existing entry. (The frontend Apply button enforces the same rule — `upsertApplicationRow` in `frontend/src/lib/applicationsDoc.ts` refreshes an existing (company, role) row in place instead of appending a duplicate.)
 
 ### TSV Format for Tracker Additions
 
