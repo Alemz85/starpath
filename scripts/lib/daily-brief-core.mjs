@@ -3,9 +3,12 @@
 // Several read-only analysis cores already exist, each answering one slice of
 // "where does my search stand":
 //
-//   • whats-new-core.mjs    — fresh, high-fit postings since the last scan.
-//   • followup-cadence.mjs  — applications whose follow-up is due/overdue.
-//   • outreach-core.mjs     — outreach threads where a nudge is due now.
+//   • whats-new-core.mjs      — fresh, high-fit postings since the last scan.
+//   • followup-cadence.mjs    — applications whose follow-up is due/overdue.
+//   • outreach-core.mjs       — outreach threads where a nudge is due now.
+//   • warm-outreach-core.mjs  — untouched warm referral paths into pipeline
+//                               companies (warm-direct / warm-intro first touches
+//                               vetted by the outreach-plan decision ladder).
 //   • positioning-core.mjs  — the one standing targeting insight across the corpus.
 //   • deadlines-core.mjs    — closing-date urgency bucketing (import-only, never modified).
 //   • analyze-patterns.mjs  — one learned targeting lesson from outcomes (a "stop
@@ -42,18 +45,24 @@
  *                (urgent ≤ 7d first, then near 8–30d). Pure from deadlines-core
  *                classified output — import-only.
  *   outreach   — outreach threads where a nudge is due now.
+ *   warmpaths  — untouched warm referral paths into pipeline companies (a
+ *                warm-direct / warm-intro first touch recommended by the
+ *                outreach-plan decision ladder). The highest-ROI opportunity
+ *                move — but still an opportunity, so it renders after the
+ *                open-thread obligations above.
  *   newhits    — fresh, high-fit postings worth evaluating/applying to.
  *   headsup    — one learned targeting lesson from rejection/outcome patterns
  *                ("stop wasting effort on X"). A note, not a to-do.
  *   insight    — one standing positioning insight (not an item to "do today",
  *                but the lens to keep in mind while doing the above).
  */
-export const SECTION_ORDER = ['followups', 'deadlines', 'outreach', 'newhits', 'triage', 'headsup', 'insight']
+export const SECTION_ORDER = ['followups', 'deadlines', 'outreach', 'warmpaths', 'newhits', 'triage', 'headsup', 'insight']
 
 export const SECTION_META = {
   followups: { title: 'Follow-ups due', kind: 'action' },
   deadlines: { title: 'Deadlines closing soon', kind: 'action' },
   outreach: { title: 'Outreach nudges due', kind: 'action' },
+  warmpaths: { title: 'Warm outreach paths', kind: 'action' },
   newhits: { title: 'Fresh high-fit postings', kind: 'action' },
   triage: { title: 'Deep-eval next (inbox triage)', kind: 'action' },
   headsup: { title: 'Heads-up from your outcomes', kind: 'insight' },
@@ -154,6 +163,49 @@ export function outreachItems(outreachResult) {
     })
   }
   return items.sort((a, b) => b.sortKey - a.sortKey)
+}
+
+/**
+ * Warm-path items from warm-outreach-core.warmOutreachOpportunities output.
+ * Each opportunity is an untouched warm first touch (warm-direct / warm-intro)
+ * into a pipeline company, pre-filtered by the outreach-plan decision ladder:
+ * due nudges live in the `outreach` section, live threads block the company
+ * entirely, and exhausted (cold) contacts are never targets. So every item here
+ * is safe to act on as-is. Input arrives ranked highest-value first (role score,
+ * then warmth) — we keep that order and just cap for scannability.
+ *
+ * @param {Array|null} opportunities  warmOutreachOpportunities() output
+ * @param {object} opts               { maxWarmPaths = 3 }
+ */
+export function warmPathItems(opportunities, { maxWarmPaths = 3 } = {}) {
+  if (!Array.isArray(opportunities)) return []
+  return opportunities.slice(0, maxWarmPaths).map((o) => {
+    const t = o.target || {}
+    const who = t.name || 'contact'
+    const title = t.title ? ` (${t.title})` : ''
+    const action = o.play === 'warm-intro'
+      ? `Ask ${t.via || 'your mutual contact'} for an intro to ${who}${title} — 2nd-degree bridge`
+      : `Message ${who}${title} directly — untouched 1st-degree tie`
+    const roleScore = o.topRole && Number.isFinite(o.topRole.score) ? o.topRole.score : null
+    const scoreSuffix = roleScore && roleScore > 0 ? ` · ${roleScore.toFixed(1)}/10 role` : ''
+    return {
+      key: `warmpath|${(o.company || '').toLowerCase()}|${who.toLowerCase()}`,
+      label: o.topRole && o.topRole.role ? `${o.company} — ${o.topRole.role}` : o.company,
+      sub: `${action}${scoreSuffix}`,
+      urgency: 0,
+      sortKey: roleScore ?? 0,
+      meta: {
+        kind: o.play, // 'warm-direct' | 'warm-intro'
+        company: o.company,
+        contact: who,
+        via: t.via || null,
+        warmth: t.warmth ?? null,
+        leverage: t.leverage || null,
+        roleScore,
+        cautions: o.cautions || [],
+      },
+    }
+  })
 }
 
 /**
@@ -465,12 +517,17 @@ export function patternHeadsUp(patterns) {
  *   2xx  Overdue follow-ups — your application has gone quiet past cadence.
  *        Tier band 200–299, more-days-overdue first.
  *   3xx  Outreach nudges — a warm thread to keep alive. Tier band 300–399.
- *   4xx  Fresh high-fit postings — opportunity, not obligation; never decays as
+ *   4xx  Warm outreach paths — an untouched warm referral path into a pipeline
+ *        company (warm-direct / warm-intro). The highest-ROI *opportunity* —
+ *        a referral beats any cold move — but nothing decays if it waits a day,
+ *        so every open-thread obligation above still wins. Tier band 400–499,
+ *        higher target-role score first.
+ *   5xx  Fresh high-fit postings — opportunity, not obligation; never decays as
  *        fast as an open thread. Prioritized hits (scored) before needs-eval.
- *        Tier band 400–499, higher score first.
- *   5xx  Inbox triage — the deterministic "deep-eval next" ranking. Purely
+ *        Tier band 500–599, higher score first.
+ *   6xx  Inbox triage — the deterministic "deep-eval next" ranking. Purely
  *        prospective (nothing is waiting on the user), so it only becomes the
- *        top action when nothing above exists. Tier band 500–599, higher
+ *        top action when nothing above exists. Tier band 600–699, higher
  *        triage score first.
  *
  * This is intentionally a coarse, explainable ladder (deadlines > obligations >
@@ -510,19 +567,26 @@ export function globalPriority(sectionId, item) {
     return 300 + Math.max(0, 99 - Math.min(days, 99))
   }
 
+  if (sectionId === 'warmpaths') {
+    // Band 400–499 — higher target-role score → earlier (a referral matters
+    // most where the fit is best). Scores are 0–10; ×10 spreads the band.
+    const score = Number.isFinite(meta.roleScore) ? meta.roleScore : 0
+    return 400 + Math.max(0, 99 - Math.min(Math.round(score * 10), 99))
+  }
+
   if (sectionId === 'newhits') {
     // Prioritized (scored) hits before needs-eval; higher score → earlier.
-    // Band 400–449 for scored, 450–499 for needs-eval.
-    const base = meta.kind === 'needs-eval' ? 450 : 400
+    // Band 500–549 for scored, 550–599 for needs-eval.
+    const base = meta.kind === 'needs-eval' ? 550 : 500
     const score = Number.isFinite(meta.overall) ? meta.overall : 0
     return base + Math.max(0, 49 - Math.min(Math.round(score * 5), 49))
   }
 
   if (sectionId === 'triage') {
-    // Band 500–599 — higher triage score → earlier. Scores are small floats
+    // Band 600–699 — higher triage score → earlier. Scores are small floats
     // (typically 0–10); ×10 spreads them across the band.
     const score = Number.isFinite(meta.score) ? meta.score : 0
-    return 500 + Math.max(0, 99 - Math.min(Math.round(score * 10), 99))
+    return 600 + Math.max(0, 99 - Math.min(Math.round(score * 10), 99))
   }
 
   return 999 // unknown section → lowest priority
@@ -562,6 +626,7 @@ export function pickTopAction(sections) {
  *   - digest               whats-new buildDigest output (or null)
  *   - followupResult       followup-cadence analysis output (or null)
  *   - outreachResult       outreach classifyAll output (or null)
+ *   - warmOutreach         warm-outreach-core warmOutreachOpportunities() output (or null)
  *   - positioningIntel     positioning-core positioningIntel output (or null)
  *   - classifiedDeadlines  deadlines-core.classifyDeadlines output (or null)
  *   - triage               triage-core triagePending() ranked entries (or null)
@@ -571,6 +636,7 @@ export function pickTopAction(sections) {
  *   - period    'daily' | 'weekly' (label only; affects the header wording)
  *   - maxPrioritize / maxNeedsEval  caps passed to newHitItems
  *   - maxUrgent / maxNear          caps passed to deadlineItems
+ *   - maxWarmPaths                 cap passed to warmPathItems
  *
  * @returns {object} brief:
  *   { asOf, period, sections: [{ id, title, kind, items }], counts, totalActions,
@@ -584,6 +650,7 @@ export function assembleBrief(inputs = {}, opts = {}) {
     followups: followupItems(inputs.followupResult),
     deadlines: deadlineItems(inputs.classifiedDeadlines, opts),
     outreach: outreachItems(inputs.outreachResult),
+    warmpaths: warmPathItems(inputs.warmOutreach, opts),
     newhits: newHitItems(inputs.digest, opts),
     triage: triageItems(inputs.triage, opts),
     headsup: patternHeadsUp(inputs.patterns),
@@ -641,7 +708,7 @@ export function renderBrief(brief) {
 
   // ── Headline: the one thing to do, + a scoreboard. ──
   if (brief.totalActions === 0) {
-    L.push('_Nothing time-sensitive right now._ No due follow-ups, deadline pressure, outreach nudges, or fresh high-fit postings.')
+    L.push('_Nothing time-sensitive right now._ No due follow-ups, deadline pressure, outreach nudges, warm paths to open, or fresh high-fit postings.')
     L.push('')
   } else {
     if (brief.topAction) {
