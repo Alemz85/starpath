@@ -402,7 +402,7 @@ process_offer() {
       if (( $(echo "$score < $MIN_SCORE" | bc -l) )); then
         update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "$score" "below-min-score" "$retries"
         echo "    ⏭️  Skipped (score: $score < min-score: $MIN_SCORE)"
-        continue
+        return 0
       fi
     fi
 
@@ -460,7 +460,7 @@ print_summary() {
   if (( score_count > 0 )); then
     local avg
     avg=$(echo "scale=1; $score_sum / $score_count" | bc 2>/dev/null || echo "N/A")
-    echo "Average score: $avg/5 ($score_count scored)"
+    echo "Average score: $avg/10 ($score_count scored)"
   fi
 }
 
