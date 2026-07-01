@@ -1,6 +1,9 @@
 import type Database from 'better-sqlite3'
 
-export const SCHEMA_VERSION = 3
+// v4: pipeline table gains company/title/relevance columns parsed from the
+// scanner-written pending lines (the Inbox ranks on them). Any version bump
+// drops + rebuilds every table from the canonical markdown/TSV on next launch.
+export const SCHEMA_VERSION = 4
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (
@@ -77,9 +80,13 @@ const TABLES = [
   )`,
 
   `CREATE TABLE IF NOT EXISTS pipeline (
-    url        TEXT PRIMARY KEY,
-    added_date TEXT,
-    is_stale   INTEGER NOT NULL DEFAULT 0
+    url            TEXT PRIMARY KEY,
+    added_date     TEXT,
+    is_stale       INTEGER NOT NULL DEFAULT 0,
+    company        TEXT,
+    title          TEXT,
+    relevance      REAL,
+    relevance_note TEXT
   )`,
 
   `CREATE TABLE IF NOT EXISTS reports_index (

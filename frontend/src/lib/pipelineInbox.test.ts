@@ -35,15 +35,17 @@ test('inboxSource returns empty string for an unparseable URL', () => {
 
 // ─── classifyInboxItem ────────────────────────────────────────────────────────
 
+const none = () => new Set<string>()
+
 test('classifyInboxItem flags a malformed line as invalid', () => {
-  const item = classifyInboxItem(url('local:jds/foo.md'), new Set())
+  const item = classifyInboxItem(url('local:jds/foo.md'), none(), none())
   assert.equal(item.reason, 'invalid')
   assert.equal(item.companyHint, null)
   assert.equal(item.source, '')
 })
 
 test('classifyInboxItem marks a fresh unknown URL as new', () => {
-  const item = classifyInboxItem(url('https://boards.greenhouse.io/acme/jobs/1'), new Set())
+  const item = classifyInboxItem(url('https://boards.greenhouse.io/acme/jobs/1'), none(), none())
   assert.equal(item.reason, 'new')
   assert.equal(item.companyHint, 'Acme')
   assert.equal(item.source, 'greenhouse.io')
@@ -52,17 +54,48 @@ test('classifyInboxItem marks a fresh unknown URL as new', () => {
 test('classifyInboxItem marks a URL whose company we already know as known', () => {
   // The known set holds normalized company keys (lowercased, role-stripped).
   const known = new Set(['acme'])
-  const item = classifyInboxItem(url('https://boards.greenhouse.io/acme/jobs/1'), known)
+  const item = classifyInboxItem(url('https://boards.greenhouse.io/acme/jobs/1'), known, none())
   assert.equal(item.reason, 'known')
 })
 
 test('classifyInboxItem carries through stale + addedDate', () => {
   const item = classifyInboxItem(
     url('https://jobs.ashbyhq.com/acme/x', { isStale: true, addedDate: '2026-01-02' }),
-    new Set(),
+    none(), none(),
   )
   assert.equal(item.isStale, true)
   assert.equal(item.addedDate, '2026-01-02')
+})
+
+test('classifyInboxItem prefers the scanner-parsed company over the URL hint', () => {
+  const item = classifyInboxItem(
+    url('https://careers.example-jobs.dev/12345', { company: 'Acme GmbH', title: 'Data Analyst' }),
+    none(), none(),
+  )
+  assert.equal(item.companyHint, 'Acme GmbH')
+  assert.equal(item.title, 'Data Analyst')
+})
+
+test('classifyInboxItem seeds triageScore from scan relevance with a reasons trail', () => {
+  const item = classifyInboxItem(
+    url('https://lever.co/acme/x', { relevance: 4.5, relevanceNote: 'fresh' }),
+    none(), none(),
+  )
+  assert.equal(item.triageScore, 4.5)
+  assert.match(item.scoreReasons.join(' '), /scan relevance 4\.5/)
+  // Manual adds (no relevance) start at 0 with an explanatory reason.
+  const manual = classifyInboxItem(url('https://lever.co/acme/y'), none(), none())
+  assert.equal(manual.triageScore, 0)
+  assert.match(manual.scoreReasons.join(' '), /no scan relevance/)
+})
+
+test('classifyInboxItem demotes senior titles and nudges entry-level ones', () => {
+  const senior = classifyInboxItem(
+    url('https://lever.co/a/x', { title: 'Senior Ops Lead', relevance: 3 }), none(), none())
+  assert.equal(senior.triageScore, -1)   // 3 − 4
+  const entry = classifyInboxItem(
+    url('https://lever.co/a/y', { title: 'Graduate Analyst', relevance: 3 }), none(), none())
+  assert.equal(entry.triageScore, 4)     // 3 + 1
 })
 
 // ─── buildInbox ───────────────────────────────────────────────────────────────
@@ -84,24 +117,47 @@ test('buildInbox derives the known set from applications AND scouting', () => {
   assert.equal(byHint['Initech'], 'new')
 })
 
-test('buildInbox orders fresh-new before known before stale before invalid', () => {
+test('buildInbox orders by triage score, invalid always last', () => {
   const pending = [
-    url('bad-line'),                                     // invalid → last
-    url('https://lever.co/known-co/x'),                  // known
-    url('https://lever.co/fresh-co/y'),                  // new
-    url('https://lever.co/stale-co/z', { isStale: true }), // stale new
+    url('bad-line'),                                        // invalid → last
+    url('https://lever.co/known-co/x'),                     // known (−1)
+    url('https://lever.co/fresh-co/y'),                     // new (0)
+    url('https://lever.co/stale-co/z', { isStale: true }),  // stale new (−2)
   ]
   const out = buildInbox(pending, [makeApplication({ company: 'Known Co' })], [])
-  // Half-step rule: fresh-new = 0, stale-new = 0.5, known = 1.0, invalid = 3.
-  // So a stale 'new' (0.5) still beats a 'known' (1.0).
-  assert.deepEqual(
-    out.map(i => i.reason),
-    ['new', 'new', 'known', 'invalid'],
-  )
-  assert.equal(out[0].companyHint, 'Fresh Co')   // fresh new
-  assert.equal(out[1].companyHint, 'Stale Co')   // stale new (0.5) beats known (1.0)
-  assert.equal(out[2].companyHint, 'Known Co')   // known
+  // Score rule: fresh-new 0 > known −1 > stale-new −2 > invalid (pinned last).
+  // A stale posting is likely closed, so it now sinks below a live known one.
+  assert.equal(out[0].companyHint, 'Fresh Co')
+  assert.equal(out[1].companyHint, 'Known Co')
+  assert.equal(out[2].companyHint, 'Stale Co')
   assert.equal(out[3].reason, 'invalid')
+})
+
+test('buildInbox lets scan relevance outrank category demotions', () => {
+  const pending = [
+    url('https://lever.co/fresh-co/y'),                                      // new, no relevance → 0
+    url('https://lever.co/known-co/x', { relevance: 5.0 }),                  // known → 5 − 1 = 4
+  ]
+  const out = buildInbox(pending, [makeApplication({ company: 'Known Co' })], [])
+  assert.equal(out[0].companyHint, 'Known Co')   // strong scan signal wins
+  assert.equal(out[0].triageScore, 4)
+})
+
+test('buildInbox demotes an exact (company, role) repost as evaluated', () => {
+  const pending = [
+    url('https://lever.co/acme/repost', { company: 'Acme', title: 'Strategy Analyst', relevance: 4 }),
+    url('https://lever.co/acme/new-role', { company: 'Acme', title: 'Data Analyst', relevance: 1 }),
+  ]
+  const out = buildInbox(
+    pending,
+    [],
+    [makeScoutingEntry({ company: 'Acme', role: 'Strategy Analyst' })],
+  )
+  // Exact repost: 4 − 5 = −1; same company, different role: 1 − 1 = 0.
+  assert.equal(out[0].title, 'Data Analyst')
+  assert.equal(out[0].reason, 'known')
+  assert.equal(out[1].title, 'Strategy Analyst')
+  assert.equal(out[1].reason, 'evaluated')
 })
 
 test('buildInbox is a stable sort within a priority bucket', () => {
@@ -116,17 +172,22 @@ test('buildInbox is a stable sort within a priority bucket', () => {
 
 // ─── inboxStats ───────────────────────────────────────────────────────────────
 
-test('inboxStats counts fresh excluding stale-new', () => {
+test('inboxStats counts fresh excluding stale-new, folding evaluated into known', () => {
+  const mk = (over: Partial<InboxItem>): InboxItem => ({
+    url: 'u', companyHint: 'X', source: 's', isStale: false, reason: 'new',
+    triageScore: 0, scoreReasons: [], ...over,
+  })
   const items: InboxItem[] = [
-    { url: 'a', companyHint: 'A', source: 's', isStale: false, reason: 'new' },
-    { url: 'b', companyHint: 'B', source: 's', isStale: true,  reason: 'new' },
-    { url: 'c', companyHint: 'C', source: 's', isStale: false, reason: 'known' },
-    { url: 'd', companyHint: null, source: '',  isStale: false, reason: 'invalid' },
+    mk({ url: 'a' }),
+    mk({ url: 'b', isStale: true }),
+    mk({ url: 'c', reason: 'known' }),
+    mk({ url: 'e', reason: 'evaluated' }),
+    mk({ url: 'd', companyHint: null, source: '', reason: 'invalid' }),
   ]
   const stats = inboxStats(items)
-  assert.equal(stats.total, 4)
+  assert.equal(stats.total, 5)
   assert.equal(stats.fresh, 1)    // only the non-stale 'new'
-  assert.equal(stats.known, 1)
+  assert.equal(stats.known, 2)    // 'known' + 'evaluated'
   assert.equal(stats.stale, 1)
   assert.equal(stats.invalid, 1)
 })

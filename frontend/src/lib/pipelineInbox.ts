@@ -21,9 +21,11 @@ import type { PipelineUrl, ApplicationEntry, ScoutingEntry } from '@/types'
 //   'known'       → the company already appears in applications/scouting, so this
 //                   is likely a second posting from a name we've already judged —
 //                   useful context, lower triage priority.
+//   'evaluated'   → this exact (company, role) already has a scored entry —
+//                   almost certainly a repost/dupe; lowest live priority.
 //   'invalid'     → not a parseable http(s) URL (a malformed pipeline.md line);
 //                   surfaced so the user can clean it up rather than silently drop.
-export type InboxReason = 'new' | 'known' | 'invalid'
+export type InboxReason = 'new' | 'known' | 'evaluated' | 'invalid'
 
 export interface InboxItem {
   /** The raw URL exactly as it sits in pipeline.md (the dedup + dismiss key). */
@@ -32,6 +34,8 @@ export interface InboxItem {
    *  host is opaque (e.g. a bare ATS id with no company segment). Display hint
    *  only — the real name comes from the JD scrape at evaluation time. */
   companyHint: string | null
+  /** Role title from the scanner-written pipeline line, when present. */
+  title?: string
   /** Short, human-readable host label for grouping/scanning (e.g.
    *  "greenhouse.io", "lever.co"), or '' when the URL doesn't parse. */
   source: string
@@ -40,12 +44,18 @@ export interface InboxItem {
   /** When the URL was added to the inbox, if known. */
   addedDate?: string
   reason: InboxReason
+  /** Deterministic triage score — orders the queue best-first. Mirrors the
+   *  renderer-available half of scripts/lib/triage-core.mjs's signal set. */
+  triageScore: number
+  /** Named contributions behind triageScore, for the row tooltip. */
+  scoreReasons: string[]
 }
 
 // A barely-readable host → "is this a name we already know?" check. We match on
-// the company hint because a pending URL almost never shares an exact string
-// with an applications.md row (different ATS host, redirect, etc.), but the
-// company name is the stable join the rest of the app keys on (livenessKey).
+// the parsed company (or the URL hint as fallback) because a pending URL almost
+// never shares an exact string with an applications.md row (different ATS host,
+// redirect, etc.), but the company name is the stable join the rest of the app
+// keys on (livenessKey).
 function buildKnownCompanySet(
   applications: ApplicationEntry[],
   scouting: ScoutingEntry[],
@@ -53,6 +63,19 @@ function buildKnownCompanySet(
   const set = new Set<string>()
   for (const a of applications) set.add(normalizeCompany(a.company))
   for (const s of scouting) set.add(normalizeCompany(s.company))
+  return set
+}
+
+// Exact (company, role) keys of everything already scored — a pending URL that
+// hits this set is almost certainly a repost of an entry we've judged. Same
+// fold as livenessKey so the verdict agrees with the Database's join.
+function buildEvaluatedKeySet(
+  applications: ApplicationEntry[],
+  scouting: ScoutingEntry[],
+): Set<string> {
+  const set = new Set<string>()
+  for (const a of applications) set.add(livenessKey(a.company, a.role))
+  for (const s of scouting) set.add(livenessKey(s.company, s.role))
   return set
 }
 
@@ -84,10 +107,29 @@ export function inboxSource(url: string): string {
   }
 }
 
-// Classify one pending URL against what we already know. Pure.
+// ─── Triage scoring ───────────────────────────────────────────────────────────
+
+// Renderer-side mirror of the signal weights in scripts/lib/triage-core.mjs
+// (the CLI adds scan-history freshness + profile.yml company boosts, which the
+// renderer doesn't have; the shared signals use the same magnitudes so the two
+// rankings agree in shape). Senior titles are a safety net behind the scan
+// filter; 'evaluated' is the exact-dupe demotion.
+const TRIAGE_WEIGHTS = {
+  entryTitle: 1,
+  seniorTitle: -4,
+  knownCompany: -1,
+  alreadyEvaluated: -5,
+  stale: -2,
+}
+
+const SENIOR_TITLE_RE = /\b(senior|sr\.?|lead|principal|staff|director|head of|vp|vice president)\b/i
+const ENTRY_TITLE_RE = /\b(intern(ship)?|graduate|grad|junior|trainee|werkstudent|working student|early careers?|rotational|associate program(me)?)\b/i
+
+// Classify + score one pending URL against what we already know. Pure.
 export function classifyInboxItem(
   pending: PipelineUrl,
   knownCompanies: Set<string>,
+  evaluatedKeys: Set<string>,
 ): InboxItem {
   const url = pending.url
   if (!isValidHttpUrl(url)) {
@@ -98,51 +140,83 @@ export function classifyInboxItem(
       isStale: pending.isStale,
       addedDate: pending.addedDate,
       reason: 'invalid',
+      triageScore: 0,
+      scoreReasons: ['malformed pipeline.md line'],
     }
   }
-  const companyHint = guessCompanyFromUrl(url)
-  const known = companyHint != null && knownCompanies.has(normalizeCompany(companyHint))
+
+  // Prefer the scanner-parsed company; the URL hint is the manual-add fallback.
+  const companyHint = pending.company || guessCompanyFromUrl(url)
+  const title = pending.title
+
+  const reasons: string[] = []
+  let score = 0
+  if (pending.relevance != null) {
+    score += pending.relevance
+    reasons.push(`scan relevance ${pending.relevance.toFixed(1)}`)
+  } else {
+    reasons.push('no scan relevance (manual add)')
+  }
+
+  let reason: InboxReason = 'new'
+  if (companyHint != null && title && evaluatedKeys.has(livenessKey(companyHint, title))) {
+    reason = 'evaluated'
+    score += TRIAGE_WEIGHTS.alreadyEvaluated
+    reasons.push(`already scored (${TRIAGE_WEIGHTS.alreadyEvaluated})`)
+  } else if (companyHint != null && knownCompanies.has(normalizeCompany(companyHint))) {
+    reason = 'known'
+    score += TRIAGE_WEIGHTS.knownCompany
+    reasons.push(`company already in trackers (${TRIAGE_WEIGHTS.knownCompany})`)
+  }
+
+  if (title && SENIOR_TITLE_RE.test(title)) {
+    score += TRIAGE_WEIGHTS.seniorTitle
+    reasons.push(`senior-title signal (${TRIAGE_WEIGHTS.seniorTitle})`)
+  } else if (title && ENTRY_TITLE_RE.test(title)) {
+    score += TRIAGE_WEIGHTS.entryTitle
+    reasons.push(`entry-level title (+${TRIAGE_WEIGHTS.entryTitle})`)
+  }
+
+  if (pending.isStale) {
+    score += TRIAGE_WEIGHTS.stale
+    reasons.push(`stale (${TRIAGE_WEIGHTS.stale})`)
+  }
+
   return {
     url,
     companyHint,
+    title,
     source: inboxSource(url),
     isStale: pending.isStale,
     addedDate: pending.addedDate,
-    reason: known ? 'known' : 'new',
+    reason,
+    triageScore: Number(score.toFixed(2)),
+    scoreReasons: reasons,
   }
 }
 
 // ─── Queue assembly + ordering ────────────────────────────────────────────────
 
-// Triage priority: fresh, unknown URLs first (the real work), then known-company
-// URLs (context, lower priority), then stale ones (likely closed), then invalid
-// lines (cleanup). Within a bucket, keep insertion order stable so the queue
-// doesn't churn between renders.
-const REASON_RANK: Record<InboxReason, number> = { new: 0, known: 1, invalid: 3 }
-
-// A stale item sinks below live ones of the same reason — it's least likely to
-// be worth evaluating. Encoded as a half-step so it never crosses a reason
-// boundary (a fresh 'new' still beats a stale 'new', but a stale 'new' still
-// beats any 'known').
-function itemRank(item: InboxItem): number {
-  return REASON_RANK[item.reason] + (item.isStale ? 0.5 : 0)
-}
-
 // Build the ordered inbox queue from the raw pending URLs + the known corpus.
-// Stable sort (Array.prototype.sort is stable in modern V8) preserves the
-// pipeline.md order inside each priority bucket.
+// Best triage score first (the real work floats to the top); invalid lines
+// always sink to the bottom (cleanup, not triage). Ties keep pipeline.md
+// insertion order so the queue doesn't churn between renders.
 export function buildInbox(
   pending: PipelineUrl[],
   applications: ApplicationEntry[],
   scouting: ScoutingEntry[],
 ): InboxItem[] {
   const known = buildKnownCompanySet(applications, scouting)
-  const items = pending.map(p => classifyInboxItem(p, known))
+  const evaluated = buildEvaluatedKeySet(applications, scouting)
+  const items = pending.map(p => classifyInboxItem(p, known, evaluated))
   return items
     .map((item, i) => ({ item, i }))
     .sort((a, b) => {
-      const r = itemRank(a.item) - itemRank(b.item)
-      return r !== 0 ? r : a.i - b.i
+      const aInvalid = a.item.reason === 'invalid' ? 1 : 0
+      const bInvalid = b.item.reason === 'invalid' ? 1 : 0
+      if (aInvalid !== bInvalid) return aInvalid - bInvalid
+      const d = b.item.triageScore - a.item.triageScore
+      return d !== 0 ? d : a.i - b.i
     })
     .map(({ item }) => item)
 }
@@ -165,13 +239,14 @@ export interface InboxStats {
 
 // Roll the classified queue into the header counts. `fresh` deliberately
 // excludes stale items: a stale URL is unlikely to still be live, so it
-// shouldn't inflate the "you have N things to triage" signal.
+// shouldn't inflate the "you have N things to triage" signal. 'evaluated'
+// items fold into `known` — both are "we've seen this name before" context.
 export function inboxStats(items: InboxItem[]): InboxStats {
   let fresh = 0, known = 0, stale = 0, invalid = 0
   for (const it of items) {
     if (it.isStale) stale++
     if (it.reason === 'invalid') { invalid++; continue }
-    if (it.reason === 'known') { known++; continue }
+    if (it.reason === 'known' || it.reason === 'evaluated') { known++; continue }
     // reason === 'new'
     if (!it.isStale) fresh++
   }

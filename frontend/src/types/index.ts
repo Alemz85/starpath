@@ -144,6 +144,14 @@ export interface PipelineUrl {
   url: string
   addedDate?: string
   isStale: boolean
+  /** Company name from the scanner-written pipeline line, when present. */
+  company?: string
+  /** Role title from the scanner-written pipeline line, when present. */
+  title?: string
+  /** The scanner's zero-token relevance score for this posting, when present. */
+  relevance?: number
+  /** Human-readable reasons trail behind the relevance score. */
+  relevanceNote?: string
 }
 
 // ─── Report file ──────────────────────────────────────────────────────────────

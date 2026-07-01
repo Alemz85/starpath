@@ -52,6 +52,25 @@ test('parsePipeline reads bare, bulleted, task-list and local: URLs and flags st
   assert.equal(urls[1].addedDate, '2020-01-01')
   assert.equal(urls[1].isStale, true)         // 2020 ≫ 14 days ago
   assert.equal(urls[2].url, 'local:jds/x.md')
+  // Bare URLs carry no scanner metadata.
+  assert.equal(urls[0].company, undefined)
+  assert.equal(urls[0].relevance, undefined)
+})
+
+test('parsePipeline captures company/title/relevance from scanner-written lines', () => {
+  const md = [
+    '- [ ] https://boards.greenhouse.io/acme/jobs/9 | Acme | Strategy Analyst | relevance 4.5 — positive phrase, fresh',
+    '- [ ] https://jobs.lever.co/globex/x1 | Globex | Senior Ops Lead',
+  ].join('\n')
+  const urls = parsePipeline(md)
+  assert.equal(urls.length, 2)
+  assert.equal(urls[0].company, 'Acme')
+  assert.equal(urls[0].title, 'Strategy Analyst')
+  assert.equal(urls[0].relevance, 4.5)
+  assert.equal(urls[0].relevanceNote, 'positive phrase, fresh')
+  assert.equal(urls[1].company, 'Globex')
+  assert.equal(urls[1].title, 'Senior Ops Lead')
+  assert.equal(urls[1].relevance, undefined)
 })
 
 test('parseReportPath extracts company/role/tier and rejects non-report paths', () => {
