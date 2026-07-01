@@ -12,6 +12,8 @@
  *   • scripts/followup-cadence.mjs      — due/overdue application follow-ups
  *   • scripts/analyze-patterns.mjs      — one learned targeting lesson (outcomes)
  *   • scripts/outreach-core.mjs         — outreach threads where a nudge is due
+ *   • scripts/lib/warm-outreach-core.mjs — untouched warm referral paths into
+ *     pipeline companies (network-core × outreach-plan-core decision ladder)
  *   • scripts/lib/positioning-core.mjs  — one standing targeting insight
  *   • scripts/lib/triage-core.mjs       — the inbox's "deep-eval next" top slice
  *
@@ -55,12 +57,15 @@ import {
   buildDedupKeySet,
   triagePending,
 } from './lib/triage-core.mjs'
+import { parseNetwork, parsePipeline } from './lib/network-core.mjs'
+import { warmOutreachOpportunities } from './lib/warm-outreach-core.mjs'
 import { assembleBrief, renderBrief } from './lib/daily-brief-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const SCAN_FILE = join(ROOT, 'data/scan-history.tsv')
 const SCORE_FILE = join(ROOT, 'data/score-history.tsv')
 const OUTREACH_FILE = join(ROOT, 'data/outreach.md')
+const NETWORK_FILE = join(ROOT, 'data/network.md')
 const APPS_FILE = join(ROOT, 'data/applications.md')
 const SCOUTING_FILE = join(ROOT, 'data/scouting.md')
 const PIPELINE_FILE = join(ROOT, 'data/pipeline.md')
@@ -159,6 +164,20 @@ function getOutreachResult() {
   return classifyAll(contacts, asOf)
 }
 
+// 3b. Warm outreach paths — warm-outreach-core over data/network.md × the
+//     pipeline × data/outreach.md. Empty world degrades gracefully: no roster,
+//     no pipeline, or no warm first touch to recommend → null → section omitted
+//     (same convention as every other missing input).
+function getWarmOutreach() {
+  const contacts = parseNetwork(read(NETWORK_FILE))
+  if (contacts.length === 0) return null
+  const pipeline = parsePipeline(read(APPS_FILE), read(SCOUTING_FILE))
+  if (pipeline.length === 0) return null
+  const collapsedContacts = collapse(parseLog(read(OUTREACH_FILE)))
+  const opportunities = warmOutreachOpportunities({ contacts, pipeline, collapsedContacts, today: asOf })
+  return opportunities.length ? opportunities : null
+}
+
 // 4. One standing positioning insight — positioning-core over score-history.
 function getPositioningIntel() {
   const scoreRows = parseScoreHistory(read(SCORE_FILE))
@@ -253,6 +272,7 @@ const inputs = {
   followupResult: getFollowupResult(),
   patterns: getPatternsResult(),
   outreachResult: getOutreachResult(),
+  warmOutreach: getWarmOutreach(),
   positioningIntel: getPositioningIntel(),
   classifiedDeadlines: getClassifiedDeadlines(),
   triage: getTriage(),
