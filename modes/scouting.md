@@ -120,13 +120,13 @@ To maintain perfect compatibility with SQLite schemas, TSV parsing scripts, and 
 
 The Pass / Growth Target report uses the same header but its title prefix is `# Gap & Growth:` and its Mode is `scouting (growth target)`.
 
-### Stellar Band — Overall ≥ 9.0 (or uniform fingerprint override: all 6 dims ≥ 8 AND both rollups ≥ 8.0)
+### Stellar Band — CF ≥ 9.0 (or uniform fingerprint override: all 6 dims ≥ 8 AND both rollups ≥ 8.0)
 
 Generate a **full report** — header above + the body sections defined under "Stellar body" below. Net length ~70–90 lines. Under the hood, this is saved to `reports/tier-1/` and marked as `T1`.
 
 Surface to the user with: *"Strong match — full evaluation ready. If you want a tailored CV, run `/career-ops pdf` against the URL. If you're ready to actively apply, click Apply in the Database to move it to your active applications, then click Prep Application for interview intel."*
 
-### Strong / Decent Bands — Overall 7.0–8.9 AND Ease of Entry > 4
+### Strong / Decent Bands — CF 7.0–8.9 AND Ease of Entry > 4
 
 Generate a **short summary report**. Universal header (with `**Tier:** T2` to map to the `reports/tier-2/` directory), same dimensional table, lighter body:
 
@@ -142,15 +142,15 @@ Generate a **short summary report**. Universal header (with `**Tier:** T2` to ma
 - **Biggest gap:** {the dimension `explanation.bindingConstraints[0]` named + its JD quote. Must be the same blocker the Why-this-score block surfaced, not a different one.}
 
 ## Verdict
-{One line — the verdict must match the band: "Apply with prep" for Strong (Overall 8.0–8.9) | "Apply if pipeline thin" for Decent (Overall 7.0–7.9). Use "Track company only" only when a hard constraint (work-rights gate, deadline passed, scheduling conflict) overrides the band — and name that constraint in the same line.}
+{One line — the verdict must match the band: "Apply with prep" for Strong (CF 8.0–8.9) | "Apply if pipeline thin" for Decent (CF 7.0–7.9). Use "Track company only" only when a hard constraint (work-rights gate, deadline passed, scheduling conflict) overrides the band — and name that constraint in the same line.}
 
 ## Path forward
 {ONE sentence, concrete next step tied to the biggest gap — the one thing to do before submitting (e.g. "Lead with proof point X and secure an alumni referral before applying"). No fabricated timelines, no multi-step plans, no bullets.}
 ```
 
-Strong (Overall 8.0–8.9) → "Apply with prep" verdict. Decent (Overall 7.0–7.9) → "Apply if pipeline thin" verdict. Both write `Tier: T2` to scouting.md, report headers, and score-history.tsv (no `T2-high` or other sub-tiers).
+Strong (CF 8.0–8.9) → "Apply with prep" verdict. Decent (CF 7.0–7.9) → "Apply if pipeline thin" verdict. Both write `Tier: T2` to scouting.md, report headers, and score-history.tsv (no `T2-high` or other sub-tiers).
 
-### Pass / Growth Target Band — Overall 5.0–6.9, OR < 7.0 with AF ≥ 7.0, OR Ease of Entry ≤ 4 gate
+### Pass / Growth Target Band — CF < 7.0 with AF ≥ 7.0, OR Ease of Entry ≤ 4 gate (with AF ≥ 7.0)
 
 Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title becomes `# Gap & Growth:`, `**Tier:** T3` to map to `reports/tier-3/` directory). Body is the most compact, ~25–30 lines:
 
@@ -170,9 +170,9 @@ On a Growth Target the Why-this-score block's lever **is** the roadmap — the G
 
 **Exception — language wall:** if the binding gap is a foreign-language requirement the candidate doesn't have (and isn't learning), force the Skip band instead. See `_shared.md` § "Language-barrier exception" — language acquisition is multi-year, so a Gap & Growth roadmap would be misleading.
 
-### Skip Band — Overall < 5.0 or status SKIP
+### Skip Band — CF < 7.0 AND AF < 7.0 (or EoE ≤ 4 with AF < 7.0), or status SKIP
 
-Both scores low (Overall < 5.0) or language wall exception → **skip**. Do NOT write a report file. **Still compute the full dimensional table** for `data/score-history.tsv` (mapped to `tier=skip`). Add a one-line entry to `data/scouting.md` with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
+Both rollups low, an EoE-gated role without the AF ≥ 7.0 growth signal, or the language-wall exception → **skip**. Do NOT write a report file. **Still compute the full dimensional table** for `data/score-history.tsv` (mapped to `tier=skip`). Add a one-line entry to `data/scouting.md` with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
 
 ## Stellar body
 
