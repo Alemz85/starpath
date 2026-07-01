@@ -6,6 +6,9 @@ import {
   humanizeJsonlChunk,
   humanizeJsonlLine,
   formatToolUse,
+  formatResultStats,
+  formatTokens,
+  formatDuration,
   truncate,
   isAuthFailureText,
   diagnoseFailureText,
@@ -101,6 +104,42 @@ test('humanizeJsonlLine maps the result event to a capstone', () => {
   assert.equal(humanizeJsonlLine(ev({ type: 'result', subtype: 'success' })), '✓ Done')
   assert.equal(humanizeJsonlLine(ev({ type: 'result', subtype: 'error_during_execution' })), '× error_during_execution')
   assert.equal(humanizeJsonlLine(ev({ type: 'result' })), '× error')  // missing subtype → "error"
+})
+
+test('result capstone appends duration/turns/token stats when the event carries them', () => {
+  assert.equal(
+    humanizeJsonlLine(ev({
+      type: 'result', subtype: 'success', duration_ms: 184_000, num_turns: 41,
+      usage: { input_tokens: 1200, cache_creation_input_tokens: 45_000, cache_read_input_tokens: 310_000, output_tokens: 5400 },
+    })),
+    '✓ Done — 3m 04s · 41 turns · 356.2k in (87% cached) / 5.4k out',
+  )
+  // Failure capstones get the same tail.
+  assert.equal(
+    humanizeJsonlLine(ev({ type: 'result', subtype: 'error_during_execution', duration_ms: 9000 })),
+    '× error_during_execution — 9s',
+  )
+})
+
+test('formatResultStats returns null when the event has no stats (older CLI)', () => {
+  assert.equal(formatResultStats({ type: 'result', subtype: 'success' }), null)
+  assert.equal(formatResultStats({ type: 'result', usage: {} }), null)
+})
+
+test('formatResultStats omits the cached tag when nothing was read from cache', () => {
+  assert.equal(
+    formatResultStats({ usage: { input_tokens: 900, output_tokens: 100 } }),
+    '900 in / 100 out',
+  )
+})
+
+test('formatTokens and formatDuration round the way the panel expects', () => {
+  assert.equal(formatTokens(999), '999')
+  assert.equal(formatTokens(1_500), '1.5k')
+  assert.equal(formatTokens(2_340_000), '2.3M')
+  assert.equal(formatDuration(45_000), '45s')
+  assert.equal(formatDuration(60_000), '1m 00s')
+  assert.equal(formatDuration(184_223), '3m 04s')
 })
 
 test('humanizeJsonlLine drops system events and tool_result (user) echoes', () => {

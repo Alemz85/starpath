@@ -63,11 +63,21 @@ export interface JsonlAssistantBlock {
   input?: Record<string, unknown>
 }
 
+export interface JsonlUsage {
+  input_tokens?: number
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
+  output_tokens?: number
+}
+
 export interface JsonlEvent {
   type?: string
   subtype?: string
   message?: { content?: JsonlAssistantBlock[] }
   result?: string
+  duration_ms?: number
+  num_turns?: number
+  usage?: JsonlUsage
 }
 
 export interface HumanizeChunkResult {
@@ -107,7 +117,9 @@ export function humanizeJsonlLine(raw: string): string | null {
 
   if (evt.type === 'system') return null
   if (evt.type === 'result') {
-    return evt.subtype === 'success' ? '✓ Done' : `× ${evt.subtype ?? 'error'}`
+    const capstone = evt.subtype === 'success' ? '✓ Done' : `× ${evt.subtype ?? 'error'}`
+    const stats = formatResultStats(evt)
+    return stats ? `${capstone} — ${stats}` : capstone
   }
   if (evt.type === 'assistant' && evt.message?.content) {
     const parts: string[] = []
@@ -123,6 +135,46 @@ export function humanizeJsonlLine(raw: string): string | null {
   }
   // user (tool_result echoes) and unknown types — skip.
   return null
+}
+
+// Compact "how much did this spawn cost" tail for the result capstone, e.g.
+// "3m 04s · 41 turns · 356.2k in (87% cached) / 5.4k out". Token visibility in
+// the activity panel is the user-facing half of the token-cost measurement
+// work (the batch runner logs the same numbers to batch/logs/usage.tsv).
+// Returns null when the event carries no stats (older CLI versions).
+export function formatResultStats(evt: JsonlEvent): string | null {
+  const parts: string[] = []
+  if (typeof evt.duration_ms === 'number' && evt.duration_ms >= 0) {
+    parts.push(formatDuration(evt.duration_ms))
+  }
+  if (typeof evt.num_turns === 'number' && evt.num_turns > 0) {
+    parts.push(`${evt.num_turns} turns`)
+  }
+  const u = evt.usage
+  if (u) {
+    const inTotal = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0)
+    const out = u.output_tokens ?? 0
+    if (inTotal > 0 || out > 0) {
+      const cached = u.cache_read_input_tokens ?? 0
+      const cachedPct = inTotal > 0 && cached > 0 ? ` (${Math.round((cached / inTotal) * 100)}% cached)` : ''
+      parts.push(`${formatTokens(inTotal)} in${cachedPct} / ${formatTokens(out)} out`)
+    }
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+export function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
+}
+
+export function formatDuration(ms: number): string {
+  const totalSec = Math.round(ms / 1000)
+  const min = Math.floor(totalSec / 60)
+  const sec = totalSec % 60
+  if (min === 0) return `${sec}s`
+  return `${min}m ${String(sec).padStart(2, '0')}s`
 }
 
 export function formatToolUse(block: JsonlAssistantBlock): string | null {
