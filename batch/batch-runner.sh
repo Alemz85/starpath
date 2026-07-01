@@ -149,6 +149,12 @@ check_prerequisites() {
   fi
 
   mkdir -p "$LOGS_DIR" "$TRACKER_DIR" "$REPORTS_DIR"
+
+  # Refresh the compact CV summary the workers read instead of the full CV
+  # (mtime-gated, zero-token). Best-effort: batch-prompt.md documents the
+  # fallback to user/cv.md when the artifact is missing.
+  node "$PROJECT_DIR/scripts/cv-summary.mjs" --if-stale \
+    || echo "WARN: cv-summary refresh failed — workers fall back to user/cv.md"
 }
 
 # Initialize state file if it doesn't exist

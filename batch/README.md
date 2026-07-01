@@ -2,6 +2,8 @@
 
 Process multiple job listings in parallel via `claude -p` workers. Each worker runs a **scouting evaluation** (the same Dimensional Scoring Framework as interactive mode — see `batch-prompt.md`): dimensional scores via `scripts/score-listing.mjs`, a tiered report, a scouting TSV, and a `data/score-history.tsv` row. Evaluation never generates PDFs — CV tailoring is the separate `pdf` skill.
 
+Workers read `batch/cv-summary.md` — a compact, deterministically-generated summary of the user's CV — instead of the full `user/cv.md`. The runner refreshes it before spawning (`node scripts/cv-summary.mjs --if-stale`); it's gitignored derived data, safe to delete, and `batch-prompt.md` documents the fallback to `user/cv.md` when it's missing. The same prompt bundle also powers the desktop app's per-listing eval spawns (see `frontend/src/lib/evalSpawn.ts`), which pass it verbatim via `--append-system-prompt-file` — hence the "Unresolved placeholders" note in `batch-prompt.md`.
+
 ## Quick Start
 
 1. **Add offers** to `batch-input.tsv` (tab-separated: `id`, `url`, `source`, `notes`):

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning, claudeArgs, isAuthFailure, diagnoseFailure, type SpawnRecord } from '@/store/spawns'
+import { claudeEvalArgs, filterAllPrompt, refreshCvSummary } from '@/lib/evalSpawn'
 import { useScanFilter } from '@/store/scanFilter'
 import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
@@ -74,26 +75,13 @@ const STAGING_MERGE_ID   = 'cmd-staging-merge'
 const JOBSPY_PYTHON      = 'scripts/jobspy/.venv/bin/python'
 const JOBSPY_SCRIPT      = 'scripts/jobspy/scan.py'
 
-// Three pipeline-mode prompts. All share `/career-ops pipeline` as the slash
-// command (so the skill router still loads modes/pipeline.md), but the
-// per-button qualifier in the body changes Claude's behaviour: just filter,
-// top-N reports, or full reports for everything.
-// Three pipeline-mode prompts that share `/career-ops pipeline` (so the skill
-// router still loads modes/pipeline.md) but trade off depth-vs-cost via the
-// per-button qualifier in the body. Cost rough order:
-//   FILTER ≈ 2k tokens / listing  (dimensional eval, no prose report)
-//   TOP    ≈ 2k for non-top + 6–8k for top 8 prose reports
-//   ALL    ≈ 6–8k tokens / listing (full prose for every passing URL)
-
-const FILTER_PROMPT =
-  '/career-ops pipeline — FILTER + DIMENSIONAL SCORE mode. For each pending URL in data/pipeline.md: ' +
-  '(1) Fetch the JD via Playwright/WebFetch, apply user/portals.yml title filters, dedup against data/dedup-index.tsv. ' +
-  '(2) **Run modes/pipeline.md Step 2c — Relevance gate**. For each non-duplicate URL inspect the JD body and DISCARD listings that are off-archetype, wrong seniority (5+ YoE / Senior+ / Manager-with-reports), geo-locked outside the user\'s reachable set, in an excluded domain, visa-locked, or poverty-wage. Move them to a "Filtered Out" section in data/pipeline.md as `[!] FILTERED | URL | Company | Role | reason`. **Do NOT score them. Do NOT add them to data/scouting.md. Do NOT write a row to data/score-history.tsv.** Borderline cases stay in. ' +
-  '(3) For SURVIVING entries only — run the FULL DIMENSIONAL SCORING per modes/scouting.md — all 10 dimensions (Skills Match, Ease of Entry, Strategic Fit, Current Fit, Growth/Mobility, Optionality/Exit, Brand Value, Sales-Trap Risk, Aspirational Fit, Overall) with one short sentence of reasoning per dimension. Classify into Tier T1/T2/T3/T4. ' +
-  '(4) Write the row to data/scouting.md with proper tier, score, CF/AF, and a one-line note. Append the full dimensional row to data/score-history.tsv. ' +
-  '(5) **CRITICAL**: do NOT write any per-listing prose report file under reports/. The dimensional table + tier + one-line note in scouting.md is the entire output for this path. ' +
-  '(6) Mark each scored URL as [x] in pipeline.md. ' +
-  'Goal: ~20-30% of pending URLs survive the gate and land in the Database with a meaningful 1-10 score. The 60-80% that get filtered out never enter scouting.md — they stay auditable in the Filtered Out section.'
+// "Filter to Database" rides the compact eval bundle (batch/batch-prompt.md,
+// loaded via --append-system-prompt-file in claudeEvalArgs) instead of the
+// `/career-ops pipeline` slash command — token-cost lever 3: the worker no
+// longer re-reads CLAUDE.md + modes/* before touching a single JD. The task
+// prompt itself (gate criteria + score-only deviation + merge step) lives in
+// lib/evalSpawn.filterAllPrompt, shared with the Pipeline inbox and the
+// Reports top-5 path and unit-tested there.
 
 const LOADING_MESSAGES = [
   'Sneaking past the careers-page bouncer…',
@@ -273,7 +261,10 @@ function ScoutingActionPanel({
   const handleFilter = () => {
     if (pipelineFilter?.status === 'running') { kill(PIPELINE_FILTER_ID); return }
     if (pipelineFilter) clear(PIPELINE_FILTER_ID)
-    start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', claudeArgs(FILTER_PROMPT, pipelineModel))
+    // Fire-and-forget CV-summary refresh — finishes in ms while the Claude
+    // CLI boots; the bundle falls back to user/cv.md if the artifact is missing.
+    void refreshCvSummary()
+    start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', claudeEvalArgs(filterAllPrompt(), pipelineModel))
   }
 
   return (
