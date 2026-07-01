@@ -42,7 +42,7 @@ Options:
   --retry-failed       Only retry offers marked as "failed" in state
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
-  --min-score N        Skip PDF/tracker for offers scoring below N (default: 0 = off)
+  --min-score N        Mark offers scoring below N as skipped in state (default: 0 = off)
   -h, --help           Show this help
 
 Files:
@@ -346,7 +346,7 @@ process_offer() {
 
   # Build the prompt with placeholders replaced
   local prompt
-  prompt="Procesa esta oferta de empleo. Ejecuta el pipeline completo: evaluación A-F + report .md + PDF + tracker line."
+  prompt="Process this job listing end-to-end per the system prompt: scouting evaluation (dimensional scoring via scripts/score-listing.mjs) + report .md + scouting TSV + score-history row + final JSON summary."
   prompt="$prompt URL: $url"
   prompt="$prompt JD file: $jd_file"
   prompt="$prompt Report number: $report_num"
@@ -440,8 +440,13 @@ append_usage_row() {
     "$in_tok" "$cc_tok" "$cr_tok" "$out_tok" "$cost" "$dur" "$turns" >> "$USAGE_FILE"
 }
 
-# Merge tracker additions into applications.md
+# Merge worker TSV output into the canonical trackers.
+# Batch evaluations land in data/scouting.md (scouting-additions); the
+# tracker-additions merge stays for any application-flow TSVs (no-op when empty).
 merge_tracker() {
+  echo ""
+  echo "=== Merging scouting additions ==="
+  node "$PROJECT_DIR/scripts/merge-scouting.mjs"
   echo ""
   echo "=== Merging tracker additions ==="
   node "$PROJECT_DIR/scripts/merge-tracker.mjs"
