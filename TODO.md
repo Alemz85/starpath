@@ -33,12 +33,19 @@ Levers, by impact:
    Wired into `modes/pipeline.md` Step 1 as the pre-eval gate.
 2. **Two-tier models:** Haiku triages "worth a deep eval?"; reserve Opus/Sonnet
    for survivors. (The deterministic triage above may be enough — measure first.)
-3. ✅ **Slim per-eval context** — shipped 2026-07-01: `batch/batch-prompt.md`
-   rewritten as the compact self-contained eval bundle (judgment anchors +
-   score-listing.mjs delegation, no CLAUDE.md/modes loading), parity-pinned by
-   `scripts/batch-prompt-parity.test.mjs`. Remaining: route the frontend's
-   per-listing eval spawns through the same bundle instead of `/career-ops`
-   slash commands, and produce a CV *summary* artifact for workers.
+3. ✅ **Slim per-eval context** — shipped 2026-07-01, completed same day:
+   `batch/batch-prompt.md` rewritten as the compact self-contained eval bundle
+   (judgment anchors + score-listing.mjs delegation, no CLAUDE.md/modes
+   loading), parity-pinned by `scripts/batch-prompt-parity.test.mjs`. The two
+   remaining pieces landed too: (a) the frontend's per-listing eval spawns
+   (Filter to Database, inbox Evaluate, Add Listing, Generate top 5 reports)
+   now ride the same bundle via `--append-system-prompt-file` instead of
+   `/career-ops` slash commands — `frontend/src/lib/evalSpawn.ts` owns
+   `claudeEvalArgs` + the shared task prompts; (b) workers read a compact CV
+   *summary* (`batch/cv-summary.md`, gitignored derived data) generated
+   deterministically by `scripts/cv-summary.mjs` (`npm run cv-summary`,
+   mtime-gated `--if-stale`), refreshed by the batch runner + frontend eval
+   buttons before spawning, with a documented fallback to full `user/cv.md`.
 4. **Prompt caching:** cache the rubric+CV prefix across a batch.
 5. **Compress output:** TSV row + 1-line rationale for triage/low-scorers; full
    report only for high-scorers worth applying to.

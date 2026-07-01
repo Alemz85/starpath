@@ -4,7 +4,8 @@ import { useEffect, useMemo } from 'react'
 import { GitBranch } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useDataStore } from '@/store/data'
-import { useSpawnsStore, claudeArgs } from '@/store/spawns'
+import { useSpawnsStore } from '@/store/spawns'
+import { claudeEvalArgs, refreshCvSummary } from '@/lib/evalSpawn'
 import { useAppStore } from '@/store/app'
 import { PipelineInbox } from './PipelineInbox'
 import { PipelineBoard } from './PipelineBoard'
@@ -66,7 +67,11 @@ export function PipelineView() {
     const id = inboxSpawnId(url)
     if (spawns[id]?.status === 'running') { kill(id); return }
     if (spawns[id]) clear(id)
-    start(id, `Evaluate: ${url}`, 'claude', claudeArgs(evaluateInboxCommand(url), models.draftApp))
+    // Compact-bundle eval (token-cost lever 3): the CV-summary refresh is
+    // fire-and-forget — it finishes in ms while the Claude CLI boots, and the
+    // bundle falls back to user/cv.md if the artifact is missing.
+    void refreshCvSummary()
+    start(id, `Evaluate: ${url}`, 'claude', claudeEvalArgs(evaluateInboxCommand(url), models.draftApp))
   }
 
   const handleAdvance = (app: ApplicationEntry, to: AppStatus) => {
