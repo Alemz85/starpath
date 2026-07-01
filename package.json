@@ -23,6 +23,7 @@
     "whats-new": "node scripts/whats-new.mjs",
     "brief": "node scripts/daily-brief.mjs",
     "network": "node scripts/network.mjs",
+    "outreach-plan": "node scripts/outreach-plan.mjs",
     "apply-kit": "node scripts/apply-kit.mjs",
     "score-trend": "node scripts/score-trend.mjs",
     "deadlines": "node scripts/deadlines.mjs",
