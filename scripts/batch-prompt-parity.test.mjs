@@ -1,0 +1,101 @@
+// batch-prompt-parity.test.mjs — pins structural agreement between the
+// canonical rubric (modes/_shared.md) and the compact batch worker prompt
+// (batch/batch-prompt.md).
+//
+// History: the batch prompt once carried a hand-copied rubric that drifted
+// two generations behind _shared.md while keeping a MATCHING scoring-version
+// stamp — so the runner's version check passed while workers scored with a
+// different framework, auto-generated PDFs, and wrote a wrong-shaped TSV.
+// The version stamp only proves someone bumped a comment; these checks prove
+// the load-bearing structures actually agree.
+
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+const shared = readFileSync(join(ROOT, 'modes/_shared.md'), 'utf8')
+const prompt = readFileSync(join(ROOT, 'batch/batch-prompt.md'), 'utf8')
+const scouting = readFileSync(join(ROOT, 'modes/scouting.md'), 'utf8')
+
+function versionOf(text) {
+  const m = text.match(/<!-- scoring-version: ([0-9-]+) -->/)
+  return m ? m[1] : null
+}
+
+test('scoring-version stamps match', () => {
+  assert.equal(versionOf(prompt), versionOf(shared))
+  assert.ok(versionOf(shared), 'shared.md must carry a scoring-version stamp')
+})
+
+test('score-history.tsv header line is byte-identical in both files', () => {
+  const headerRe = /^date\tarchetype\t.*\turl$/m
+  const inShared = shared.match(headerRe)?.[0]
+  const inPrompt = prompt.match(headerRe)?.[0]
+  assert.ok(inShared, '_shared.md must contain the score-history header')
+  assert.ok(inPrompt, 'batch-prompt.md must contain the score-history header')
+  assert.equal(inPrompt, inShared)
+  assert.equal(inShared.split('\t').length, 26, 'header is 26 columns')
+})
+
+test('batch prompt delegates math to score-listing.mjs and states the fixed rollup weights', () => {
+  assert.match(prompt, /score-listing\.mjs/)
+  assert.match(prompt, /CF × 0\.70 \+ AF × 0\.30/)
+  assert.match(shared, /Current Fit × 0\.70 \+ Aspirational Fit × 0\.30/)
+})
+
+test('all six scoring dimensions + Sales-Trap exclusion are present', () => {
+  for (const dim of [
+    'Skills Match', 'Ease of Entry', 'Strategic/Analytical Fit',
+    'Growth/Mobility', 'Optionality/Exit', 'Brand Value', 'Sales-Trap Risk',
+  ]) {
+    assert.ok(prompt.includes(dim), `batch prompt names ${dim}`)
+    assert.ok(shared.includes(dim), `_shared.md names ${dim}`)
+  }
+  assert.match(prompt, /not (?:in|rolled into) the AF rollup/i)
+})
+
+test('key Ease-of-Entry calibration constants agree with _shared.md', () => {
+  // These are the numbers most likely to silently diverge in a rewrite.
+  for (const token of ['£38,700', '−2 to −4', 'CEMS Corporate Partner']) {
+    assert.ok(shared.includes(token), `_shared.md contains ${token}`)
+    assert.ok(prompt.includes(token), `batch prompt contains ${token}`)
+  }
+})
+
+test('batch workers write the scouting flow, not the applications tracker', () => {
+  assert.match(prompt, /batch\/scouting-additions\//)
+  assert.match(prompt, /merge-scouting\.mjs/)
+  assert.match(prompt, /11 tab-separated columns/)
+  assert.match(prompt, /READY/)
+  // The 11-col scouting TSV shape must match modes/scouting.md's definition.
+  assert.ok(scouting.includes('11 tab-separated columns'))
+})
+
+test('legacy drifted content stays dead', () => {
+  for (const banned of [
+    'Personalization Plan',   // CV tailoring belongs to modes/pdf.md
+    'Interview Plan',         // belongs to modes/interview-prep.md
+    'Posting Legitimacy',     // dropped from the scoring model
+    'Extracted keywords',     // explicit token waste per modes/scouting.md
+    'LLMOps',                 // hardcoded archetype from another user's profile
+    'generate-pdf.mjs',       // evaluation NEVER auto-generates PDFs
+    'cv-template.html',
+    'A-H',                    // the pre-consolidation report format
+    'tracker-additions',      // batch evals land in scouting, not applications
+  ]) {
+    assert.ok(!prompt.includes(banned), `batch prompt must not contain "${banned}"`)
+  }
+})
+
+test('batch mode marks verification as unconfirmed', () => {
+  assert.match(prompt, /\*\*Verification:\*\* unconfirmed \(batch mode\)/)
+})
+
+test('report naming follows the canonical human-readable convention', () => {
+  assert.match(prompt, /reports\/tier-\{N\}\/\{Company\} - \{Role\}\.md/)
+  assert.ok(!/reports\/tier-\{N\}\/\{\{REPORT_NUM\}\}/.test(prompt),
+    'no sequence-numbered report filenames')
+})
