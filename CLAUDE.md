@@ -189,7 +189,7 @@ Write one TSV file per evaluation to `batch/tracker-additions/{num}-{company-slu
 {num}\t{date}\t{company}\t{role}\t{status}\t{score}/10\t{pdf_emoji}\t{deadline}\t[{num}](reports/tier-{N}/{num}-{slug}-{date}.md)\t{note}
 ```
 
-**Column order (status BEFORE score in TSV):** `num`, `date`, `company`, `role`, `status` (canonical, e.g. `Evaluated`), `score` (`X.X/10`), `pdf` (`✅`/`❌`), `deadline` (`2026-06-30` | `Rolling` | `n/d`), `report` (markdown link to `reports/tier-{N}/...` where `N` derives from score: `≥9.0→1`, `7.0-8.9→2`, `<7.0→3`, `SKIP→4`), `notes`.
+**Column order (status BEFORE score in TSV):** `num`, `date`, `company`, `role`, `status` (canonical, e.g. `Evaluated`), `score` (`X.X/10`), `pdf` (`✅`/`❌`), `deadline` (`2026-06-30` | `Rolling` | `n/d`), `report` (markdown link to `reports/tier-{N}/...` where `N` is the tier assigned by `scripts/score-listing.mjs` — CF/AF-based band rules in `modes/_shared.md` § Score interpretation, never re-derived by hand), `notes`.
 
 In `applications.md`, score comes BEFORE status — `scripts/merge-tracker.mjs` swaps columns automatically and rewrites flat `reports/...md` paths into the correct tier subfolder if the writer leaves the tier off. The canonical TSV form is the tiered path.
 

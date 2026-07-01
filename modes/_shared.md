@@ -48,12 +48,18 @@ This rule is universal across modes (`scouting`, `interview-prep`, `apply`, `pdf
 
 There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). It uses the **Dimensional Scoring Framework** below and produces an **Overall** score on a 1-10 scale by rolling up Current Fit and Aspirational Fit with fixed weights (CF×0.70 + AF×0.30).
 
-**Score interpretation & Score Bands (Overall):**
-- **Stellar (Overall ≥ 9.0 or Uniform Fingerprint)** → Strongest match, recommend applying immediately (*maps under the hood to Tier 1 / `reports/tier-1/`*).
-- **Strong (Overall 8.0–8.9)** → Good match, worth applying with prep (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply with prep" verdict*).
-- **Decent (Overall 7.0–7.9)** → Decent match, apply only if pipeline thin (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply if pipeline thin" verdict*).
-- **Pass / Growth Target (Overall 5.0–6.9 or < 7.0 with AF ≥ 7.0 / Ease of Entry ≤ 4)** → Recommend against immediate application; target for skill acquisition and roadmaps (*maps under the hood to Tier 3 / `reports/tier-3/`*).
-- **Skip (Overall < 5.0 or status SKIP)** → Low fit or mismatch; filtered out (*maps under the hood to Tier 4 / `reports/tier-4/`*).
+**Score interpretation & Score Bands:**
+
+Band assignment is **computed** — `scripts/score-listing.mjs` (`assignTier` in `scripts/lib/score-bands.mjs`) returns the tier from Current Fit, Aspirational Fit, and the dimensional fingerprint. Never re-derive it by hand. The authoritative rules, in evaluation order:
+
+- **Stellar (CF ≥ 9.0, or Uniform Fingerprint: all 6 dims ≥ 8 AND CF ≥ 8.0 AND AF ≥ 8.0)** → Strongest match, recommend applying immediately (*maps under the hood to Tier 1 / `reports/tier-1/`*).
+- **Ease of Entry ≤ 4 (and not Stellar)** → the experience-wall gate fires: **Pass / Growth Target** when AF ≥ 7.0, **Skip** otherwise — regardless of CF.
+- **Strong (CF 8.0–8.9, EoE > 4)** → Good match, worth applying with prep (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply with prep" verdict*).
+- **Decent (CF 7.0–7.9, EoE > 4)** → Decent match, apply only if pipeline thin (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply if pipeline thin" verdict*).
+- **Pass / Growth Target (CF < 7.0 with AF ≥ 7.0)** → Recommend against immediate application; target for skill acquisition and roadmaps (*maps under the hood to Tier 3 / `reports/tier-3/`*).
+- **Skip (CF < 7.0 AND AF < 7.0, or language-wall exception, or status SKIP)** → Low fit or mismatch; filtered out (*maps under the hood to Tier 4 / `reports/tier-4/`*).
+
+**Overall** (CF × 0.70 + AF × 0.30 + context modifiers) is the headline number reports and trackers display, and the Ethical-Use verdict threshold (recommend against applying below 7.0) reads it — but the band boundaries above are CF/AF-based, matching the engine.
 
 > [!NOTE]
 > **Under-the-Hood Compatibility Mapping:**
@@ -657,18 +663,18 @@ If the file does not exist, create it with the 26-column header row exactly as a
 
 ## Archetype Detection
 
-Classify every offer into one of these types (or hybrid of 2):
+**Archetypes are user data — the taxonomy lives in `user/_profile.md` (§ Target Role Matrix or equivalent), never here.** Classify every offer into one of the user's archetypes (or a hybrid of 2, written `Primary + Secondary`) by matching the JD's core responsibilities against each archetype's key signals as the user has defined them.
+
+The matrix follows this *pattern* (illustrative example only — a fictional candidate targeting operations roles; substitute the actual archetypes from `user/_profile.md` at evaluation time):
 
 | Archetype | Key signals in JD |
 |-----------|-------------------|
-| AI Platform / LLMOps | "observability", "evals", "pipelines", "monitoring", "reliability" |
-| Agentic / Automation | "agent", "HITL", "orchestration", "workflow", "multi-agent" |
-| Technical AI PM | "PRD", "roadmap", "discovery", "stakeholder", "product manager" |
-| AI Solutions Architect | "architecture", "enterprise", "integration", "design", "systems" |
-| AI Forward Deployed | "client-facing", "deploy", "prototype", "fast delivery", "field" |
-| AI Transformation | "change management", "adoption", "enablement", "transformation" |
+| Strategy & Operations | "business planning", "operational excellence", "cross-functional" |
+| Data Analyst | "SQL", "dashboards", "insights", "reporting", "A/B testing" |
 
-After detecting archetype, read `user/_profile.md` for the user's specific framing and proof points for that archetype.
+If `user/_profile.md` defines no archetypes yet, that's an onboarding gap — prompt the user to define them rather than inventing a taxonomy.
+
+After detecting the archetype, read `user/_profile.md` for the user's specific framing and proof points for that archetype.
 
 ## Global Rules
 
