@@ -13,6 +13,7 @@
  *   • scripts/analyze-patterns.mjs      — one learned targeting lesson (outcomes)
  *   • scripts/outreach-core.mjs         — outreach threads where a nudge is due
  *   • scripts/lib/positioning-core.mjs  — one standing targeting insight
+ *   • scripts/lib/triage-core.mjs       — the inbox's "deep-eval next" top slice
  *
  * The single "do this first" pick is ranked across ALL action sections by genuine
  * time-criticality (deadlines closing today > urgent follow-ups > overdue
@@ -35,6 +36,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { execFileSync } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import yaml from 'js-yaml'
 
 import { parseScoreHistory } from './lib/targeting-core.mjs'
 import { parseScanHistory, buildDigest } from './lib/whats-new-core.mjs'
@@ -47,6 +49,12 @@ import {
   classifyDeadlines,
 } from './lib/deadlines-core.mjs'
 import { parseAppRow } from './lib/tracker-core.mjs'
+import {
+  parsePendingEntries,
+  buildScanIndex,
+  buildDedupKeySet,
+  triagePending,
+} from './lib/triage-core.mjs'
 import { assembleBrief, renderBrief } from './lib/daily-brief-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -56,6 +64,8 @@ const OUTREACH_FILE = join(ROOT, 'data/outreach.md')
 const APPS_FILE = join(ROOT, 'data/applications.md')
 const SCOUTING_FILE = join(ROOT, 'data/scouting.md')
 const PIPELINE_FILE = join(ROOT, 'data/pipeline.md')
+const DEDUP_FILE = join(ROOT, 'data/dedup-index.tsv')
+const PROFILE_FILE = join(ROOT, 'user/profile.yml')
 const FOLLOWUP_SCRIPT = join(ROOT, 'scripts/followup-cadence.mjs')
 const PATTERNS_SCRIPT = join(ROOT, 'scripts/analyze-patterns.mjs')
 const BRIEFS_DIR = join(ROOT, 'reports/briefs')
@@ -203,6 +213,39 @@ function getPipelineHealth() {
   return { active, evaluated, inboxCount }
 }
 
+// 7. Inbox triage — the "deep-eval next" top slice from triage-core, ranked
+//    with the same signals `npm run triage` uses (scan relevance, freshness,
+//    dream/affinity company from user/profile.yml, title level, dedup hits).
+//    Best-effort + read-only: a missing/unparseable profile just drops the
+//    company boosts, never the section.
+function getTriage() {
+  const pipelineMd = read(PIPELINE_FILE)
+  if (!pipelineMd) return null
+  const entries = parsePendingEntries(pipelineMd)
+  if (entries.length === 0) return null
+
+  let dreamCompanies = []
+  let affinityCompanies = []
+  try {
+    const profile = yaml.load(read(PROFILE_FILE)) ?? {}
+    const dreams = profile?.target_roles?.dream_companies ?? []
+    dreamCompanies = (Array.isArray(dreams) ? dreams : [])
+      .map((d) => (typeof d === 'string' ? { name: d, priority: 'top' } : d))
+      .filter((d) => d && d.name)
+    affinityCompanies = profile?.calibration?.brand_affinity_companies ?? []
+  } catch {
+    // no profile boosts — deterministic signals still rank the inbox
+  }
+
+  return triagePending(entries, {
+    today: asOf,
+    scanIndex: buildScanIndex(read(SCAN_FILE)),
+    dedupKeys: buildDedupKeySet(read(DEDUP_FILE)),
+    dreamCompanies,
+    affinityCompanies,
+  })
+}
+
 /* ───── Assemble + emit ──────────────────────────────────────────────────────*/
 
 const inputs = {
@@ -212,6 +255,7 @@ const inputs = {
   outreachResult: getOutreachResult(),
   positioningIntel: getPositioningIntel(),
   classifiedDeadlines: getClassifiedDeadlines(),
+  triage: getTriage(),
   pipelineHealth: getPipelineHealth(),
 }
 
