@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   peerContext, primaryArchetype, dedupeLatestPerEntity,
+  peerBand, compactRankLabel, buildPeerRankIndex,
   MIN_PEERS, OUTLIER_THRESHOLD, PEER_DIMS,
 } from '@/lib/peerRank'
 import { makeScoreEntry } from '@/test-utils/fixtures'
@@ -216,4 +217,154 @@ test('comparables exclude the same company, sort by closeness, cap at 3', () => 
   assert.equal(ctx.comparables.length, 3)
   assert.deepEqual(ctx.comparables.map(c => c.company), ['E', 'B', 'C'])
   assert.ok(ctx.comparables.every(c => c.company !== 'Self'))
+})
+
+// ─── peerBand / compactRankLabel ──────────────────────────────────────────────
+
+test('peerBand thresholds match the rankLabel bands', () => {
+  assert.equal(peerBand(100), 'top5')
+  assert.equal(peerBand(95),  'top5')
+  assert.equal(peerBand(94),  'top10')
+  assert.equal(peerBand(90),  'top10')
+  assert.equal(peerBand(89),  'quartile')
+  assert.equal(peerBand(75),  'quartile')
+  assert.equal(peerBand(74),  'half')
+  assert.equal(peerBand(50),  'half')
+  assert.equal(peerBand(49),  'bottom')
+  assert.equal(peerBand(0),   'bottom')
+})
+
+test('compactRankLabel maps bands to chip text', () => {
+  assert.equal(compactRankLabel('top5', 1, 20),     'top 5%')
+  assert.equal(compactRankLabel('top10', 2, 20),    'top 10%')
+  assert.equal(compactRankLabel('quartile', 4, 20), 'top 25%')
+  assert.equal(compactRankLabel('half', 8, 20),     'top 50%')
+  assert.equal(compactRankLabel('bottom', 17, 20),  '#17/20')
+})
+
+// ─── buildPeerRankIndex — parity with peerContext ────────────────────────────
+//
+// The Database column renders from the batched index; the slide-over panel
+// renders from peerContext. These tests pin the two to identical rank math so
+// the surfaces can never disagree.
+
+function assertRankParity(entry: ScoreEntry, history: ScoreEntry[], msg?: string) {
+  const ctx = peerContext(entry, history)
+  const summary = buildPeerRankIndex(history).rankOf(entry)
+  if (ctx == null) {
+    assert.equal(summary, null, msg)
+    return
+  }
+  assert.ok(summary, msg)
+  assert.equal(summary.archetype,    ctx.archetype,    msg)
+  assert.equal(summary.nPeers,       ctx.nPeers,       msg)
+  assert.equal(summary.rankPosition, ctx.rankPosition, msg)
+  assert.equal(summary.percentile,   ctx.percentile,   msg)
+  assert.equal(summary.rankLabel,    ctx.rankLabel,    msg)
+  assert.equal(summary.band, peerBand(ctx.percentile), msg)
+}
+
+test('rankOf matches peerContext on a plain cohort with ties', () => {
+  const rows = cohort('Ops', [
+    { company: 'A', overall: 8.0 },
+    { company: 'B', overall: 6.0 },
+    { company: 'C', overall: 7.0 },
+    { company: 'D', overall: 8.0 },   // tie with A
+    { company: 'E', overall: 9.0 },
+  ])
+  for (const r of rows) assertRankParity(r, rows, `row ${r.company}`)
+})
+
+test('rankOf matches peerContext when peers were re-evaluated', () => {
+  const rows = [
+    ...cohort('Ops', [
+      { company: 'A', overall: 7.0 },
+      { company: 'B', overall: 6.0, date: '2026-04-01' },
+      { company: 'C', overall: 5.0 }, { company: 'D', overall: 5.5 }, { company: 'E', overall: 5.2 },
+    ]),
+    makeScoreEntry({ archetype: 'Ops', company: 'B', role: 'Analyst 1', location: 'Berlin', date: '2026-06-01', overall: 8.0 }),
+  ]
+  for (const r of rows) assertRankParity(r, rows, `row ${r.company}@${r.date}`)
+})
+
+test('rankOf matches peerContext on hybrid / case-varied archetypes', () => {
+  const rows = [
+    ...cohort('strategy & operations', [
+      { company: 'B', overall: 6 }, { company: 'C', overall: 5 },
+      { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+    ]),
+    makeScoreEntry({ company: 'F', role: 'Hybrid', archetype: 'Strategy & Operations + Data', overall: 6.5, location: 'Paris' }),
+    makeScoreEntry({ company: 'G', role: 'Nope', archetype: 'Tech Sales', overall: 9.9, location: 'Paris' }),
+    makeScoreEntry({ company: 'A', role: 'Self', archetype: 'Strategy & Operations', overall: 7, location: 'Berlin' }),
+  ]
+  for (const r of rows) assertRankParity(r, rows, `row ${r.company}`)
+})
+
+test('rankOf honors the MIN_PEERS omit rule exactly at the boundary', () => {
+  const four = cohort('Ops', [
+    { company: 'A', overall: 7 }, { company: 'B', overall: 6 },
+    { company: 'C', overall: 5 }, { company: 'D', overall: 8 },
+  ])
+  assert.equal(buildPeerRankIndex(four).rankOf(four[0]), null)   // 4 < 5
+  const five = [...four, makeScoreEntry({ archetype: 'Ops', company: 'E', role: 'Analyst 4', location: 'Berlin', overall: 7.5 })]
+  const summary = buildPeerRankIndex(five).rankOf(five[0])
+  assert.ok(summary)
+  assert.equal(summary.nPeers, 5)
+  assertRankParity(five[0], five)
+})
+
+test('rankOf returns null for unscored or archetype-less entries', () => {
+  const rows = cohort('Ops', [
+    { company: 'A', overall: 7 }, { company: 'B', overall: 6 },
+    { company: 'C', overall: 5 }, { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+  ])
+  const idx = buildPeerRankIndex(rows)
+  assert.equal(idx.rankOf(makeScoreEntry({ archetype: 'Ops', overall: 0 })), null)
+  assert.equal(idx.rankOf(makeScoreEntry({ archetype: '', overall: 7 })), null)
+})
+
+test('rankOf matches peerContext for an entry NOT present in the history', () => {
+  const rows = cohort('Ops', [
+    { company: 'B', overall: 6 }, { company: 'C', overall: 5 },
+    { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 }, { company: 'F', overall: 6.8 },
+  ])
+  const outsider = makeScoreEntry({ company: 'X', role: 'New Role', archetype: 'Ops', overall: 7.2, location: 'Madrid' })
+  assertRankParity(outsider, rows)
+  // Outsider joins as the +1: 5 peers in history + itself
+  const summary = buildPeerRankIndex(rows).rankOf(outsider)
+  assert.ok(summary)
+  assert.equal(summary.nPeers, 6)
+})
+
+test('rankOf ranks the PASSED overall, like peerContext, when it differs from the deduped-latest row', () => {
+  const rows = cohort('Ops', [
+    { company: 'A', overall: 8.5, date: '2026-06-01' },
+    { company: 'B', overall: 6 }, { company: 'C', overall: 5 },
+    { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+  ])
+  // Caller holds A's OLDER evaluation (5.5) — both surfaces rank that value,
+  // with A's latest row (8.5) excluded from the cohort as "self".
+  const staleA = makeScoreEntry({ archetype: 'Ops', company: 'A', role: 'Analyst 0', location: 'Berlin', date: '2026-04-01', overall: 5.5 })
+  assertRankParity(staleA, rows)
+  const summary = buildPeerRankIndex(rows).rankOf(staleA)
+  assert.ok(summary)
+  assert.equal(summary.nPeers, 5)          // A counted once (as self), not twice
+  assert.equal(summary.rankPosition, 4)    // beats only C(5.0); B/D/E at-or-above
+})
+
+test('rankOf parity sweep across a mixed multi-archetype landscape', () => {
+  const rows: ScoreEntry[] = []
+  for (let i = 0; i < 24; i++) {
+    rows.push(makeScoreEntry({
+      archetype: i % 3 === 0 ? 'Ops' : i % 3 === 1 ? 'Ops + Data' : 'Tech Sales',
+      company: `Co${i % 8}`,
+      role: `Role ${i % 6}`,
+      location: i % 2 === 0 ? 'Berlin' : 'Madrid',
+      date: `2026-0${(i % 6) + 1}-15`,
+      overall: (i * 37) % 60 / 10 + 4,     // deterministic 4.0–9.9 spread with ties
+    }))
+  }
+  for (const r of rows) {
+    assertRankParity(r, rows, `${r.company}|${r.role}|${r.location}|${r.date}`)
+  }
 })
