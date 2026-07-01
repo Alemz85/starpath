@@ -115,7 +115,29 @@ export function parsePipeline(md: string): PipelineUrl[] {
       ? (now - new Date(addedDate).getTime()) > STALE_MS
       : false
 
-    return [{ url, addedDate, isStale }]
+    // Scanner-written lines carry `| Company | Title` and optionally a
+    // trailing `| relevance X.X — reasons` note (scan.mjs › pipelineLine).
+    // Capture them so the Inbox can rank on real signal instead of guessing
+    // the company from the URL host. Manual bare-URL lines just have none.
+    const fields = trimmed
+      .slice(trimmed.indexOf(url) + url.length)
+      .split('|')
+      .map(s => s.trim())
+      .filter(Boolean)
+
+    let relevance: number | undefined
+    let relevanceNote: string | undefined
+    const last = fields[fields.length - 1] ?? ''
+    const rel = last.match(/^relevance ([0-9.]+)(?:\s*—\s*(.*))?$/)
+    if (rel) {
+      relevance = Number(rel[1])
+      relevanceNote = rel[2] || undefined
+      fields.pop()
+    }
+    const company = fields[0] || undefined
+    const title = fields[1] || undefined
+
+    return [{ url, addedDate, isStale, company, title, relevance, relevanceNote }]
   })
 }
 

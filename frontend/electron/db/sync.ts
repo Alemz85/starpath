@@ -217,14 +217,17 @@ export function syncPipeline(db: Database.Database, repoPath: string): { changed
 
   const rows = parsePipeline(text)
   const insert = db.prepare(`
-    INSERT OR REPLACE INTO pipeline (url, added_date, is_stale)
-    VALUES (?, ?, ?)
+    INSERT OR REPLACE INTO pipeline (url, added_date, is_stale, company, title, relevance, relevance_note)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `)
 
   const tx = db.transaction((entries: typeof rows) => {
     db.exec('DELETE FROM pipeline')
     for (const r of entries) {
-      insert.run(r.url, r.addedDate ?? null, r.isStale ? 1 : 0)
+      insert.run(
+        r.url, r.addedDate ?? null, r.isStale ? 1 : 0,
+        r.company ?? null, r.title ?? null, r.relevance ?? null, r.relevanceNote ?? null,
+      )
     }
   })
   tx(rows)

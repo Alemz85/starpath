@@ -296,9 +296,13 @@ function toScoreEntry(row: DbScoreHistoryRow): ScoreEntry {
 
 function toPipelineUrl(row: DbPipelineRow): PipelineUrl {
   return {
-    url:       row.url,
-    addedDate: row.added_date ?? undefined,
-    isStale:   Boolean(row.is_stale),
+    url:           row.url,
+    addedDate:     row.added_date ?? undefined,
+    isStale:       Boolean(row.is_stale),
+    company:       row.company ?? undefined,
+    title:         row.title ?? undefined,
+    relevance:     row.relevance ?? undefined,
+    relevanceNote: row.relevance_note ?? undefined,
   }
 }
 

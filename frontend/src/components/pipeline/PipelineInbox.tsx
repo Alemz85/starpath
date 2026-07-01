@@ -20,9 +20,10 @@ import type { PipelineUrl, ApplicationEntry, ScoutingEntry } from '@/types'
 // (lib/pipelineInbox); this component only renders + wires the side effects.
 
 const REASON_CHIP: Record<InboxReason, { label: string; cls: string }> = {
-  new:     { label: 'New',     cls: 'text-accent bg-accent-soft' },
-  known:   { label: 'Known',   cls: 'text-text-3 bg-bg-elevated' },
-  invalid: { label: 'Invalid', cls: 'text-danger bg-danger/10' },
+  new:       { label: 'New',     cls: 'text-accent bg-accent-soft' },
+  known:     { label: 'Known',   cls: 'text-text-3 bg-bg-elevated' },
+  evaluated: { label: 'Scored',  cls: 'text-text-4 bg-bg-elevated' },
+  invalid:   { label: 'Invalid', cls: 'text-danger bg-danger/10' },
 }
 
 export function PipelineInbox({
@@ -129,10 +130,24 @@ function InboxRow({
             </span>
           )}
         </div>
-        <span className="block text-[10.5px] text-text-4 truncate leading-tight font-mono">
-          {item.source || item.url}
+        <span className="block text-[10.5px] text-text-4 truncate leading-tight">
+          {item.title
+            ? <>{item.title} <span className="font-mono text-text-4/70">· {item.source}</span></>
+            : <span className="font-mono">{item.source || item.url}</span>}
         </span>
       </div>
+
+      {!invalid && (
+        <span
+          className={cn(
+            'shrink-0 font-mono text-[10.5px] tabular-nums',
+            item.triageScore >= 3 ? 'text-accent' : item.triageScore < 0 ? 'text-text-4' : 'text-text-3',
+          )}
+          title={`Triage score — ${item.scoreReasons.join('; ')}`}
+        >
+          {item.triageScore.toFixed(1)}
+        </span>
+      )}
 
       <span className={cn(
         'shrink-0 px-1.5 h-[18px] inline-flex items-center rounded-pill text-[9.5px] font-medium uppercase tracking-wide',

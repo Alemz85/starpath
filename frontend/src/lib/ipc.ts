@@ -116,6 +116,8 @@ export interface DbScoreHistoryRow {
 
 export interface DbPipelineRow {
   url: string; added_date: string | null; is_stale: number
+  company: string | null; title: string | null
+  relevance: number | null; relevance_note: string | null
 }
 
 export interface DbReportRow {
