@@ -1,0 +1,194 @@
+// Peer context for the Reports slide-over — the frontend twin of
+// scripts/peer-rank.mjs.
+//
+// Reports carry an OPTIONAL static "Rank vs {archetype} peers" block that is
+// frozen at evaluation time (and, in the current renderer, silently dropped
+// because it sits inside the dimensional-scoring section slice). This module
+// recomputes the same signal LIVE from the score-history rows the app already
+// has in the data store, so the panel always reflects today's landscape —
+// a role evaluated in April is ranked against everything scored since.
+//
+// Semantics follow scripts/peer-rank.mjs with two deliberate divergences,
+// both documented here so the twins don't drift silently:
+//   1. Re-evaluated listings are deduped to their LATEST row per entity
+//      (the script ranks raw rows, so a listing re-evaluated 3× counts 3×).
+//   2. Dimension averages are computed over the OTHER peers (excluding this
+//      entity), so "vs peer avg" means "vs the rest of the cohort" rather
+//      than an average that includes the score being explained.
+// Rank / percentile / minPeers / the ±1.5 outlier threshold / the
+// same-company exclusion for comparables all mirror the script.
+
+import type { ScoreEntry } from '@/types'
+import { entityId, parseCities } from '@/lib/entityId'
+
+export const PEER_DIMS = [
+  { key: 'skills_match',     label: 'Skills Match' },
+  { key: 'ease_of_entry',    label: 'Ease of Entry' },
+  { key: 'strategic_fit',    label: 'Strategic Fit' },
+  { key: 'growth_mobility',  label: 'Growth/Mobility' },
+  { key: 'optionality_exit', label: 'Optionality/Exit' },
+  { key: 'brand_value',      label: 'Brand Value' },
+] as const
+
+export type PeerDimKey = (typeof PEER_DIMS)[number]['key']
+
+/** |Δ| from the peer average at which a dimension counts as an outlier —
+ *  same threshold as scripts/peer-rank.mjs. */
+export const OUTLIER_THRESHOLD = 1.5
+
+/** Below this cohort size the panel is omitted entirely (never rendered
+ *  with a "not enough data" placeholder) — same rule as the script and
+ *  modes/scouting.md § Peer ranking. */
+export const MIN_PEERS = 5
+
+export interface PeerDimDelta {
+  dim: PeerDimKey
+  label: string
+  /** This entity's score on the dimension. */
+  value: number
+  /** Mean of the OTHER peers' scores on the dimension (2 decimals). */
+  peerAvg: number
+  /** value − peerAvg, rounded to 1 decimal. */
+  delta: number
+  /** |delta| ≥ OUTLIER_THRESHOLD — the load-bearing "stands out / lags" flag. */
+  outlier: boolean
+}
+
+export interface PeerComparable {
+  company: string
+  role: string
+  overall: number
+  tier: string
+  location: string
+}
+
+export interface PeerContext {
+  /** Primary archetype segment the cohort was matched on. */
+  archetype: string
+  /** Cohort size INCLUDING this entity. */
+  nPeers: number
+  /** 1 = top. Ties rank below (same convention as the script). */
+  rankPosition: number
+  /** % of the cohort scoring strictly below this entity. */
+  percentile: number
+  /** Human label: "top 5%" / "top 10%" / "top quartile" / "top half" / "bottom half". */
+  rankLabel: string
+  /** This entity's overall score (echoed for the renderer). */
+  overall: number
+  /** The OTHER peers' overall scores — feeds the distribution strip. */
+  peerOveralls: number[]
+  /** All comparable dimensions, sorted by delta descending (strongest
+   *  advantage first, biggest lag last). */
+  deltas: PeerDimDelta[]
+  /** Up to 3 closest peers by overall score, other companies only. */
+  comparables: PeerComparable[]
+}
+
+/** First segment of a hybrid archetype ("A + B" → "A"). "&" and "/" are NOT
+ *  separators — "Strategy & Operations" stays whole. Mirrors the script. */
+export function primaryArchetype(raw: string | null | undefined): string {
+  return (raw ?? '').split(' + ')[0].trim()
+}
+
+/** Latest row per entity (company + role-canonical + city), so re-evaluated
+ *  listings count once. Rows without a usable overall are dropped. */
+export function dedupeLatestPerEntity(rows: ScoreEntry[]): Map<string, ScoreEntry> {
+  const byEntity = new Map<string, ScoreEntry>()
+  for (const r of rows) {
+    if (!Number.isFinite(r.overall) || r.overall <= 0) continue
+    const id = entityId(r.company, r.role, parseCities(r.location))
+    const prev = byEntity.get(id)
+    if (!prev || r.date.localeCompare(prev.date) >= 0) byEntity.set(id, r)
+  }
+  return byEntity
+}
+
+function rankLabel(percentile: number, position: number, total: number): string {
+  if (percentile >= 95) return 'top 5%'
+  if (percentile >= 90) return 'top 10%'
+  if (percentile >= 75) return 'top quartile'
+  if (percentile >= 50) return 'top half'
+  return `bottom half (#${position} of ${total})`
+}
+
+function sameCompany(a: string, b: string): boolean {
+  if (!a || !b) return false
+  return a.trim().toLowerCase() === b.trim().toLowerCase()
+}
+
+export function peerContext(
+  entry: ScoreEntry,
+  history: ScoreEntry[],
+  { minPeers = MIN_PEERS }: { minPeers?: number } = {},
+): PeerContext | null {
+  if (!entry || !Number.isFinite(entry.overall) || entry.overall <= 0) return null
+  const seg = primaryArchetype(entry.archetype)
+  if (!seg) return null
+  const segLower = seg.toLowerCase()
+
+  const selfId = entityId(entry.company, entry.role, parseCities(entry.location))
+  const others: ScoreEntry[] = []
+  for (const [id, row] of dedupeLatestPerEntity(history)) {
+    if (id === selfId) continue
+    if (primaryArchetype(row.archetype).toLowerCase() !== segLower) continue
+    others.push(row)
+  }
+
+  const nPeers = others.length + 1
+  if (nPeers < minPeers) return null
+
+  // Rank / percentile — script math: beats = peers scoring strictly below;
+  // ties (and self) count as at-or-above, so rankPosition is conservative.
+  const beats = others.filter(o => o.overall < entry.overall).length
+  const percentile = Math.round((beats / nPeers) * 100)
+  const rankPosition = nPeers - beats
+
+  // Dimension deltas vs the rest of the cohort. Dims missing on this entity
+  // (0 = not scored) are skipped rather than rendered as a fake 0-vs-avg gap.
+  const deltas: PeerDimDelta[] = []
+  for (const { key, label } of PEER_DIMS) {
+    const value = entry[key]
+    if (!Number.isFinite(value) || value <= 0) continue
+    const peerVals = others.map(o => o[key]).filter(v => Number.isFinite(v) && v > 0)
+    if (peerVals.length === 0) continue
+    const peerAvg = peerVals.reduce((a, b) => a + b, 0) / peerVals.length
+    const delta = Number((value - peerAvg).toFixed(1))
+    deltas.push({
+      dim: key,
+      label,
+      value,
+      peerAvg: Number(peerAvg.toFixed(2)),
+      delta,
+      outlier: Math.abs(delta) >= OUTLIER_THRESHOLD,
+    })
+  }
+  deltas.sort((a, b) => b.delta - a.delta)
+
+  // Closest comparables — other companies only (a sibling posting at the
+  // same company is dedup noise, not a comparable), closest overall first.
+  const comparables: PeerComparable[] = others
+    .filter(o => !sameCompany(o.company, entry.company))
+    .map(o => ({
+      company:  o.company,
+      role:     o.role,
+      overall:  Number(o.overall.toFixed(2)),
+      tier:     o.tier,
+      location: o.location,
+      _delta:   Math.abs(o.overall - entry.overall),
+    }))
+    .sort((a, b) => a._delta - b._delta || b.overall - a.overall)
+    .slice(0, 3)
+    .map(({ _delta, ...rest }) => rest)
+
+  return {
+    archetype: seg,
+    nPeers,
+    rankPosition,
+    percentile,
+    rankLabel: rankLabel(percentile, rankPosition, nPeers),
+    overall: entry.overall,
+    peerOveralls: others.map(o => o.overall),
+    deltas,
+    comparables,
+  }
+}

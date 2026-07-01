@@ -21,9 +21,11 @@ import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { parseCities, entityId } from '@/lib/entityId'
 import {
-  extractMetadata, parseDimensionalScoring, splitWhyThisScore,
+  extractMetadata, parseDimensionalScoring, splitWhyThisScore, splitPeerBlock,
   type ParsedDimensions, type DimensionRow, type WhyThisScore,
 } from '@/lib/reportMarkdown'
+import { peerContext, type PeerContext } from '@/lib/peerRank'
+import { PeerContextCard } from '@/components/reports/PeerContextCard'
 
 type Tab = 'scouting' | 'application' | 'history'
 
@@ -93,6 +95,15 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   }, [scoreHistory, company, role])
 
   const historyAvailable = history.length >= 2
+
+  // Live peer context — this entity's overall + dims vs. every other
+  // evaluated entity sharing its primary archetype, computed fresh from
+  // score-history (see lib/peerRank.ts). Null when the cohort is under 5
+  // roles, in which case the panel is omitted entirely.
+  const peer: PeerContext | null = useMemo(
+    () => peerContext(scoreEntry, scoreHistory),
+    [scoreEntry, scoreHistory],
+  )
 
   // Multi-city detection from the row's location string. When the JD
   // names ≥2 cities for a single posting (e.g. Rev-celerator), the
@@ -459,7 +470,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           )}
           {!loading && !error && activeTab === 'scouting' && (
             scoutingContent
-              ? <ReportBody content={scoutingContent} tier={tierKey} />
+              ? <ReportBody content={scoutingContent} tier={tierKey} peer={peer} onOpenComparable={onSwitchEntity} />
               : <EmptyTab message="No scouting report yet — click Generate report from the Database popover to create one." />
           )}
           {!loading && !error && activeTab === 'application' && (
@@ -607,27 +618,49 @@ function EmptyTab({ message }: { message: string }) {
 // grouped sections. Falls back to plain markdown when parsing fails so
 // older / custom report formats still render readably. ──────────────────────
 
-function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
+function ReportBody({
+  content, tier, peer, onOpenComparable,
+}: {
+  content: string
+  tier: TierKey
+  /** Live peer context (lib/peerRank.ts). When present, the static at-eval-
+   *  time peer block in the markdown is stripped and the PeerContextCard
+   *  renders in its place; when null the markdown is left untouched. */
+  peer?: PeerContext | null
+  onOpenComparable?: (company: string, role: string) => void
+}) {
   // Parse once per content change, not on every render. The slide-over
   // re-renders frequently (animation flag, parent state) and the regex /
   // line-walk parsers were running every time, causing a visible flicker.
   const parsed = useMemo(() => {
     const { before, dims, after } = parseDimensionalScoring(content)
-    if (!dims) return { dims: null as ParsedDimensions | null, after: '', meta: [] as Array<{ key: string; value: string }>, beforeWithoutMeta: '', why: null as WhyThisScore | null }
+    if (!dims) {
+      // Fallback (unparseable / older format): still strip the frozen peer
+      // block when the live panel will render, so we never show two
+      // conflicting rank claims.
+      const fallback = peer ? splitPeerBlock(content).rest : content
+      return { dims: null as ParsedDimensions | null, after: '', meta: [] as Array<{ key: string; value: string }>, beforeWithoutMeta: fallback, why: null as WhyThisScore | null }
+    }
     const { meta, rest: beforeWithoutMeta } = extractMetadata(before)
     // Carve the "Why this score" block out of the trailing prose so it can be
     // promoted to a structured callout right under the score table — its
     // binding-constraint + lever shape is the report's most actionable signal
     // and reads poorly as loose markdown bullets.
     const { why, rest: afterWithoutWhy } = splitWhyThisScore(after)
-    return { dims, after: afterWithoutWhy, meta, beforeWithoutMeta, why: why.present ? why : null }
-  }, [content])
+    // Same carve for the static peer-ranking lines (only when the live panel
+    // supersedes them — otherwise the frozen block stays as the fallback).
+    const afterFinal = peer ? splitPeerBlock(afterWithoutWhy).rest : afterWithoutWhy
+    return { dims, after: afterFinal, meta, beforeWithoutMeta, why: why.present ? why : null }
+  }, [content, peer])
 
   if (!parsed.dims) {
     return (
-      <div className="prose-report">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{content}</ReactMarkdown>
-      </div>
+      <>
+        <div className="prose-report">
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{parsed.beforeWithoutMeta}</ReactMarkdown>
+        </div>
+        {peer && <PeerContextCard peer={peer} onOpenComparable={onOpenComparable} />}
+      </>
     )
   }
   const { dims, after, meta, beforeWithoutMeta, why } = parsed
@@ -638,6 +671,7 @@ function ReportBody({ content, tier }: { content: string; tier: TierKey }) {
       </div>
       {meta.length > 0 && <ReportMeta items={meta} />}
       <DimensionalScoring dims={dims} tier={tier} />
+      {peer && <PeerContextCard peer={peer} onOpenComparable={onOpenComparable} />}
       {why && <WhyThisScoreCard why={why} tier={tier} />}
       {after && (
         <div className="prose-report">

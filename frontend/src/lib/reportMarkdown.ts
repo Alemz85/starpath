@@ -281,6 +281,54 @@ export function splitWhyThisScore(md: string): { why: WhyThisScore; rest: string
   return { why, rest }
 }
 
+// ─── Static peer-ranking block (frozen at evaluation time) ────────────────────
+//
+// Reports optionally carry a 3-line peer block written at evaluation time
+// (modes/scouting.md § Peer ranking):
+//
+//   ---                                          ← optional rule
+//   ## Peer ranking …                            ← optional heading (template
+//                                                  form; most reports omit it)
+//   **Rank vs {Archetype} peers:** …
+//   **Dimension outliers:** …
+//   **Closest comparables:** …
+//
+// The slide-over recomputes this signal LIVE from score-history (see
+// lib/peerRank.ts), so when the live panel renders we carve the frozen block
+// out of the prose to avoid showing two conflicting rank claims. When the
+// live panel is unavailable the markdown is left untouched and the static
+// block (where the report has one in renderable prose) remains the fallback.
+export function splitPeerBlock(md: string): { found: boolean; rest: string } {
+  const lines = md.split('\n')
+  const rankIdx = lines.findIndex(l => /^\s*\*\*Rank vs .+ peers:\*\*/i.test(l.trim()))
+  if (rankIdx === -1) return { found: false, rest: md }
+
+  // Extend down over the companion bold lines (blank lines between are ok).
+  let end = rankIdx + 1
+  const companionRe = /^\*\*(Dimension outliers|Closest comparables)\s*:\*\*/i
+  while (end < lines.length) {
+    const t = lines[end].trim()
+    if (t === '') { end++; continue }
+    if (companionRe.test(t)) { end++; continue }
+    break
+  }
+
+  // Extend up over blank lines, then an optional `---` rule and/or the
+  // template's `## Peer ranking …` heading (each also swallowing the blank
+  // run above it).
+  let start = rankIdx
+  const swallowBlanks = () => { while (start > 0 && lines[start - 1].trim() === '') start-- }
+  swallowBlanks()
+  if (start > 0 && /^-{3,}\s*$/.test(lines[start - 1].trim())) { start--; swallowBlanks() }
+  if (start > 0 && /^##\s+Peer ranking/i.test(lines[start - 1].trim())) { start--; swallowBlanks() }
+
+  const rest = [...lines.slice(0, start), ...lines.slice(end)]
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return { found: true, rest }
+}
+
 export function parseRow(line: string) {
   // "| a | b | c |" → ['', ' a ', ' b ', ' c ', ''] → ['a','b','c']
   const cells = line.split('|').slice(1, -1).map(c => c.trim())

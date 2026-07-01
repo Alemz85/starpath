@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   extractMetadata, parseDimensionalScoring, parseRow,
   extractWhyThisScoreSection, parseWhyThisScore, splitWhyThisScore,
+  splitPeerBlock,
 } from '@/lib/reportMarkdown'
 
 // A representative evaluation report — header + metadata block, a dimensional
@@ -325,4 +326,72 @@ Headline only, no bullets.
   assert.ok(rest.includes('## Role summary'))
   assert.ok(!rest.includes('## Why this score'))
   assert.ok(!/\n{3,}/.test(rest))   // no blank-line crater left behind
+})
+
+// ─── splitPeerBlock ───────────────────────────────────────────────────────────
+
+test('splitPeerBlock removes the unheaded rule + 3-line peer block (real report shape)', () => {
+  const md = `| Best-fit Roles (context) | — | Analyst |
+
+---
+**Rank vs Strategy & Operations peers:** 7.4/10 — top 15% of 39 roles evaluated
+**Dimension outliers:** Brand Value +2.6 above avg
+**Closest comparables:** Beta Corp (7.5) · Gamma Inc (7.3)
+
+## A) Role summary
+| Field | Value |
+`
+  const { found, rest } = splitPeerBlock(md)
+  assert.equal(found, true)
+  assert.ok(!rest.includes('Rank vs'))
+  assert.ok(!rest.includes('Dimension outliers'))
+  assert.ok(!rest.includes('Closest comparables'))
+  assert.ok(!rest.includes('---'))                  // the rule went with the block
+  assert.ok(rest.includes('## A) Role summary'))
+  assert.ok(rest.includes('Best-fit Roles'))
+  assert.ok(!/\n{3,}/.test(rest))
+})
+
+test('splitPeerBlock also swallows the optional "## Peer ranking" template heading', () => {
+  const md = `## Why this score
+Solid.
+
+## Peer ranking
+
+---
+**Rank vs Data Analyst peers:** 8.1/10 — top 5% of 18 roles evaluated
+**Dimension outliers:** none ≥ ±1.5 from peer average
+**Closest comparables:** Beta (8.0)
+
+## A) Role summary
+`
+  const { found, rest } = splitPeerBlock(md)
+  assert.equal(found, true)
+  assert.ok(!rest.includes('## Peer ranking'))
+  assert.ok(!rest.includes('Rank vs'))
+  assert.ok(rest.includes('## Why this score'))
+  assert.ok(rest.includes('## A) Role summary'))
+})
+
+test('splitPeerBlock leaves markdown without a peer block untouched', () => {
+  const md = `## A) Role summary
+No peer block here. A dimension outlier is mentioned in prose only.
+`
+  const { found, rest } = splitPeerBlock(md)
+  assert.equal(found, false)
+  assert.equal(rest, md)
+})
+
+test('splitPeerBlock handles a block at the very end of the document', () => {
+  const md = `## E) Career path impact
+Great trajectory.
+
+---
+**Rank vs Ops peers:** 7.0/10 — top half of 12 roles evaluated
+**Closest comparables:** Beta (7.1)
+`
+  const { found, rest } = splitPeerBlock(md)
+  assert.equal(found, true)
+  assert.ok(!rest.includes('Rank vs'))
+  assert.ok(rest.includes('Great trajectory.'))
 })
