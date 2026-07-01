@@ -26,6 +26,7 @@
     "apply-kit": "node scripts/apply-kit.mjs",
     "score-trend": "node scripts/score-trend.mjs",
     "deadlines": "node scripts/deadlines.mjs",
+    "triage": "node scripts/triage-pipeline.mjs",
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "test:all": "node scripts/test-all.mjs"
   },

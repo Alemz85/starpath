@@ -19,6 +19,7 @@ If there's a desync, warn the user before continuing.
 
 ## Step 1 — Read and triage the Pending section
 
+0. **Zero-token pre-triage (run FIRST when Pending has more than ~15 items):** run `node scripts/triage-pipeline.mjs` (`npm run triage`). It ranks the inbox deterministically (scan relevance + posting freshness + dream/affinity company + title level + already-evaluated dedup hits) at zero token cost. Process the **deep-eval bucket** this run; leave the hold bucket in Pending — re-runs surface it as the top slice clears. This is the token-budget gate: deep evaluation is the expensive step, so it goes to the best-ranked slice, not the whole inbox. (Entries the triage demotes for a *senior-title* or *likely-dupe* reason still deserve a one-line sanity check before being held — the triage is a ranking, not a verdict.)
 1. Read all `- [ ]` items from the "Pending" section of `data/pipeline.md`
 2. **Age-flag stale entries:** Any entry whose date metadata (or the date it was added, if recorded) is **older than 14 days** from today → prepend `[STALE]` to the item. Before evaluating a stale entry, run a quick liveness check with Playwright (`browser_navigate` + `browser_snapshot`) to confirm the posting is still live. If it's closed → mark `[!] CLOSED` and skip evaluation.
 3. **Company grouping:** Collect all URLs, then group by detected company name. Process all URLs from the same company consecutively — this ensures multi-city dedup logic (see `modes/scouting.md` § "Multi-city role deduplication") fires correctly.
