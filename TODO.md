@@ -26,18 +26,27 @@ Running the app burns a Claude Pro session fast (a scan+eval ~= a whole session)
 (plain Node/Python hitting APIs). The real cost is the **per-listing Claude
 evaluation** (`scouting` mode): volume × context-loaded-per-eval × output length.
 Levers, by impact:
-1. **Pre-filter before Claude** (biggest, ~5–10×): use the free deterministic
-   relevance score + heuristics to triage; only deeply evaluate the top ~10–15.
+1. ✅ **Pre-filter before Claude** (biggest, ~5–10×) — shipped 2026-07-01:
+   `scripts/triage-pipeline.mjs` (`npm run triage`) ranks the Pending inbox
+   deterministically (scan relevance + freshness + dream/affinity + title level
+   + dedup hits) and `--emit-batch` feeds the top slice into `batch-input.tsv`.
+   Wired into `modes/pipeline.md` Step 1 as the pre-eval gate.
 2. **Two-tier models:** Haiku triages "worth a deep eval?"; reserve Opus/Sonnet
-   for survivors.
-3. **Slim per-eval context:** headless evals should load a *compressed rubric* +
-   a CV *summary* + the JD only — NOT all of CLAUDE.md/modes (this session grew
-   those; route through `batch/batch-prompt.md`).
+   for survivors. (The deterministic triage above may be enough — measure first.)
+3. ✅ **Slim per-eval context** — shipped 2026-07-01: `batch/batch-prompt.md`
+   rewritten as the compact self-contained eval bundle (judgment anchors +
+   score-listing.mjs delegation, no CLAUDE.md/modes loading), parity-pinned by
+   `scripts/batch-prompt-parity.test.mjs`. Remaining: route the frontend's
+   per-listing eval spawns through the same bundle instead of `/career-ops`
+   slash commands, and produce a CV *summary* artifact for workers.
 4. **Prompt caching:** cache the rubric+CV prefix across a batch.
 5. **Compress output:** TSV row + 1-line rationale for triage/low-scorers; full
    report only for high-scorers worth applying to.
-**FIRST STEP: measure** — add per-step/per-spawn token accounting so we optimize
-the real hotspot, not a guess. A focused "go deep" project, not a bolt-on.
+✅ **FIRST STEP: measure — shipped 2026-07-01:** batch workers run with
+`--output-format json`; the runner logs per-spawn tokens/cost/turns to
+`batch/logs/usage.tsv` (`scripts/lib/batch-usage.mjs`), and the frontend
+activity panel shows each spawn's duration + token stats on the result
+capstone. Optimize from this data, not guesses.
 
 ## ✅ Done (2026-06-27): Pipeline view wired into nav
 
