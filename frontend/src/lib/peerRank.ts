@@ -103,12 +103,45 @@ export function dedupeLatestPerEntity(rows: ScoreEntry[]): Map<string, ScoreEntr
   return byEntity
 }
 
+/** Percentile band — the shared vocabulary between the slide-over panel's
+ *  prose label and the Database column's compact chip. Both render from the
+ *  SAME band so the two surfaces can never disagree about which bucket a
+ *  role falls in. Thresholds mirror scripts/peer-rank.mjs. */
+export type PeerBand = 'top5' | 'top10' | 'quartile' | 'half' | 'bottom'
+
+export function peerBand(percentile: number): PeerBand {
+  if (percentile >= 95) return 'top5'
+  if (percentile >= 90) return 'top10'
+  if (percentile >= 75) return 'quartile'
+  if (percentile >= 50) return 'half'
+  return 'bottom'
+}
+
+const BAND_LABELS: Record<PeerBand, string> = {
+  top5:     'top 5%',
+  top10:    'top 10%',
+  quartile: 'top quartile',
+  half:     'top half',
+  bottom:   'bottom half',
+}
+
+/** Compact form for tight surfaces (the Database "Peers" column):
+ *  "top 5%" / "top 10%" / "top 25%" / "top 50%" / "#7/12". */
+export function compactRankLabel(band: PeerBand, position: number, total: number): string {
+  switch (band) {
+    case 'top5':     return 'top 5%'
+    case 'top10':    return 'top 10%'
+    case 'quartile': return 'top 25%'
+    case 'half':     return 'top 50%'
+    case 'bottom':   return `#${position}/${total}`
+  }
+}
+
 function rankLabel(percentile: number, position: number, total: number): string {
-  if (percentile >= 95) return 'top 5%'
-  if (percentile >= 90) return 'top 10%'
-  if (percentile >= 75) return 'top quartile'
-  if (percentile >= 50) return 'top half'
-  return `bottom half (#${position} of ${total})`
+  const band = peerBand(percentile)
+  return band === 'bottom'
+    ? `${BAND_LABELS.bottom} (#${position} of ${total})`
+    : BAND_LABELS[band]
 }
 
 function sameCompany(a: string, b: string): boolean {
@@ -190,5 +223,112 @@ export function peerContext(
     peerOveralls: others.map(o => o.overall),
     deltas,
     comparables,
+  }
+}
+
+// ─── Batched rank index (Database "Peers" column) ───────────────────────────
+//
+// The Database table needs the rank/percentile signal for HUNDREDS of rows at
+// once. Calling peerContext per row would re-dedupe the full score history and
+// re-walk every cohort for each row — O(rows × history). buildPeerRankIndex
+// does the expensive part ONCE (dedupe + group by primary archetype + sort),
+// then rankOf() answers per-row in O(log cohort) via binary search.
+//
+// Semantics are IDENTICAL to peerContext's rank math (pinned by parity tests
+// in peerRank.test.ts): same latest-row-per-entity dedupe, same self-exclusion
+// by entityId, same strictly-below "beats" counting (ties rank below), same
+// MIN_PEERS omit rule. rankOf(entry) ranks the entry's OWN overall — exactly
+// what peerContext does — so the column and the slide-over panel agree even
+// when the passed row differs from the deduped-latest row for its entity.
+
+export interface PeerRankSummary {
+  /** Primary archetype segment the cohort was matched on. */
+  archetype: string
+  /** Cohort size INCLUDING this entity. */
+  nPeers: number
+  /** 1 = top. Ties rank below (same convention as peerContext). */
+  rankPosition: number
+  /** % of the cohort scoring strictly below this entity. */
+  percentile: number
+  band: PeerBand
+  /** Panel-style label ("top quartile", "bottom half (#7 of 12)"). */
+  rankLabel: string
+  /** Chip-style label ("top 25%", "#7/12"). */
+  compactLabel: string
+}
+
+export interface PeerRankIndex {
+  /** Rank the entry vs. its live archetype cohort, or null when the entry is
+   *  unscored / archetype-less / the cohort is under minPeers (omit rule —
+   *  the caller renders nothing, never a placeholder). */
+  rankOf(entry: ScoreEntry): PeerRankSummary | null
+}
+
+interface CohortIndex {
+  /** Deduped cohort overalls, sorted ascending — binary-search substrate. */
+  overalls: number[]
+  /** entityId → that entity's deduped overall, for self-exclusion. */
+  byId: Map<string, number>
+}
+
+/** Count of values in the ascending-sorted array strictly below `target`. */
+function countBelow(sorted: number[], target: number): number {
+  let lo = 0
+  let hi = sorted.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (sorted[mid] < target) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+
+export function buildPeerRankIndex(
+  history: ScoreEntry[],
+  { minPeers = MIN_PEERS }: { minPeers?: number } = {},
+): PeerRankIndex {
+  const cohorts = new Map<string, CohortIndex>()
+  for (const [id, row] of dedupeLatestPerEntity(history)) {
+    const seg = primaryArchetype(row.archetype).toLowerCase()
+    if (!seg) continue
+    let cohort = cohorts.get(seg)
+    if (!cohort) {
+      cohort = { overalls: [], byId: new Map() }
+      cohorts.set(seg, cohort)
+    }
+    cohort.overalls.push(row.overall)
+    cohort.byId.set(id, row.overall)
+  }
+  for (const cohort of cohorts.values()) cohort.overalls.sort((a, b) => a - b)
+
+  return {
+    rankOf(entry: ScoreEntry): PeerRankSummary | null {
+      if (!entry || !Number.isFinite(entry.overall) || entry.overall <= 0) return null
+      const seg = primaryArchetype(entry.archetype)
+      if (!seg) return null
+      const cohort = cohorts.get(seg.toLowerCase())
+
+      // Others = the deduped cohort minus this entity (when present).
+      const selfId = entityId(entry.company, entry.role, parseCities(entry.location))
+      const selfOverall = cohort?.byId.get(selfId)
+      const othersCount = (cohort?.overalls.length ?? 0) - (selfOverall !== undefined ? 1 : 0)
+      const nPeers = othersCount + 1
+      if (nPeers < minPeers) return null
+
+      let beats = countBelow(cohort?.overalls ?? [], entry.overall)
+      if (selfOverall !== undefined && selfOverall < entry.overall) beats -= 1
+      const percentile = Math.round((beats / nPeers) * 100)
+      const rankPosition = nPeers - beats
+      const band = peerBand(percentile)
+      return {
+        archetype: seg,
+        nPeers,
+        rankPosition,
+        percentile,
+        band,
+        rankLabel: rankLabel(percentile, rankPosition, nPeers),
+        compactLabel: compactRankLabel(band, rankPosition, nPeers),
+      }
+    },
   }
 }

@@ -21,6 +21,7 @@ import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { scoreColor, scoreColorLight } from '@/lib/tier'
 import { rowLever, type LeverResult } from '@/lib/tierLevers'
+import { buildPeerRankIndex, type PeerRankSummary } from '@/lib/peerRank'
 import { useId } from 'react'
 
 interface OffersTableProps {
@@ -204,6 +205,37 @@ function LeverChip({ lever }: { lever: LeverResult }) {
   )
 }
 
+// ─── Peer-percentile chip ───────────────────────────────────────────────────
+//
+// Compact twin of the slide-over's "Peer context" panel (PeerContextCard):
+// where this row's overall sits among ALL evaluated roles sharing its primary
+// archetype, computed live from score-history via the same lib/peerRank math —
+// the two surfaces render from one band vocabulary so they can never disagree.
+//
+// Below MIN_PEERS cohort members the cell renders NOTHING (the shared omit
+// rule — no "n/a" placeholder). Top-half rows read as quiet data ("top 25%");
+// bottom-half rows recede further ("#9/12" in muted slate). No color beyond
+// text-weight contrast: percentile is within-archetype context, not absolute
+// score quality, so it must not borrow the score or tier scales.
+function PeerRankChip({ rank }: { rank: PeerRankSummary | null }) {
+  if (!rank) return null
+  const strong = rank.band === 'top5' || rank.band === 'top10' || rank.band === 'quartile'
+  return (
+    <span
+      title={
+        `#${rank.rankPosition} of ${rank.nPeers} evaluated ${rank.archetype} roles — ${rank.rankLabel}. ` +
+        'Live cohort, same math as the Peer context panel in the report slide-over.'
+      }
+      className={cn(
+        'text-[10.5px] font-mono tabular-nums whitespace-nowrap',
+        strong ? 'text-text-2 font-semibold' : 'text-text-4',
+      )}
+    >
+      {rank.compactLabel}
+    </span>
+  )
+}
+
 // ─── Inline row breakdown ───────────────────────────────────────────────────
 //
 // Click the chevron on a row → that row expands inline, revealing the
@@ -359,7 +391,15 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   // store unsubscribed since nothing in this table needs it anymore.)
   const reports = useDataStore(s => s.reports)
   const applications = useDataStore(s => s.applications)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+
+  // Batched peer-rank index — built ONCE per score-history change (dedupe +
+  // cohort grouping + sort), then each row's "Peers" cell is an O(log n)
+  // lookup. Cohorts come from the FULL raw score history — the same input the
+  // slide-over's peerContext uses — not the filtered rows, so filtering the
+  // table never changes a row's percentile.
+  const peerIndex = useMemo(() => buildPeerRankIndex(scoreHistory), [scoreHistory])
 
   // Refs that always mirror the latest state so the column-cell closures
   // can read fresh values without `expanded` / `toggleExpanded` being in
@@ -500,6 +540,22 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       cell: info => <CfAfBlock cf={info.getValue()} af={info.row.original.aspirational_fit} />,
     }),
     col.display({
+      id: 'peer',
+      header: 'Peers',
+      size: 76,
+      // Sort by percentile: descending puts the strongest within-cohort
+      // standouts first. Rows without a rank (cohort < MIN_PEERS or unscored)
+      // sit at -1 so a descending sort sends them to the bottom.
+      sortingFn: (a, b) => {
+        const pa = peerIndex.rankOf(a.original)?.percentile ?? -1
+        const pb = peerIndex.rankOf(b.original)?.percentile ?? -1
+        return pa - pb
+      },
+      sortDescFirst: true,
+      enableSorting: true,
+      cell: info => <PeerRankChip rank={peerIndex.rankOf(info.row.original)} />,
+    }),
+    col.display({
       id: 'fixability',
       header: 'Upgrade Path',
       size: 116,
@@ -591,7 +647,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         )
       },
     }),
-  ], [reportSet, onOpenReport, statusByKey])
+  ], [reportSet, onOpenReport, statusByKey, peerIndex])
 
   const table = useReactTable({
     data: rows,
@@ -604,7 +660,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
 
   return (
     <div className="h-full overflow-auto relative">
-      <table className="w-full border-collapse text-left" style={{ minWidth: 840 }}>
+      <table className="w-full border-collapse text-left" style={{ minWidth: 900 }}>
         <thead className="sticky top-0 z-10">
           {table.getHeaderGroups().map(hg => (
             <tr key={hg.id}>
@@ -614,6 +670,11 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                 const headerStr = header.column.columnDef.header as string
                 const isCentered = headerStr === 'Location'
                 const isUpgradePath = headerStr === 'Upgrade Path'
+                const isPeers = headerStr === 'Peers'
+                const headerTitle =
+                  isUpgradePath ? 'Cheapest single-dimension raise that moves this listing into a better tier. Sort ascending = easiest to upgrade first.'
+                  : isPeers ? 'Where this score ranks among all evaluated roles of the same archetype (live cohort). Blank = fewer than 5 peers evaluated. Sort descending = strongest standouts first.'
+                  : undefined
                 const ariaSortVal: 'ascending' | 'descending' | 'none' = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
                 const toggleSort = canSort ? header.column.getToggleSortingHandler() : undefined
                 return (
@@ -621,7 +682,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                     key={header.id}
                     style={{ width: header.getSize() }}
                     aria-sort={canSort ? ariaSortVal : undefined}
-                    title={isUpgradePath ? 'Cheapest single-dimension raise that moves this listing into a better tier. Sort ascending = easiest to upgrade first.' : undefined}
+                    title={headerTitle}
                     className={cn(
                       'px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-4 whitespace-nowrap select-none',
                       'bg-bg-chrome border-b border-border-default',
