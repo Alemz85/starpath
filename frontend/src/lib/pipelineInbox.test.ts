@@ -224,11 +224,15 @@ test('groupInboxBySource labels an unparseable URL bucket as (unknown)', () => {
 
 // ─── evaluateInboxCommand + inboxSpawnId ──────────────────────────────────────
 
-test('evaluateInboxCommand embeds the URL and the pipeline filter mode', () => {
+test('evaluateInboxCommand embeds the URL and rides the compact eval bundle, not the skill router', () => {
   const cmd = evaluateInboxCommand('https://lever.co/acme/x')
   assert.ok(cmd.includes('https://lever.co/acme/x'))
-  assert.ok(cmd.includes('/career-ops pipeline'))
-  assert.ok(cmd.includes('FILTER'))
+  // Token-cost lever 3: no /career-ops slash command (which loads CLAUDE.md +
+  // modes/* into every worker) — the rubric comes from batch/batch-prompt.md
+  // via claudeEvalArgs' --append-system-prompt-file.
+  assert.ok(!cmd.includes('/career-ops'))
+  assert.ok(cmd.includes('relevance gate'))
+  assert.ok(cmd.includes('FILTERED'))
 })
 
 test('inboxSpawnId is deterministic + filesystem-safe', () => {

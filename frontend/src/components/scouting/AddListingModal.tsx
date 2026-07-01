@@ -16,7 +16,8 @@ import {
 import { useAddListingStore } from '@/store/addListing'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
-import { useSpawnsStore, claudeArgs } from '@/store/spawns'
+import { useSpawnsStore } from '@/store/spawns'
+import { claudeEvalArgs, refreshCvSummary, scoreOnlyEvalPrompt } from '@/lib/evalSpawn'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
 import { guessCompanyFromUrl, isValidHttpUrl, normalizeUrl } from '@/lib/listingUrl'
@@ -24,25 +25,12 @@ import type { ScoreEntry, PipelineUrl } from '@/types'
 
 const ADD_LISTING_SPAWN_ID = 'add-listing-evaluate'
 
-// Score-only evaluation prompt — mirrors the rubric of `/career-ops scouting`
-// but explicitly tells the agent NOT to write a per-listing prose report.
-// The user's bias is "scoring lands the listing in the Database; reports
-// are opt-in from there". Generated reports cost tokens; this keeps the
-// fast path cheap.
-function buildEvaluatePrompt(url: string): string {
-  return (
-    `/career-ops scouting ${url} — SCORE ONLY mode. ` +
-    `Evaluate this single URL per modes/scouting.md: fetch the JD (Playwright; WebFetch fallback in non-interactive mode), ` +
-    `run the full pre-scoring JD audit + 10-dimension scoring per modes/_shared.md, ` +
-    `then WRITE: ` +
-    `(1) one row to data/score-history.tsv per the canonical schema, ` +
-    `(2) one entry to data/scouting.md with the tier column, ` +
-    `(3) update data/dedup-index.tsv. ` +
-    `DO NOT write a per-listing prose report under reports/tier-*/. ` +
-    `The user will trigger report generation later via the Database "Generate Report" action if the score justifies it. ` +
-    `Use user/cv.md, user/_profile.md, user/profile.yml for context.`
-  )
-}
+// Score-only evaluation prompt — lives in lib/evalSpawn.scoreOnlyEvalPrompt.
+// It rides the compact eval bundle (batch/batch-prompt.md via claudeEvalArgs)
+// instead of the `/career-ops scouting` slash command, so the worker doesn't
+// re-read CLAUDE.md + modes/* per eval (token-cost lever 3), and it tells the
+// agent NOT to write a per-listing prose report. The user's bias is "scoring
+// lands the listing in the Database; reports are opt-in from there".
 
 // ─── State model ──────────────────────────────────────────────────────────────
 // The modal moves through a small state machine so each UI zone renders a
@@ -246,11 +234,14 @@ export function AddListingModal() {
     try {
       await appendToPipeline(trimmedUrl)
       if (evaluateSpawn) clearSpawn(ADD_LISTING_SPAWN_ID)
+      // Refresh the CV-summary artifact the compact bundle reads (mtime-gated,
+      // ms-fast; the bundle falls back to user/cv.md if it's missing).
+      await refreshCvSummary()
       startSpawn(
         ADD_LISTING_SPAWN_ID,
         `Evaluate ${guessedCompany ?? 'URL'}`,
         'claude',
-        claudeArgs(buildEvaluatePrompt(trimmedUrl), 'sonnet'),
+        claudeEvalArgs(scoreOnlyEvalPrompt(trimmedUrl), 'sonnet'),
       )
       // Close immediately — user can watch progress in Activity.
       handleClose()
