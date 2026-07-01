@@ -170,3 +170,4 @@ This file is never auto-updated by system releases (it's user-layer, see
 | New contact found | Append a row to `data/network.md` (Name + Company minimum) |
 | Just spoke to a contact | Update their `Last Contact` + `Notes` |
 | Picked a path, want to reach out | Hand off to `contacto` (draft) → it logs the touch in `outreach.md` (cadence) |
+| About to reach out at one company | `node scripts/outreach-plan.mjs "{company}" --summary` — the contacto pre-flight that merges this roster with the outreach log + research and recommends the play |
