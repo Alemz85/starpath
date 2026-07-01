@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
+import { claudeEvalArgs, refreshCvSummary, top5ReportsPrompt } from '@/lib/evalSpawn'
 import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
   Search, FileText, X, ExternalLink, Sparkles, Square,
@@ -31,22 +32,14 @@ import remarkGfm from 'remark-gfm'
 const TOP5_SPAWN_ID = 'reports-top5'
 const POSITIONING_SPAWN_ID = 'reports-positioning'
 
-// Prompt for the "Generate top 5 reports" button. Selective + deeper:
-// only 5 reports, but each one is the FULL T1 template depth (Role
-// Summary + Recommendation + Career Path Impact) regardless of the
-// listing's actual tier. The trade-off — fewer reports, more effort
-// per report, more precision in scoring — is the explicit philosophy
-// shift the user wanted.
-const TOP5_PROMPT =
-  '/career-ops pipeline — TOP 5 REPORTS mode (deep). ' +
-  '(1) Fetch each pending URL\'s JD, apply user/portals.yml title filters, dedup against data/dedup-index.tsv. ' +
-  '(2) **Run modes/pipeline.md Step 2c — Relevance gate**. Discard off-archetype / wrong-seniority / geo-locked / excluded-domain / visa-locked / poverty-wage listings into the Filtered Out section. Do NOT score discarded entries. ' +
-  '(3) For SURVIVING entries — run the FULL DIMENSIONAL SCORING per modes/scouting.md (all 10 dimensions, each reasoning cell meeting the modes/_shared.md § Reasoning column quality bar — verbatim JD quote OR named calibration adjustment OR explicit [no gate stated]; no platitudes). Write scouting.md + score-history.tsv rows for ALL survivors. ' +
-  '(4) Identify the **5 highest-scoring** entries by Overall. ' +
-  '(5) For those 5 ONLY — write the full per-listing prose report under reports/tier-N/{Company} - {Role}.md using the **FULL Tier-1 template** from modes/scouting.md (Header + A) Role summary + B) Dimensional scoring + C) Recommendation [2-3 lines] + D) Career path impact [4 structured lines]) regardless of the entry\'s actual tier. The user has chosen quality over quantity here — use the deeper template even if a listing would normally land at T2/T3. ' +
-  '(6) Remaining surviving entries stay scored in scouting.md with no prose report — the user can promote individual ones later via the Database "Generate report" action. ' +
-  '(7) Mark all scored URLs as [x] in pipeline.md. ' +
-  'Goal: 5 deep, defensible reports the user can act on, instead of 8 shallow ones.'
+// Prompt for the "Generate top 5 reports" button — lives in
+// lib/evalSpawn.top5ReportsPrompt and rides the compact eval bundle
+// (batch/batch-prompt.md via claudeEvalArgs) instead of the `/career-ops
+// pipeline` slash command, so the worker doesn't re-read CLAUDE.md + modes/*
+// (token-cost lever 3). Selective + deeper: only 5 reports, but each one is
+// the FULL T1 template depth regardless of the listing's actual tier — fewer
+// reports, more effort per report, is the explicit philosophy shift the
+// user wanted.
 
 // Score-band classification + the filter/sort/match logic now live in the
 // pure, unit-tested `@/lib/reportsList`. Re-exported here for API stability —
@@ -335,7 +328,10 @@ export function ReportsView() {
   const handleGenerateTop5 = () => {
     if (top5Running) { killSpawn(TOP5_SPAWN_ID); return }
     if (top5Spawn) clearSpawn(TOP5_SPAWN_ID)
-    startSpawn(TOP5_SPAWN_ID, 'Generate top 5 reports', 'claude', claudeArgs(TOP5_PROMPT, generateReportModel))
+    // Fire-and-forget CV-summary refresh — ms-fast; the bundle falls back to
+    // user/cv.md when the artifact is missing.
+    void refreshCvSummary()
+    startSpawn(TOP5_SPAWN_ID, 'Generate top 5 reports', 'claude', claudeEvalArgs(top5ReportsPrompt(), generateReportModel))
   }
 
   const handleAnalyzeTrajectory = () => {

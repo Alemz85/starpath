@@ -10,6 +10,7 @@
 // items to its evaluate / dismiss affordances; this module never performs the
 // side effect.
 
+import { inboxEvalPrompt } from '@/lib/evalSpawn'
 import { guessCompanyFromUrl, isValidHttpUrl } from '@/lib/listingUrl'
 import { livenessKey } from '@/lib/scanHistory'
 import type { PipelineUrl, ApplicationEntry, ScoutingEntry } from '@/types'
@@ -269,20 +270,15 @@ export function groupInboxBySource(items: InboxItem[]): { source: string; items:
 
 // ─── Triage command ───────────────────────────────────────────────────────────
 
-// The slash command that evaluates a single inbox URL through the scouting
-// pipeline. Mirrors the FILTER path the Scouting view's "Generate Reports"
-// runs (modes/pipeline.md), but scoped to one pasted URL so the inbox can
-// triage items one at a time without re-running the whole queue. The view
-// feeds this to the spawn store; this module owns the string, not the spawn.
+// The task prompt that evaluates a single inbox URL through the scouting
+// pipeline. Scoped to one URL so the inbox can triage items one at a time
+// without re-running the whole queue. Since token-cost lever 3 it no longer
+// routes through the `/career-ops` skill: the rubric comes from the compact
+// eval bundle (see lib/evalSpawn.ts — spawn with `claudeEvalArgs`, not
+// `claudeArgs`). The view feeds this to the spawn store; this module owns
+// the string, not the spawn.
 export function evaluateInboxCommand(url: string): string {
-  return (
-    `/career-ops pipeline — FILTER + DIMENSIONAL SCORE mode for this single URL: ${url}. ` +
-    'Fetch the JD via Playwright/WebFetch, apply user/portals.yml title filters and the ' +
-    'modes/pipeline.md relevance gate. If it survives, run the full dimensional scoring per ' +
-    'modes/scouting.md, classify the tier, write the row to data/scouting.md + ' +
-    'data/score-history.tsv, and mark the URL [x] in data/pipeline.md. If it fails the gate, ' +
-    'move it to the Filtered Out section with a reason. Do NOT write a prose report file.'
-  )
+  return inboxEvalPrompt(url)
 }
 
 // A deterministic spawn id for an inbox URL's evaluation, so re-triggering the

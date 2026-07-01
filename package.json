@@ -28,6 +28,7 @@
     "score-trend": "node scripts/score-trend.mjs",
     "deadlines": "node scripts/deadlines.mjs",
     "triage": "node scripts/triage-pipeline.mjs",
+    "cv-summary": "node scripts/cv-summary.mjs",
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "test:all": "node scripts/test-all.mjs"
   },

@@ -18,7 +18,11 @@ export const NON_INTERACTIVE_SUFFIX =
 
 /**
  * Build a prompt string + args for a non-interactive Claude spawn. Use this
- * for every `claude -p` invocation in the app — it appends the batch suffix,
+ * for every `claude -p` invocation in the app EXCEPT per-listing scouting
+ * evaluations — those go through `claudeEvalArgs` in lib/evalSpawn.ts, which
+ * adds `--append-system-prompt-file batch/batch-prompt.md` so eval workers
+ * load the compact rubric bundle instead of the /career-ops skill router
+ * (token-cost lever 3). This one appends the batch suffix,
  * adds `--dangerously-skip-permissions` so tool-permission prompts can't
  * silently hang the run, and asks Claude to emit JSONL events as it works
  * (parsed downstream in appendOutput so the activity panel shows live
