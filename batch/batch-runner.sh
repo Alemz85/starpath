@@ -374,10 +374,14 @@ process_offer() {
     -e "s|{{ID}}|${esc_id}|g" \
     "$PROMPT_FILE" > "$resolved_prompt"
 
-  # Launch claude -p worker (uses default model from Claude Max subscription)
+  # Launch claude -p worker (uses default model from Claude Max subscription).
+  # --output-format json makes the CLI emit a final result event with token
+  # usage + cost, which feeds the per-spawn accounting in logs/usage.tsv
+  # (TODO.md token-cost project: measure before optimizing).
   local exit_code=0
   claude -p \
     --dangerously-skip-permissions \
+    --output-format json \
     --append-system-prompt-file "$resolved_prompt" \
     "$prompt" \
     > "$log_file" 2>&1 || exit_code=$?
@@ -388,14 +392,19 @@ process_offer() {
   local completed_at
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
+  # Parse the worker log once: status heuristic, score, token usage.
+  # Fields: status score input cache_creation cache_read output cost duration turns
+  local parsed
+  parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\n')
+  local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns
+  IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns <<< "$parsed"
+
+  # Append the accounting row (best-effort — never fails the batch).
+  append_usage_row "$id" "$report_num" "$completed_at" \
+    "$p_status" "$p_score" "$p_in" "$p_cc" "$p_cr" "$p_out" "$p_cost" "$p_dur" "$p_turns" || true
+
   if [[ $exit_code -eq 0 ]]; then
-    # Try to extract score from worker output
-    local score="-"
-    local score_match
-   score_match=$(sed -nE 's/.*"score":[[:space:]]*([0-9.]+).*/\1/p' "$log_file" 2>/dev/null | head -1 || true)
-    if [[ -n "$score_match" ]]; then
-      score="$score_match"
-    fi
+    local score="${p_score:--}"
 
     # Check min-score gate
     if [[ "$score" != "-" && -n "$score" ]] && (( $(echo "$MIN_SCORE > 0" | bc -l) )); then
@@ -415,6 +424,20 @@ process_offer() {
     update_state "$id" "$url" "failed" "$started_at" "$completed_at" "$report_num" "-" "$error_msg" "$retries"
     echo "    ❌ Failed (attempt $retries, exit code $exit_code)"
   fi
+}
+
+# Append one per-spawn token/cost accounting row to logs/usage.tsv.
+# Column order is defined by USAGE_TSV_HEADER in scripts/lib/batch-usage.mjs.
+USAGE_FILE="$LOGS_DIR/usage.tsv"
+append_usage_row() {
+  local id="$1" report_num="$2" ts="$3" status="$4" score="$5"
+  local in_tok="$6" cc_tok="$7" cr_tok="$8" out_tok="$9" cost="${10}" dur="${11}" turns="${12}"
+  if [[ ! -f "$USAGE_FILE" ]]; then
+    printf 'timestamp\tbatch_id\treport_num\tstatus\tscore\tinput_tokens\tcache_creation_tokens\tcache_read_tokens\toutput_tokens\tcost_usd\tduration_ms\tnum_turns\n' > "$USAGE_FILE"
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$ts" "$id" "$report_num" "$status" "$score" \
+    "$in_tok" "$cc_tok" "$cr_tok" "$out_tok" "$cost" "$dur" "$turns" >> "$USAGE_FILE"
 }
 
 # Merge tracker additions into applications.md
