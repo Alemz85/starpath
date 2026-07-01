@@ -34,12 +34,43 @@ and speculative outreach (no posting yet, but you want in).
   `scripts/company-research.mjs` (Step 1a). When a fresh artifact exists, its
   **Talking Points** become the message hook and its **Team & Role Context** tells
   you which team/person to target and what problem they own. See `modes/deep.md`.
+- `data/network.md` — the candidate's connection roster (see `modes/network.md`).
+  **A warm path here always beats a cold search** — Step 0 checks it for you.
 - `data/outreach.md` — the outreach log (created on first send). Drives cadence.
 
 > **System-layer hygiene:** this file must stay generic. Every example below uses
 > a placeholder ("your main production project", "your top-school MSc"). At
 > runtime you substitute the candidate's *actual* specifics from the files above.
 > Never write a real school, employer, metric, city, or company into this mode.
+
+## Step 0 — Pre-flight (run this FIRST, zero tokens)
+
+Before resolving anything by hand, run the pre-flight dossier:
+
+```bash
+node scripts/outreach-plan.mjs "{Company}" --summary
+```
+
+It stitches together everything already on disk for this company — pipeline
+roles (`applications.md` + `scouting.md`), warm referral paths (`network.md`),
+prior outreach threads with cadence state (`outreach.md`), the deep-research
+artifact's freshness, the scouting report, and story-bank proof ammo — and
+recommends the **play**:
+
+| Play | What it means | What you do |
+|------|---------------|-------------|
+| `reply-handoff` | Someone at this company already **replied** | Don't draft a new first touch — help the user continue that conversation |
+| `nudge` | An existing thread is **due a follow-up** | Skip to Step 8 (draft the nudge) — never open a parallel first touch to the same person |
+| `warm-direct` | An **untouched 1st-degree contact** exists | Skip the cold search: draft a direct message to them (Step 3 → 4), grounded in how the user knows them (`Notes` in `network.md`) |
+| `warm-intro` | An **untouched 2nd-degree contact** exists | Draft the **intro ask to the bridge** (the `Via` person), not a cold reach to the target |
+| `wait` | The active thread is on track | Tell the user when the next nudge is due; don't pester |
+| `cold-search` | Nobody known / everyone exhausted | Proceed with Steps 1–2 (find the person). Respect any "do not re-touch" cautions |
+
+Heed the `⚠` cautions — they encode the rules (don't re-touch a cold contact,
+don't run two identical asks in parallel). The JSON form (drop `--summary`) has
+the same data for programmatic use. The plan also tells you the best **hook
+source** (fresh research → talking points; else report; else fresh search),
+which pre-answers Step 1a. The script is read-only — it never drafts or logs.
 
 ## Step 1 — Resolve the target company + role
 
@@ -74,6 +105,12 @@ the artifact supplies the *company-side* hook and targeting, never the candidate
 numbers.
 
 ## Step 2 — Find the right person (WebSearch / LinkedIn)
+
+**Only when Step 0 said `cold-search`** (or the user rejected the recommended
+warm path). If the pre-flight surfaced an untouched contact in `network.md`,
+use them — a known person always beats a stranger found by search. When you DO
+identify someone new here, offer to append them to `data/network.md` (see
+`modes/network.md` Step 5) so the next pre-flight knows them.
 
 Identify candidates for outreach, in rough priority order:
 
@@ -111,6 +148,9 @@ you found, or ask if ambiguous: **Hiring Manager · Peer · Recruiter · Intervi
 ## Step 4 — Draft the message
 
 Pull the **proof** from `user/cv.md` and the **angle** from `user/_profile.md`.
+Step 0's plan lists **story ammo** — the story-bank entries whose quantified
+results best match the target role; use them to pick *which* proof point to
+lead with (then read the exact metric from `user/cv.md`, never from memory).
 Pull the **hook** from the role/company. **When Step 1a found a fresh artifact, its
 *Talking Points* are the first place to look for that hook** — each one is already
 "concrete enough to drop into a message or an 'ask them' question" (that's the
@@ -271,7 +311,9 @@ Then loop back to Step 6 to log the nudge as `Touch = N+1`.
 
 | Situation | Do |
 |-----------|----|
-| `/career-ops contacto {company}` | Steps 1–6 for that company (Step 1a checks for cached deep research first) |
+| `/career-ops contacto {company}` | **Step 0 first**: `node scripts/outreach-plan.mjs "{company}" --summary` → follow the recommended play, then Steps 1–6 as needed |
+| Plan says `warm-direct` / `warm-intro` | Skip the cold search — draft for the named contact (or the intro ask to the bridge) |
+| Plan says `nudge` / `reply-handoff` / `wait` | Don't open a new thread — Step 8 nudge, hand off the live reply, or report the next-nudge date |
 | Cached research exists | `node scripts/company-research.mjs check "{Company}"` → if fresh, mine **Talking Points** + **Team & Role Context** before searching |
 | "who should I follow up with?" | `node scripts/outreach-cadence.mjs --summary` → Step 8 for NUDGE rows |
 | Contact replied | Mark `Outcome` → `Replied`; stop the cadence; move to a real conversation |
