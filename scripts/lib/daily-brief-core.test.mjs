@@ -15,6 +15,7 @@ import {
   newHitItems,
   insightItems,
   deadlineItems,
+  triageItems,
   patternHeadsUp,
   globalPriority,
   pickTopAction,
@@ -724,4 +725,66 @@ test('assembleBrief top action prefers a soon deadline over an overdue follow-up
   assert.equal(brief.topAction.item.label, 'Beta — Lead')
   // the overdue follow-up is still listed in its own section
   assert.equal(brief.counts.followups, 1)
+})
+
+/* ───── triageItems — the inbox's deep-eval-next slice ───────────────────────*/
+
+const rankedTriage = [
+  { url: 'https://a.io/1', company: 'Acme', title: 'Strategy Analyst', triageScore: 6.5, triageReasons: ['scan relevance 4.5', 'fresh (2d, +2)'], bucket: 'deep-eval' },
+  { url: 'https://b.io/2', company: 'Globex', title: 'Data Analyst', triageScore: 2.0, triageReasons: ['scan relevance 2.0'], bucket: 'deep-eval' },
+  { url: 'https://c.io/3', company: 'Initech', title: 'Senior Lead', triageScore: -1.0, triageReasons: ['senior-title signal (-4)'], bucket: 'deep-eval' },
+  { url: 'https://d.io/4', company: 'Hooli', title: 'Analyst', triageScore: 1.0, triageReasons: [], bucket: 'hold' },
+]
+
+test('triageItems keeps only positively-scored deep-eval entries, capped', () => {
+  const items = triageItems(rankedTriage)
+  assert.equal(items.length, 2) // negative score + hold bucket dropped
+  assert.equal(items[0].label, 'Acme — Strategy Analyst')
+  assert.equal(items[0].meta.kind, 'triage')
+  assert.equal(items[0].meta.url, 'https://a.io/1')
+  assert.match(items[0].sub, /triage 6\.5 — scan relevance 4\.5; fresh/)
+  const capped = triageItems(rankedTriage, { maxTriage: 1 })
+  assert.equal(capped.length, 1)
+})
+
+test('triageItems handles null input and label fallbacks', () => {
+  assert.deepEqual(triageItems(null), [])
+  const items = triageItems([{ url: 'https://x.io', triageScore: 1, triageReasons: [], bucket: 'deep-eval' }])
+  assert.equal(items[0].label, 'https://x.io')
+})
+
+test('globalPriority: triage sits in the 5xx band, higher score first, below newhits', () => {
+  const high = globalPriority('triage', { meta: { score: 6.5 } })
+  const low = globalPriority('triage', { meta: { score: 1.0 } })
+  assert.ok(high >= 500 && high < 600)
+  assert.ok(high < low)
+  // Any fresh posting beats any triage pick.
+  assert.ok(globalPriority('newhits', { meta: { kind: 'needs-eval', overall: 0 } }) < high)
+})
+
+test('assembleBrief folds the triage section in; a deadline still wins top action', () => {
+  const brief = assembleBrief({
+    triage: rankedTriage,
+    classifiedDeadlines: {
+      asOf: '2026-07-01',
+      buckets: {
+        urgent: [{ source: 'scouting', num: 1, company: 'Beta', role: 'Lead', tier: 'T1', deadline: '2026-07-05', parsed: { kind: 'date', iso: '2026-07-05' }, daysLeft: 4 }],
+        near: [], medium: [], far: [], rolling: [], missed: [],
+      },
+      counts: { urgent: 1, near: 0, medium: 0, far: 0, rolling: 0, missed: 0, unknown: 0 },
+    },
+  }, { asOf: '2026-07-01' })
+  assert.equal(brief.counts.triage, 2)
+  assert.equal(brief.topAction.section, 'deadlines')
+  const md = renderBrief(brief)
+  assert.match(md, /## Deep-eval next \(inbox triage\)/)
+  assert.match(md, /\[Acme — Strategy Analyst\]\(https:\/\/a\.io\/1\)/)
+})
+
+test('a triage pick becomes the top action only when nothing else exists', () => {
+  const brief = assembleBrief({ triage: rankedTriage }, { asOf: '2026-07-01' })
+  assert.equal(brief.topAction.section, 'triage')
+  assert.equal(brief.topAction.item.label, 'Acme — Strategy Analyst')
+  const md = renderBrief(brief)
+  assert.match(md, /\*\*Do this first:\*\* \*\*\[Acme — Strategy Analyst\]\(https:\/\/a\.io\/1\)\*\*/)
 })

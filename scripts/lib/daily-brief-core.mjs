@@ -48,13 +48,14 @@
  *   insight    — one standing positioning insight (not an item to "do today",
  *                but the lens to keep in mind while doing the above).
  */
-export const SECTION_ORDER = ['followups', 'deadlines', 'outreach', 'newhits', 'headsup', 'insight']
+export const SECTION_ORDER = ['followups', 'deadlines', 'outreach', 'newhits', 'triage', 'headsup', 'insight']
 
 export const SECTION_META = {
   followups: { title: 'Follow-ups due', kind: 'action' },
   deadlines: { title: 'Deadlines closing soon', kind: 'action' },
   outreach: { title: 'Outreach nudges due', kind: 'action' },
   newhits: { title: 'Fresh high-fit postings', kind: 'action' },
+  triage: { title: 'Deep-eval next (inbox triage)', kind: 'action' },
   headsup: { title: 'Heads-up from your outcomes', kind: 'insight' },
   insight: { title: 'Standing positioning note', kind: 'insight' },
 }
@@ -340,6 +341,40 @@ export function deadlineItems(classifiedDeadlines, { maxUrgent = 5, maxNear = 5 
   return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey)
 }
 
+/* ───── Deep-eval next: the inbox triage top slice ───────────────────────────
+ *
+ * scripts/lib/triage-core.mjs ranks the pipeline.md Pending inbox with
+ * deterministic zero-token signals (scan relevance, freshness, dream/affinity
+ * company, title level, dedup hits). The brief folds in the top of that
+ * ranking so "what should I evaluate next?" is answered on the same page as
+ * follow-ups and deadlines — the top of the funnel was previously invisible
+ * here (only an inboxCount in the health line).
+ *
+ * Only positively-scored deep-eval entries appear: a negative triage score
+ * means the signals argue AGAINST spending an evaluation on it, and the brief
+ * should never recommend that.
+ *
+ * Expected input: triage-core triagePending() output (ranked entries with
+ * { url, company, title, triageScore, triageReasons, bucket }), or null.
+ *
+ * @param {Array|null} rankedTriage
+ * @param {object} opts  { maxTriage = 5 }
+ */
+export function triageItems(rankedTriage, { maxTriage = 5 } = {}) {
+  if (!Array.isArray(rankedTriage)) return []
+  return rankedTriage
+    .filter((e) => e && e.bucket === 'deep-eval' && e.triageScore > 0)
+    .slice(0, maxTriage)
+    .map((e) => ({
+      key: `triage|${e.url}`,
+      label: e.company && e.title ? `${e.company} — ${e.title}` : (e.company || e.title || e.url),
+      sub: `triage ${e.triageScore.toFixed(1)} — ${(e.triageReasons || []).join('; ')}`,
+      urgency: 0,
+      sortKey: e.triageScore,
+      meta: { kind: 'triage', url: e.url, score: e.triageScore },
+    }))
+}
+
 /* ───── Pipeline health summary ──────────────────────────────────────────────
  *
  * A compact one-liner showing funnel health: how many applications are actively
@@ -433,6 +468,10 @@ export function patternHeadsUp(patterns) {
  *   4xx  Fresh high-fit postings — opportunity, not obligation; never decays as
  *        fast as an open thread. Prioritized hits (scored) before needs-eval.
  *        Tier band 400–499, higher score first.
+ *   5xx  Inbox triage — the deterministic "deep-eval next" ranking. Purely
+ *        prospective (nothing is waiting on the user), so it only becomes the
+ *        top action when nothing above exists. Tier band 500–599, higher
+ *        triage score first.
  *
  * This is intentionally a coarse, explainable ladder (deadlines > obligations >
  * opportunities), with a continuous within-tier term so ties break sensibly.
@@ -479,6 +518,13 @@ export function globalPriority(sectionId, item) {
     return base + Math.max(0, 49 - Math.min(Math.round(score * 5), 49))
   }
 
+  if (sectionId === 'triage') {
+    // Band 500–599 — higher triage score → earlier. Scores are small floats
+    // (typically 0–10); ×10 spreads them across the band.
+    const score = Number.isFinite(meta.score) ? meta.score : 0
+    return 500 + Math.max(0, 99 - Math.min(Math.round(score * 10), 99))
+  }
+
   return 999 // unknown section → lowest priority
 }
 
@@ -518,6 +564,7 @@ export function pickTopAction(sections) {
  *   - outreachResult       outreach classifyAll output (or null)
  *   - positioningIntel     positioning-core positioningIntel output (or null)
  *   - classifiedDeadlines  deadlines-core.classifyDeadlines output (or null)
+ *   - triage               triage-core triagePending() ranked entries (or null)
  *   - pipelineHealth       { active, evaluated, inboxCount } counts (or null)
  * @param {object} opts
  *   - asOf      YYYY-MM-DD "today" for the brief header (required for a dated brief)
@@ -538,6 +585,7 @@ export function assembleBrief(inputs = {}, opts = {}) {
     deadlines: deadlineItems(inputs.classifiedDeadlines, opts),
     outreach: outreachItems(inputs.outreachResult),
     newhits: newHitItems(inputs.digest, opts),
+    triage: triageItems(inputs.triage, opts),
     headsup: patternHeadsUp(inputs.patterns),
     insight: insightItems(inputs.positioningIntel),
   }
@@ -653,7 +701,7 @@ function renderTopActionLine(topAction) {
     return `**${it.label}** — ${daysLabel} · ${it.meta.tierOrStatus || ''} — decide/apply now`
   }
 
-  if (section === 'newhits' && it.meta && it.meta.url) {
+  if ((section === 'newhits' || section === 'triage') && it.meta && it.meta.url) {
     return `**[${it.label}](${it.meta.url})** — ${it.sub}`
   }
 
@@ -662,8 +710,8 @@ function renderTopActionLine(topAction) {
 
 function renderActionLine(sectionId, it) {
   let head = `**${it.label}**`
-  // Link fresh postings to their URL when present.
-  if (sectionId === 'newhits' && it.meta && it.meta.url) {
+  // Link fresh postings + triage picks to their URL when present.
+  if ((sectionId === 'newhits' || sectionId === 'triage') && it.meta && it.meta.url) {
     head = `**[${it.label}](${it.meta.url})**`
   }
   return `${head} — ${it.sub}`
