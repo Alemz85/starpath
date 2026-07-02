@@ -2,6 +2,7 @@
 // Falls back gracefully in browser/dev-without-electron context.
 
 import type { ElectronAPI } from '../../electron/preload'
+import type { NetworkOverview } from './networkLens'
 
 declare global {
   interface Window {
@@ -66,6 +67,13 @@ export const ipc = {
     resync:                 () => api().dbResync() as Promise<unknown>,
     rebuild:                () => api().dbRebuild() as Promise<unknown>,
     onChanged:              (cb: (sources: string[]) => void) => api().onDbChanged(cb),
+  },
+
+  // Network lens — the whole-network overview (roster × pipeline × cadence),
+  // composed in the main process by the repo's own pure cores. Returns null
+  // when no repo is configured or the repo's scripts predate the lens.
+  network: {
+    overview: () => api().networkOverview() as Promise<NetworkOverview | null>,
   },
 
   // Shell

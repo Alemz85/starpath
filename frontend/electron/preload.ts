@@ -46,6 +46,11 @@ const electronAPI = {
     return () => ipcRenderer.removeListener('db:changed', listener)
   },
 
+  // Network lens — whole-network overview derived in the main process from
+  // data/network.md + the pipeline files + data/outreach.md via the repo's
+  // own pure cores (scripts/lib/network-lens-core.mjs).
+  networkOverview: () => ipcRenderer.invoke('network:overview'),
+
   // Shell (one-shot)
   run: (cmd: string, args: string[]) => ipcRenderer.invoke('shell:run', cmd, args),
 

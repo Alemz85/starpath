@@ -13,6 +13,7 @@ import { CommandCenter } from '@/components/command-center/CommandCenter'
 import { ApplyingView } from '@/components/applying/ApplyingView'
 import { OutreachView } from '@/components/outreach/OutreachView'
 import { OffersView } from '@/components/offers/OffersView'
+import { NetworkView } from '@/components/network/NetworkView'
 import { DatabaseView } from '@/components/database/DatabaseView'
 import { ReportsView } from '@/components/reports/ReportsView'
 import { TrendsView } from '@/components/trends/TrendsView'
@@ -81,6 +82,7 @@ export function AppShell() {
           {view === 'applying' && <ApplyingView />}
           {view === 'outreach' && <OutreachView />}
           {view === 'offers'   && <OffersView />}
+          {view === 'network'  && <NetworkView />}
           {view === 'database' && <DatabaseView />}
           {view === 'reports'  && <ReportsView />}
           {view === 'trends'   && <TrendsView />}

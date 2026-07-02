@@ -11,6 +11,7 @@ import path from 'path'
 import fs from 'fs'
 import https from 'https'
 import http from 'http'
+import { pathToFileURL } from 'url'
 import { exec, spawn, ChildProcess, execFile } from 'child_process'
 import { promisify } from 'util'
 import {
@@ -625,6 +626,72 @@ ipcMain.handle('db:rebuild', () => {
   if (!repoPath) return null
   rebuildDb(app.getPath('userData'))
   return ensureSynced(repoPath)
+})
+
+// ─── IPC: Network lens ────────────────────────────────────────────────────────
+//
+// The Network view composes the repo's own pure cores (scripts/lib/
+// network-lens-core.mjs — the same modules `npm run network`, `npm run
+// outreach-plan`, and the daily brief use) instead of re-implementing the
+// roster / pipeline / cadence parsing in the renderer. The cores are ESM;
+// this main bundle is compiled to CommonJS, so we go through a real dynamic
+// import() — the Function indirection stops tsc from down-compiling it to a
+// require() (which cannot load ESM).
+//
+// Markdown stays canonical: this handler reads the files fresh on every call
+// and derives everything in-memory — nothing network-related is persisted.
+
+// eslint-disable-next-line @typescript-eslint/no-implied-eval
+const dynamicImport = new Function('s', 'return import(s)') as
+  (s: string) => Promise<Record<string, unknown>>
+
+interface NetworkLensModule {
+  buildNetworkOverview: (input: {
+    networkRaw: string | null
+    applicationsRaw: string | null
+    scoutingRaw: string | null
+    outreachRaw: string | null
+    today: string
+  }) => unknown
+}
+
+// Cache the module per repo path — the cores are code, not data, so a stale
+// module across an app session is fine (Node's ESM cache can't be evicted
+// anyway). A failed import is NOT cached, so a repo updated mid-session gets
+// retried on the next call.
+let networkLensCache: { repoPath: string; mod: Promise<NetworkLensModule> } | null = null
+function loadNetworkLens(repoPath: string): Promise<NetworkLensModule> {
+  if (networkLensCache?.repoPath === repoPath) return networkLensCache.mod
+  const file = path.join(repoPath, 'scripts', 'lib', 'network-lens-core.mjs')
+  const mod = dynamicImport(pathToFileURL(file).href) as unknown as Promise<NetworkLensModule>
+  networkLensCache = { repoPath, mod }
+  mod.catch(() => { networkLensCache = null })
+  return mod
+}
+
+ipcMain.handle('network:overview', async () => {
+  const repoPath = getRepoPath()
+  if (!repoPath) return null
+  const read = (rel: string): string | null => {
+    const full = resolveRepoPath(rel)
+    if (!full) return null
+    try { return fs.readFileSync(full, 'utf-8') } catch { return null }
+  }
+  try {
+    const lens = await loadNetworkLens(repoPath)
+    return lens.buildNetworkOverview({
+      networkRaw: read('data/network.md'),
+      applicationsRaw: read('data/applications.md'),
+      scoutingRaw: read('data/scouting.md'),
+      outreachRaw: read('data/outreach.md'),
+      today: new Date().toISOString().slice(0, 10),
+    })
+  } catch (e) {
+    // Older repos without the lens core (or a genuinely broken file) must not
+    // crash the app — the view renders its "lens unavailable" line on null.
+    console.error('[network] overview failed:', e)
+    return null
+  }
 })
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
