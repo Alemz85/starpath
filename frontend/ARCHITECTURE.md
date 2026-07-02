@@ -60,15 +60,32 @@ The renderer never touches the database directly. `electron/preload.ts` exposes 
 | `db:resync`                   | Force a full resync from disk |
 | `db:rebuild`                  | Drop `cache.db` and rebuild |
 | `db:changed` (event)          | Emitted by main after a watcher-driven sync |
+| `network:overview`            | Whole-network overview (roster × pipeline × outreach cadence) — see below |
+
+### The network lens (`network:overview`)
+
+`data/network.md` and `data/outreach.md` are not mirrored into SQLite (they're
+mode artifacts, not tabular pipeline state). The Network view's overview is
+instead derived on demand in the **main process** by dynamically importing the
+repo's own pure cores — `scripts/lib/network-lens-core.mjs`, which composes
+`network-core` (roster × pipeline matching), `outreach-core` (cadence), and
+`outreach-plan-core` (the per-company decision ladder). This keeps the app, the
+daily brief, and `npm run network` in verdict-for-verdict agreement without a
+renderer re-implementation. The cores are ESM and the compiled main is CJS, so
+the import goes through a `new Function('s', 'return import(s)')` indirection.
+Any failure (older repo without the module, unreadable file) returns `null` and
+the view renders a specific one-line explanation — never a crash. Nothing is
+persisted; markdown stays canonical.
 
 ## Renderer data flow
 
 `src/store/data.ts` (Zustand) holds the canonical view-model arrays the rest of the renderer consumes (`applications`, `scouting`, `scoreHistory`, `pipeline`, `reports`). It populates from `db:*` calls on mount and again when `db:changed` fires.
 
-Two views bypass the store and hit IPC directly:
+Three views bypass the store and hit IPC directly:
 
 - **TrendsView** uses `db.trends()` for pre-aggregated chart buckets.
 - **ReportsView** uses `db.reports()` for the list (each row already carries its overall score from a SQL left-join). The slide-over still looks up the full `ScoreEntry` from the store on click.
+- **NetworkView** uses `ipc.network.overview()` (the `network:overview` channel above), re-fetching whenever the store's applications/scouting arrays change — the watcher bumps those on any `data/*` write, which is the cue the network/outreach logs may have changed too.
 
 All other views (`DatabaseView`, `ProfileView`, `PipelineView`, `CommandCenter`, `ScanView`, `SettingsView`) consume the store. ProfileView's heatmap/streak/badges run in-memory over a few dozen rows and don't currently warrant a per-feature SQL endpoint; if `score_history` grows past a few thousand rows, replace `buildHeatmap`/`computeStreak`/`badges` with a `db:profile-stats` query that returns `{ heatmap, streak, badges }` pre-computed.
 

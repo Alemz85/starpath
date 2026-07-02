@@ -24,6 +24,7 @@ import {
   Activity,
   User,
   AlertTriangle,
+  Waypoints,
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawns'
 import { useDataStore } from '@/store/data'
@@ -60,6 +61,7 @@ const PRIMARY_NAV: NavItem[] = [
 // every running spawn — scans, filter runs, tailoring, company API probes.
 const SECONDARY_NAV: NavItem[] = [
   { view: 'offers',   label: 'Offers',   icon: Scale      },
+  { view: 'network',  label: 'Network',  icon: Waypoints  },
   { view: 'database', label: 'Database', icon: Database   },
   { view: 'reports',    label: 'Reports',     icon: FileText   },
   { view: 'trends',     label: 'Trends',      icon: TrendingUp },
