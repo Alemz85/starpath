@@ -36,7 +36,7 @@ This prompt is self-contained. Do not load CLAUDE.md, modes/, or skills.
 | `{{DATE}}` | Current date YYYY-MM-DD |
 | `{{ID}}` | Unique offer ID in batch-input.tsv |
 
-**Unresolved placeholders:** the batch runner substitutes these via `sed`; the desktop app passes this file verbatim. If a placeholder above appears literally in this prompt, take its value from the task message instead (URL, date, and batch/spawn ID are stated there). If no JD file is provided, treat `{{JD_FILE}}` as absent and fetch the JD from the URL.
+**Unresolved placeholders:** both the batch runner and the desktop app pass this file **verbatim** — placeholders arrive unresolved by design, because a byte-identical system prompt across workers is what lets the API prompt cache serve every spawn after the first. Take each value from the task message instead (URL, JD file path, report number, date, and batch/spawn ID are stated there). If no JD file is provided, treat `{{JD_FILE}}` as absent and fetch the JD from the URL.
 
 ## Pipeline
 
@@ -145,7 +145,7 @@ Universal header:
 **Batch ID:** {{ID}}
 ```
 
-Body (all bands): the 14-row dimensional table (Dimension | Score | Reasoning — CF dims, **Current Fit rollup**, AF dims + Sales-Trap Risk signal row, **Aspirational Fit rollup**, **Overall** with modifiers shown, then the context rows), followed by `## Why this score` rendering the script's `explanation.headline` + binding constraint + closest lever verbatim (if `levers` is empty, say no single dimension crosses a band — never invent one).
+Body (all bands): a `## Dimensional scoring` section (exactly that heading — the frontend parser keys on it) holding the 14-row dimensional table (Dimension | Score | Reasoning — CF dims, **Current Fit rollup**, AF dims + Sales-Trap Risk signal row, **Aspirational Fit rollup**, **Overall** with modifiers shown, then the context rows), followed by `## Why this score` rendering the script's `explanation.headline` + binding constraint + closest lever verbatim (if `levers` is empty, say no single dimension crosses a band — never invent one).
 
 - **T1 adds:** Role summary table · Gaps and opportunities (≤3 closeable gaps: dimension + verbatim JD quote + silent CV section + closing move with effort shape; structural walls are constraints, not gaps) · Comp & demand (one row, provenance + freshness mandatory, same gross as the Salary Adj math) · Recommendation (verdict matches the band; the binding constraint from `explanation` leads; hard constraints become the first sentence) · Career path impact (name the user's actual dream targets from `user/profile.yml`, not "top-tier companies").
 - **T2 adds:** Fit/gaps (strongest match + biggest gap = the binding constraint) · Verdict (one line, matches the band) · Path forward (ONE sentence, no fabricated timelines).

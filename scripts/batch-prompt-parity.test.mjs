@@ -99,16 +99,74 @@ test('batch prompt reads the generated CV summary with a documented full-CV fall
   assert.match(prompt, /missing[\s\S]{0,80}user\/cv\.md/i)
 })
 
-test('batch prompt documents the unresolved-placeholder contract for the desktop path', () => {
-  // The frontend passes this file verbatim via --append-system-prompt-file
-  // (no sed substitution) — the bundle must tell workers to take values from
-  // the task message when placeholders arrive unresolved.
+test('batch prompt documents the unresolved-placeholder contract', () => {
+  // Both the batch runner and the frontend pass this file verbatim via
+  // --append-system-prompt-file (no per-worker substitution — a byte-identical
+  // system prompt is what makes prompt caching work, token-cost lever 4).
+  // The bundle must tell workers to take values from the task message.
   assert.match(prompt, /Unresolved placeholders/i)
   assert.match(prompt, /task message/i)
+  assert.match(prompt, /verbatim/i)
 })
 
 test('batch mode marks verification as unconfirmed', () => {
   assert.match(prompt, /\*\*Verification:\*\* unconfirmed \(batch mode\)/)
+})
+
+// ─── Tiered report output (token-cost lever 5) ───────────────────────────────
+// Every eval scores fully (score-history row + scouting TSV + dimensional
+// table are band-independent), but the PROSE report depth is banded: full
+// sections only for Stellar/T1, compact formats below, no file at all for
+// Skip/T4. These pins keep batch and interactive evals writing the same
+// shapes — a drift here silently reinflates output cost or breaks the
+// frontend report parser.
+
+test('band → report depth mapping agrees between the bundle and modes/scouting.md', () => {
+  // Bundle: one-line mapping in Step 5.
+  assert.match(prompt, /`T1` → Stellar full report/)
+  assert.match(prompt, /`T2` → Strong[\s\S]{0,80}short report/)
+  assert.match(prompt, /`T3` → Gap & Growth report/)
+  assert.match(prompt, /`T4` → Skip \(NO report file\)/)
+  // Interactive mode: the same four output behaviors.
+  assert.match(scouting, /Generate a \*\*full report\*\*/)
+  assert.match(scouting, /Generate a \*\*short summary report\*\*/)
+  assert.match(scouting, /Generate a \*\*Gap & Growth Report\*\*/)
+  assert.match(scouting, /Do NOT write a report file/)
+  // The band definitions themselves live in _shared.md (CF/AF-based).
+  for (const band of ['Stellar', 'Strong (CF 8.0–8.9', 'Decent (CF 7.0–7.9',
+                      'Pass / Growth Target', 'Skip (CF < 7.0 AND AF < 7.0']) {
+    assert.ok(shared.includes(band), `_shared.md defines band "${band}"`)
+  }
+})
+
+test('compact bands still carry the universal header and the dimensional table', () => {
+  // The frontend parser (frontend/src/lib/reportMarkdown.ts) keys on the
+  // literal "## Dimensional scoring" heading and the **URL:** header line;
+  // both must survive compression in every band that writes a file.
+  for (const [name, text] of [['batch prompt', prompt], ['scouting mode', scouting]]) {
+    assert.ok(text.includes('## Dimensional scoring'), `${name} names the table heading`)
+    assert.ok(text.includes('**URL:**'), `${name} keeps the URL header line`)
+  }
+  assert.match(prompt, /Body \(all bands\):.*`## Dimensional scoring`/)
+  assert.match(scouting, /Always compute the full dimensional table first/)
+})
+
+test('skips stay scored — data writes happen for ALL bands including T4', () => {
+  // Downstream scripts (peer-rank, calibration-advisor, cv-gap, positioning)
+  // read score-history + scouting rows; compression must never drop them.
+  assert.match(prompt, /Step 6 — Data writes \(ALL bands, including T4 skips\)/)
+  assert.match(scouting, /regardless of tier \(including Tier 4 skips\)/)
+  assert.match(scouting, /\*\*Still compute the full dimensional table\*\*/)
+})
+
+test('Gap & Growth title, language-wall exception, and no-fabricated-timelines agree', () => {
+  for (const [name, text] of [['batch prompt', prompt], ['scouting mode', scouting]]) {
+    assert.ok(text.includes('# Gap & Growth:'), `${name} carries the T3 title prefix`)
+    assert.match(text, /language.wall/i)
+    assert.match(text, /[Nn]o fabricated timelines/)
+  }
+  // The exception's canonical definition lives in _shared.md.
+  assert.match(shared, /language-wall exception/i)
 })
 
 test('report naming follows the canonical human-readable convention', () => {
