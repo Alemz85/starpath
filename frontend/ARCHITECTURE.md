@@ -70,6 +70,8 @@ Two views bypass the store and hit IPC directly:
 - **TrendsView** uses `db.trends()` for pre-aggregated chart buckets.
 - **ReportsView** uses `db.reports()` for the list (each row already carries its overall score from a SQL left-join). The slide-over still looks up the full `ScoreEntry` from the store on click.
 
+One cockpit surface delegates its math to the repo's scripts instead of the cache: **CommandCenter's DailyBriefPanel** runs `node scripts/daily-brief.mjs --json` through the one-shot `shell:run` channel (main process, cwd = repoPath) and parses the result via the pure `lib/dailyBrief.ts` bridge — the ranking/"do this first" logic stays single-sourced in `scripts/lib/daily-brief-core.mjs`, never re-implemented in the renderer. It re-runs (debounced) whenever the data store re-mirrors disk, and renders nothing when the brief is empty.
+
 All other views (`DatabaseView`, `ProfileView`, `PipelineView`, `CommandCenter`, `ScanView`, `SettingsView`) consume the store. ProfileView's heatmap/streak/badges run in-memory over a few dozen rows and don't currently warrant a per-feature SQL endpoint; if `score_history` grows past a few thousand rows, replace `buildHeatmap`/`computeStreak`/`badges` with a `db:profile-stats` query that returns `{ heatmap, streak, badges }` pre-computed.
 
 `refresh()` is in-flight-coalesced so rapid clicks (and chokidar bursts) don't stack. Pass `{ resync: true }` to force a full SQL rebuild from disk — wired to shift-click on the Settings → Refresh data button for debugging cache divergence.

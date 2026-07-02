@@ -17,6 +17,7 @@ import {
   AlertTriangle, RotateCw, Loader2,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
+import { DailyBriefPanel } from '@/components/command-center/DailyBriefPanel'
 import { cn, formatRelative } from '@/lib/utils'
 
 // StatTile — single column inside a hero stat strip. No card frame, no
@@ -337,6 +338,13 @@ function ScoutingActionPanel({
           },
         ]}
       />
+
+      {/* Daily brief — the backend digest's "do this first" pick + the top
+          few prioritized items per section, computed by scripts/daily-brief.mjs
+          (--json) and rendered natively. Occupies the cockpit's middle band;
+          renders nothing at all when the brief has nothing to say, so the
+          Filtered Scan section below keeps its bottom anchor either way. */}
+      <DailyBriefPanel />
 
       <FilteredScanRow />
 
