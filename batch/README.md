@@ -2,6 +2,8 @@
 
 Process multiple job listings in parallel via `claude -p` workers. Each worker runs a **scouting evaluation** (the same Dimensional Scoring Framework as interactive mode — see `batch-prompt.md`): dimensional scores via `scripts/score-listing.mjs`, a tiered report, a scouting TSV, and a `data/score-history.tsv` row. Evaluation never generates PDFs — CV tailoring is the separate `pdf` skill.
 
+**Report depth is banded** (token-cost lever 5 in `TODO.md`): every listing is scored fully and every band writes the complete score-history row + scouting TSV, but the prose report shrinks with the band — T1 gets the full sections, T2 a short summary, T3 a compact Gap & Growth roadmap, and T4 no report file at all. All written reports keep the universal header and the `## Dimensional scoring` table, so downstream parsers see the same shape everywhere. The mapping is pinned by `scripts/batch-prompt-parity.test.mjs` against `modes/scouting.md`.
+
 Workers read `batch/cv-summary.md` — a compact, deterministically-generated summary of the user's CV — instead of the full `user/cv.md`. The runner refreshes it before spawning (`node scripts/cv-summary.mjs --if-stale`); it's gitignored derived data, safe to delete, and `batch-prompt.md` documents the fallback to `user/cv.md` when it's missing. The same prompt bundle also powers the desktop app's per-listing eval spawns (see `frontend/src/lib/evalSpawn.ts`), which pass it verbatim via `--append-system-prompt-file` — hence the "Unresolved placeholders" note in `batch-prompt.md`.
 
 ## Quick Start
@@ -58,7 +60,7 @@ batch/
 ## How It Works
 
 1. **batch-runner.sh** reads `batch-input.tsv` and `batch-state.tsv` to determine which offers need processing.
-2. For each pending offer, it assigns a report number and launches a `claude -p --output-format json` worker with `batch-prompt.md` as the system prompt (placeholders like `{{URL}}`, `{{ID}}` resolved).
+2. For each pending offer, it assigns a report number and launches a `claude -p --output-format json` worker with `batch-prompt.md` appended to the system prompt **verbatim** — per-listing values (URL, JD file, report number, date, id) travel in the user message, so the system prompt stays byte-identical across workers and the API prompt cache serves every spawn after the first (token-cost lever 4). When the installed CLI supports it, the runner also passes `--exclude-dynamic-system-prompt-sections` so git-status churn from workers writing files doesn't break the cached prefix mid-batch.
 3. Each worker scores the listing (judgment dims → `scripts/score-listing.mjs` for the math), writes a report to `reports/tier-{N}/{Company} - {Role}.md`, appends a `data/score-history.tsv` row, and drops a scouting TSV in `scouting-additions/`.
 4. The runner parses each worker's final result event (`scripts/parse-batch-result.mjs`) for the score and token usage, appending one accounting row per spawn to `logs/usage.tsv`.
 5. After all workers finish, the runner calls `scripts/merge-scouting.mjs` (and `merge-tracker.mjs` for any application-flow TSVs), then `scripts/verify-pipeline.mjs`.
