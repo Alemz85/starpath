@@ -22,6 +22,7 @@ STATE_LOCK_TIMEOUT_SECONDS=30
 MAIN_PID="${BASHPID:-$$}"
 
 # Defaults
+CACHE_FLAG=""   # set by check_prerequisites when the CLI supports it (lever 4)
 PARALLEL=1
 DRY_RUN=false
 RETRY_FAILED=false
@@ -155,6 +156,19 @@ check_prerequisites() {
   # fallback to user/cv.md when the artifact is missing.
   node "$PROJECT_DIR/scripts/cv-summary.mjs" --if-stale \
     || echo "WARN: cv-summary refresh failed — workers fall back to user/cv.md"
+
+  # Token-cost lever 4 (prompt caching): keep the default system prompt
+  # byte-stable across workers. Workers write files as they run, so the
+  # git-status section of the default system prompt would otherwise change
+  # between spawns and break prompt-cache prefix reuse mid-batch. The flag
+  # moves those per-machine sections (cwd, env, git status) into the first
+  # user message. Feature-detected so older CLIs simply run without it.
+  CACHE_FLAG=""
+  local claude_help
+  claude_help=$(claude --help 2>&1 || true)
+  if [[ "$claude_help" == *"--exclude-dynamic-system-prompt-sections"* ]]; then
+    CACHE_FLAG="--exclude-dynamic-system-prompt-sections"
+  fi
 }
 
 # Initialize state file if it doesn't exist
@@ -361,39 +375,25 @@ process_offer() {
 
   local log_file="$LOGS_DIR/${report_num}-${id}.log"
 
-  # Prepare system prompt with placeholders resolved
-  local resolved_prompt="$BATCH_DIR/.resolved-prompt-${id}.md"
-  # Escape sed delimiter characters in variables to prevent substitution breakage
-  local esc_url esc_jd_file esc_report_num esc_date esc_id
-  esc_url="${url//\\/\\\\}"
-  esc_url="${esc_url//|/\\|}"
-  esc_jd_file="${jd_file//\\/\\\\}"
-  esc_jd_file="${esc_jd_file//|/\\|}"
-  esc_report_num="${report_num//|/\\|}"
-  esc_date="${date//|/\\|}"
-  esc_id="${id//|/\\|}"
-  sed \
-    -e "s|{{URL}}|${esc_url}|g" \
-    -e "s|{{JD_FILE}}|${esc_jd_file}|g" \
-    -e "s|{{REPORT_NUM}}|${esc_report_num}|g" \
-    -e "s|{{DATE}}|${esc_date}|g" \
-    -e "s|{{ID}}|${esc_id}|g" \
-    "$PROMPT_FILE" > "$resolved_prompt"
-
   # Launch claude -p worker (uses default model from Claude Max subscription).
   # --output-format json makes the CLI emit a final result event with token
   # usage + cost, which feeds the per-spawn accounting in logs/usage.tsv
   # (TODO.md token-cost project: measure before optimizing).
+  #
+  # The bundle is passed VERBATIM — no per-worker placeholder substitution.
+  # A byte-identical appended system prompt across spawns is what lets the
+  # API prompt cache serve every worker after the first (token-cost lever 4);
+  # the per-listing values (URL, JD file, report number, date, batch id) all
+  # travel in the user message above, per batch-prompt.md § "Unresolved
+  # placeholders". $CACHE_FLAG is intentionally unquoted: empty on old CLIs.
   local exit_code=0
   claude -p \
     --dangerously-skip-permissions \
     --output-format json \
-    --append-system-prompt-file "$resolved_prompt" \
+    $CACHE_FLAG \
+    --append-system-prompt-file "$PROMPT_FILE" \
     "$prompt" \
     > "$log_file" 2>&1 || exit_code=$?
-
-  # Cleanup resolved prompt
-  rm -f "$resolved_prompt"
 
   local completed_at
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)

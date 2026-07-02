@@ -16,10 +16,12 @@
 //     URLs, which deviations from the bundle's default pipeline); the rubric,
 //     data-write contracts, and score-listing.mjs delegation come from the
 //     bundle.
-//   - The bundle's {{PLACEHOLDERS}} are resolved by the batch runner via sed;
-//     the desktop app passes the file verbatim, so every prompt built here
-//     states the URL/date/id values in the task message (the bundle documents
-//     this contract in its "Unresolved placeholders" note).
+//   - The bundle's {{PLACEHOLDERS}} arrive unresolved: both the batch runner
+//     and the desktop app pass the file verbatim (a byte-identical system
+//     prompt across spawns is what makes prompt caching work — lever 4), so
+//     every prompt built here states the URL/date/id values in the task
+//     message (the bundle documents this contract in its "Unresolved
+//     placeholders" note).
 //
 // Not routed through here: Tailor CV / Draft Application / Prep Application
 // and `/career-ops positioning` — those are different modes, not scouting
@@ -38,6 +40,14 @@ export type ClaudeModel = 'sonnet' | 'opus' | 'haiku'
  * as its system prompt instead of routing through the `/career-ops` skill.
  * Same flag set as `claudeArgs` otherwise (stream-json for the activity
  * panel, skip-permissions so tool prompts can't hang a headless run).
+ *
+ * Prompt caching (token-cost lever 4): the bundle is passed verbatim — a
+ * byte-identical system prompt across spawns is what lets the API prompt
+ * cache serve repeat evals. The batch runner additionally feature-detects
+ * `--exclude-dynamic-system-prompt-sections` (keeps git-status churn out of
+ * the default system prompt); adding it here needs a main-process CLI
+ * capability probe first — an unknown flag would fail every spawn on older
+ * CLIs. Tracked in TODO.md § Token-cost reduction, lever 4.
  */
 export function claudeEvalArgs(taskPrompt: string, model?: ClaudeModel): string[] {
   return [

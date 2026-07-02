@@ -395,3 +395,100 @@ Great trajectory.
   assert.ok(!rest.includes('Rank vs'))
   assert.ok(rest.includes('Great trajectory.'))
 })
+
+// ─── Compact reports (banded output — token-cost lever 5) ────────────────────
+//
+// T2 "short summary" and T3 "Gap & Growth" reports drop the full prose
+// sections (Role summary / Comp & demand / Recommendation / Career path
+// impact). The parser contract: header metadata + the dimensional table +
+// Why-this-score must still parse, and the leaner remaining sections flow
+// through as ordinary prose — no fallback path, no crash, nothing rendered
+// for sections that simply aren't there.
+const COMPACT_T3_REPORT = `# Gap & Growth: Acme — Analyst
+
+**Date:** 2026-07-02
+**URL:** https://acme.com/jobs/123
+**Location:** City, Country hybrid
+**Archetype:** Strategy & Ops
+**Current Fit:** 6.1/10
+**Aspirational Fit:** 7.4/10
+**Overall:** 6.5/10
+**Tier:** T3
+**Verification:** unconfirmed (batch mode)
+
+## Dimensional scoring
+
+| Dimension | Score | Reasoning |
+|---|---|---|
+| Skills Match | 7/10 | required covered |
+| Ease of Entry | 4/10 | "2+ years" wall, quoted from JD |
+| Strategic/Analytical Fit | 7/10 | analytical core |
+| **Current Fit (rollup)** | **6.1/10** | weighted |
+| Growth/Mobility | 8/10 | cohort program |
+| Optionality/Exit | 7/10 | portable |
+| Brand Value | 8/10 | strong brand |
+| Sales-Trap Risk (signal) | 8/10 | no quota language |
+| **Aspirational Fit (rollup)** | **7.4/10** | weighted |
+| **Overall** | **6.5/10** | CF×0.7 + AF×0.3 |
+| Best Cities (context) | 6/10 | non-preferred EU city |
+| Salary Adj for City (context) | 6/10 | ≈ city baseline |
+
+## Why this score
+
+Ease of Entry gates the tier.
+
+- **Holding it back:** Ease of Entry 4 — the "2+ years" experience wall.
+- **Closest lever:** Ease of Entry 4→5 crosses into Decent.
+
+## Gaps and opportunities
+
+- **Gap:** Ease of Entry — JD requires "2+ years operations experience".
+- **Revisit when:** your CV clears the 2-year experience wall this JD gates on.
+`
+
+test('compact T3 report: header metadata still parses (kept fields only)', () => {
+  const { meta, rest } = extractMetadata(COMPACT_T3_REPORT)
+  const keys = meta.map(m => m.key.toLowerCase())
+  assert.deepEqual(keys, ['date', 'location', 'archetype', 'verification'])
+  assert.equal(meta.find(m => m.key === 'Verification')?.value, 'unconfirmed (batch mode)')
+  // Dropped fields are consumed, not re-rendered as stray prose.
+  assert.ok(!rest.includes('**URL:**'))
+  assert.ok(!rest.includes('**Tier:**'))
+  assert.ok(rest.includes('# Gap & Growth: Acme — Analyst'))
+})
+
+test('compact T3 report: dimensional table parses with full CF/AF/context grouping', () => {
+  const { dims, after } = parseDimensionalScoring(COMPACT_T3_REPORT)
+  assert.ok(dims)
+  assert.equal(dims!.overall?.score, '6.5')
+  assert.equal(dims!.currentFit.rollup, '6.1')
+  assert.equal(dims!.aspirationalFit.rollup, '7.4')
+  assert.deepEqual(dims!.currentFit.rows.map(r => r.label),
+    ['Skills Match', 'Ease of Entry', 'Strategic/Analytical Fit'])
+  assert.deepEqual(dims!.aspirationalFit.rows.map(r => r.label),
+    ['Growth/Mobility', 'Optionality/Exit', 'Brand Value', 'Sales-Trap Risk'])
+  assert.deepEqual(dims!.context.rows.map(r => r.label),
+    ['Best Cities', 'Salary Adj for City'])
+  // The prose after the table is just the two compact sections.
+  assert.ok(after.includes('## Why this score'))
+  assert.ok(after.includes('## Gaps and opportunities'))
+})
+
+test('compact T3 report: Why-this-score parses and the rest degrades to plain prose', () => {
+  const { after } = parseDimensionalScoring(COMPACT_T3_REPORT)
+  const { why, rest } = splitWhyThisScore(after)
+  assert.equal(why.present, true)
+  assert.equal(why.headline, 'Ease of Entry gates the tier.')
+  assert.match(why.bindingConstraint!, /experience wall/)
+  assert.match(why.lever!, /4→5 crosses into Decent/)
+  // Sections the full format would add simply aren't there — the remaining
+  // prose is only the compact Gap/Revisit block, with nothing invented.
+  assert.ok(rest.includes('## Gaps and opportunities'))
+  for (const absent of ['Role summary', 'Comp & demand', 'Recommendation', 'Career path impact']) {
+    assert.ok(!rest.includes(absent), `compact report has no "${absent}" section`)
+  }
+  // And no peer block: splitPeerBlock must be a no-op, not a mangler.
+  const peer = splitPeerBlock(rest)
+  assert.equal(peer.found, false)
+  assert.equal(peer.rest, rest)
+})
