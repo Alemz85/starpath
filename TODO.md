@@ -46,9 +46,38 @@ Levers, by impact:
    deterministically by `scripts/cv-summary.mjs` (`npm run cv-summary`,
    mtime-gated `--if-stale`), refreshed by the batch runner + frontend eval
    buttons before spawning, with a documented fallback to full `user/cv.md`.
-4. **Prompt caching:** cache the rubric+CV prefix across a batch.
-5. **Compress output:** TSV row + 1-line rationale for triage/low-scorers; full
-   report only for high-scorers worth applying to.
+4. ✅ **Prompt caching** — runner side shipped 2026-07-02: the batch runner now
+   passes `batch-prompt.md` **verbatim** (the per-worker `sed` placeholder
+   substitution made every worker's appended system prompt unique, defeating
+   prefix caching; per-listing values already travel in the user message per
+   the bundle's "Unresolved placeholders" contract), and feature-detects
+   `--exclude-dynamic-system-prompt-sections` so git-status churn from
+   workers writing files doesn't invalidate the default-system-prompt prefix
+   mid-batch. The API caches automatically on identical prefixes (5-min TTL —
+   batch spawns qualify); no other cache lever is CLI-exposed. *Remaining:*
+   the frontend's eval spawns (`frontend/src/lib/evalSpawn.ts`) already pass
+   the bundle verbatim but don't set the exclude flag — adding it needs a
+   main-process CLI capability probe (an unknown flag fails every spawn on
+   older CLIs). **Verify** on the first real batch: `cache_read_tokens` in
+   `batch/logs/usage.tsv` should be high from spawn 2 onward.
+5. ✅ **Compress output for low scorers** — shipped 2026-07-02: report depth is
+   banded (T1 full sections · T2 short Fit/gaps+Verdict+Path · T3 compact
+   Gap & Growth · T4 **no report file**) in both `batch/batch-prompt.md`
+   Step 5 and `modes/scouting.md` § Output Behavior, while every band still
+   writes the complete dimensional table + score-history row + scouting TSV
+   (peer-rank / calibration / cv-gap / positioning inputs unchanged). The
+   band→depth mapping, the `## Dimensional scoring` heading + `**URL:**`
+   header contract, the T4 no-file rule, and the no-fabricated-timelines /
+   language-wall rules are now pinned by `scripts/batch-prompt-parity.test.mjs`;
+   `frontend/src/lib/reportMarkdown.test.ts` pins that compact reports parse
+   (header + table + Why-this-score) with absent sections degrading to plain
+   prose. **Measured baseline** (usage.tsv was still empty — corpus-derived):
+   all 13 on-disk reports are pre-band FULL format, mean ≈10.4KB ≈ 2.6K output
+   tokens each, dimensional table = 50% of report bytes; landscape shape is
+   T1 1% / T2 48% / T3 36% / T4 15%, so banded depth cuts report output
+   ≈40% per average eval (T4 alone −100%, T3 ≈ −30%) — worth ≈1K output
+   tokens per eval at 5× the input-token price. Confirm against
+   `batch/logs/usage.tsv` after the first post-change batch.
 ✅ **FIRST STEP: measure — shipped 2026-07-01:** batch workers run with
 `--output-format json`; the runner logs per-spawn tokens/cost/turns to
 `batch/logs/usage.tsv` (`scripts/lib/batch-usage.mjs`), and the frontend
