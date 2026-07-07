@@ -7,9 +7,15 @@ data/score-history.tsv
 data/comp-cache.tsv
 data/report-summaries.tsv
 data/dedup-index.tsv
-reports/**/*.md
-reports/tier-*/*.md
+# All reports content is per-profile personal data; only the tracked
+# reports/.gitkeep survives (the six content subdirs are profile symlinks
+# managed by scripts/profile.mjs).
+reports/*
 !reports/.gitkeep
+
+# Multi-profile personal data (real files behind the canonical symlinks;
+# managed by scripts/profile.mjs)
+profiles/
 
 # Interview prep (personal)
 interview-prep/*.md

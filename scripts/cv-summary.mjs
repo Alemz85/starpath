@@ -23,13 +23,15 @@
 import { readFileSync, writeFileSync, existsSync, statSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { renderCvSummary } from './lib/cv-summary-core.mjs'
+import { renderCvSummary, profileStampMatches } from './lib/cv-summary-core.mjs'
+import { ACTIVE_POINTER, parseActive } from './lib/profile-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const CV_PATH = join(ROOT, 'user/cv.md')
 const PROFILE_PATH = join(ROOT, 'user/profile.yml')
 const OUT_PATH = join(ROOT, 'batch/cv-summary.md')
 const OUT_REL = 'batch/cv-summary.md'
+const ACTIVE_PATH = join(ROOT, ACTIVE_POINTER)
 
 const args = process.argv.slice(2)
 const ifStale = args.includes('--if-stale')
@@ -51,10 +53,25 @@ const sourceMtime = Math.max(
   statSync(CV_PATH).mtimeMs,
   existsSync(PROFILE_PATH) ? statSync(PROFILE_PATH).mtimeMs : 0,
 )
-const fresh = existsSync(OUT_PATH) && statSync(OUT_PATH).mtimeMs >= sourceMtime
+
+// Active profile slug (multi-profile layout only). user/profile.yml is a
+// per-profile symlink, so after a profile switch the mtime gate alone can be
+// wrong (the other profile's yml may be older than the summary). The
+// generated artifact is stamped with the slug it was built under; a stamp
+// mismatch forces regeneration. No profiles/ or no stamp ⇒ mtime-only
+// (pre-migration compat) — see profileStampMatches.
+const activeSlug = existsSync(ACTIVE_PATH) ? parseActive(readFileSync(ACTIVE_PATH, 'utf8')) : null
+const outText = existsSync(OUT_PATH) ? readFileSync(OUT_PATH, 'utf8') : null
+const mtimeFresh = existsSync(OUT_PATH) && statSync(OUT_PATH).mtimeMs >= sourceMtime
+const slugFresh = profileStampMatches(outText ?? '', activeSlug)
+const fresh = mtimeFresh && slugFresh
 
 if (checkOnly) {
-  console.log(fresh ? `cv-summary: ${OUT_REL} is fresh` : `cv-summary: ${OUT_REL} is stale or missing`)
+  console.log(
+    fresh
+      ? `cv-summary: ${OUT_REL} is fresh`
+      : `cv-summary: ${OUT_REL} is ${mtimeFresh && !slugFresh ? 'from another profile' : 'stale or missing'}`,
+  )
   process.exit(fresh ? 0 : 1)
 }
 
@@ -65,7 +82,7 @@ if (ifStale && fresh) {
 
 const cvText = readFileSync(CV_PATH, 'utf8')
 const profileText = existsSync(PROFILE_PATH) ? readFileSync(PROFILE_PATH, 'utf8') : ''
-const output = renderCvSummary({ cvText, profileText })
+const output = renderCvSummary({ cvText, profileText, profileSlug: activeSlug })
 
 mkdirSync(dirname(OUT_PATH), { recursive: true })
 writeFileSync(OUT_PATH, output, 'utf8')

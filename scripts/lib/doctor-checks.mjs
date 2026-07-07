@@ -16,7 +16,15 @@
  *   parseTsvHeader(content)          — return the first non-empty line split on \t
  *   validateScoreHistoryHeader(cols) — check expected columns are present
  *   validateScanHistoryHeader(cols)  — check expected columns are present
+ *   buildProfileChecks(layout)       — multi-profile symlink-layout health
  */
+
+import {
+  PROFILE_PATHS,
+  PROFILE_REPORT_DIRS,
+  parseActive,
+  linkResolvesIntoProfile,
+} from './profile-core.mjs';
 
 // ── Expected TSV headers ────────────────────────────────────────────────────
 
@@ -481,6 +489,175 @@ export function buildCapabilityInventory(flags) {
     checks.push({
       pass: true, // not a blocker — built incrementally
       label: 'interview-prep/story-bank.md not yet created (built as you prep for interviews)',
+    });
+  }
+
+  return checks;
+}
+
+// ── Multi-profile layout checks ─────────────────────────────────────────────
+
+/**
+ * Build check results for the multi-profile symlink layout
+ * (docs/superpowers/specs/2026-07-07-multi-profile-design.md).
+ *
+ * When `profiles/` does not exist (pre-migration repos, fresh clones, other
+ * users) EVERYTHING is skipped with a single informative OK line — the
+ * single-profile layout is fully supported and must stay green.
+ *
+ * @param {Object} layout — gathered by doctor.mjs (I/O side):
+ *   {
+ *     profilesDirExists: boolean,
+ *     activeRaw:        string|null,   // raw content of profiles/active (null = missing)
+ *     profileDirs:      string[],      // directory names under profiles/
+ *     links: Array<{                   // one per canonical path (PROFILE_PATHS)
+ *       path: string,                  //   the canonical repo-relative path
+ *       present: boolean,              //   lstat succeeded (symlink OR real)
+ *       isSymlink: boolean,
+ *       linkTarget: string|null,       //   raw readlink value (null unless symlink)
+ *     }>,
+ *     profileStructures: Array<{ slug, hasUser, hasData, hasReports, hasMeta }>,
+ *     reportsChildren:  string[],      // entries of the real reports/ dir
+ *   }
+ * @returns {Array<{ pass: boolean, label: string, fix?: string|string[] }>}
+ */
+export function buildProfileChecks(layout) {
+  // Pre-migration: one OK line, nothing else.
+  if (!layout || !layout.profilesDirExists) {
+    return [{
+      pass: true,
+      label: 'single-profile layout (profiles/ not present — profile checks skipped)',
+    }];
+  }
+
+  const {
+    activeRaw = null,
+    profileDirs = [],
+    links = [],
+    profileStructures = [],
+    reportsChildren = [],
+  } = layout;
+
+  const checks = [];
+
+  // (a) profiles/active valid + points at an existing profile dir.
+  const active = parseActive(activeRaw ?? '');
+  if (activeRaw == null) {
+    checks.push({
+      pass: false,
+      label: 'profiles/ exists but profiles/active is missing',
+      fix: 'Run: npm run profile -- switch <slug>  (or npm run profile -- list to see profiles)',
+    });
+  } else if (!active) {
+    checks.push({
+      pass: false,
+      label: `profiles/active contains an invalid slug (${JSON.stringify(activeRaw.trim())})`,
+      fix: 'Run: npm run profile -- switch <slug>  to rewrite the pointer',
+    });
+  } else if (!profileDirs.includes(active)) {
+    checks.push({
+      pass: false,
+      label: `profiles/active points at missing profile '${active}'`,
+      fix: 'Run: npm run profile -- list  then switch to an existing profile',
+    });
+  } else {
+    checks.push({ pass: true, label: `profiles/active → '${active}'` });
+  }
+
+  // (b) every canonical path is a symlink resolving into profiles/<active>/…
+  // (c) no real-file shadows at canonical paths.
+  // Both need a resolvable active slug; when (a) failed they are reported as
+  // blocked rather than guessed.
+  if (active && profileDirs.includes(active)) {
+    const missing = links.filter((l) => !l.present);
+    const shadows = links.filter((l) => l.present && !l.isSymlink);
+    const wrong = links.filter(
+      (l) => l.isSymlink && !linkResolvesIntoProfile(l.path, l.linkTarget, active)
+    );
+
+    if (missing.length === 0 && shadows.length === 0 && wrong.length === 0) {
+      checks.push({
+        pass: true,
+        label: `all ${links.length} canonical paths are symlinks into profiles/${active}/`,
+      });
+    } else {
+      if (missing.length > 0) {
+        checks.push({
+          pass: false,
+          label: `${missing.length} canonical path${missing.length === 1 ? '' : 's'} missing entirely: ${missing.map((l) => l.path).join(', ')}`,
+          fix: `Run: npm run profile -- switch ${active}  (re-points every canonical symlink)`,
+        });
+      }
+      if (wrong.length > 0) {
+        checks.push({
+          pass: false,
+          label: `symlink${wrong.length === 1 ? '' : 's'} not resolving into profiles/${active}/: ${wrong.map((l) => `${l.path} → ${l.linkTarget}`).join(', ')}`,
+          fix: `Run: npm run profile -- switch ${active}  (re-points every canonical symlink)`,
+        });
+      }
+    }
+
+    if (shadows.length === 0) {
+      checks.push({ pass: true, label: 'no real-file shadows at canonical paths' });
+    } else {
+      checks.push({
+        pass: false,
+        label: `real-file shadow${shadows.length === 1 ? '' : 's'} at canonical path${shadows.length === 1 ? '' : 's'}: ${shadows.map((l) => l.path).join(', ')}`,
+        fix: [
+          'A writer replaced the symlink with a real file (write-temp-then-rename).',
+          `Merge each shadow's content into profiles/${active}/<path>, delete the shadow, then run: npm run profile -- switch ${active}`,
+        ],
+      });
+    }
+  } else {
+    checks.push({
+      pass: false,
+      label: 'canonical-symlink checks blocked — no valid active profile to check against',
+      fix: 'Fix profiles/active first (see above)',
+    });
+  }
+
+  // (d) profile dirs structurally complete (user/ + data/ + reports/ + meta.yml).
+  const incomplete = profileStructures.filter(
+    (s) => !(s.hasUser && s.hasData && s.hasReports && s.hasMeta)
+  );
+  if (incomplete.length === 0) {
+    const n = profileStructures.length;
+    checks.push({
+      pass: true,
+      label: `${n} profile dir${n === 1 ? '' : 's'} structurally complete (user/ + data/ + reports/ + meta.yml)`,
+    });
+  } else {
+    for (const s of incomplete) {
+      const missingParts = [
+        !s.hasUser && 'user/',
+        !s.hasData && 'data/',
+        !s.hasReports && 'reports/',
+        !s.hasMeta && 'meta.yml',
+      ].filter(Boolean);
+      checks.push({
+        pass: false,
+        label: `profiles/${s.slug}/ is missing: ${missingParts.join(', ')}`,
+        fix: 'Recreate the missing pieces (compare with a healthy profile dir) or delete the broken profile dir',
+      });
+    }
+  }
+
+  // (e) unexpected REAL children of reports/ — anything besides .gitkeep and
+  // the six expected symlinked subdirs must be classified deliberately.
+  const expectedReportChildren = new Set([
+    '.gitkeep',
+    '.DS_Store', // OS noise, never meaningful
+    ...PROFILE_REPORT_DIRS.map((p) => p.split('/')[1]),
+  ]);
+  const unexpected = reportsChildren.filter((n) => !expectedReportChildren.has(n));
+  if (unexpected.length === 0) {
+    checks.push({ pass: true, label: 'reports/ has no unexpected real children' });
+  } else {
+    checks.push({
+      pass: false,
+      label: `unexpected real child${unexpected.length === 1 ? '' : 'ren'} of reports/: ${unexpected.join(', ')}`,
+      fix: 'reports/ content lives per-profile — move stray files into profiles/<active>/reports/<subdir>/ or delete them',
     });
   }
 

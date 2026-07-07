@@ -11,6 +11,9 @@ import {
   summarizeCv,
   extractProfileFacts,
   renderCvSummary,
+  renderProfileStamp,
+  extractProfileStamp,
+  profileStampMatches,
   GENERATED_HEADER,
 } from './cv-summary-core.mjs'
 
@@ -178,4 +181,40 @@ test('renderCvSummary omits the facts section when the profile is absent', () =>
   const out = renderCvSummary({ cvText: FIXTURE_CV })
   assert.ok(!out.includes('Candidate facts'))
   assert.ok(out.includes('# Jane Doe'))
+})
+
+// ─── Profile stamp (multi-profile staleness) ─────────────────────────────────
+
+test('renderCvSummary stamps the active slug when given one, omits it otherwise', () => {
+  const stamped = renderCvSummary({ cvText: FIXTURE_CV, profileSlug: 'career' })
+  assert.ok(stamped.includes(renderProfileStamp('career')))
+  assert.equal(extractProfileStamp(stamped), 'career')
+
+  const unstamped = renderCvSummary({ cvText: FIXTURE_CV })
+  assert.equal(extractProfileStamp(unstamped), null)
+})
+
+test('extractProfileStamp reads the stamp anywhere in the text, null when absent', () => {
+  assert.equal(extractProfileStamp('x\n<!-- profile: cph-student -->\ny'), 'cph-student')
+  assert.equal(extractProfileStamp('<!--profile: a1-->'), 'a1')
+  assert.equal(extractProfileStamp('no stamp here'), null)
+  assert.equal(extractProfileStamp(''), null)
+  assert.equal(extractProfileStamp(null), null)
+})
+
+test('profileStampMatches: mismatched slug forces regeneration', () => {
+  const summary = renderCvSummary({ cvText: FIXTURE_CV, profileSlug: 'career' })
+  assert.equal(profileStampMatches(summary, 'career'), true)
+  assert.equal(profileStampMatches(summary, 'cph-student'), false)
+})
+
+test('profileStampMatches: pre-migration compat — no profiles/ or no stamp passes', () => {
+  const stamped = renderCvSummary({ cvText: FIXTURE_CV, profileSlug: 'career' })
+  const unstamped = renderCvSummary({ cvText: FIXTURE_CV })
+  // No multi-profile layout (activeSlug null) → always matches, even stamped.
+  assert.equal(profileStampMatches(stamped, null), true)
+  assert.equal(profileStampMatches(unstamped, null), true)
+  // Migrated layout but pre-stamp artifact → matches (mtime gate still applies).
+  assert.equal(profileStampMatches(unstamped, 'career'), true)
+  assert.equal(profileStampMatches('', 'career'), true)
 })
