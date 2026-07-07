@@ -15,7 +15,8 @@ import { pathToFileURL } from 'url'
 import { exec, spawn, ChildProcess, execFile } from 'child_process'
 import { promisify } from 'util'
 import {
-  openDb, closeDb, shutdownDb, rebuildDb, startWatcher, ensureSynced, resync,
+  openDb, closeDb, shutdownDb, rebuildDb, startWatcher, restartWatcher,
+  ensureSynced, resync,
   queryApplications, queryScouting, queryScoreHistory, queryPipeline,
   queryReports, queryApplicationsWithScores, queryTrends,
 } from './db'
@@ -95,6 +96,79 @@ function resolveRepoPath(filePath: string): string | null {
 function validateString(val: unknown, name: string): string {
   if (typeof val !== 'string') throw new Error(`${name} must be a string`)
   return val
+}
+
+// ─── Profiles ─────────────────────────────────────────────────────────────────
+//
+// Multiple switchable search profiles (docs/superpowers/specs/2026-07-07-
+// multi-profile-design.md). The single implementation of the guards and the
+// symlink swap lives in scripts/profile.mjs — the handlers below shell out to
+// it with --json and never re-derive that logic here. Only `profile:active`
+// bypasses the CLI: profiles/active is a one-line file, read directly for
+// speed.
+
+// Slug contract from the spec; `active` is additionally reserved. Validated
+// here as defense in depth (the renderer live-validates the same shape and
+// the CLI enforces it again).
+const PROFILE_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,31}$/
+
+function validateSlug(val: unknown, name: string): string {
+  const s = validateString(val, name)
+  if (!PROFILE_SLUG_RE.test(s) || s === 'active') {
+    throw new Error(`${name} must be a valid profile slug (lowercase letters, digits, hyphens; max 32 chars)`)
+  }
+  return s
+}
+
+// null = pre-migration layout (no profiles/active, or an unreadable/invalid
+// one — the CLI-facing surfaces treat those the same and hide themselves).
+function readActiveProfileSlug(repoPath: string): string | null {
+  try {
+    const raw = fs.readFileSync(path.join(repoPath, 'profiles', 'active'), 'utf-8').trim()
+    return PROFILE_SLUG_RE.test(raw) ? raw : null
+  } catch {
+    return null
+  }
+}
+
+// The slug the SQLite cache file is keyed by — 'default' pre-migration, so
+// launch behavior on single-profile repos stays identical apart from the
+// cache filename (cache-default.db instead of cache.db).
+function cacheSlug(repoPath: string): string {
+  return readActiveProfileSlug(repoPath) ?? 'default'
+}
+
+interface ProfileCliResult {
+  ok?: boolean
+  error?: string
+  message?: string
+  guardFailures?: string[]
+  [k: string]: unknown
+}
+
+// Shell out to the repo's profile CLI — execFile with an args array (never a
+// shell string), cwd = repo root, SHELL_ENV for node resolution. --root is
+// passed explicitly (the CLI defaults to its own script location, which
+// happens to match, but explicit beats incidental). --json is always
+// appended: the CLI prints machine-readable JSON even on refusal (exit 1),
+// so the exit code is ignored in favor of parsing stdout. A run that
+// produced no parseable JSON (script missing, crash) maps to ok:false with
+// the stderr tail as the message.
+function runProfileCli(repoPath: string, args: string[]): Promise<ProfileCliResult> {
+  return new Promise((resolve) => {
+    execFile(
+      'node', ['scripts/profile.mjs', ...args, '--root', repoPath, '--json'],
+      { cwd: repoPath, env: SHELL_ENV, timeout: 60_000 },
+      (_err, stdout, stderr) => {
+        try {
+          resolve(JSON.parse(stdout) as ProfileCliResult)
+        } catch {
+          const detail = (stderr || stdout || '').trim().split('\n').slice(-3).join(' ').slice(0, 300)
+          resolve({ ok: false, error: 'cli', message: detail || 'profile CLI produced no JSON' })
+        }
+      },
+    )
+  })
 }
 
 async function checkClaudeInstalled(): Promise<boolean> {
@@ -568,14 +642,19 @@ ipcMain.handle('logo:fetch', async (_e, domain: unknown) => {
 // rebuilt from them, kept in sync via mtime checks + a chokidar watcher.
 // Schema bumps drop and rebuild — see electron/db/schema.ts.
 
+const watcherCallbacks = {
+  onChanged: (sources: string[]) => mainWindow?.webContents.send('db:changed', sources),
+}
+
 function ensureDbReady(): boolean {
   const repoPath = getRepoPath()
   if (!repoPath) return false
-  openDb(app.getPath('userData'))
+  // Keyed by the active profile — openDb closes and reopens (dropping the
+  // watcher) if the slug changed since the last call, so even an
+  // out-of-band CLI switch converges on the right cache at the next query.
+  openDb(app.getPath('userData'), cacheSlug(repoPath))
   ensureSynced(repoPath)
-  startWatcher(repoPath, {
-    onChanged: (sources) => mainWindow?.webContents.send('db:changed', sources),
-  })
+  startWatcher(repoPath, watcherCallbacks)
   return true
 }
 
@@ -617,15 +696,79 @@ ipcMain.handle('db:trends', () => {
 ipcMain.handle('db:resync', () => {
   const repoPath = getRepoPath()
   if (!repoPath) return null
-  openDb(app.getPath('userData'))
+  openDb(app.getPath('userData'), cacheSlug(repoPath))
   return resync(repoPath)
 })
 
 ipcMain.handle('db:rebuild', () => {
   const repoPath = getRepoPath()
   if (!repoPath) return null
-  rebuildDb(app.getPath('userData'))
+  rebuildDb(app.getPath('userData'), cacheSlug(repoPath))
   return ensureSynced(repoPath)
+})
+
+// ─── IPC: Profiles ────────────────────────────────────────────────────────────
+
+ipcMain.handle('profile:list', async () => {
+  const repoPath = getRepoPath()
+  // Pre-migration (or no repo yet): report "no profiles" without spawning
+  // node — the renderer hides every profile surface on this shape.
+  if (!repoPath || !fs.existsSync(path.join(repoPath, 'profiles'))) {
+    return { active: null, profiles: [] }
+  }
+  const res = await runProfileCli(repoPath, ['list'])
+  if (Array.isArray(res.profiles)) return res
+  // profiles/ exists but the CLI couldn't answer (script missing, crash) —
+  // degrade to the hidden state rather than surfacing a broken switcher.
+  console.error('[profile] list failed:', res)
+  return { active: null, profiles: [] }
+})
+
+ipcMain.handle('profile:active', () => {
+  const repoPath = getRepoPath()
+  return { active: repoPath ? readActiveProfileSlug(repoPath) : null }
+})
+
+ipcMain.handle('profile:switch', async (_e, slug: unknown) => {
+  const s = validateSlug(slug, 'slug')
+  const repoPath = getRepoPath()
+  if (!repoPath) return { ok: false, error: 'no-repo', message: 'no repository configured' }
+  const res = await runProfileCli(repoPath, ['switch', s])
+  if (res.ok === true) {
+    // The canonical paths now point into the new profile: swap to its cache
+    // file (openDb closes the old one), mirror it from disk, and restart the
+    // watcher — chokidar resolved the old symlink targets at watch time.
+    try {
+      openDb(app.getPath('userData'), s)
+      ensureSynced(repoPath)
+      restartWatcher(repoPath, watcherCallbacks)
+    } catch (e) {
+      console.error('[profile] cache swap after switch failed:', e)
+    }
+    // Existing data-refresh channel first (the data store re-pulls on it),
+    // then the profile-specific event for the switcher/list surfaces.
+    mainWindow?.webContents.send('db:changed',
+      ['applications', 'scouting', 'pipeline', 'score_history', 'reports'])
+    mainWindow?.webContents.send('profile:changed', s)
+  }
+  return res
+})
+
+ipcMain.handle('profile:create', async (_e, opts: unknown) => {
+  if (!opts || typeof opts !== 'object') throw new Error('opts must be object')
+  const o = opts as Record<string, unknown>
+  const slug = validateSlug(o.slug, 'slug')
+  const repoPath = getRepoPath()
+  if (!repoPath) return { ok: false, error: 'no-repo', message: 'no repository configured' }
+  const args = ['create', slug]
+  if (o.from !== undefined && o.from !== null && o.from !== '') {
+    args.push('--from', validateSlug(o.from, 'from'))
+  }
+  if (o.label !== undefined && o.label !== null && o.label !== '') {
+    const label = validateString(o.label, 'label').trim().slice(0, 80)
+    if (label) args.push('--label', label)
+  }
+  return runProfileCli(repoPath, args)
 })
 
 // ─── IPC: Network lens ────────────────────────────────────────────────────────

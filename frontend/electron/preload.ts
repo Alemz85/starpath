@@ -51,6 +51,20 @@ const electronAPI = {
   // own pure cores (scripts/lib/network-lens-core.mjs).
   networkOverview: () => ipcRenderer.invoke('network:overview'),
 
+  // Profiles — switchable search profiles (symlink swap managed by
+  // scripts/profile.mjs; main shells out to it). profile:changed fires after
+  // a successful switch, once the per-profile cache + watcher are swapped.
+  profileList:   ()             => ipcRenderer.invoke('profile:list'),
+  profileActive: ()             => ipcRenderer.invoke('profile:active'),
+  profileSwitch: (slug: string) => ipcRenderer.invoke('profile:switch', slug),
+  profileCreate: (opts: { slug: string; from?: string; label?: string }) =>
+    ipcRenderer.invoke('profile:create', opts),
+  onProfileChanged: (cb: (slug: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, slug: string) => cb(slug)
+    ipcRenderer.on('profile:changed', listener)
+    return () => ipcRenderer.removeListener('profile:changed', listener)
+  },
+
   // Shell (one-shot)
   run: (cmd: string, args: string[]) => ipcRenderer.invoke('shell:run', cmd, args),
 
