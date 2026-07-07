@@ -46,6 +46,7 @@ The repo can host several **search profiles** (e.g. a main career search and a l
 **RULES:**
 - **Never write into an inactive profile directly** (`profiles/<slug>/…`). Always read/write the canonical paths — they resolve to the active profile.
 - **Never replace a canonical symlink with a real file.** Plain writes (`writeFileSync`, `>` redirection) follow symlinks and are fine; write-temp-then-`rename` onto a canonical path would clobber the link — resolve `fs.realpathSync(target)` first if you must rename.
+- **Agent tools (Write/Edit) refuse symlinked file paths by design.** If editing e.g. `data/applications.md` is refused with "Refusing to write through symlink", resolve the link (`readlink data/applications.md` or `cat profiles/active`) and edit the real target `profiles/<active>/…` instead. This is the ONE case where writing a `profiles/` path directly is correct — and only ever for the *active* profile. Reads through symlinks work normally.
 - Switching is CLI-only: `npm run profile -- list` · `switch <slug> [--force]` · `create <slug> [--from <slug>] [--label "…"] [--switch]` · `init [<slug>]` (one-time migration) · `eject` (rollback to plain files). Switch/init/eject refuse while unmerged eval TSVs, in-flight batch workers, or unmerged JobSpy staging exist.
 - When `profiles/` doesn't exist, the repo is a plain single-profile layout and everything above is dormant. `npm run doctor` validates whichever layout is present.
 
