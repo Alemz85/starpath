@@ -445,6 +445,23 @@ class TestLocationAllowlistOverride(unittest.TestCase):
         self.assertTrue(is_allowed_location("   "))
 
 
+class TestCellReader(unittest.TestCase):
+    """_cell — NaN-safe pandas cell extraction (NaN is truthy; str(nan)='nan')."""
+
+    def test_nan_becomes_empty(self):
+        self.assertEqual(_scan._cell({"company": float("nan")}, "company"), "")
+
+    def test_none_and_missing_become_empty(self):
+        self.assertEqual(_scan._cell({"company": None}, "company"), "")
+        self.assertEqual(_scan._cell({}, "company"), "")
+
+    def test_real_values_stripped(self):
+        self.assertEqual(_scan._cell({"title": "  Student Assistant  "}, "title"), "Student Assistant")
+
+    def test_numeric_values_stringified(self):
+        self.assertEqual(_scan._cell({"id": 42}, "id"), "42")
+
+
 # ── Company / title normalization ─────────────────────────────────────────────
 
 class TestNormalization(unittest.TestCase):
