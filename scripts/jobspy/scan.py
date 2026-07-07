@@ -461,6 +461,19 @@ DEFAULT_MAX_ROWS = 100    # hard ceiling per run
 MAX_WORDS_PER_KEYWORD = 4
 
 
+def _cell(row, key):
+    """Read one pandas cell as a clean stripped string.
+
+    pandas hands back float('nan') for missing cells, and NaN is TRUTHY in
+    Python — so the obvious `row.get(k) or ""` keeps it and str() renders the
+    literal 'nan', which then leaks into staged TSVs as a company/title.
+    """
+    val = row.get(key)
+    if val is None or (isinstance(val, float) and val != val):
+        return ""
+    return str(val).strip()
+
+
 def derive_keywords_from_target_roles(target_roles_primary):
     """
     Turn user/profile.yml `target_roles.primary` (composite role strings)
@@ -631,13 +644,11 @@ def main() -> int:
             kept = 0
             for _, row in df.iterrows():
                 total_raw += 1
-                title = str(row.get("title") or "").strip()
-                company = str(row.get("company") or "").strip()
-                location_raw = str(row.get("location") or "").strip()
-                url = str(
-                    row.get("job_url_direct") or row.get("job_url") or ""
-                ).strip()
-                site = str(row.get("site") or "").strip().lower()
+                title = _cell(row, "title")
+                company = _cell(row, "company")
+                location_raw = _cell(row, "location")
+                url = _cell(row, "job_url_direct") or _cell(row, "job_url")
+                site = _cell(row, "site").lower()
 
                 if not url or not title or not company:
                     continue
