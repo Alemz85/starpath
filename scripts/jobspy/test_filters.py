@@ -411,6 +411,40 @@ class TestLocationFilter(unittest.TestCase):
         self.assertTrue(is_allowed_location("Remote"))
 
 
+class TestLocationAllowlistOverride(unittest.TestCase):
+    """set_location_allowlist — portals.yml `location_allowlist` narrows the
+    gate per profile (parity with scan-core.mjs › buildLocationFilter: a
+    non-empty list REPLACES the default EU allowlist; empty keeps it)."""
+
+    def setUp(self):
+        self._saved_patterns = _scan._LOCATION_PATTERNS
+
+    def tearDown(self):
+        _scan._LOCATION_PATTERNS = self._saved_patterns
+
+    def test_narrowed_list_replaces_default(self):
+        _scan.set_location_allowlist(["Copenhagen", "Denmark", "København"])
+        self.assertTrue(is_allowed_location("Copenhagen, Denmark"))
+        self.assertTrue(is_allowed_location("København K"))
+        self.assertFalse(is_allowed_location("Barcelona, Spain"))
+        self.assertFalse(is_allowed_location("Remote"))
+
+    def test_empty_or_missing_keeps_default(self):
+        _scan.set_location_allowlist([])
+        self.assertTrue(is_allowed_location("Barcelona, Spain"))
+        _scan.set_location_allowlist(None)
+        self.assertTrue(is_allowed_location("Dublin, Ireland"))
+
+    def test_blank_tokens_ignored(self):
+        _scan.set_location_allowlist(["  ", ""])
+        self.assertTrue(is_allowed_location("Barcelona, Spain"))
+
+    def test_unknown_location_still_soft_passes(self):
+        _scan.set_location_allowlist(["Copenhagen"])
+        self.assertTrue(is_allowed_location(""))
+        self.assertTrue(is_allowed_location("   "))
+
+
 # ── Company / title normalization ─────────────────────────────────────────────
 
 class TestNormalization(unittest.TestCase):
