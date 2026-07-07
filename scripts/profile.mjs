@@ -415,6 +415,12 @@ function cmdCreate(slug) {
     { ok: true, active, previous, created: slug },
     [
       `created profile '${slug}'${from ? ` (config copied from '${from}')` : ''}`,
+      // --from copies portals.yml VERBATIM — including the source search's
+      // tracked_companies. That's a starting point, not a recommendation:
+      // a differently-targeted search should prune the inherited pool.
+      ...(from ? [
+        `note: user/portals.yml was copied verbatim from '${from}' — its tracked_companies, title filters, and queries describe THAT search. Prune/retarget them for this one.`,
+      ] : []),
       doSwitch ? `switched: ${previous} → ${slug}` : `active profile unchanged ('${active}') — switch with: npm run profile -- switch ${slug}`,
     ],
     0
