@@ -5,7 +5,9 @@ import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { useConfigDirty } from '@/store/configDirty'
+import { useProfilesStore } from '@/store/profiles'
 import { ipc } from '@/lib/ipc'
+import { slugValidationHint, formatProfileCounts, profileInitial, describeProfileFailure } from '@/lib/profiles'
 import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -318,6 +320,8 @@ function GeneralTab() {
         </div>
       </SettingRow>
 
+      <ProfilesSection />
+
       <SettingRow
         title="Models"
         description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough."
@@ -363,6 +367,191 @@ function GeneralTab() {
         </button>
       </SettingRow>
     </div>
+  )
+}
+
+// ─── Profiles section ─────────────────────────────────────────────────────────
+//
+// Switchable search profiles (symlink swap in the repo, managed by
+// scripts/profile.mjs). Lists what profile:list reports, switches through the
+// same guarded path the sidebar switcher uses, and hosts the create form.
+// Pre-migration repos (no profiles/ dir) get a one-line pointer to the CLI
+// init — everything else stays hidden until it runs.
+
+function ProfilesSection() {
+  const profiles = useProfilesStore(s => s.profiles)
+  const loaded = useProfilesStore(s => s.loaded)
+  const switching = useProfilesStore(s => s.switching)
+  const lastFailure = useProfilesStore(s => s.lastFailure)
+  const load = useProfilesStore(s => s.load)
+  const switchTo = useProfilesStore(s => s.switchTo)
+  const createProfile = useProfilesStore(s => s.createProfile)
+
+  const [slug, setSlug] = useState('')
+  const [label, setLabel] = useState('')
+  const [from, setFrom] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [created, setCreated] = useState(false)
+  const [createFailure, setCreateFailure] = useState<string[]>([])
+
+  useEffect(() => { void load() }, [load])
+
+  const trimmedSlug = slug.trim()
+  const hint = slugValidationHint(trimmedSlug)
+  const duplicate = profiles.some(p => p.slug === trimmedSlug)
+  const canCreate = !!trimmedSlug && !hint && !duplicate && !creating
+
+  const handleCreate = async () => {
+    if (!canCreate) return
+    setCreating(true)
+    setCreateFailure([])
+    const res = await createProfile({
+      slug: trimmedSlug,
+      label: label.trim() || undefined,
+      from: from || undefined,
+    })
+    setCreating(false)
+    if (res.ok) {
+      setSlug(''); setLabel(''); setFrom('')
+      setCreated(true)
+      setTimeout(() => setCreated(false), 2500)
+    } else {
+      setCreateFailure(describeProfileFailure(res))
+    }
+  }
+
+  if (!loaded) return null
+
+  return (
+    <SettingRow
+      title="Profiles"
+      description="Switchable search profiles — each keeps its own preferences, scan keywords, trackers, and reports. Exactly one is active; switching swaps what every view reads."
+    >
+      {profiles.length === 0 ? (
+        <p className="mt-3 text-label text-text-4">
+          Multi-profile mode isn't initialized. Run{' '}
+          <code className="text-accent/70 bg-bg-elevated px-1 py-0.5 rounded text-micro">npm run profile -- init</code>{' '}
+          in the repo to move the current search into a named profile — the switcher then appears here and in the sidebar.
+        </p>
+      ) : (
+        <>
+          <div className="mt-3 border border-border-default rounded-md overflow-hidden" role="list" aria-label="Profiles">
+            {profiles.map((p, i) => (
+              <div
+                key={p.slug}
+                role="listitem"
+                className={cn('flex items-center gap-3 px-3 py-2.5', i > 0 && 'border-t border-border-default')}
+              >
+                <span
+                  className="w-[18px] h-[18px] rounded-full bg-accent/15 text-accent-text text-[10px] font-semibold flex items-center justify-center shrink-0"
+                  aria-hidden="true"
+                >
+                  {profileInitial(p)}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-label text-text-1 font-medium truncate">{p.label || p.slug}</span>
+                    <span className="text-micro font-mono text-text-4 shrink-0">{p.slug}</span>
+                  </div>
+                  <div className="text-micro text-text-4 mt-0.5 truncate">
+                    {p.created && <>created {p.created} · </>}
+                    {formatProfileCounts(p.counts)}
+                  </div>
+                </div>
+                {p.active ? (
+                  <span className="inline-flex items-center gap-1 text-micro text-accent shrink-0">
+                    <Check size={11} aria-hidden="true" /> active
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => void switchTo(p.slug)}
+                    disabled={!!switching}
+                    aria-label={`Switch to ${p.label || p.slug}`}
+                    className="px-2.5 py-1 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated disabled:opacity-40 transition-colors shrink-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+                  >
+                    {switching === p.slug ? 'Switching…' : 'Switch'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {lastFailure && (
+            <div role="alert" className="mt-2">
+              <p className="text-label text-danger font-medium">Switch to {lastFailure.slug} refused</p>
+              {lastFailure.lines.map((line, i) => (
+                <p key={i} className="text-label text-danger/80 leading-snug">{line}</p>
+              ))}
+            </div>
+          )}
+
+          {/* Create — slug is the on-disk directory name; label the display
+              name; "copy config from" seeds profile.yml / portals.yml /
+              _profile.md from an existing profile. Creating never switches. */}
+          <div className="mt-4 space-y-2" role="group" aria-label="Create a profile">
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label htmlFor="profile-create-slug" className="sr-only">Profile slug</label>
+                <input
+                  id="profile-create-slug"
+                  value={slug}
+                  onChange={e => setSlug(e.target.value)}
+                  placeholder="slug (e.g. cph-student)"
+                  spellCheck={false}
+                  className="w-full px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md font-mono text-[12px] text-text-1 placeholder:text-text-4 transition-colors"
+                />
+              </div>
+              <div className="flex-1">
+                <label htmlFor="profile-create-label" className="sr-only">Profile label</label>
+                <input
+                  id="profile-create-label"
+                  value={label}
+                  onChange={e => setLabel(e.target.value)}
+                  placeholder="label (optional)"
+                  onKeyDown={e => { if (e.key === 'Enter') void handleCreate() }}
+                  className="w-full px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-[12px] text-text-1 placeholder:text-text-4 transition-colors"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 items-center">
+              <label htmlFor="profile-create-from" className="text-label text-text-4 shrink-0">Copy config from</label>
+              <select
+                id="profile-create-from"
+                value={from}
+                onChange={e => setFrom(e.target.value)}
+                className="flex-1 px-2 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-[12px] text-text-1 transition-colors"
+              >
+                <option value="">start empty</option>
+                {profiles.map(p => (
+                  <option key={p.slug} value={p.slug}>{p.label || p.slug}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => void handleCreate()}
+                disabled={!canCreate}
+                aria-busy={creating}
+                className="flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent/20 border border-accent/30 text-accent-text text-label hover:bg-accent/30 disabled:opacity-40 transition-colors shrink-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+              >
+                {created ? <Check size={12} aria-hidden="true" /> : null}
+                {creating ? 'Creating…' : created ? 'Created' : 'Create profile'}
+              </button>
+            </div>
+            {(hint || (duplicate && trimmedSlug)) && (
+              <p className="text-micro text-danger" role="alert">
+                {hint || `'${trimmedSlug}' already exists`}
+              </p>
+            )}
+            {createFailure.length > 0 && (
+              <div role="alert">
+                {createFailure.map((line, i) => (
+                  <p key={i} className="text-label text-danger/80 leading-snug">{line}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </SettingRow>
   )
 }
 

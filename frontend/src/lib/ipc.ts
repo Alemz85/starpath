@@ -3,6 +3,7 @@
 
 import type { ElectronAPI } from '../../electron/preload'
 import type { NetworkOverview } from './networkLens'
+import type { ProfileListResult, ProfileMutationResult } from './profiles'
 
 declare global {
   interface Window {
@@ -74,6 +75,19 @@ export const ipc = {
   // when no repo is configured or the repo's scripts predate the lens.
   network: {
     overview: () => api().networkOverview() as Promise<NetworkOverview | null>,
+  },
+
+  // Profiles — switchable search profiles (one active globally; switching
+  // re-points the repo's canonical symlinks via scripts/profile.mjs). list
+  // reports { active: null, profiles: [] } on pre-migration repos — hide
+  // every profile surface on that shape.
+  profile: {
+    list:      () => api().profileList()   as Promise<ProfileListResult>,
+    active:    () => api().profileActive() as Promise<{ active: string | null }>,
+    switch:    (slug: string) => api().profileSwitch(slug) as Promise<ProfileMutationResult>,
+    create:    (opts: { slug: string; from?: string; label?: string }) =>
+                 api().profileCreate(opts) as Promise<ProfileMutationResult>,
+    onChanged: (cb: (slug: string) => void) => api().onProfileChanged(cb),
   },
 
   // Shell
