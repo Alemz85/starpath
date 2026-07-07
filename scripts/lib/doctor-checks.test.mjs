@@ -126,15 +126,17 @@ test('validateScoreHistoryHeader is case-insensitive', () => {
 
 // ── validateScanHistoryHeader ─────────────────────────────────────────────
 
-test('validateScanHistoryHeader passes with all required cols', () => {
-  const cols = ['url', 'company', 'role', 'first_seen', 'status'];
+test('validateScanHistoryHeader passes with the canonical scanner header', () => {
+  // Exactly what scan.mjs / merge-scan-staging.mjs write (single-sourced
+  // from merge-staging-core.HISTORY_HEADER — note `title`, not `role`).
+  const cols = ['url', 'first_seen', 'portal', 'title', 'company', 'location', 'status', 'scan_dates'];
   const { valid, missing } = validateScanHistoryHeader(cols);
   assert.equal(valid, true);
   assert.deepEqual(missing, []);
 });
 
 test('validateScanHistoryHeader fails when url missing', () => {
-  const cols = ['company', 'role', 'first_seen'];
+  const cols = ['first_seen', 'portal', 'title', 'company', 'location', 'status', 'scan_dates'];
   const { valid, missing } = validateScanHistoryHeader(cols);
   assert.equal(valid, false);
   assert.ok(missing.includes('url'));
@@ -232,7 +234,8 @@ test('buildArtifactChecks: all null → all pass (not-yet-created)', () => {
 });
 
 test('buildArtifactChecks: valid scan-history → pass with row count', () => {
-  const content = 'url\tcompany\trole\tfirst_seen\nhttp://a\tAcme\tAnalyst\t2026-01-01\n';
+  const content = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates\n'
+    + 'http://a\t2026-01-01\tgreenhouse\tAnalyst\tAcme\tCity, Country\tnew\t2026-01-01\n';
   const checks = buildArtifactChecks({ scanHistory: content, scoreHistory: null, scouting: null, applications: null, pipeline: null, outreach: null, colCache: null, taxCache: null }, {});
   const sc = checks.find(c => c.label.includes('scan-history'));
   assert.ok(sc.pass);

@@ -25,6 +25,7 @@ import {
   parseActive,
   linkResolvesIntoProfile,
 } from './profile-core.mjs';
+import { HISTORY_HEADER } from './merge-staging-core.mjs';
 
 // ── Expected TSV headers ────────────────────────────────────────────────────
 
@@ -33,9 +34,10 @@ const SCORE_HISTORY_REQUIRED_COLS = [
   'skills_match', 'ease_of_entry', 'strategic_fit',
 ];
 
-const SCAN_HISTORY_REQUIRED_COLS = [
-  'url', 'company', 'role', 'first_seen',
-];
+// Single-sourced from the scanner's canonical header — the schema owner is
+// merge-staging-core.mjs, and the column is `title`, not `role`. Deriving
+// (rather than restating) keeps doctor in lockstep if the header evolves.
+const SCAN_HISTORY_REQUIRED_COLS = HISTORY_HEADER.split('\t');
 
 const COL_CACHE_REQUIRED_COLS = ['city', 'baseline_eur'];
 const TAX_CACHE_REQUIRED_COLS = ['country', 'effective_rate'];
