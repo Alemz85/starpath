@@ -496,6 +496,93 @@ export function patternHeadsUp(patterns) {
   }]
 }
 
+/* ───── Cross-profile awareness (the "Other searches" footer) ────────────────
+ *
+ * A repo can host several switchable *search profiles* (design:
+ * docs/superpowers/specs/2026-07-07-multi-profile-design.md). `daily-brief.mjs`
+ * only ever sees the ACTIVE profile's canonical files, so a second search
+ * (e.g. a local student-job search) is invisible until you switch to it. That
+ * footer closes the blind spot: for each NON-active profile it prints one line
+ * summarizing what is waiting there, and how to switch.
+ *
+ * This is a note, not an action list — it never feeds the "do this first" pick
+ * (that stays scoped to the active search). Rendering lives here; the CLI
+ * (daily-brief.mjs) discovers the profiles and computes the per-profile
+ * summaries by reading each inactive profile's four files read-only.
+ */
+
+/**
+ * Count "fresh this week" scan rows in a profile's data/scan-history.tsv:
+ * rows whose `first_seen` is within the trailing 7 days of `today`
+ * (inclusive — `today-6 … today`). Pure over the raw TSV text so the CLI can
+ * fail soft (a missing/unreadable file → '' → 0) without a special path.
+ *
+ * The TSV is `url\tfirst_seen\t…` (merge-staging-core HISTORY_HEADER); we only
+ * need column 1. Blank lines, the header row, and malformed dates are skipped.
+ *
+ * @param {string} tsvText  raw data/scan-history.tsv content ('' when absent)
+ * @param {string} today    YYYY-MM-DD reference "today"
+ * @returns {number} count of rows first_seen within the last 7 days
+ */
+export function countFreshScanRows(tsvText, today) {
+  if (typeof tsvText !== 'string' || !tsvText.trim() || !isValidDate(today)) return 0
+  let count = 0
+  for (const line of tsvText.split('\n')) {
+    if (!line.trim()) continue
+    const firstSeen = line.split('\t')[1]
+    if (typeof firstSeen !== 'string') continue
+    const fs = firstSeen.trim()
+    if (fs === 'first_seen' || !isValidDate(fs)) continue // header / malformed
+    const age = daysBetween(fs, today)
+    // Within the trailing week: 0..6 days old. Future dates (age < 0) and
+    // anything ≥ 7 days old are not "new this week".
+    if (age >= 0 && age <= 6) count++
+  }
+  return count
+}
+
+/**
+ * Render the "Other searches" footer from pre-computed per-profile summaries.
+ * Each summary is `{ slug, label, pendingInbox, urgentDeadlines, freshThisWeek }`
+ * (all counts already derived by the CLI from that profile's files). Returns an
+ * array of markdown lines (a heading + one bullet per profile), or `[]` when
+ * fewer than one summary is passed — so a single-profile / pre-migration repo
+ * renders a byte-identical brief (the CLI only passes summaries when ≥2
+ * profiles exist).
+ *
+ * Metric rendering: each of the three counts is omitted when zero; a profile
+ * with all three at zero renders as `quiet`. The switch hint is always shown so
+ * the line is self-describing.
+ *
+ * @param {Array<{slug:string,label?:string,pendingInbox?:number,urgentDeadlines?:number,freshThisWeek?:number}>} summaries
+ * @returns {string[]} markdown lines (empty when < 1 summary)
+ */
+export function buildCrossProfileSection(summaries) {
+  if (!Array.isArray(summaries) || summaries.length < 1) return []
+  const lines = ['## Other searches', '']
+  for (const s of summaries) {
+    if (!s || !s.slug) continue
+    const label = s.label && s.label !== s.slug ? ` (${s.label})` : ''
+    const parts = []
+    const inbox = num(s.pendingInbox)
+    const deadlines = num(s.urgentDeadlines)
+    const fresh = num(s.freshThisWeek)
+    if (inbox > 0) parts.push(`${inbox} in inbox`)
+    if (deadlines > 0) parts.push(`${deadlines} urgent deadline${deadlines === 1 ? '' : 's'}`)
+    if (fresh > 0) parts.push(`${fresh} new this week`)
+    const summary = parts.length ? parts.join(' · ') : 'quiet'
+    lines.push(
+      `- **${s.slug}**${label}: ${summary} — switch: \`npm run profile -- switch ${s.slug}\``
+    )
+  }
+  lines.push('')
+  return lines
+}
+
+function num(n) {
+  return Number.isFinite(n) ? n : 0
+}
+
 /* ───── Cross-section global priority ────────────────────────────────────────
  *
  * The "Do this first" pick used to be section-order-based: the first item of the
@@ -631,6 +718,10 @@ export function pickTopAction(sections) {
  *   - classifiedDeadlines  deadlines-core.classifyDeadlines output (or null)
  *   - triage               triage-core triagePending() ranked entries (or null)
  *   - pipelineHealth       { active, evaluated, inboxCount } counts (or null)
+ *   - crossProfile         per-OTHER-profile summaries for the "Other searches"
+ *                          footer: [{ slug, label, pendingInbox, urgentDeadlines,
+ *                          freshThisWeek }] — [] / omitted on a single-profile
+ *                          or pre-migration repo (footer then absent)
  * @param {object} opts
  *   - asOf      YYYY-MM-DD "today" for the brief header (required for a dated brief)
  *   - period    'daily' | 'weekly' (label only; affects the header wording)
@@ -640,7 +731,7 @@ export function pickTopAction(sections) {
  *
  * @returns {object} brief:
  *   { asOf, period, sections: [{ id, title, kind, items }], counts, totalActions,
- *     topAction, pipelineHealth }
+ *     topAction, pipelineHealth, crossProfile }
  */
 export function assembleBrief(inputs = {}, opts = {}) {
   const asOf = isValidDate(opts.asOf) ? opts.asOf.trim() : null
@@ -679,7 +770,13 @@ export function assembleBrief(inputs = {}, opts = {}) {
 
   const pipelineHealth = buildPipelineHealthSummary(inputs.pipelineHealth || null)
 
-  return { asOf, period, sections, counts, totalActions, topAction, pipelineHealth }
+  // Cross-profile awareness: per-profile summaries for every OTHER search, or
+  // [] on a single-profile / pre-migration repo (the CLI only supplies these
+  // when ≥2 profiles exist). Passed through verbatim; the renderer decides
+  // whether the footer appears.
+  const crossProfile = Array.isArray(inputs.crossProfile) ? inputs.crossProfile : []
+
+  return { asOf, period, sections, counts, totalActions, topAction, pipelineHealth, crossProfile }
 }
 
 /* ───── Markdown renderer ────────────────────────────────────────────────────
@@ -744,6 +841,12 @@ export function renderBrief(brief) {
     }
     L.push('')
   }
+
+  // ── Other searches (cross-profile footer). ──
+  // Absent on a single-profile / pre-migration repo (crossProfile is [] there),
+  // so the brief is byte-identical to the pre-feature output in that case.
+  const crossLines = buildCrossProfileSection(brief.crossProfile)
+  for (const line of crossLines) L.push(line)
 
   // Footer: provenance so a cron'd/emailed copy is self-describing.
   L.push('---')
