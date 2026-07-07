@@ -25,6 +25,8 @@ import {
   renderBrief,
   buildBriefMarkdown,
   SECTION_ORDER,
+  buildCrossProfileSection,
+  countFreshScanRows,
 } from './daily-brief-core.mjs'
 
 /* ───── followupItems ───────────────────────────────────────────────────────*/
@@ -886,4 +888,127 @@ test('a warm path becomes the top action when only opportunities exist', () => {
   assert.equal(brief.topAction.item.meta.contact, 'Dana Fox')
   const md = renderBrief(brief)
   assert.match(md, /\*\*Do this first:\*\* \*\*Vandelay — Strategy Analyst\*\* — Message Dana Fox/)
+})
+
+/* ───── countFreshScanRows (cross-profile "new this week" helper) ─────────────*/
+
+const SCAN_HEADER = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates'
+
+test('countFreshScanRows counts rows first_seen within the trailing 7 days', () => {
+  const tsv = [
+    SCAN_HEADER,
+    'https://a.io/1\t2026-07-07\tgh\tAnalyst\tAcme\tCPH\tadded\t2026-07-07', // today (0d)
+    'https://a.io/2\t2026-07-01\tgh\tPM\tAcme\tCPH\tadded\t2026-07-01',      // 6d old — in
+    'https://a.io/3\t2026-06-30\tgh\tEng\tAcme\tCPH\tadded\t2026-06-30',     // 7d old — OUT
+    'https://a.io/4\t2026-05-01\tgh\tOps\tAcme\tCPH\tadded\t2026-05-01',     // old — OUT
+  ].join('\n')
+  assert.equal(countFreshScanRows(tsv, '2026-07-07'), 2)
+})
+
+test('countFreshScanRows boundary: exactly 7 days old is excluded, 6 included', () => {
+  const tsv = [
+    SCAN_HEADER,
+    'https://a.io/a\t2026-07-01\tgh\tt\tC\tX\tadded\t2026-07-01', // 6d → in
+    'https://a.io/b\t2026-06-30\tgh\tt\tC\tX\tadded\t2026-06-30', // 7d → out
+  ].join('\n')
+  assert.equal(countFreshScanRows(tsv, '2026-07-07'), 1)
+})
+
+test('countFreshScanRows skips the header row and never counts it as a date', () => {
+  // Header-only file → 0 (no data rows, header not miscounted).
+  assert.equal(countFreshScanRows(SCAN_HEADER + '\n', '2026-07-07'), 0)
+})
+
+test('countFreshScanRows tolerates empty input, malformed dates, and future dates', () => {
+  assert.equal(countFreshScanRows('', '2026-07-07'), 0)
+  assert.equal(countFreshScanRows('   ', '2026-07-07'), 0)
+  const tsv = [
+    SCAN_HEADER,
+    'https://a.io/x\tnot-a-date\tgh\tt\tC\tX\tadded\t', // malformed → skipped
+    'https://a.io/y\t\tgh\tt\tC\tX\tadded\t',           // blank first_seen → skipped
+    'https://a.io/z\t2026-07-10\tgh\tt\tC\tX\tadded\t', // future → skipped
+    'https://a.io/w\t2026-07-05\tgh\tt\tC\tX\tadded\t', // 2d → counted
+  ].join('\n')
+  assert.equal(countFreshScanRows(tsv, '2026-07-07'), 1)
+})
+
+test('countFreshScanRows returns 0 for an invalid today', () => {
+  const tsv = SCAN_HEADER + '\nhttps://a.io/1\t2026-07-07\tgh\tt\tC\tX\tadded\t'
+  assert.equal(countFreshScanRows(tsv, 'nope'), 0)
+})
+
+/* ───── buildCrossProfileSection (the "Other searches" footer) ───────────────*/
+
+test('buildCrossProfileSection renders one line per profile with all three metrics', () => {
+  const lines = buildCrossProfileSection([
+    { slug: 'cph-student', label: 'Copenhagen student', pendingInbox: 12, urgentDeadlines: 2, freshThisWeek: 5 },
+  ])
+  assert.equal(lines[0], '## Other searches')
+  const bullet = lines.find((l) => l.startsWith('- '))
+  assert.equal(
+    bullet,
+    '- **cph-student** (Copenhagen student): 12 in inbox · 2 urgent deadlines · 5 new this week — switch: `npm run profile -- switch cph-student`'
+  )
+})
+
+test('buildCrossProfileSection omits each metric when zero', () => {
+  const lines = buildCrossProfileSection([
+    { slug: 'a', label: 'A', pendingInbox: 3, urgentDeadlines: 0, freshThisWeek: 0 },
+    { slug: 'b', label: 'B', pendingInbox: 0, urgentDeadlines: 1, freshThisWeek: 0 },
+    { slug: 'c', label: 'C', pendingInbox: 0, urgentDeadlines: 0, freshThisWeek: 4 },
+  ])
+  assert.match(lines[2], /\*\*a\*\* \(A\): 3 in inbox — switch:/)
+  assert.match(lines[3], /\*\*b\*\* \(B\): 1 urgent deadline — switch:/) // singular
+  assert.match(lines[4], /\*\*c\*\* \(C\): 4 new this week — switch:/)
+})
+
+test('buildCrossProfileSection renders quiet when all three metrics are zero', () => {
+  const lines = buildCrossProfileSection([
+    { slug: 'quietone', label: 'Quiet', pendingInbox: 0, urgentDeadlines: 0, freshThisWeek: 0 },
+  ])
+  assert.match(lines[2], /- \*\*quietone\*\* \(Quiet\): quiet — switch: `npm run profile -- switch quietone`/)
+})
+
+test('buildCrossProfileSection drops the label parens when label equals slug or is missing', () => {
+  const lines = buildCrossProfileSection([
+    { slug: 'career', pendingInbox: 1 },
+    { slug: 'same', label: 'same', freshThisWeek: 2 },
+  ])
+  assert.match(lines[2], /- \*\*career\*\*: 1 in inbox — switch:/)
+  assert.match(lines[3], /- \*\*same\*\*: 2 new this week — switch:/)
+})
+
+test('buildCrossProfileSection returns [] for fewer than one summary / bad input', () => {
+  assert.deepEqual(buildCrossProfileSection([]), [])
+  assert.deepEqual(buildCrossProfileSection(null), [])
+  assert.deepEqual(buildCrossProfileSection(undefined), [])
+})
+
+/* ───── Cross-profile footer wiring through assembleBrief + renderBrief ──────*/
+
+test('assembleBrief passes crossProfile through; renderBrief appends the footer before the provenance line', () => {
+  const brief = assembleBrief(
+    { crossProfile: [{ slug: 'cph-student', label: 'Copenhagen student', pendingInbox: 12, urgentDeadlines: 2, freshThisWeek: 5 }] },
+    { asOf: '2026-07-07' }
+  )
+  assert.equal(brief.crossProfile.length, 1)
+  const md = renderBrief(brief)
+  assert.match(md, /## Other searches/)
+  assert.match(md, /- \*\*cph-student\*\* \(Copenhagen student\): 12 in inbox · 2 urgent deadlines · 5 new this week/)
+  // The footer sits ABOVE the provenance/---, so a cron'd copy reads sensibly.
+  assert.ok(md.indexOf('## Other searches') < md.lastIndexOf('---'))
+})
+
+test('renderBrief omits the Other searches footer entirely on a single-profile/pre-migration brief', () => {
+  // No crossProfile input → assembleBrief defaults it to [] → footer absent.
+  const brief = assembleBrief({}, { asOf: '2026-07-07' })
+  assert.deepEqual(brief.crossProfile, [])
+  const md = renderBrief(brief)
+  assert.doesNotMatch(md, /## Other searches/)
+})
+
+test('renderBrief output is byte-identical with crossProfile:[] vs crossProfile omitted', () => {
+  const a = renderBrief(assembleBrief({}, { asOf: '2026-07-07' }))
+  const b = renderBrief(assembleBrief({ crossProfile: [] }, { asOf: '2026-07-07' }))
+  assert.equal(a, b)
 })

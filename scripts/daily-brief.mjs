@@ -21,6 +21,14 @@
  * time-criticality (deadlines closing today > urgent follow-ups > overdue
  * follow-ups > outreach nudges > fresh postings), not by section position.
  *
+ * When the repo hosts multiple search profiles (profiles/ exists with ≥2
+ * profiles — see docs/superpowers/specs/2026-07-07-multi-profile-design.md),
+ * the brief ends with an "Other searches" footer: one read-only summary line per
+ * NON-active profile (pending inbox · urgent deadlines · new-this-week + a switch
+ * hint), so a second search isn't invisible until you switch to it. On a
+ * single-profile / pre-migration repo the footer is absent and the output is
+ * byte-identical to before.
+ *
  * All ranking/sectioning/rendering lives in the pure, unit-tested
  * scripts/lib/daily-brief-core.mjs; this file is only I/O + invocation.
  *
@@ -34,7 +42,7 @@
  *   node scripts/daily-brief.mjs --as-of 2026-06-25   override "today" (testing/backdated)
  */
 
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
+import { readFileSync, existsSync, mkdirSync, writeFileSync, readdirSync } from 'fs'
 import { execFileSync } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -59,7 +67,16 @@ import {
 } from './lib/triage-core.mjs'
 import { parseNetwork, parsePipeline } from './lib/network-core.mjs'
 import { warmOutreachOpportunities } from './lib/warm-outreach-core.mjs'
-import { assembleBrief, renderBrief } from './lib/daily-brief-core.mjs'
+import { assembleBrief, renderBrief, countFreshScanRows } from './lib/daily-brief-core.mjs'
+import {
+  PROFILES_DIR,
+  ACTIVE_POINTER,
+  parseActive,
+  parseMeta,
+  validateSlug,
+  countPendingPipelineLines,
+  profileRelPath,
+} from './lib/profile-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const SCAN_FILE = join(ROOT, 'data/scan-history.tsv')
@@ -265,6 +282,95 @@ function getTriage() {
   })
 }
 
+// 8. Cross-profile awareness — one summary line per OTHER search profile.
+//    Only when profiles/ exists AND there are ≥2 profiles; otherwise [] so the
+//    brief is byte-identical to the pre-feature single-profile output. Every
+//    read is READ-ONLY over the inactive profiles' files and fail-soft: a
+//    missing/malformed file in another profile yields zeros for that metric,
+//    never a crash of the brief.
+function readProfileFile(slug, canonicalPath) {
+  // Read a canonical path inside a specific (inactive) profile directly, never
+  // through the active symlink. Best-effort: absent/unreadable → ''.
+  try {
+    const p = join(ROOT, profileRelPath(slug, canonicalPath))
+    return existsSync(p) ? readFileSync(p, 'utf8') : ''
+  } catch {
+    return ''
+  }
+}
+
+// meta.yml sits at profiles/<slug>/meta.yml (one level above the canonical
+// user/ · data/ · reports/ subtrees), so read it directly rather than via
+// profileRelPath (which prefixes a canonical sub-path).
+function readMetaRaw(slug) {
+  try {
+    const p = join(ROOT, PROFILES_DIR, slug, 'meta.yml')
+    return existsSync(p) ? readFileSync(p, 'utf8') : ''
+  } catch {
+    return ''
+  }
+}
+
+function getCrossProfileSummaries() {
+  const profilesDir = join(ROOT, PROFILES_DIR)
+  if (!existsSync(profilesDir)) return [] // pre-migration single-profile layout
+
+  const activeSlug = existsSync(join(ROOT, ACTIVE_POINTER))
+    ? parseActive(read(join(ROOT, ACTIVE_POINTER)))
+    : null
+
+  let slugs
+  try {
+    slugs = readdirSync(profilesDir, { withFileTypes: true })
+      .filter((e) => {
+        if (!e.isDirectory()) return false
+        return validateSlug(e.name).valid // skips `active` + any stray non-profile dir
+      })
+      .map((e) => e.name)
+      .sort()
+  } catch {
+    return []
+  }
+
+  // Need ≥2 profiles total for the section to make sense.
+  if (slugs.length < 2) return []
+
+  const summaries = []
+  for (const slug of slugs) {
+    if (slug === activeSlug) continue // the active search is the whole rest of the brief
+
+    const meta = parseMeta(readMetaRaw(slug))
+
+    const pipelineMd = readProfileFile(slug, 'data/pipeline.md')
+    const pendingInbox = countPendingPipelineLines(pipelineMd)
+
+    // Urgent deadlines = act-today + this-week buckets, computed by the SAME
+    // parsing path deadlines.mjs uses (parse apps + scouting, classify, read
+    // the urgent bucket count).
+    let urgentDeadlines = 0
+    try {
+      const appEntries = parseApplicationsDeadlines(readProfileFile(slug, 'data/applications.md'))
+      const scoutEntries = parseScoutingDeadlines(readProfileFile(slug, 'data/scouting.md'))
+      const classified = classifyDeadlines([...appEntries, ...scoutEntries], asOf)
+      urgentDeadlines = classified.counts.urgent
+    } catch {
+      urgentDeadlines = 0
+    }
+
+    const freshThisWeek = countFreshScanRows(readProfileFile(slug, 'data/scan-history.tsv'), asOf)
+
+    summaries.push({
+      slug,
+      label: meta.label || slug,
+      pendingInbox,
+      urgentDeadlines,
+      freshThisWeek,
+    })
+  }
+
+  return summaries
+}
+
 /* ───── Assemble + emit ──────────────────────────────────────────────────────*/
 
 const inputs = {
@@ -277,6 +383,7 @@ const inputs = {
   classifiedDeadlines: getClassifiedDeadlines(),
   triage: getTriage(),
   pipelineHealth: getPipelineHealth(),
+  crossProfile: getCrossProfileSummaries(),
 }
 
 const brief = assembleBrief(inputs, { asOf, period: weekly ? 'weekly' : 'daily' })
