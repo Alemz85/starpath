@@ -204,6 +204,20 @@ def is_allowed_location(loc: str) -> bool:
     return any(p.search(lower) for p in _LOCATION_PATTERNS)
 
 
+def set_location_allowlist(tokens):
+    """Replace the default EU allowlist with portals.yml `location_allowlist`.
+
+    Parity with scan-core.mjs › buildLocationFilter: a NON-EMPTY user list
+    replaces the default; empty/missing keeps it. Lets a profile narrow the
+    geography (e.g. one city + country) without touching system code. Must be
+    called before the scrape loop.
+    """
+    global _LOCATION_PATTERNS
+    cleaned = [str(t) for t in (tokens or []) if str(t).strip()]
+    if cleaned:
+        _LOCATION_PATTERNS = [p for p in (_keyword_pattern(t) for t in cleaned) if p]
+
+
 # ── Dedup — read URLs from canonical files ──────────────────────────────
 
 URL_RE = re.compile(r"https?://[^\s|)]+")
@@ -520,6 +534,12 @@ def main() -> int:
 
     title_filter = build_title_filter(pos_kw, neg_kw)
     lang_filter = build_lang_filter(lang_blocklist)
+
+    location_allowlist = portals_cfg.get("location_allowlist", []) or []
+    set_location_allowlist(location_allowlist)
+    if location_allowlist:
+        print(f"[JobSpy] Location allowlist override: {len(location_allowlist)} tokens "
+              f"({', '.join(str(t) for t in location_allowlist)})", flush=True)
 
     if args.cities:
         cities = [c.strip() for c in args.cities.split(",") if c.strip()]
