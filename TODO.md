@@ -2,20 +2,20 @@
 
 ---
 
-## 🔒 To do later: scrub PII from git history
+## 🔒 PII scrub from git history — DONE 2026-07-07
 
-Repo was made **private** (2026-06-25) after a leak — the user's **phone number**
-+ **school/grad-date** were committed into (then-public) history. The working tree
-is already clean; what remains is **rewriting history to purge the PII from old
-commits, then force-pushing**. Deliberately deferred: `git filter-repo` rewrites
-every ref and would corrupt live agent worktrees, so it must run only when the
-tree is back to a single clean `main` with **no agent worktrees**.
+Repo was made **private** (2026-06-25) after a leak — the user's phone number
++ school/grad-date were committed into (then-public) history. Resolved on
+2026-07-07: history rewritten with `git filter-repo` (PII strings redacted;
+`data/dedup-index.tsv` and `batch/scouting-additions/merged/` purged from all
+commits) and force-pushed; the four release DMGs (v0.1.0–v0.2.2), whose app
+bundles embedded the phone as a form placeholder, had their assets deleted.
 
-When ready: `git filter-repo --replace-text <file>` redacting the strings
-`555 123 4567` and `[redacted degree/date]` (NOT the bare word "Esade" — that's
-legit reference data in the school-region table), then `git push --force`.
-Caveat: existing forks/clones keep the old data; GitHub may cache old commit SHAs
-briefly (GH Support can purge).
+Remaining follow-ups:
+- Ask GitHub Support to purge cached views of the old (pre-rewrite) commit SHAs.
+- The `worktree-engine-quality` branch predates the rewrite — **rebase it onto
+  the new `main` before merging/pushing**, or the old objects come back.
+- Anything cloned while the repo was public still holds the old history.
 
 ---
 
