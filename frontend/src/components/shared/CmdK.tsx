@@ -6,9 +6,11 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Route, GitBranch, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints,
+  TrendingUp, Route, GitBranch, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
+import { useProfilesStore } from '@/store/profiles'
+import { switchTargets } from '@/lib/profiles'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
 
 export function CmdK() {
@@ -16,6 +18,10 @@ export function CmdK() {
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const scouting = useDataStore(s => s.scouting)
   const navigate = useNavStore(s => s.navigate)
+  // Non-active profiles become "Switch to profile: …" commands. Empty on
+  // pre-migration repos, so the group hides itself.
+  const profiles = useProfilesStore(s => s.profiles)
+  const profileTargets = switchTargets(profiles)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -128,6 +134,27 @@ export function CmdK() {
                 Open Activity
               </Command.Item>
             </Command.Group>
+
+            {profileTargets.length > 0 && (
+              <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Profiles</span>}>
+                {profileTargets.map(p => (
+                  <Command.Item
+                    key={p.slug}
+                    value={`switch to profile ${p.label} ${p.slug}`}
+                    onSelect={() => {
+                      // Guard refusals surface in the sidebar switcher popover
+                      // and the Settings profiles section (lastFailure).
+                      void useProfilesStore.getState().switchTo(p.slug)
+                      setOpen(false)
+                    }}
+                    className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+                  >
+                    <ArrowRightLeft size={14} className="text-text-3" />
+                    Switch to profile: {p.label || p.slug}
+                  </Command.Item>
+                ))}
+              </Command.Group>
+            )}
 
             {companies.length > 0 && (
               <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Companies</span>}>

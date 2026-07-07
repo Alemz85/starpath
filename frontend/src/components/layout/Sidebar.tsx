@@ -31,6 +31,7 @@ import { useDataStore } from '@/store/data'
 import { buildCockpitFeed } from '@/lib/todayCockpit'
 import { StarpathLogo } from '@/components/shared/Logos'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
+import { ProfileSwitcher } from '@/components/layout/ProfileSwitcher'
 
 interface NavItem {
   view: ViewId
@@ -252,6 +253,10 @@ export function Sidebar() {
           {expanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
         </button>
       </div>
+
+      {/* Workspace switcher — the active search profile. Renders nothing on
+          pre-migration repos (no profiles/ dir). */}
+      <ProfileSwitcher expanded={expanded} />
 
       {/* Search hint — visible at both widths so keyboard-shy users can still
           summon CmdK by clicking the icon when the sidebar is collapsed. */}
