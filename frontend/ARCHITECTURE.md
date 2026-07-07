@@ -8,7 +8,9 @@ The Markdown/TSV files in the repo (`data/applications.md`, `data/scouting.md`, 
 
 ## SQLite cache layer
 
-A SQLite database at `{userData}/cache.db` mirrors the tabular data for fast queries, joins, and aggregations. **It is fully derived from the Markdown/TSV files** — delete it, relaunch, and it rebuilds from scratch.
+A SQLite database at `{userData}/cache-<slug>.db` mirrors the tabular data for fast queries, joins, and aggregations — one file per search profile (`slug` is the active profile from `profiles/active`, or `default` on a repo without `profiles/`). **It is fully derived from the Markdown/TSV files** — delete it, relaunch, and it rebuilds from scratch.
+
+On a profile switch (the `profile:switch` IPC shells out to `scripts/profile.mjs`, which re-points the repo's canonical symlinks), main closes the current cache, opens the target profile's cache file, runs the normal mtime resync, and **restarts the chokidar watcher** — the watched paths are unchanged strings, but chokidar resolved the old symlink targets at watch time. It then broadcasts `db:changed` (existing reload path) plus `profile:changed` (profile surfaces). `ensureDbReady` re-derives the slug from `profiles/active` on every query, so even an out-of-band CLI switch converges on the right cache at the next call.
 
 Layout:
 
@@ -61,6 +63,11 @@ The renderer never touches the database directly. `electron/preload.ts` exposes 
 | `db:rebuild`                  | Drop `cache.db` and rebuild |
 | `db:changed` (event)          | Emitted by main after a watcher-driven sync |
 | `network:overview`            | Whole-network overview (roster × pipeline × outreach cadence) — see below |
+| `profile:list`                | Profiles + active flag + row counts (via `scripts/profile.mjs list --json`; `{ active: null, profiles: [] }` pre-migration, without spawning) |
+| `profile:active`              | Active slug, read straight from `profiles/active` |
+| `profile:switch`              | Guarded switch via the CLI; on success swaps the per-profile cache + watcher (see above) |
+| `profile:create`              | Scaffold a new profile via the CLI (never switches) |
+| `profile:changed` (event)     | Emitted after a successful switch, once cache + watcher are swapped |
 
 ### The network lens (`network:overview`)
 

@@ -39,6 +39,16 @@ The Data Contract above is necessary but not sufficient. The system layer leaks 
 
 **When the system layer NEEDS a concrete example,** prefer fictional/illustrative cases ("a candidate with X background applying to Y") over the current user's actual case. The agent's worked examples are templates — they should model the *pattern*, not the *person*.
 
+## Profiles (multiple switchable searches)
+
+The repo can host several **search profiles** (e.g. a main career search and a local student-job search). Real files live under `profiles/<slug>/{user,data,reports}/` (gitignored, user layer); **exactly one profile is active at a time, globally** — `profiles/active` names it. Under this layout, 18 canonical paths are **symlinks into the active profile**, managed by `scripts/profile.mjs`: the 3 config files (`user/profile.yml`, `user/portals.yml`, `user/_profile.md`), 9 data files (`data/scouting.md`, `data/applications.md`, `data/pipeline.md`, `data/scan-history.tsv`, `data/score-history.tsv`, `data/dedup-index.tsv`, `data/discarded.tsv`, `data/report-summaries.tsv`, `data/filter-audit-state.json`), and the 6 `reports/` content subdirs (`tier-1..4`, `positioning`, `briefs`). Everything else (`user/cv.md`, `data/network.md`, `data/outreach.md`, caches, `interview-prep/`, `batch/`…) stays shared.
+
+**RULES:**
+- **Never write into an inactive profile directly** (`profiles/<slug>/…`). Always read/write the canonical paths — they resolve to the active profile.
+- **Never replace a canonical symlink with a real file.** Plain writes (`writeFileSync`, `>` redirection) follow symlinks and are fine; write-temp-then-`rename` onto a canonical path would clobber the link — resolve `fs.realpathSync(target)` first if you must rename.
+- Switching is CLI-only: `npm run profile -- list` · `switch <slug> [--force]` · `create <slug> [--from <slug>] [--label "…"] [--switch]` · `init [<slug>]` (one-time migration) · `eject` (rollback to plain files). Switch/init/eject refuse while unmerged eval TSVs, in-flight batch workers, or unmerged JobSpy staging exist.
+- When `profiles/` doesn't exist, the repo is a plain single-profile layout and everything above is dormant. `npm run doctor` validates whichever layout is present.
+
 ## Frontend Design System (MANDATORY)
 
 **Before creating a new UI component, modifying styling, picking colors, or adjusting layout in `frontend/`, read `DESIGN-meta.md`.** It is the single source of truth for the design language — palette, typography, spacing, component patterns, motion, and do's-and-don'ts.

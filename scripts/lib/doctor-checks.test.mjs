@@ -17,7 +17,9 @@ import {
   buildArtifactChecks,
   buildCapabilityInventory,
   buildPipelineSummary,
+  buildProfileChecks,
 } from './doctor-checks.mjs';
+import { PROFILE_PATHS, relativeLinkTarget } from './profile-core.mjs';
 
 // ── countTsvDataRows ──────────────────────────────────────────────────────
 
@@ -358,4 +360,127 @@ test('buildPipelineSummary returns a label and lines', () => {
 test('buildPipelineSummary defaults to 0 for missing counts', () => {
   const result = buildPipelineSummary({});
   assert.ok(result.lines.every(l => /\d/.test(l)), 'all lines should have numbers');
+});
+
+// ── buildProfileChecks ────────────────────────────────────────────────────
+
+/** A fully healthy migrated layout with one active profile. */
+function healthyLayout(slug = 'career') {
+  return {
+    profilesDirExists: true,
+    activeRaw: `${slug}\n`,
+    profileDirs: [slug],
+    links: PROFILE_PATHS.map(p => ({
+      path: p,
+      present: true,
+      isSymlink: true,
+      linkTarget: relativeLinkTarget(p, slug),
+    })),
+    profileStructures: [
+      { slug, hasUser: true, hasData: true, hasReports: true, hasMeta: true },
+    ],
+    reportsChildren: ['.gitkeep', 'tier-1', 'tier-2', 'tier-3', 'tier-4', 'positioning', 'briefs'],
+  };
+}
+
+test('buildProfileChecks: pre-migration layout → single informative OK line', () => {
+  for (const layout of [undefined, null, { profilesDirExists: false }]) {
+    const checks = buildProfileChecks(layout);
+    assert.equal(checks.length, 1);
+    assert.equal(checks[0].pass, true);
+    assert.match(checks[0].label, /single-profile layout/);
+  }
+});
+
+test('buildProfileChecks: healthy migrated layout is all-green', () => {
+  const checks = buildProfileChecks(healthyLayout());
+  assert.ok(checks.length >= 5, 'covers active, links, shadows, structure, reports/');
+  assert.ok(checks.every(c => c.pass), JSON.stringify(checks.filter(c => !c.pass)));
+  assert.ok(checks.some(c => c.label.includes("profiles/active → 'career'")));
+  assert.ok(checks.some(c => c.label.includes('18 canonical paths are symlinks')));
+});
+
+test('buildProfileChecks: missing profiles/active fails', () => {
+  const layout = { ...healthyLayout(), activeRaw: null };
+  const checks = buildProfileChecks(layout);
+  const fail = checks.find(c => !c.pass && /profiles\/active is missing/.test(c.label));
+  assert.ok(fail, 'missing active pointer should fail');
+});
+
+test('buildProfileChecks: invalid active slug fails', () => {
+  const layout = { ...healthyLayout(), activeRaw: 'Not A Slug\n' };
+  const checks = buildProfileChecks(layout);
+  assert.ok(checks.some(c => !c.pass && /invalid slug/.test(c.label)));
+});
+
+test('buildProfileChecks: active pointing at a missing profile dir fails', () => {
+  const layout = { ...healthyLayout(), activeRaw: 'ghost\n' };
+  const checks = buildProfileChecks(layout);
+  assert.ok(checks.some(c => !c.pass && /missing profile 'ghost'/.test(c.label)));
+});
+
+test('buildProfileChecks: a canonical path missing entirely fails', () => {
+  const layout = healthyLayout();
+  layout.links = layout.links.map(l =>
+    l.path === 'data/scouting.md' ? { ...l, present: false, isSymlink: false, linkTarget: null } : l
+  );
+  const checks = buildProfileChecks(layout);
+  const fail = checks.find(c => !c.pass && /missing entirely/.test(c.label));
+  assert.ok(fail);
+  assert.match(fail.label, /data\/scouting\.md/);
+});
+
+test('buildProfileChecks: a symlink pointing at the wrong profile fails', () => {
+  const layout = healthyLayout();
+  layout.links = layout.links.map(l =>
+    l.path === 'reports/tier-1'
+      ? { ...l, linkTarget: relativeLinkTarget('reports/tier-1', 'other') }
+      : l
+  );
+  const checks = buildProfileChecks(layout);
+  const fail = checks.find(c => !c.pass && /not resolving into profiles\/career\//.test(c.label));
+  assert.ok(fail);
+  assert.match(fail.label, /reports\/tier-1/);
+});
+
+test('buildProfileChecks: real-file shadow at a canonical path fails with a targeted fix', () => {
+  const layout = healthyLayout();
+  layout.links = layout.links.map(l =>
+    l.path === 'data/scan-history.tsv' ? { ...l, isSymlink: false, linkTarget: null } : l
+  );
+  const checks = buildProfileChecks(layout);
+  const fail = checks.find(c => !c.pass && /real-file shadow/.test(c.label));
+  assert.ok(fail);
+  assert.match(fail.label, /data\/scan-history\.tsv/);
+  assert.ok(fail.fix, 'shadow check should carry a fix hint');
+});
+
+test('buildProfileChecks: structurally incomplete profile dir fails naming the missing parts', () => {
+  const layout = healthyLayout();
+  layout.profileDirs = ['career', 'broken'];
+  layout.profileStructures.push({
+    slug: 'broken', hasUser: true, hasData: false, hasReports: true, hasMeta: false,
+  });
+  const checks = buildProfileChecks(layout);
+  const fail = checks.find(c => !c.pass && /profiles\/broken\//.test(c.label));
+  assert.ok(fail);
+  assert.match(fail.label, /data\//);
+  assert.match(fail.label, /meta\.yml/);
+});
+
+test('buildProfileChecks: unexpected real children of reports/ fail; OS noise ignored', () => {
+  const layout = healthyLayout();
+  layout.reportsChildren = [...layout.reportsChildren, 'stray-report.md', '.DS_Store'];
+  const checks = buildProfileChecks(layout);
+  const fail = checks.find(c => !c.pass && /unexpected real child/.test(c.label));
+  assert.ok(fail);
+  assert.match(fail.label, /stray-report\.md/);
+  assert.ok(!/DS_Store/.test(fail.label), '.DS_Store is OS noise, not a finding');
+});
+
+test('buildProfileChecks: link checks are blocked (not guessed) when active is unresolvable', () => {
+  const layout = { ...healthyLayout(), activeRaw: null };
+  const checks = buildProfileChecks(layout);
+  assert.ok(checks.some(c => !c.pass && /blocked/.test(c.label)));
+  assert.ok(!checks.some(c => c.label.includes('canonical paths are symlinks into')));
 });

@@ -7,9 +7,11 @@
  *   1. Runtime prerequisites (Node, dependencies, Playwright chromium)
  *   2. User-layer onboarding (cv, profile.yml, _profile.md, portals.yml)
  *   3. Data artifacts (scan/score history, scouting, applications, caches…)
- *   4. Capability inventory (modes, CLI tools, JobSpy, story bank)
- *   5. Auto-created output directories
- *   6. Glanceable pipeline snapshot (row counts)
+ *   4. Multi-profile layout (profiles/active, canonical symlinks, shadows —
+ *      all skipped with one OK line on pre-migration single-profile repos)
+ *   5. Capability inventory (modes, CLI tools, JobSpy, story bank)
+ *   6. Auto-created output directories
+ *   7. Glanceable pipeline snapshot (row counts)
  *
  * Pure check logic lives in scripts/lib/doctor-checks.mjs (unit-tested).
  * This file is I/O only: reads files, calls checkers, renders output.
@@ -17,7 +19,7 @@
  * Usage: npm run doctor
  */
 
-import { existsSync, readdirSync, readFileSync, mkdirSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, mkdirSync, lstatSync, readlinkSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -25,11 +27,13 @@ import {
   buildUserLayerChecks,
   buildArtifactChecks,
   buildCapabilityInventory,
+  buildProfileChecks,
   buildPipelineSummary,
   countTsvDataRows,
   countMarkdownTableRows,
   countPipelineItems,
 } from './lib/doctor-checks.mjs';
+import { PROFILE_PATHS } from './lib/profile-core.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = dirname(__dirname);
@@ -125,7 +129,58 @@ async function checkPlaywright() {
   }
 }
 
-// ── 5. Auto-created directories ─────────────────────────────────────────────
+// ── 4. Multi-profile layout ─────────────────────────────────────────────────
+// Gathers the raw filesystem facts; all judgment lives in buildProfileChecks
+// (pure, unit-tested). Pre-migration repos (no profiles/) get one OK line.
+function gatherProfilesLayout() {
+  const profilesDir = join(projectRoot, 'profiles');
+  if (!existsSync(profilesDir)) return { profilesDirExists: false };
+
+  let profileDirs = [];
+  try {
+    profileDirs = readdirSync(profilesDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch { /* unreadable — treated as empty */ }
+
+  const links = PROFILE_PATHS.map((p) => {
+    const abs = join(projectRoot, p);
+    let present = false, isSymlink = false, linkTarget = null;
+    try {
+      const st = lstatSync(abs);
+      present = true;
+      isSymlink = st.isSymbolicLink();
+    } catch { /* absent */ }
+    if (isSymlink) {
+      try { linkTarget = readlinkSync(abs); } catch { /* unreadable link */ }
+    }
+    return { path: p, present, isSymlink, linkTarget };
+  });
+
+  const profileStructures = profileDirs.map((slug) => ({
+    slug,
+    hasUser:    existsSync(join(profilesDir, slug, 'user')),
+    hasData:    existsSync(join(profilesDir, slug, 'data')),
+    hasReports: existsSync(join(profilesDir, slug, 'reports')),
+    hasMeta:    existsSync(join(profilesDir, slug, 'meta.yml')),
+  }));
+
+  let reportsChildren = [];
+  try {
+    reportsChildren = readdirSync(join(projectRoot, 'reports'));
+  } catch { /* reports/ missing — the auto-dir check below recreates it */ }
+
+  return {
+    profilesDirExists: true,
+    activeRaw: readFileSafe('profiles/active'),
+    profileDirs,
+    links,
+    profileStructures,
+    reportsChildren,
+  };
+}
+
+// ── 6. Auto-created directories ─────────────────────────────────────────────
 function checkAutoDir(name) {
   const dirPath = join(projectRoot, name);
   if (existsSync(dirPath)) {
@@ -220,8 +275,14 @@ async function main() {
     record(check);
   }
 
-  // ── 4. Capability inventory ──────────────────────────────────────────────
-  printSection('4. Capability inventory');
+  // ── 4. Multi-profile layout ──────────────────────────────────────────────
+  printSection('4. Profiles');
+  for (const check of buildProfileChecks(gatherProfilesLayout())) {
+    record(check);
+  }
+
+  // ── 5. Capability inventory ──────────────────────────────────────────────
+  printSection('5. Capability inventory');
 
   const scriptsDir = join(projectRoot, 'scripts');
   const modesDir   = join(projectRoot, 'modes');
@@ -243,14 +304,14 @@ async function main() {
     record(check);
   }
 
-  // ── 5. Output directories (auto-created) ─────────────────────────────────
-  printSection('5. Output directories');
+  // ── 6. Output directories (auto-created) ─────────────────────────────────
+  printSection('6. Output directories');
   record(checkFonts());
   for (const dir of ['data', 'output', 'reports', 'jds', 'batch']) {
     record(checkAutoDir(dir));
   }
 
-  // ── 6. Pipeline snapshot ─────────────────────────────────────────────────
+  // ── 7. Pipeline snapshot ─────────────────────────────────────────────────
   const scanned   = dataFiles.scanHistory  ? countTsvDataRows(dataFiles.scanHistory)        : 0;
   const scored    = dataFiles.scoreHistory ? countTsvDataRows(dataFiles.scoreHistory)        : 0;
   const scouted   = dataFiles.scouting     ? countMarkdownTableRows(dataFiles.scouting)      : 0;
@@ -259,7 +320,7 @@ async function main() {
 
   // Only print snapshot when there's at least some data
   if (scanned + scored + scouted + applied + pending > 0) {
-    printSection('6. Pipeline snapshot');
+    printSection('7. Pipeline snapshot');
     const summary = buildPipelineSummary({ scanned, scored, scouted, applied, pending });
     for (const line of summary.lines) {
       console.log(dim(line));

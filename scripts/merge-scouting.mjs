@@ -39,6 +39,7 @@ import {
   parseScoutingTsv,
   formatScoutingRow,
 } from './lib/scouting-core.mjs';
+import { SCOUTING_SCAFFOLD } from './lib/profile-core.mjs';
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
@@ -66,14 +67,9 @@ mkdirSync(ADDITIONS_DIR, { recursive: true });
 
 if (!existsSync(SCOUTING_FILE)) {
   console.log('No data/scouting.md found. Creating from scratch.');
-  writeFileSync(
-    SCOUTING_FILE,
-    '# Scouting Tracker\n\n' +
-    'Landscape-mapping inventory. Entries here are NOT active applications — they are observations from `scouting` mode runs.\n\n' +
-    '**Promotion path:** Tier 1 entries are flagged `READY` in the Promotion Hint column. Run `node scripts/promote-to-applications.mjs <num>` to move an entry from this file to `data/applications.md` and start the active application flow.\n\n' +
-    '| # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes |\n' +
-    '|---|------|---------|------|-------|------|-------|--------|----------|----------------|-------|\n'
-  );
+  // Canonical scaffold is single-sourced in lib/profile-core.mjs so profile
+  // creation (scripts/profile.mjs) and this merge always agree on the header.
+  writeFileSync(SCOUTING_FILE, SCOUTING_SCAFFOLD);
 }
 
 const fileContent = readFileSync(SCOUTING_FILE, 'utf-8');

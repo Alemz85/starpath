@@ -8,18 +8,28 @@ import { syncAll, syncApplications, syncScouting, syncScoreHistory, syncPipeline
 type Database = BetterSqlite3.Database
 
 let db: Database | null = null
+let dbSlug: string | null = null
 let watcher: FSWatcher | null = null
 let watchedRepoPath: string | null = null
 
-function dbFilePath(userDataDir: string): string {
-  return path.join(userDataDir, 'cache.db')
+// One derived cache per search profile — a profile switch swaps what the
+// canonical data/reports paths contain wholesale, so mixing rows across
+// profiles in a single file would corrupt both. `default` is the slug for
+// pre-migration repos (no profiles/ dir).
+function dbFilePath(userDataDir: string, slug: string): string {
+  return path.join(userDataDir, `cache-${slug}.db`)
 }
 
-export function openDb(userDataDir: string): Database {
-  if (db) return db
-  const file = dbFilePath(userDataDir)
+export function openDb(userDataDir: string, slug = 'default'): Database {
+  if (db && dbSlug === slug) return db
+  // Profile changed under us (switch, or an out-of-band CLI switch noticed
+  // on the next query) — release the old cache and its watcher; the caller
+  // restarts the watcher against the re-pointed symlinks.
+  if (db) closeDb()
+  const file = dbFilePath(userDataDir, slug)
   fs.mkdirSync(path.dirname(file), { recursive: true })
   db = new BetterSqlite3(file)
+  dbSlug = slug
   initSchema(db)
   return db
 }
@@ -30,6 +40,7 @@ export function closeDb(): void {
   watchedRepoPath = null
   db?.close()
   db = null
+  dbSlug = null
 }
 
 // Await-able teardown for the app-quit path. chokidar's close() returns a
@@ -46,14 +57,15 @@ export async function shutdownDb(): Promise<void> {
   try { await w?.close() } catch { /* already gone */ }
   try { db?.close() } catch { /* already gone */ }
   db = null
+  dbSlug = null
 }
 
 // Drop everything (including the file) and reopen. Use after a hard reset.
-export function rebuildDb(userDataDir: string): Database {
+export function rebuildDb(userDataDir: string, slug = 'default'): Database {
   closeDb()
-  const file = dbFilePath(userDataDir)
+  const file = dbFilePath(userDataDir, slug)
   try { fs.unlinkSync(file) } catch { /* ok */ }
-  return openDb(userDataDir)
+  return openDb(userDataDir, slug)
 }
 
 // ─── Watcher ──────────────────────────────────────────────────────────────────
@@ -102,6 +114,18 @@ export function startWatcher(repoPath: string, cb: WatcherCallbacks): void {
   watcher.on('add',    schedule)
   watcher.on('change', schedule)
   watcher.on('unlink', schedule)
+}
+
+// Force a fresh watch even for the same repo path. Needed after a profile
+// switch: the canonical data/reports paths are unchanged strings, but they
+// are symlinks whose targets just moved — chokidar resolved the old targets
+// when the watch started, so only a restart picks up writes to the new
+// profile's files.
+export function restartWatcher(repoPath: string, cb: WatcherCallbacks): void {
+  watcher?.close()
+  watcher = null
+  watchedRepoPath = null
+  startWatcher(repoPath, cb)
 }
 
 function processBatch(repoPath: string, files: Set<string>, cb: WatcherCallbacks): void {
