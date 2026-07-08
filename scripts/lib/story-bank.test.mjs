@@ -427,6 +427,28 @@ test('rankStoriesByCompetency falls back to text scoring when no competency give
   assert.ok(ranked[0].score > 0);
 });
 
+// Tie stability (audit finding 12c): two stories covering the SAME competency
+// with identical bodies score exactly equal. Array.prototype.sort is stable, so
+// the earlier-DECLARED story must remain first. Pinned so a future re-ordering
+// of the sort comparator (or a switch to an unstable sort) is caught.
+test('rankStoriesByCompetency keeps declaration order on an exact score tie', () => {
+  const body = [
+    '**Themes:** conflict',
+    '**Situation:** A cross-team disagreement stalled the roadmap.',
+    '**Task:** Break the deadlock without escalating.',
+    '**Action:** Ran a structured working session to align on the tradeoffs.',
+    '**Result:** Reached a decision the same week; 0 re-litigation after.',
+    '**Reflection:** Naming the disagreement early defuses it.',
+  ].join('\n');
+  const md = `# Story Bank\n\n## Stories\n\n### First declared story\n${body}\n\n### Second declared story\n${body}`;
+  const stories = parseStoryBank(md);
+  const ranked = rankStoriesByCompetency(stories, 'tell me about a disagreement', 'conflict');
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0].score, ranked[1].score); // exact tie
+  assert.equal(ranked[0].story.title, 'First declared story');
+  assert.equal(ranked[1].story.title, 'Second declared story');
+});
+
 /* ───── validateBank rollup ───────────────────────────────────────── */
 
 test('validateBank ok=true for a clean single-story bank', () => {

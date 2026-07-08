@@ -116,8 +116,15 @@ export function parseSalary(raw, { gbpToEur = DEFAULT_GBP_TO_EUR } = {}) {
   // "competitive", "undisclosed (...)", "not disclosed", "hourly (...)", "n/d".
   if (/^n\/?d$/i.test(s)) return null
   if (/undisclosed|not disclosed|competitive/i.test(s)) return null
-  if (/hourly/i.test(s)) return null // no hours/week → can't annualize honestly
+  // Hourly/per-hour rates can't be annualized without hours/week. The literal
+  // word "hourly" was too narrow — "€25/hour", "€16/hr", "€16 per hour" all fell
+  // through and were parsed as ANNUAL, poisoning the medians. Reject any of them.
+  if (/\bhour(ly)?\b|\/\s*hr?\b|\bper\s+hour\b/i.test(s)) return null
   if (/\$|usd/i.test(s)) return null // see header: no silent USD→EUR
+  // Nordic krone (DKK/SEK/NOK, "kr", "kr.") — same fail-closed stance as USD:
+  // refuse explicitly rather than letting it drop through the no-currency path,
+  // and never silently convert krone→EUR.
+  if (/\bdkk\b|\bnok\b|\bsek\b|\bkr\b|kr\./i.test(s)) return null
 
   // Currency: € / EUR  vs  £ / GBP. If neither symbol appears, we can't trust
   // the unit, so bail (avoids reading a bare "40-65" as euros).

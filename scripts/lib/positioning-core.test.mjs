@@ -135,6 +135,15 @@ test('archetypeFingerprints tolerates blank dimension cells (NaN-safe averaging)
 
 // ─── archetypeLever: replay must agree with the canonical engine ──────────────
 
+// Hand-computed anchor (audit finding 12a): the CF/AF rollups are unweighted
+// means of their three dims (modes/_shared.md), so a fingerprint that is all-8s
+// must roll up to EXACTLY 8.0 — no penalty, no drift. This pins the constant
+// independently instead of only re-deriving expected values via the same rollup.
+test('rollupCurrentFit/rollupAspirationalFit: all dims 8 → exactly 8.0', () => {
+  assert.equal(rollupCurrentFit({ skills_match: 8, ease_of_entry: 8, strategic_fit: 8 }), 8.0)
+  assert.equal(rollupAspirationalFit({ growth_mobility: 8, optionality_exit: 8, brand_value: 8 }), 8.0)
+})
+
 test('archetypeLever reproduces CF/AF/tier from the average fingerprint', () => {
   // A fingerprint gated by the EoE hard gate (EoE ≤ 4) — strong CF otherwise.
   const fp = {

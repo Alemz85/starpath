@@ -43,10 +43,16 @@ Follow-up Cadence Dashboard — {date}
 ```
 
 Use visual indicators:
-- **URGENT** — respond within 24 hours (company replied)
+- **URGENT** — a fresh Responded/Interview row that still sits inside the reply window
 - **OVERDUE** — follow-up is past due
 - **waiting (X days)** — on track, follow-up scheduled
 - **COLD** — 2+ follow-ups sent, suggest closing
+
+> **Note on the urgency clock:** applications.md stores only the *application*
+> date, not a status-change date, so for Responded/Interview rows the elapsed
+> time is measured from when you applied, not from when the company replied. A
+> row applied to long ago but replied to recently reads as OVERDUE, not URGENT.
+> Trust the Status + the reply context in the linked report over the raw band.
 
 ## Step 3 — Generate Follow-up Drafts
 
@@ -167,7 +173,10 @@ After showing all drafts, summarize:
 | Status | First follow-up | Subsequent | Max attempts |
 |--------|----------------|------------|-------------|
 | Applied | 7 days after application | Every 7 days | 2 (then mark cold) |
-| Responded | 1 day (urgent reply) | Every 3 days | No limit |
-| Interview | 1 day after (thank-you) | Every 3 days | No limit |
+| Responded | inside reply window | Every 3 days | No limit |
+| Interview | thank-you window | Every 3 days | No limit |
 
-These defaults can be overridden via `node scripts/followup-cadence.mjs --applied-days N`.
+The Responded/Interview "days" are counted from the application date, not the
+reply date (applications.md has no status-change timestamp) — see the note under
+Step 2. These defaults can be overridden via
+`node scripts/followup-cadence.mjs --applied-days N`.

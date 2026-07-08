@@ -31,7 +31,7 @@ import {
   buildPipelineSummary,
   countTsvDataRows,
   countMarkdownTableRows,
-  countPipelineItems,
+  countPendingPipelineItems,
 } from './lib/doctor-checks.mjs';
 import { PROFILE_PATHS } from './lib/profile-core.mjs';
 
@@ -316,7 +316,7 @@ async function main() {
   const scored    = dataFiles.scoreHistory ? countTsvDataRows(dataFiles.scoreHistory)        : 0;
   const scouted   = dataFiles.scouting     ? countMarkdownTableRows(dataFiles.scouting)      : 0;
   const applied   = dataFiles.applications ? countMarkdownTableRows(dataFiles.applications)  : 0;
-  const pending   = dataFiles.pipeline     ? countPipelineItems(dataFiles.pipeline)          : 0;
+  const pending   = dataFiles.pipeline     ? countPendingPipelineItems(dataFiles.pipeline)   : 0;
 
   // Only print snapshot when there's at least some data
   if (scanned + scored + scouted + applied + pending > 0) {

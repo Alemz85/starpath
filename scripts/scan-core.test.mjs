@@ -192,6 +192,21 @@ test('buildLocationFilter: user override replaces the default list', () => {
   assert.equal(filter('Berlin, Germany'), false); // not in the override list
 });
 
+// Regression (audit finding 4): an all-blank override must fall back to the
+// default list, not compile to a reject-everything predicate. Matches the
+// Python-side pin test_blank_tokens_ignored in scripts/jobspy/test_filters.py.
+test('buildLocationFilter: blank tokens are ignored (fall back to default)', () => {
+  const filter = buildLocationFilter(['  ', '']);
+  assert.equal(filter('Barcelona, Spain'), true); // default list still applies
+  assert.equal(filter('Berlin, Germany'), true);
+  assert.equal(filter('Tokyo, Japan'), false);    // still a real geo gate
+});
+
+test('buildLocationFilter: empty/null override keeps the default list', () => {
+  assert.equal(buildLocationFilter([])('Madrid'), true);
+  assert.equal(buildLocationFilter(null)('Madrid'), true);
+});
+
 test('isAllowedLocation back-compat wrapper matches the default filter', () => {
   assert.equal(isAllowedLocation('Madrid'), true);
   assert.equal(isAllowedLocation('Tokyo'), false);

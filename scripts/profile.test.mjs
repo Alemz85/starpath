@@ -301,3 +301,99 @@ test('unknown command exits 1 with a usage error', () => {
   assert.equal(code, 1);
   assert.equal(json.error, 'usage');
 });
+
+/* ───── Safety-path scenarios (audit finding 10) ─────────────────────────────
+ *
+ * These build their OWN throwaway mini-repos so they don't perturb the shared
+ * sequential scenario above (which ends ejected). Each seeds a repo, runs the
+ * real CLI end-to-end, and asserts a single safety property.
+ */
+
+function seedAndInit() {
+  const dir = mkdtempSync(join(tmpdir(), 'profile-cli-safety-'));
+  mkdirSync(join(dir, 'user'), { recursive: true });
+  mkdirSync(join(dir, 'data'), { recursive: true });
+  mkdirSync(join(dir, 'reports/tier-1'), { recursive: true });
+  mkdirSync(join(dir, 'batch/tracker-additions'), { recursive: true });
+  mkdirSync(join(dir, 'batch/scouting-additions'), { recursive: true });
+  writeFileSync(join(dir, 'user/profile.yml'), PROFILE_YML);
+  writeFileSync(join(dir, 'user/portals.yml'), PORTALS_YML);
+  writeFileSync(join(dir, 'user/_profile.md'), PROFILE_MD);
+  writeFileSync(join(dir, 'user/cv.md'), '# CV\n');
+  writeFileSync(join(dir, 'data/scouting.md'), SCOUTING_MD);
+  writeFileSync(join(dir, 'data/pipeline.md'), PIPELINE_MD);
+  writeFileSync(join(dir, 'reports/.gitkeep'), '');
+  writeFileSync(join(dir, 'reports/tier-1/ACME - Analyst.md'), REPORT_MD);
+  execFileSync(process.execPath, [CLI, 'init', '--root', dir], { encoding: 'utf-8' });
+  return dir;
+}
+
+function runAt(dir, ...args) {
+  let stdout = '';
+  let code = 0;
+  try {
+    stdout = execFileSync(process.execPath, [CLI, ...args, '--root', dir], { encoding: 'utf-8' });
+  } catch (err) {
+    code = err.status ?? 1;
+    stdout = err.stdout ?? '';
+  }
+  let json = null;
+  if (args.includes('--json')) {
+    try { json = JSON.parse(stdout.trim()); } catch { /* asserted by callers */ }
+  }
+  return { code, json, stdout };
+}
+
+test('switch refuses (error: shadow) when a canonical symlink is shadowed by a real file, and moves nothing', () => {
+  const dir = seedAndInit();
+  try {
+    runAt(dir, 'create', 'second', '--from', 'career');
+    // A write-temp-then-rename bug would replace the symlink with a real file.
+    const shadowed = join(dir, 'data/applications.md');
+    unlinkSync(shadowed);
+    writeFileSync(shadowed, '# shadow real file — must block the switch\n');
+
+    const { code, json } = runAt(dir, 'switch', 'second', '--json');
+    assert.equal(code, 1);
+    assert.equal(json.error, 'shadow');
+
+    // Nothing moved: active pointer still career, other links still into career,
+    // and the shadow file is left in place untouched.
+    assert.equal(readFileSync(join(dir, 'profiles/active'), 'utf-8'), 'career\n');
+    assert.equal(
+      readlinkSync(join(dir, 'data/scouting.md')),
+      relativeLinkTarget('data/scouting.md', 'career'),
+    );
+    assert.match(readFileSync(shadowed, 'utf-8'), /shadow real file/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('create --from --switch scaffolds, re-points every symlink, returns { created, active: slug }', () => {
+  const dir = seedAndInit();
+  try {
+    const { code, json } = runAt(dir, 'create', 'third', '--from', 'career', '--switch', '--json');
+    assert.equal(code, 0);
+    assert.equal(json.created, 'third');
+    assert.equal(json.active, 'third');
+    assert.equal(json.previous, 'career');
+
+    // Active pointer flipped to the new profile.
+    assert.equal(readFileSync(join(dir, 'profiles/active'), 'utf-8'), 'third\n');
+    // Config copied verbatim from the --from source.
+    assert.equal(readFileSync(join(dir, 'profiles/third/user/profile.yml'), 'utf-8'), PROFILE_YML);
+    // Trackers scaffolded with canonical headers inside the new profile.
+    assert.equal(
+      readFileSync(join(dir, 'profiles/third/data/scouting.md'), 'utf-8'),
+      TRACKER_SCAFFOLDS['data/scouting.md'],
+    );
+    // Every canonical symlink now re-points into 'third'.
+    for (const p of PROFILE_PATHS) {
+      assert.ok(lstatSync(join(dir, p)).isSymbolicLink(), p);
+      assert.equal(readlinkSync(join(dir, p)), relativeLinkTarget(p, 'third'), p);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
