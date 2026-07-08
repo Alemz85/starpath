@@ -3,7 +3,10 @@ import type Database from 'better-sqlite3'
 // v4: pipeline table gains company/title/relevance columns parsed from the
 // scanner-written pending lines (the Inbox ranks on them). Any version bump
 // drops + rebuilds every table from the canonical markdown/TSV on next launch.
-export const SCHEMA_VERSION = 4
+// v5: no shape change — parsePipeline now excludes checked-off ("- [x]")
+// entries, and existing caches hold stale pending rows stamped with the
+// current file mtime, so only a forced rebuild reparses them.
+export const SCHEMA_VERSION = 5
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (
