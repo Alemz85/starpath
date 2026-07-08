@@ -94,7 +94,7 @@ Key scripts (all under `scripts/`): `scan.mjs` (zero-token portal scanner — Gr
 - **profile.yml missing** → copy `config/profile.example.yml` → `user/profile.yml`; ask for name, email, location, target roles, salary range.
 - **_profile.md missing** → create from scratch from the user's profile and goals. This is the user's customization file (archetypes, narrative, negotiation scripts), never overwritten by updates.
 - **portals.yml missing** → create with target-role keywords; the scanner uses this for Greenhouse/Ashby/Lever queries.
-- **applications.md missing** → create with header `| # | Date | Company | Role | Score | Status | PDF | Report | Notes |`.
+- **applications.md missing** → create with header `| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |` (10 columns — the Deadline cell between PDF and Report is what `merge-tracker.mjs` writes for every row).
 
 **After basics are set, proactively get to know the user** — superpower / what excites or drains them / deal-breakers / best achievement / published work. Store insights in `user/profile.yml`, `user/_profile.md`, or `user/article-digest.md`. The system gets smarter with every interaction.
 

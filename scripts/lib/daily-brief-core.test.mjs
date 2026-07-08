@@ -9,6 +9,10 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
+import { countPendingPipelineLines } from './profile-core.mjs'
 import {
   followupItems,
   outreachItems,
@@ -1011,4 +1015,42 @@ test('renderBrief output is byte-identical with crossProfile:[] vs crossProfile 
   const a = renderBrief(assembleBrief({}, { asOf: '2026-07-07' }))
   const b = renderBrief(assembleBrief({ crossProfile: [] }, { asOf: '2026-07-07' }))
   assert.equal(a, b)
+})
+
+/* ───── pipeline inbox count — single source of truth (F2/F5) ────────────────
+ * daily-brief.mjs once counted the pipeline inbox with a bespoke regex that
+ * required the URL immediately after the bullet, so it matched ZERO real
+ * scanner lines (`- [ ] url | Co | Title | relevance …`) and the "N URLs in
+ * pipeline inbox" clause silently never rendered — while the cross-profile
+ * footer used the correct countPendingPipelineLines. Both must now derive from
+ * that one counter. These tests pin (a) the counter's behavior on real line
+ * shapes and (b) that daily-brief.mjs no longer carries a rival URL-count regex.
+ */
+
+const REAL_PIPELINE = [
+  '# Pipeline — Pending Evaluations',
+  '',
+  '## Pending',
+  '',
+  '- [ ] https://boards.greenhouse.io/acme/jobs/1 | Acme | Analyst | relevance 4.5 — fresh',
+  '- [ ] https://jobs.lever.co/globex/x1 | Globex | Ops Associate',
+  '- [x] https://boards.greenhouse.io/acme/jobs/2 | Acme | Analyst II | relevance 6.0 — fresh',
+  '- [ ] not a url line',
+  'https://bare.example/no-checkbox',
+].join('\n')
+
+test('countPendingPipelineLines counts real scanner lines (checkbox + pipes), excludes checked-off', () => {
+  // Two unchecked scanner lines with pipes + a relevance tail are counted; the
+  // `- [x]` history line, the prose line, and the bare no-checkbox URL are not
+  // (the counter requires an unchecked `- [ ] http…` bullet).
+  assert.equal(countPendingPipelineLines(REAL_PIPELINE), 2)
+})
+
+test('the daily brief derives inboxCount from the shared counter — no rival URL regex', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'daily-brief.mjs'), 'utf8')
+  // getPipelineHealth must call the shared counter for the inbox number …
+  assert.match(src, /inboxCount\s*=\s*existsSync\(PIPELINE_FILE\)\s*\?\s*countPendingPipelineLines/)
+  // … and must NOT re-count URLs with its own bullet-anchored regex anymore
+  // (that bespoke `^[-*]\s+https?://` pattern was the F2 bug).
+  assert.doesNotMatch(src, /\^\[-\*\]\\s\+https\?/)
 })

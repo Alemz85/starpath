@@ -6,7 +6,11 @@ import type Database from 'better-sqlite3'
 // v5: no shape change — parsePipeline now excludes checked-off ("- [x]")
 // entries, and existing caches hold stale pending rows stamped with the
 // current file mtime, so only a forced rebuild reparses them.
-export const SCHEMA_VERSION = 5
+// v6: no shape change — parseApplications now maps cells by width (handling
+// applications.md's optional Deadline column) instead of by header name, so a
+// cache built before the fix can hold rows with Report/Notes shifted one cell;
+// force a rebuild since those mtime stamps are current-yet-stale.
+export const SCHEMA_VERSION = 6
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (
