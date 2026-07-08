@@ -1,11 +1,15 @@
 'use client'
 
-import { useState, useEffect, useRef, useMemo, useId } from 'react'
+import { useState, useEffect, useRef, useMemo, useId, useCallback } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
+import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
-import { useConfigDirty } from '@/store/configDirty'
+import { useConfigDirty, type ConfigTab } from '@/store/configDirty'
 import { useProfilesStore } from '@/store/profiles'
+import { ProfileEditPanel } from '@/components/profile/ProfileEditPanel'
+import { ViewTabs, viewTabId, viewPanelId } from '@/components/shared/ViewTabs'
+import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
 import { ipc } from '@/lib/ipc'
 import { slugValidationHint, formatProfileCounts, profileInitial, describeProfileFailure } from '@/lib/profiles'
 import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2 } from 'lucide-react'
@@ -67,10 +71,9 @@ function getSuggestions(selected: string[]): string[] {
 
 // ─── YAML helpers ─────────────────────────────────────────────────────────────
 
-// Identity / compensation extract+patch helpers moved to ProfileEditPanel
-// when the user-config form moved out of Settings. The remaining helpers
-// here are role-list and portals-keyword block parsers used by the tabs
-// that stayed in Settings.
+// Identity / compensation extract+patch helpers live in ProfileEditPanel
+// (mounted below as the Identity sub-tab). The helpers here are role-list
+// and portals-keyword block parsers used by the Roles / Portals sub-tabs.
 
 const extractPrimaryRoles = (yaml: string): string[] => {
   const block = yaml.match(/primary:\s*([\s\S]*?)(?=\n  \w|\n#|$)/)?.[1] ?? ''
@@ -238,21 +241,182 @@ function setLangBlocklist(yaml: string, items: string[]): string {
 
 // ─── Root component ───────────────────────────────────────────────────────────
 
-// All editable user-data tabs (Candidate / Roles / Portals) moved to the
-// new Configuration tab. Settings now only hosts app-level controls
-// (repo path, mode, model selection, etc) which the GeneralTab handles.
-// RolesTab / PortalsTab are still exported from this file so Configuration
-// can import them directly.
+// Settings hosts every configuration surface as sub-tabs — the app-level
+// controls plus the editable user-data forms that used to live in a
+// separate Configuration view:
+//   General  → repo path, search profiles, model selection, data refresh,
+//              workspace tuning. Every control saves immediately, so this
+//              tab never carries dirty state.
+//   Identity → ProfileEditPanel (full-name / contact / phone / comp /
+//              languages — everything that lives under candidate: in
+//              user/profile.yml).
+//   Roles    → target_roles.primary chips + dream-companies block +
+//              target locations (preferred_cities).
+//   Portals  → keyword filters + tracked companies + lang_blocklist.
+//
+// When the active tab has unsaved changes (any of its sub-sections has
+// updated state since its last save), switching tabs prompts a confirm
+// modal — explicit decision rather than silently dropping edits.
+
+type SettingsTab = 'general' | ConfigTab
+
+const TABS: { key: SettingsTab; label: string; sub: string }[] = [
+  { key: 'general',  label: 'General',      sub: 'Repository, profiles, models, and data.' },
+  { key: 'identity', label: 'Identity',     sub: 'Name, contact, compensation, languages.' },
+  { key: 'roles',    label: 'Target Roles', sub: 'Primary archetypes, dream companies, and preferred cities.' },
+  { key: 'portals',  label: 'Portals',      sub: 'Title filters, tracked companies, language blocklist.' },
+]
+
+const isSettingsTab = (v: string): v is SettingsTab => TABS.some(t => t.key === v)
 
 export function SettingsView() {
+  const [tab, setTab] = useState<SettingsTab>('general')
+  // pendingTab is set when the user clicks a different tab while the
+  // current tab is dirty. The modal asks them to discard or stay.
+  const [pendingTab, setPendingTab] = useState<SettingsTab | null>(null)
+
+  // Subscribe to all three dirty sets so the dot appears on whichever tab
+  // has unsaved changes — including the inactive ones. General is absent
+  // from the store: its controls persist on interaction, so it can never
+  // be dirty.
+  const identityDirty = useConfigDirty(s => s.identity.size > 0)
+  const rolesDirty    = useConfigDirty(s => s.roles.size > 0)
+  const portalsDirty  = useConfigDirty(s => s.portals.size > 0)
+  const dirtyByTab: Record<SettingsTab, boolean> = {
+    general:  false,
+    identity: identityDirty,
+    roles:    rolesDirty,
+    portals:  portalsDirty,
+  }
+  const isDirty = dirtyByTab[tab]
+
+  const requestSwitch = useCallback((next: SettingsTab) => {
+    if (next === tab) return
+    if (isDirty) {
+      setPendingTab(next)
+    } else {
+      setTab(next)
+    }
+  }, [tab, isDirty])
+
+  // Sub-tab requests from navigate() — e.g. a CmdK jump straight to
+  // Portals. The payload is one-shot but lingers in the store until the
+  // next navigate(), so consume each distinct value exactly once: the ref
+  // guard keeps requestSwitch identity changes (tab clicks, dirty flips)
+  // from replaying a stale request. Routing through requestSwitch — never
+  // setTab directly — means a programmatic jump still hits the dirty-gate.
+  const requestedTab = useNavStore(s => s.viewTab)
+  const consumedTabRequest = useRef('')
+  useEffect(() => {
+    if (requestedTab === consumedTabRequest.current) return
+    consumedTabRequest.current = requestedTab
+    if (isSettingsTab(requestedTab)) requestSwitch(requestedTab)
+  }, [requestedTab, requestSwitch])
+
+  const discardAndSwitch = () => {
+    if (!pendingTab) return
+    // Conditional rendering means the abandoned tab's component will
+    // unmount, taking its local form state with it. The store's
+    // unmount-cleanup effects clear the dirty flags. So discarding is
+    // genuinely "drop the edits" — no further work needed here.
+    setTab(pendingTab)
+    setPendingTab(null)
+  }
+
+  const [savingAll, setSavingAll] = useState(false)
+  const saveAndSwitch = async () => {
+    if (!pendingTab) return
+    setSavingAll(true)
+    try {
+      // Safe cast: General is never dirty, so a gated switch can only
+      // originate from one of the three ConfigTab forms.
+      await useConfigDirty.getState().saveAll(tab as ConfigTab)
+    } finally {
+      setSavingAll(false)
+    }
+    // After saveAll, each section has cleared its own dirty flag and
+    // updated its baseline. We can switch now.
+    setTab(pendingTab)
+    setPendingTab(null)
+  }
+
+  const active = TABS.find(t => t.key === tab) ?? TABS[0]
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Title bar — subtitle cross-fades when the tab changes */}
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Settings</h1>
+        <span className="text-label text-text-4" aria-hidden="true">·</span>
+        <span
+          key={active.key}
+          className="text-label text-text-3 transition-opacity duration-150"
+        >
+          {active.sub}
+        </span>
       </div>
+
+      <ViewTabs
+        tabs={TABS.map(({ key, label }) => ({ key, label, dirty: dirtyByTab[key] }))}
+        active={tab}
+        onSelect={requestSwitch}
+        ariaLabel="Settings sections"
+        idPrefix="settings"
+      />
+
+      {/* Tab panels — one panel per tab, hidden when not active */}
       <div className="flex-1 overflow-y-auto">
-        <GeneralTab />
+        <div
+          role="tabpanel"
+          id={viewPanelId('settings', 'general')}
+          aria-labelledby={viewTabId('settings', 'general')}
+          hidden={tab !== 'general'}
+          className="h-full"
+        >
+          {tab === 'general' && <GeneralTab />}
+        </div>
+        <div
+          role="tabpanel"
+          id={viewPanelId('settings', 'identity')}
+          aria-labelledby={viewTabId('settings', 'identity')}
+          hidden={tab !== 'identity'}
+          className="h-full"
+        >
+          {tab === 'identity' && (
+            <div className="max-w-[820px] mx-auto w-full px-5 pt-4 pb-10">
+              <ProfileEditPanel />
+            </div>
+          )}
+        </div>
+        <div
+          role="tabpanel"
+          id={viewPanelId('settings', 'roles')}
+          aria-labelledby={viewTabId('settings', 'roles')}
+          hidden={tab !== 'roles'}
+          className="h-full"
+        >
+          {tab === 'roles' && <RolesTab />}
+        </div>
+        <div
+          role="tabpanel"
+          id={viewPanelId('settings', 'portals')}
+          aria-labelledby={viewTabId('settings', 'portals')}
+          hidden={tab !== 'portals'}
+          className="h-full"
+        >
+          {tab === 'portals' && <PortalsTab />}
+        </div>
       </div>
+
+      {pendingTab && (
+        <UnsavedChangesModal
+          targetLabel={TABS.find(t => t.key === pendingTab)!.label}
+          saving={savingAll}
+          onSave={saveAndSwitch}
+          onDiscard={discardAndSwitch}
+          onCancel={() => setPendingTab(null)}
+        />
+      )}
     </div>
   )
 }
@@ -558,11 +722,10 @@ function ProfilesSection() {
 
 // ─── Roles tab ────────────────────────────────────────────────────────────────
 //
-// Exported so the Configuration tab (frontend/src/components/configuration/
-// ConfigurationView.tsx) can mount it. Also still rendered here as a
-// secondary entry until the Settings tab is fully trimmed.
+// Mounted by the SettingsView root above as the "Target Roles" sub-tab.
+// Module-private: nothing outside this file renders it.
 
-export function RolesTab() {
+function RolesTab() {
   const [raw, setRaw] = useState<string | null>(null)
   const [roles, setRoles] = useState<string[]>([])
   const [baselineRoles, setBaselineRoles] = useState<string[]>([])
@@ -742,8 +905,8 @@ export function RolesTab() {
 // ─── Dream companies section (lives under RolesTab) ──────────────────────────
 //
 // The dream-companies block in profile.yml is structured (each entry has
-// name + functions[] + priority + note). For the Configuration UI we
-// only edit the names — anything richer can be hand-edited in the YAML.
+// name + functions[] + priority + note). In the Settings UI we only edit
+// the names — anything richer can be hand-edited in the YAML.
 // Existing per-name metadata is preserved when names stay in the list.
 
 function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
@@ -1033,8 +1196,11 @@ function patchPreferredCities(yaml: string, cities: string[]): string {
 }
 
 // ─── Portals tab ──────────────────────────────────────────────────────────────
+//
+// Mounted by the SettingsView root above as the "Portals" sub-tab.
+// Module-private: nothing outside this file renders it.
 
-export function PortalsTab() {
+function PortalsTab() {
   const [raw, setRaw] = useState<string | null>(null)
   const [positive, setPositive] = useState<string[]>([])
   const [negative, setNegative] = useState<string[]>([])

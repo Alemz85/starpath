@@ -7,14 +7,11 @@ export type ViewId =
   | 'applying'
   | 'outreach'
   | 'offers'
-  | 'network'
   | 'database'
   | 'reports'
   | 'trends'
-  | 'scoretrend'
   | 'pipeline'
   | 'scan'
-  | 'config'
   | 'settings'
   | 'profile'
   | 'company'
@@ -28,14 +25,11 @@ export const VIEW_LABELS: Record<ViewId, string> = {
   applying: 'Applying',
   outreach: 'Outreach',
   offers:   'Offers',
-  network:  'Network',
   database: 'Database',
   reports:  'Reports',
   trends:   'Trends',
-  scoretrend: 'Score Trend',
   pipeline: 'Pipeline',
   scan:     'Activity',
-  config:   'Configuration',
   settings: 'Settings',
   profile:  'Profile',
   company:  'Company',
@@ -47,6 +41,12 @@ interface NavState {
   /** Slug of the company whose dossier is showing when `view === 'company'`.
    *  Empty for every other view. */
   companySlug: string
+  /** Sub-tab request for views that host internal tabs (Outreach's
+   *  board/network, Trends' landscape/scoretrend, Settings' sections).
+   *  One-shot payload like databaseFilter: set by navigate(), consumed by
+   *  the destination view's tab-sync effect, and reset to '' by the next
+   *  navigate() that doesn't pass one. */
+  viewTab: string
   /** The view the user was on when they opened a company dossier, so the
    *  Company view's back button returns there instead of resetting to the
    *  default tab. Preserved across company→company hops. */
@@ -57,7 +57,8 @@ interface NavState {
   pendingView: ViewId | null
   pendingDatabaseFilter: string
   pendingCompanySlug: string
-  navigate: (view: ViewId, databaseFilter?: string, companySlug?: string) => void
+  pendingViewTab: string
+  navigate: (view: ViewId, databaseFilter?: string, companySlug?: string, viewTab?: string) => void
   /** Called by the modal's "Save" / "Discard" handlers after the dirty
    *  state has been resolved — performs the actual view swap. */
   confirmPendingNavigate: () => void
@@ -67,11 +68,9 @@ interface NavState {
 
 // Views that should be gated behind the unsaved-changes modal when
 // they're the *origin* (current) view AND the destination is different.
-// Both Configuration and Profile host editable forms; both write their
-// dirty state into useConfigDirty (the Profile main tab embeds the same
-// ProfileEditPanel that the Configuration → Identity sub-tab uses, and
-// it registers under the 'identity' key).
-const GATED_ORIGINS: ReadonlySet<ViewId> = new Set(['config', 'profile'])
+// Settings hosts the editable user-data forms (Identity / Target Roles /
+// Portals sub-tabs); their dirty state lives in useConfigDirty.
+const GATED_ORIGINS: ReadonlySet<ViewId> = new Set(['settings'])
 
 // Where the Company back button lands when a dossier was opened without an
 // in-app origin worth returning to (e.g. a future deep link).
@@ -88,25 +87,35 @@ export const useNavStore = create<NavState>((set, get) => ({
   view: 'scouting',
   databaseFilter: '',
   companySlug: '',
+  viewTab: '',
   companyReturnView: DEFAULT_COMPANY_RETURN,
   pendingView: null,
   pendingDatabaseFilter: '',
   pendingCompanySlug: '',
-  navigate: (view, databaseFilter = '', companySlug = '') => {
+  pendingViewTab: '',
+  navigate: (view, databaseFilter = '', companySlug = '', viewTab = '') => {
     const state = get()
-    // Company→company hops change the slug while the view stays 'company',
-    // so they must NOT early-return on view alone. Every other same-view,
-    // same-slug nav is a genuine no-op.
-    if (state.view === view && state.companySlug === companySlug) return
+    // Same-view navs are no-ops UNLESS they carry a fresh payload — a
+    // company→company hop, a new database filter, or a sub-tab request
+    // while already on the view must still go through so the destination's
+    // sync effects fire. An empty payload means "no request", so a
+    // redundant sidebar click never wipes the active filter or sub-tab.
+    const payloadChanged =
+      (databaseFilter !== '' && databaseFilter !== state.databaseFilter) ||
+      (viewTab !== '' && viewTab !== state.viewTab)
+    if (state.view === view && state.companySlug === companySlug && !payloadChanged) return
 
-    // Gate: if the user is leaving a dirty origin, capture the intent
-    // and let AppShell render the modal. The modal's Save/Discard paths
-    // call confirmPendingNavigate to actually swap the view.
-    if (GATED_ORIGINS.has(state.view) && useConfigDirty.getState().isAnyDirty()) {
+    // Gate: if the user is leaving a dirty origin for a DIFFERENT view,
+    // capture the intent and let AppShell render the modal. The modal's
+    // Save/Discard paths call confirmPendingNavigate to actually swap the
+    // view. Same-view navs (a sub-tab hop inside Settings) fall through to
+    // the view's own intra-tab modal instead.
+    if (GATED_ORIGINS.has(state.view) && view !== state.view && useConfigDirty.getState().isAnyDirty()) {
       set({
         pendingView: view,
         pendingDatabaseFilter: databaseFilter,
         pendingCompanySlug: companySlug,
+        pendingViewTab: viewTab,
       })
       return
     }
@@ -115,10 +124,12 @@ export const useNavStore = create<NavState>((set, get) => ({
       view,
       databaseFilter,
       companySlug,
+      viewTab,
       companyReturnView: nextReturnView(state.view, view, state.companyReturnView),
       pendingView: null,
       pendingDatabaseFilter: '',
       pendingCompanySlug: '',
+      pendingViewTab: '',
     })
   },
   confirmPendingNavigate: () => {
@@ -128,12 +139,14 @@ export const useNavStore = create<NavState>((set, get) => ({
       view: state.pendingView,
       databaseFilter: state.pendingDatabaseFilter,
       companySlug: state.pendingCompanySlug,
+      viewTab: state.pendingViewTab,
       companyReturnView: nextReturnView(state.view, state.pendingView, state.companyReturnView),
       pendingView: null,
       pendingDatabaseFilter: '',
       pendingCompanySlug: '',
+      pendingViewTab: '',
     })
   },
   cancelPendingNavigate: () =>
-    set({ pendingView: null, pendingDatabaseFilter: '', pendingCompanySlug: '' }),
+    set({ pendingView: null, pendingDatabaseFilter: '', pendingCompanySlug: '', pendingViewTab: '' }),
 }))

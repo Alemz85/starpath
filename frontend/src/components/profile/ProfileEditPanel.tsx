@@ -232,10 +232,11 @@ export function ProfileEditPanel() {
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
     setForm(prev => ({ ...prev, [k]: v }))
 
-  // Emit dirty state into the cross-cutting Configuration store so the
-  // ConfigurationView can prompt on tab switches. We use the same
-  // diffForms helper that handleSave uses to compute the LLM patch — one
-  // source of truth for "did anything change since last save".
+  // Emit dirty state into the cross-cutting config-dirty store so the
+  // SettingsView (which mounts this panel as its Identity sub-tab) can
+  // prompt on tab switches. We use the same diffForms helper that
+  // handleSave uses to compute the LLM patch — one source of truth for
+  // "did anything change since last save".
   const setDirty = useConfigDirty(s => s.setDirty)
   const registerSaveHandler = useConfigDirty(s => s.registerSaveHandler)
   useEffect(() => {
@@ -300,7 +301,7 @@ export function ProfileEditPanel() {
   }
 
   // Register handleSave with the configDirty store so the
-  // ConfigurationView's "Save and switch" modal button can call it. Re-
+  // SettingsView's "Save and switch" modal button can call it. Re-
   // registering on every render is cheap (Map.set with the same key) and
   // ensures the store always holds the latest closure — which captures
   // the current `form` state.
