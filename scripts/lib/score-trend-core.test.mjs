@@ -160,6 +160,27 @@ test('listingTrajectories collapses same-date duplicate writes (last wins)', () 
   assert.equal(t.latestOverall, 8.0)
 })
 
+// Malformed-date graceful behavior (audit finding 12b): dates are opaque
+// strings compared lexically (ISO sorts right), never Date-parsed. A malformed
+// value like '2026-5-1' (missing zero-padding) must NOT throw or NaN-poison the
+// trajectory — it is retained verbatim and ordered by string comparison. This
+// PINS the actual current behavior: here '2026-5-1' lexically sorts after the
+// zero-padded January date, landing as latestDate (chronologically correct by
+// luck of the padding). Zero-padding is what keeps this honest — the pin
+// documents that malformed input degrades gracefully, not that it's re-parsed.
+test('listingTrajectories keeps a malformed date gracefully (no throw, string-ordered)', () => {
+  const rows = parseScoreHistory(tsv(
+    row({ company: 'Acme', role: 'Analyst', date: '2026-01-01', overall: 6.0 }),
+    row({ company: 'Acme', role: 'Analyst', date: '2026-5-1', overall: 8.0 }),
+  ))
+  const [t] = listingTrajectories(rows)
+  assert.equal(t.evals, 2)
+  assert.equal(t.firstDate, '2026-01-01')
+  assert.equal(t.latestDate, '2026-5-1') // retained verbatim, not normalized
+  assert.equal(t.firstOverall, 6.0)
+  assert.equal(t.latestOverall, 8.0)
+})
+
 test('listingTrajectories merges spelling/spacing drift onto one trajectory', () => {
   const rows = parseScoreHistory(tsv(
     row({ company: 'Celonis', role: 'Strategy Analyst Internship', date: '2026-05-14', overall: 7.0 }),

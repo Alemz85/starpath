@@ -5,6 +5,9 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import {
   CANONICAL_STATES,
@@ -128,6 +131,20 @@ test('STATUS_RANK keeps active states above terminal ones', () => {
 test('CANONICAL_STATES has no scouting state', () => {
   assert.ok(!CANONICAL_STATES.includes('Scouted'));
   assert.ok(CANONICAL_STATES.includes('Evaluated'));
+});
+
+// Full drift pin (audit finding 8): CANONICAL_STATES must equal the `label:` set
+// declared in templates/states.yml (the documented source of truth) — exactly,
+// no more, no less. A new state added to the YAML without updating the code (or
+// vice-versa) fails here. Parsed without a YAML dependency: the labels are flat
+// scalars, so a line regex is sufficient and keeps this test zero-dep.
+test('CANONICAL_STATES exactly matches templates/states.yml labels', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const yml = readFileSync(join(here, '..', '..', 'templates', 'states.yml'), 'utf-8');
+  const labels = [...yml.matchAll(/^\s*label:\s*(.+?)\s*$/gm)]
+    .map(m => m[1].replace(/^["']|["']$/g, '').trim());
+  assert.deepEqual(new Set(labels), new Set(CANONICAL_STATES));
+  assert.equal(labels.length, CANONICAL_STATES.length, 'no duplicate labels / no count drift');
 });
 
 /* ───── tier paths ───────────────────────────────────────────────── */

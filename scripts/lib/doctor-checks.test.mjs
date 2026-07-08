@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import {
   countTsvDataRows,
   countMarkdownTableRows,
-  countPipelineItems,
+  countPendingPipelineItems,
+  parseMarkdownTableHeader,
   parseTsvHeader,
   validateScoreHistoryHeader,
   validateScanHistoryHeader,
@@ -66,22 +67,47 @@ test('countMarkdownTableRows ignores non-table lines', () => {
   assert.equal(countMarkdownTableRows(md), 1);
 });
 
-// ── countPipelineItems ────────────────────────────────────────────────────
+// ── countPendingPipelineItems ─────────────────────────────────────────────
 
-test('countPipelineItems returns 0 for null/empty', () => {
-  assert.equal(countPipelineItems(null), 0);
-  assert.equal(countPipelineItems(''), 0);
+test('countPendingPipelineItems returns 0 for null/empty', () => {
+  assert.equal(countPendingPipelineItems(null), 0);
+  assert.equal(countPendingPipelineItems(''), 0);
 });
 
-test('countPipelineItems counts lines with URLs', () => {
+test('countPendingPipelineItems counts only unchecked (- [ ]) URL lines', () => {
   const content = [
-    '# Pipeline',
-    'https://jobs.example.com/1',
-    'Some text without a URL',
-    'https://boards.greenhouse.io/company/jobs/2',
+    '# Pipeline — Pending Evaluations',
+    '',
+    '## Pending',
+    '- [ ] https://jobs.example.com/1 | Acme | Analyst',
+    '- [ ] https://boards.greenhouse.io/company/jobs/2 | Beta | PM',
     '',
   ].join('\n');
-  assert.equal(countPipelineItems(content), 2);
+  assert.equal(countPendingPipelineItems(content), 2);
+});
+
+// Regression (audit finding 1): checked-off `- [x]` history lines are
+// processed, not pending — they must NOT inflate the inbox count. The old
+// counter matched every line containing a URL and over-reported by the size
+// of the whole processed history.
+test('countPendingPipelineItems excludes checked-off history lines', () => {
+  const content = [
+    '## Pending',
+    '- [ ] https://jobs.example.com/live | Acme | Analyst',
+    '- [x] https://jobs.example.com/done-1 | Beta | PM',
+    '- [x] https://boards.greenhouse.io/company/jobs/done-2 | Gamma | Ops',
+    'Some prose mentioning https://example.com/inline that is not a checkbox',
+  ].join('\n');
+  assert.equal(countPendingPipelineItems(content), 1);
+});
+
+test('countPendingPipelineItems returns 0 when every line is checked off', () => {
+  const content = [
+    '## Pending',
+    '- [x] https://jobs.example.com/done-1 | Acme | Analyst',
+    '- [x] https://jobs.example.com/done-2 | Beta | PM',
+  ].join('\n');
+  assert.equal(countPendingPipelineItems(content), 0);
 });
 
 // ── parseTsvHeader ────────────────────────────────────────────────────────
@@ -266,6 +292,55 @@ test('buildArtifactChecks: valid score-history → pass with row count', () => {
   const sc = checks.find(c => c.label.includes('score-history'));
   assert.ok(sc.pass);
   assert.ok(sc.label.includes('2 evaluation'));
+});
+
+// ── parseMarkdownTableHeader + outreach header wiring (audit finding 9) ────
+
+const OUTREACH_HEADER =
+  '| # | Date | Company | Role | Contact | Title | Channel | Touch | Outcome | Notes |';
+
+test('parseMarkdownTableHeader skips heading/prose to the real table header', () => {
+  const md = ['# Outreach Log', '', 'Some prose about the log.', '', OUTREACH_HEADER,
+    '|---|------|---------|------|---------|-------|---------|-------|---------|-------|',
+    '| 1 | 2026-01-01 | Acme | Analyst | Jane Doe | Recruiter | Email | 1 | Pending | — |',
+  ].join('\n');
+  assert.deepEqual(
+    parseMarkdownTableHeader(md),
+    ['#', 'Date', 'Company', 'Role', 'Contact', 'Title', 'Channel', 'Touch', 'Outcome', 'Notes'],
+  );
+});
+
+test('parseMarkdownTableHeader returns [] when there is no table', () => {
+  assert.deepEqual(parseMarkdownTableHeader('# Just a heading\n\nprose only'), []);
+  assert.deepEqual(parseMarkdownTableHeader(null), []);
+});
+
+test('buildArtifactChecks: valid outreach header → pass', () => {
+  const content = [
+    '# Outreach Log', '', OUTREACH_HEADER,
+    '|---|------|---------|------|---------|-------|---------|-------|---------|-------|',
+    '| 1 | 2026-01-01 | Acme | Analyst | Jane Doe | Recruiter | Email | 1 | Pending | — |',
+  ].join('\n');
+  const files = { scanHistory: null, scoreHistory: null, scouting: null, applications: null, pipeline: null, outreach: content, colCache: null, taxCache: null };
+  const oc = buildArtifactChecks(files, {}).find(c => c.label.includes('outreach.md'));
+  assert.ok(oc.pass, 'valid outreach header should pass');
+  assert.ok(oc.label.includes('1 outreach thread'));
+});
+
+// The old branch pushed pass:true for BOTH valid and invalid headers, so a
+// malformed outreach.md (which would make outreach-cadence.mjs mis-read every
+// thread) sailed through. A missing required column is now a failing check.
+test('buildArtifactChecks: outreach header missing Channel/Touch → fail', () => {
+  const content = [
+    '# Outreach Log', '',
+    '| # | Date | Company | Role | Contact | Title | Outcome | Notes |',
+    '|---|------|---------|------|---------|-------|---------|-------|',
+    '| 1 | 2026-01-01 | Acme | Analyst | Jane Doe | Recruiter | Pending | — |',
+  ].join('\n');
+  const files = { scanHistory: null, scoreHistory: null, scouting: null, applications: null, pipeline: null, outreach: content, colCache: null, taxCache: null };
+  const oc = buildArtifactChecks(files, {}).find(c => c.label.includes('outreach.md'));
+  assert.equal(oc.pass, false);
+  assert.ok(/missing:.*channel/i.test(oc.label) && /touch/i.test(oc.label));
 });
 
 // ── buildCapabilityInventory ──────────────────────────────────────────────

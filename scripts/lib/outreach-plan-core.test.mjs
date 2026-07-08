@@ -119,6 +119,20 @@ test('a due nudge beats an untouched warm path, which becomes a caution', () => 
   assert.ok(rec.cautions.some((c) => c.includes('Grace Hopper')));
 });
 
+// Competing rungs (audit finding 11): a due nudge and an untouched 2nd-degree
+// (warm-intro) contact are BOTH available. The ladder must fire the higher rung
+// — nudge the live thread rather than open a fresh warm-intro ask — and keep the
+// warm-intro path as a fallback caution, not silently drop it.
+test('a due nudge outranks an untouched 2nd-degree (warm-intro) path → nudge', () => {
+  const threads = companyThreads([touch({ lastTouch: '2026-06-10' })], 'Acme', TODAY); // 21d → nudge on Ada
+  const p = path({ name: 'Alan Turing', degree: 2, via: 'Katherine Johnson', warmth: 2.4 });
+  const rec = recommendPlay({ paths: annotatePaths([p], threads), threads });
+  assert.equal(rec.play, 'nudge');
+  assert.equal(rec.target.name, 'Ada Lovelace');
+  assert.ok(rec.cautions.some((c) => c.includes('Alan Turing')),
+    'the warm-intro option should survive as a caution');
+});
+
 test('untouched 1st-degree path → warm-direct', () => {
   const rec = recommendPlay({ paths: annotatePaths([path()], []), threads: [] });
   assert.equal(rec.play, 'warm-direct');
