@@ -58,12 +58,15 @@ export function profileInitial(p: { label?: string; slug: string }): string {
 }
 
 /** Compact counts line for the switcher popover — zero buckets are dropped
- *  so short lists stay short; a profile with nothing in it reads "empty". */
+ *  so short lists stay short; a profile with nothing in it reads "empty". The
+ *  pipeline bucket is shown as `inbox` (the most actionable of the four) so a
+ *  profile whose only load is a full inbox no longer misreads as "empty". */
 export function formatProfileCounts(counts: ProfileCounts | null | undefined): string {
   if (!counts) return ''
   const parts: string[] = []
   if (counts.scouting) parts.push(`${counts.scouting} scouting`)
   if (counts.applications) parts.push(`${counts.applications} applications`)
+  if (counts.pipeline) parts.push(`${counts.pipeline} inbox`)
   if (counts.reports) parts.push(`${counts.reports} reports`)
   return parts.length ? parts.join(' · ') : 'empty'
 }

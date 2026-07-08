@@ -6,6 +6,10 @@ import {
   parsePipeline,
   parseReportPath,
 } from '@/lib/parsers/markdown'
+// Cross-parser pin (F4): the scripts-side triage parser, imported straight from
+// scripts/lib (plain .mjs, no @/ alias) so both implementations are exercised in
+// one assertion. Kept in lockstep with scripts/lib/triage-core.test.mjs.
+import { parsePendingEntries } from '../../../../scripts/lib/triage-core.mjs'
 
 const APPS = [
   '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
@@ -19,8 +23,57 @@ test('parseApplications strips bold, normalizes unknown status, reads the PDF fl
   assert.equal(rows.length, 2)
   assert.equal(rows[0].status, 'Applied')   // ** stripped
   assert.equal(rows[0].pdf, true)            // ✅
+  assert.equal(rows[0].deadline, 'n/d')
+  assert.equal(rows[0].report, '[#1](r)')
+  assert.equal(rows[0].notes, 'hi')          // real Notes, not the report link
   assert.equal(rows[1].status, 'Evaluated')  // unknown → Evaluated
   assert.equal(rows[1].pdf, false)           // ❌
+})
+
+// F1(b): applications.md rows carry an OPTIONAL Deadline cell. parseApplications
+// maps cells by width per row (like tracker-core.mjs parseAppRow), so Report and
+// Notes land correctly whether the header is 10-col or the legacy 9-col — and
+// even when the header and data rows disagree (the schema-drift corruption:
+// merge-tracker.mjs wrote 10-col rows under a 9-col scaffold header).
+
+test('parseApplications: legacy 9-col header + 9-col rows (no Deadline)', () => {
+  const md = [
+    '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |',
+    '|---|------|---------|------|-------|--------|-----|--------|-------|',
+    '| 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Applied | ✅ | [#1](r1) | called Jane |',
+  ].join('\n')
+  const rows = parseApplications(md)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].deadline, '')            // absent → empty
+  assert.equal(rows[0].report, '[#1](r1)')      // NOT slid into a deadline slot
+  assert.equal(rows[0].notes, 'called Jane')    // real Notes preserved
+})
+
+test('parseApplications: 9-col header + 10-col rows (the merge-tracker drift) still maps Report/Notes', () => {
+  // Header says 9 cols; the writer emitted 10 (Deadline present). A header-name
+  // map lost the real Notes here — width detection recovers it.
+  const md = [
+    '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |',
+    '|---|------|---------|------|-------|--------|-----|--------|-------|',
+    '| 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Applied | ✅ | 2026-06-30 | [#1](r1) | called Jane |',
+  ].join('\n')
+  const rows = parseApplications(md)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].deadline, '2026-06-30')
+  assert.equal(rows[0].report, '[#1](r1)')
+  assert.equal(rows[0].notes, 'called Jane')    // survives the header/row mismatch
+})
+
+test('parseApplications: canonical 10-col header + 10-col rows', () => {
+  const md = [
+    '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
+    '|---|------|---------|------|-------|--------|-----|----------|--------|-------|',
+    '| 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Applied | ✅ | 2026-06-30 | [#1](r1) | called Jane |',
+  ].join('\n')
+  const rows = parseApplications(md)
+  assert.equal(rows[0].deadline, '2026-06-30')
+  assert.equal(rows[0].report, '[#1](r1)')
+  assert.equal(rows[0].notes, 'called Jane')
 })
 
 const SCOUTING = [
@@ -55,6 +108,29 @@ test('parsePipeline reads bare, bulleted and local: URLs, flags stale, skips che
   // Bare URLs carry no scanner metadata.
   assert.equal(urls[0].company, undefined)
   assert.equal(urls[0].relevance, undefined)
+  // F3: the trailing `(YYYY-MM-DD)` on a pipe-less line is a date, not a
+  // company — it's captured as addedDate, never leaked into the company field.
+  assert.equal(urls[1].company, undefined)
+  assert.equal(urls[1].title, undefined)
+})
+
+test('parsePipeline: a bare (date) suffix never becomes the company (F3 regression)', () => {
+  // Before the fix, splitting the tail on `|` turned "(2020-01-01)" into
+  // fields[0] → company, so the Inbox showed a date where a company belongs.
+  const md = [
+    '- [ ] https://job.com/2 (2020-01-01)',
+    '- [ ] https://job.com/3 (2026-07-01) | Real Co | Analyst',
+  ].join('\n')
+  const urls = parsePipeline(md)
+  assert.equal(urls.length, 2)
+  // Pipe-less line: date captured, no company/title fabricated.
+  assert.equal(urls[0].addedDate, '2020-01-01')
+  assert.equal(urls[0].company, undefined)
+  assert.equal(urls[0].title, undefined)
+  // Pipe-delimited line: date still captured, real company/title preserved.
+  assert.equal(urls[1].addedDate, '2026-07-01')
+  assert.equal(urls[1].company, 'Real Co')
+  assert.equal(urls[1].title, 'Analyst')
 })
 
 test('parsePipeline excludes checked-off entries — the Inbox pending count must drop after Filter to Database', () => {
@@ -85,6 +161,35 @@ test('parsePipeline captures company/title/relevance from scanner-written lines'
   assert.equal(urls[1].company, 'Globex')
   assert.equal(urls[1].title, 'Senior Ops Lead')
   assert.equal(urls[1].relevance, undefined)
+})
+
+test('F4: parsePipeline (frontend) and parsePendingEntries (triage-core) agree on pending URLs', () => {
+  // One multi-shape ## Pending block. Both parsers must agree on which URLs are
+  // PENDING: unchecked scanner lines are in, checked-off (`- [x]`) lines are out.
+  //
+  // Known, INTENTIONAL divergences — documented here, mirrored in
+  // scripts/lib/triage-core.test.mjs, NOT "fixed":
+  //   • triage is `## Pending`-scoped: lines outside the section are ignored by
+  //     triage but still parsed by the frontend (it feeds the whole Inbox).
+  //   • triage is https-only and requires a `- [ ]` bullet: `local:` entries and
+  //     bare (checkbox-less) URLs are Inbox-visible but never triaged.
+  // The fixture below stays inside the agreed domain (a single ## Pending
+  // section, https, checkbox bullets) so the pending SETS match exactly.
+  const md = [
+    '## Pending',
+    '',
+    '- [ ] https://boards.greenhouse.io/acme/jobs/1 | Acme | Analyst | relevance 4.5 — fresh',
+    '- [ ] https://jobs.lever.co/globex/x1 | Globex | Ops Associate',
+    '- [x] https://boards.greenhouse.io/acme/jobs/2 | Acme | Analyst II | relevance 6.0 — fresh',
+  ].join('\n')
+
+  const frontendPending = new Set(parsePipeline(md).map(u => u.url))
+  const triagePending = new Set(parsePendingEntries(md).map(e => e.url))
+  assert.deepEqual([...frontendPending].sort(), [...triagePending].sort())
+  assert.deepEqual([...triagePending].sort(), [
+    'https://boards.greenhouse.io/acme/jobs/1',
+    'https://jobs.lever.co/globex/x1',
+  ])
 })
 
 test('parseReportPath extracts company/role/tier and rejects non-report paths', () => {

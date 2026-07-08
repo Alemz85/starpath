@@ -68,10 +68,10 @@ test('initial degrades to ? when both are blank', () => {
 
 // ─── counts formatting ────────────────────────────────────────────────────────
 
-test('counts line joins non-zero buckets with dots', () => {
+test('counts line joins non-zero buckets with dots (pipeline shown as inbox)', () => {
   assert.equal(
     formatProfileCounts({ scouting: 210, applications: 34, pipeline: 12, reports: 118 }),
-    '210 scouting · 34 applications · 118 reports',
+    '210 scouting · 34 applications · 12 inbox · 118 reports',
   )
 })
 
@@ -79,6 +79,15 @@ test('counts line drops zero buckets', () => {
   assert.equal(
     formatProfileCounts({ scouting: 5, applications: 0, pipeline: 0, reports: 0 }),
     '5 scouting',
+  )
+})
+
+test('a pipeline-only profile reads its inbox count, not empty (F6)', () => {
+  // Before the fix the pipeline bucket was dropped, so a profile whose only
+  // load is a full inbox misread as "empty" in the switcher/Settings.
+  assert.equal(
+    formatProfileCounts({ scouting: 0, applications: 0, pipeline: 12, reports: 0 }),
+    '12 inbox',
   )
 })
 
