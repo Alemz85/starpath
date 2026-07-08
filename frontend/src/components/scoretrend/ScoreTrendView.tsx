@@ -1,5 +1,9 @@
 'use client'
 
+// Score Trend — the re-evaluation sub-tab of the Trends view. Rendered by
+// TrendsView inside its scoretrend tabpanel (no longer a standalone routed
+// view); the host owns the title bar + tab strip, this panel owns the body.
+
 import { useMemo } from 'react'
 import { useDataStore } from '@/store/data'
 import { CompanyLink } from '@/components/shared/CompanyLink'
@@ -12,8 +16,8 @@ import {
 } from '@/lib/scoreTrend'
 
 // Verdict vocabulary, keyed to the semantic palette (DESIGN-meta § Status
-// scale) — same hexes TrendsView's momentum card uses, so "improving /
-// declining / steady" reads identically across the two analytics surfaces.
+// scale) — same hexes the Overview tab's momentum card uses, so "improving /
+// declining / steady" reads identically across the two Trends tabs.
 const VERDICT_META: Record<Verdict, { label: string; arrow: string; color: string }> = {
   improving: { label: 'Improving', arrow: '↑', color: '#007D1E' }, // success green
   declining: { label: 'Declining', arrow: '↓', color: '#C80A28' }, // danger red
@@ -28,66 +32,57 @@ const BAND_LABEL: Record<Band, string> = {
 
 const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '±0')
 
-export function ScoreTrendView() {
+export function ScoreTrendPanel() {
   const loaded = useDataStore(s => s.loaded)
   const scoreHistory = useDataStore(s => s.scoreHistory)
 
-  // The whole view derives from one analysis pass over the score history
+  // The whole panel derives from one analysis pass over the score history
   // already in the store — no IPC, no shelling out to score-trend.mjs. Mirrors
-  // how TrendsView computes everything client-side from the same source.
+  // how the Overview tab computes everything client-side from the same source.
   const analysis = useMemo(() => analyzeScoreTrend(scoreHistory), [scoreHistory])
 
   const reevaluated = analysis.trajectorySummary?.reevaluated ?? 0
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Score Trend</h1>
-        {loaded && !analysis.error && (
-          <span className="text-label text-text-4 font-mono">
-            {analysis.metadata?.evaluated ?? 0} evaluations · {reevaluated} re-evaluated
-          </span>
-        )}
-      </div>
+    // p-4 space-y-4 mirrors the Overview tabpanel so switching tabs doesn't
+    // shift the content edge. The host's tabpanel wrapper stays unpadded.
+    <div className="p-4 space-y-4">
+      {!loaded ? (
+        <div className="space-y-4">
+          <div className="h-40 shimmer rounded-lg" />
+          <div className="h-32 shimmer rounded-lg" />
+        </div>
+      ) : analysis.error ? (
+        <div className="flex items-center justify-center h-64 rounded-lg border border-border-default bg-bg-panel/40">
+          <EmptyState
+            title="No score history yet"
+            hint="Run a Filter to Database scan, then evaluate a few listings. This view tracks how their scores move when you re-evaluate them."
+          />
+        </div>
+      ) : (
+        <>
+          {/* Recommendations first — the act-now layer, like the Overview and
+              Today cockpits lead with "moves" before the evidence. */}
+          {analysis.recommendations && analysis.recommendations.length > 0 && (
+            <MovesCard recs={analysis.recommendations} />
+          )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {!loaded ? (
-          <div className="space-y-4">
-            <div className="h-40 shimmer rounded-lg" />
-            <div className="h-32 shimmer rounded-lg" />
-          </div>
-        ) : analysis.error ? (
-          <div className="flex items-center justify-center h-64 rounded-lg border border-border-default bg-bg-panel/40">
-            <EmptyState
-              title="No score history yet"
-              hint="Run a Filter to Database scan, then evaluate a few listings. This view tracks how their scores move when you re-evaluate them."
-            />
-          </div>
-        ) : (
-          <>
-            {/* Recommendations first — the act-now layer, like the Trends and
-                Today cockpits lead with "moves" before the evidence. */}
-            {analysis.recommendations && analysis.recommendations.length > 0 && (
-              <MovesCard recs={analysis.recommendations} />
-            )}
+          {/* Landscape trend — is targeting sharpening over calendar time? */}
+          {analysis.landscapeTrend && (
+            <LandscapeTrendCard trend={analysis.landscapeTrend} />
+          )}
 
-            {/* Landscape trend — is targeting sharpening over calendar time? */}
-            {analysis.landscapeTrend && (
-              <LandscapeTrendCard trend={analysis.landscapeTrend} />
-            )}
-
-            {/* Re-evaluated listing roll-up + the per-listing movers. */}
-            {analysis.trajectorySummary && reevaluated > 0 ? (
-              <>
-                <ReevalSummaryCard summary={analysis.trajectorySummary} />
-                <TrajectoryListCard trajectories={analysis.listingTrajectories ?? []} />
-              </>
-            ) : (
-              <NoReevalCard />
-            )}
-          </>
-        )}
-      </div>
+          {/* Re-evaluated listing roll-up + the per-listing movers. */}
+          {analysis.trajectorySummary && reevaluated > 0 ? (
+            <>
+              <ReevalSummaryCard summary={analysis.trajectorySummary} />
+              <TrajectoryListCard trajectories={analysis.listingTrajectories ?? []} />
+            </>
+          ) : (
+            <NoReevalCard />
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -366,7 +361,7 @@ function NoReevalCard() {
 
 // "2026-06-25" → "Jun 25". Score-history dates are YYYY-MM-DD ISO, so this
 // string split is TZ-stable (no local-midnight drift). Matches TrendsView's
-// fmtDay so dates read identically across both analytics views.
+// fmtDay so dates read identically across both Trends tabs.
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function fmtDay(iso: string): string {
   const [, m, d] = iso.split('-')

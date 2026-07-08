@@ -11,10 +11,12 @@ function reset() {
     view: 'scouting',
     databaseFilter: '',
     companySlug: '',
+    viewTab: '',
     companyReturnView: 'database',
     pendingView: null,
     pendingDatabaseFilter: '',
     pendingCompanySlug: '',
+    pendingViewTab: '',
   })
 }
 
@@ -71,25 +73,25 @@ test('navigating to the same company slug is a no-op', () => {
 
 test('leaving a dirty gated origin captures the company slug as a pending nav', () => {
   useConfigDirty.getState().setDirty('identity', 'test-section', true)
-  useNavStore.setState({ view: 'config' })
+  useNavStore.setState({ view: 'settings' })
 
   nav().navigate('company', '', 'acme')
   // view does not change until the modal resolves
-  assert.equal(nav().view, 'config')
+  assert.equal(nav().view, 'settings')
   assert.equal(nav().pendingView, 'company')
   assert.equal(nav().pendingCompanySlug, 'acme')
 
   nav().confirmPendingNavigate()
   assert.equal(nav().view, 'company')
   assert.equal(nav().companySlug, 'acme')
-  assert.equal(nav().companyReturnView, 'config')
+  assert.equal(nav().companyReturnView, 'settings')
   assert.equal(nav().pendingView, null)
   assert.equal(nav().pendingCompanySlug, '')
 })
 
 test('cancelling a pending nav drops the captured slug', () => {
   useConfigDirty.getState().setDirty('identity', 'test-section', true)
-  useNavStore.setState({ view: 'profile' })
+  useNavStore.setState({ view: 'settings' })
 
   nav().navigate('company', '', 'acme')
   assert.equal(nav().pendingCompanySlug, 'acme')
@@ -97,7 +99,34 @@ test('cancelling a pending nav drops the captured slug', () => {
   nav().cancelPendingNavigate()
   assert.equal(nav().pendingView, null)
   assert.equal(nav().pendingCompanySlug, '')
-  assert.equal(nav().view, 'profile')
+  assert.equal(nav().view, 'settings')
+})
+
+test('a same-view sub-tab request goes through while dirty state stays intra-view', () => {
+  // Dirty Settings + a sub-tab hop inside Settings must NOT trip the
+  // cross-view gate — the view's own intra-tab modal handles it.
+  useConfigDirty.getState().setDirty('identity', 'test-section', true)
+  useNavStore.setState({ view: 'settings' })
+
+  nav().navigate('settings', '', '', 'portals')
+  assert.equal(nav().view, 'settings')
+  assert.equal(nav().pendingView, null)
+  assert.equal(nav().viewTab, 'portals')
+})
+
+test('navigate carries a viewTab payload and the next plain navigate clears it', () => {
+  nav().navigate('trends', '', '', 'scoretrend')
+  assert.equal(nav().view, 'trends')
+  assert.equal(nav().viewTab, 'scoretrend')
+
+  nav().navigate('database')
+  assert.equal(nav().viewTab, '')
+})
+
+test('a redundant nav without payload keeps the active sub-tab request', () => {
+  nav().navigate('outreach', '', '', 'network')
+  nav().navigate('outreach')
+  assert.equal(nav().viewTab, 'network')
 })
 
 test('navigate to pipeline sets the view and clears the company slug', () => {
@@ -111,7 +140,7 @@ test('navigate to pipeline sets the view and clears the company slug', () => {
 test('VIEW_LABELS covers every ViewId including company', () => {
   const ids: ViewId[] = [
     'today', 'scouting', 'applying', 'outreach', 'offers', 'database', 'reports', 'trends',
-    'scoretrend', 'pipeline', 'scan', 'config', 'settings', 'profile', 'company',
+    'pipeline', 'scan', 'settings', 'profile', 'company',
   ]
   for (const id of ids) {
     assert.equal(typeof VIEW_LABELS[id], 'string')

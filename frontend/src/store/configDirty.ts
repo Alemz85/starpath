@@ -1,8 +1,11 @@
 import { create } from 'zustand'
 
-// Tracks which form sections inside Configuration have unsaved changes
-// AND holds their save handlers so the ConfigurationView can do "save and
-// switch" in one click without each tab having to know about the others.
+// Tracks which user-data form sections inside Settings (the Identity /
+// Roles / Portals sub-tabs) have unsaved changes AND holds their save
+// handlers so the SettingsView can do "save and switch" in one click
+// without each tab having to know about the others. Settings' General
+// sub-tab is deliberately absent: its controls persist on interaction, so
+// it never carries dirty state.
 //
 // Each tab can host multiple sections (RolesTab has primary roles + dream
 // companies + target locations; PortalsTab has keywords + companies +
@@ -12,7 +15,8 @@ import { create } from 'zustand'
 //
 // The save handlers are stored in the same place — registered by each
 // section on mount, called by `saveAll(tab)` when the user clicks
-// "Save and switch" on the unsaved-changes modal.
+// "Save and switch" on the unsaved-changes modal (both for sub-tab hops
+// inside Settings and for AppShell's cross-view nav guard).
 
 export type ConfigTab = 'identity' | 'roles' | 'portals'
 
