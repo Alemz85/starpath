@@ -85,10 +85,13 @@ test('scouting scaffold carries the canonical 11-column header', () => {
   );
 });
 
-test('applications scaffold carries the canonical 9-column header', () => {
+test('applications scaffold carries the canonical 10-column header (Deadline present)', () => {
+  // merge-tracker.mjs writes a Deadline cell between PDF and Report on every
+  // row, so the scaffold header must include it — a 9-col header under 10-col
+  // rows is the schema drift that mis-mapped Report/Notes downstream.
   assert.match(
     TRACKER_SCAFFOLDS['data/applications.md'],
-    /\| # \| Date \| Company \| Role \| Score \| Status \| PDF \| Report \| Notes \|/
+    /\| # \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes \|/
   );
 });
 

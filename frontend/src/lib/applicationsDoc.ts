@@ -60,6 +60,46 @@ export function tierFolder(tier: string): string {
   return 'tier-4'
 }
 
+// applications.md's canonical shape is 10 columns — a Deadline cell between PDF
+// and Report (merge-tracker.mjs writes it; CLAUDE.md onboarding documents it).
+// Files scaffolded before that carried a 9-col header + 9-col rows. Mutating
+// such a file in 10-col terms corrupts it: an appended 10-cell row misaligns
+// under a 9-col header, and the refresh path (cells[8] = Report) would overwrite
+// the NOTES cell of a 9-col row. So upgrade the whole table to 10 columns ONCE,
+// before any mutation — insert the Deadline header/separator cell and pad each
+// genuine 9-col data row's missing Deadline with `n/d`. Rows already at 10 cells
+// (the corrupted 9-col-header/10-col-row state) are left untouched, so the
+// upgrade is idempotent and safe on mixed files. A table already at 10 columns
+// (or with no recognizable header) is returned verbatim.
+const DEADLINE_INSERT_AT = 7 // between PDF (6) and Report (7) in the 9-col order
+
+export function ensureDeadlineColumn(raw: string): string {
+  const lines = raw.split('\n')
+  const headerIdx = lines.findIndex(l => /^\|\s*#\s*\|/i.test(l))
+  if (headerIdx === -1) return raw
+
+  const headerCells = splitRow(lines[headerIdx])
+  // Already 10-col (has Deadline) or an unfamiliar width → leave it alone.
+  if (headerCells.length !== 9) return raw
+  if (headerCells.some(c => c.toLowerCase() === 'deadline')) return raw
+
+  const migrated = lines.map((line, i) => {
+    if (i === headerIdx) {
+      const c = splitRow(line); c.splice(DEADLINE_INSERT_AT, 0, 'Deadline'); return joinRow(c)
+    }
+    if (isTableSeparator(line)) {
+      const c = splitRow(line); c.splice(DEADLINE_INSERT_AT, 0, '--------'); return joinRow(c)
+    }
+    if (isTableDataRow(line)) {
+      const c = splitRow(line)
+      if (c.length === 9) c.splice(DEADLINE_INSERT_AT, 0, 'n/d') // pad only genuine 9-col rows
+      return joinRow(c)
+    }
+    return line
+  })
+  return migrated.join('\n')
+}
+
 export function upsertApplicationRow(raw: string, args: {
   company: string
   role: string
@@ -67,7 +107,10 @@ export function upsertApplicationRow(raw: string, args: {
   tier: string
   reportPath?: string
 }): string {
-  const lines = raw.split('\n')
+  // Self-heal a legacy 9-col file to the canonical 10-col shape first, so both
+  // the refresh path (cells[8] = Report) and appended 10-cell rows land in the
+  // right columns instead of clobbering Notes / misaligning the table.
+  const lines = ensureDeadlineColumn(raw).split('\n')
 
   // Upsert on (company, role): applications.md holds at most one row per
   // listing. If it's already tracked, refresh the Score in place (and the

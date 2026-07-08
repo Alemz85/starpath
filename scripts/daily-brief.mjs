@@ -217,7 +217,8 @@ function getClassifiedDeadlines() {
 // 6. Pipeline health — counts derived from applications.md + pipeline.md.
 //    Active = Applied / Responded / Interview / Offer (in-flight).
 //    Evaluated = waiting for a decision (not yet applied or terminal).
-//    inboxCount = non-blank, non-comment lines in pipeline.md.
+//    inboxCount = pending inbox URLs (countPendingPipelineLines — the one
+//    counter shared with the cross-profile footer and `profile list`).
 const ACTIVE_STATUSES = new Set(['applied', 'responded', 'interview', 'offer'])
 const EVALUATED_STATUS = 'evaluated'
 
@@ -233,18 +234,15 @@ function getPipelineHealth() {
     else if (s === EVALUATED_STATUS) evaluated++
   }
 
-  // Count pipeline inbox items: non-blank lines that start with a URL or a
-  // list marker, excluding the header/separator. We count lines that look like
-  // they carry a URL (start with http or a list marker pointing to one).
-  let inboxCount = 0
-  if (existsSync(PIPELINE_FILE)) {
-    for (const line of read(PIPELINE_FILE).split('\n')) {
-      const t = line.trim()
-      if (!t || t.startsWith('|') || t.startsWith('#') || t.startsWith('<!--')) continue
-      // Count list-item lines with a URL
-      if (/^[-*]\s+https?:\/\//.test(t) || /^https?:\/\//.test(t)) inboxCount++
-    }
-  }
+  // Count pending inbox URLs with the SAME counter the cross-profile footer and
+  // `profile list` use (countPendingPipelineLines) — one source of truth. The
+  // former bespoke regex here required the URL immediately after the bullet, so
+  // it matched ZERO real scanner lines (`- [ ] url | Co | Title | relevance …`)
+  // and the "N URLs in pipeline inbox" clause silently never rendered, even
+  // though the triage section one block down parsed those very lines fine.
+  const inboxCount = existsSync(PIPELINE_FILE)
+    ? countPendingPipelineLines(read(PIPELINE_FILE))
+    : 0
 
   return { active, evaluated, inboxCount }
 }

@@ -9,7 +9,10 @@ import {
   isTableDataRow,
   isTableSeparator,
   findApplicationRowIndex,
+  ensureDeadlineColumn,
 } from '@/lib/applicationsDoc'
+import { parseApplications } from '@/lib/parsers/markdown'
+import { APPLICATIONS_SCAFFOLD } from '../../../scripts/lib/profile-core.mjs'
 
 // A realistic applications.md the user could have on disk — header, GFM
 // separator, and two tracked listings with non-default Status / PDF / Notes
@@ -107,6 +110,68 @@ test('updateApplicationStatus returns the input unchanged when no row matches', 
 test('updateApplicationStatus matches case-insensitively', () => {
   const next = updateApplicationStatus(DOC, 'GLOBEX', 'analyst', 'Offer')
   assert.equal(row(next, 'Globex', 'Analyst')![5], 'Offer')
+})
+
+// ─── 9-col → 10-col self-heal (F1c) ───────────────────────────────────────────
+
+// A legacy applications.md exactly as the old 9-col scaffold produced it, with
+// one tracked listing carrying a real Note the migration must preserve.
+const LEGACY_9COL = [
+  '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |',
+  '|---|------|---------|------|-------|--------|-----|--------|-------|',
+  '| 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Applied | ✅ | [#1](reports/tier-2/Acme - ML Eng.md) | emailed Jane |',
+].join('\n')
+
+test('ensureDeadlineColumn upgrades a 9-col table to 10-col, padding Deadline with n/d', () => {
+  const out = ensureDeadlineColumn(LEGACY_9COL)
+  const lines = out.split('\n')
+  assert.deepEqual(splitRow(lines[0]), ['#','Date','Company','Role','Score','Status','PDF','Deadline','Report','Notes'])
+  assert.equal(isTableSeparator(lines[1]), true)
+  const row = splitRow(lines[2])
+  assert.equal(row.length, 10)
+  assert.equal(row[7], 'n/d')                                        // Deadline padded
+  assert.equal(row[8], '[#1](reports/tier-2/Acme - ML Eng.md)')     // Report intact
+  assert.equal(row[9], 'emailed Jane')                              // Notes intact
+})
+
+test('ensureDeadlineColumn leaves a canonical 10-col table untouched (idempotent)', () => {
+  assert.equal(ensureDeadlineColumn(DOC), DOC)
+  assert.equal(ensureDeadlineColumn(ensureDeadlineColumn(LEGACY_9COL)), ensureDeadlineColumn(LEGACY_9COL))
+})
+
+test('the 9-col scaffold is already canonical 10-col (no migration needed)', () => {
+  // profile-core now ships the 10-col scaffold, so a fresh profile never trips
+  // the self-heal — the header carries Deadline out of the box.
+  assert.match(APPLICATIONS_SCAFFOLD as string, /\| PDF \| Deadline \| Report \| Notes \|/)
+  assert.equal(ensureDeadlineColumn(APPLICATIONS_SCAFFOLD as string), APPLICATIONS_SCAFFOLD)
+})
+
+test('upsert self-heals a legacy 9-col file: appends a valid 10-col row, preserves notes', () => {
+  const next = upsertApplicationRow(LEGACY_9COL, { company: 'Globex', role: 'Analyst', overall: 7.2, tier: 'T2' })
+  // Header upgraded to 10 columns.
+  assert.match(next.split('\n')[0], /\| PDF \| Deadline \| Report \| Notes \|/)
+  // The pre-existing row kept its Note through the migration…
+  const acme = parseApplications(next).find(r => r.company === 'Acme')!
+  assert.equal(acme.notes, 'emailed Jane')
+  assert.equal(acme.report, '[#1](reports/tier-2/Acme - ML Eng.md)')
+  // …and the new row is well-formed 10-col.
+  const globex = parseApplications(next).find(r => r.company === 'Globex')!
+  assert.equal(globex.num, 2)
+  assert.equal(globex.deadline, 'n/d')
+  assert.equal(globex.report, '[#2](reports/tier-2/Globex - Analyst.md)')
+})
+
+test('upsert refresh on a self-healed file updates Report, never Notes', () => {
+  // Refresh the existing Acme row with a new report path. Pre-fix this wrote
+  // cells[8] into a 9-col row's NOTES cell; post-migration cells[8] is Report.
+  const next = upsertApplicationRow(LEGACY_9COL, {
+    company: 'Acme', role: 'ML Eng', overall: 9.0, tier: 'T1',
+    reportPath: 'reports/tier-1/Acme - ML Eng.md',
+  })
+  const acme = parseApplications(next).find(r => r.company === 'Acme')!
+  assert.equal(acme.score, '9.0/10')                               // score refreshed
+  assert.equal(acme.report, '[#1](reports/tier-1/Acme - ML Eng.md)')  // Report moved
+  assert.equal(acme.notes, 'emailed Jane')                          // Notes untouched
 })
 
 // ─── primitives ───────────────────────────────────────────────────────────────

@@ -122,12 +122,20 @@ export const SCOUTING_SCAFFOLD =
   '| # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes |\n' +
   '|---|------|---------|------|-------|------|-------|--------|----------|----------------|-------|\n';
 
-/** data/applications.md scaffold — canonical header per CLAUDE.md onboarding. */
+/**
+ * data/applications.md scaffold — canonical 10-column header per CLAUDE.md
+ * onboarding. The `Deadline` cell (between PDF and Report) is what
+ * merge-tracker.mjs actually writes for every row, so the scaffold must carry
+ * it too — a 9-column header under 10-column data rows is the schema drift that
+ * slid Report/Notes one cell over in every downstream parser (frontend
+ * parseApplications, applicationsDoc upsert). tracker-core.mjs parseAppRow still
+ * tolerates the legacy 9-column form on existing files; new profiles start at 10.
+ */
 export const APPLICATIONS_SCAFFOLD =
   '# Applications Tracker\n\n' +
   'Active applications — entries the candidate has decided to apply to. Statuses are canonical (see `templates/states.yml`).\n\n' +
-  '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n' +
-  '|---|------|---------|------|-------|--------|-----|--------|-------|\n';
+  '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |\n' +
+  '|---|------|---------|------|-------|--------|-----|----------|--------|-------|\n';
 
 /** data/pipeline.md scaffold — same shape merge-scan-staging.mjs creates. */
 export const PIPELINE_SCAFFOLD = '# Pipeline — Pending Evaluations\n\n## Pending\n';
