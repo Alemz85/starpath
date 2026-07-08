@@ -92,7 +92,7 @@ Three views bypass the store and hit IPC directly:
 
 - **TrendsView** uses `db.trends()` for pre-aggregated chart buckets.
 - **ReportsView** uses `db.reports()` for the list (each row already carries its overall score from a SQL left-join). The slide-over still looks up the full `ScoreEntry` from the store on click.
-- **NetworkView** uses `ipc.network.overview()` (the `network:overview` channel above), re-fetching whenever the store's applications/scouting arrays change — the watcher bumps those on any `data/*` write, which is the cue the network/outreach logs may have changed too.
+- **The Outreach view's Network sub-tab** (`NetworkPanel`) uses `ipc.network.overview()` (the `network:overview` channel above), re-fetching whenever the store's applications/scouting arrays change — the watcher bumps those on any `data/*` write, which is the cue the network/outreach logs may have changed too.
 
 One cockpit surface delegates its math to the repo's scripts instead of the cache: **CommandCenter's DailyBriefPanel** runs `node scripts/daily-brief.mjs --json` through the one-shot `shell:run` channel (main process, cwd = repoPath) and parses the result via the pure `lib/dailyBrief.ts` bridge — the ranking/"do this first" logic stays single-sourced in `scripts/lib/daily-brief-core.mjs`, never re-implemented in the renderer. It re-runs (debounced) whenever the data store re-mirrors disk, and renders nothing when the brief is empty.
 

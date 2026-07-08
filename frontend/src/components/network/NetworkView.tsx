@@ -44,22 +44,25 @@ function daysLabel(n: number | null): string {
   return `${n}d ago`
 }
 
-// ─── The view ─────────────────────────────────────────────────────────────────
+// ─── Overview fetch ───────────────────────────────────────────────────────────
 
-export function NetworkView() {
-  const loaded = useDataStore(s => s.loaded)
+// The overview is derived in the main process from data/network.md +
+// data/outreach.md + the pipeline files (see scripts/lib/network-lens-core.mjs
+// via the network:overview channel). Neither log file is in the SQLite cache,
+// so re-derive whenever the store data shifts — the chokidar watcher bumps
+// applications/scouting on any data/* write, which is our cue the network or
+// outreach log may have changed too (same approach as the Outreach board).
+//
+// A hook rather than panel-local state so OutreachView mounts it once and
+// shares the result between its title-bar meta and the panel body — the
+// overview is never fetched twice.
+export function useNetworkOverview() {
   const applications = useDataStore(s => s.applications)
   const scouting = useDataStore(s => s.scouting)
 
   const [overview, setOverview] = useState<NetworkOverview | null>(null)
   const [ready, setReady] = useState(false)
 
-  // The overview is derived in the main process from data/network.md +
-  // data/outreach.md + the pipeline files (see scripts/lib/network-lens-core.mjs
-  // via the network:overview channel). Neither log file is in the SQLite cache,
-  // so re-derive whenever the store data shifts — the chokidar watcher bumps
-  // applications/scouting on any data/* write, which is our cue the network or
-  // outreach log may have changed too (same approach as the Outreach board).
   useEffect(() => {
     let cancelled = false
     ipc.network.overview()
@@ -67,6 +70,19 @@ export function NetworkView() {
       .catch(() => { if (!cancelled) { setOverview(null); setReady(true) } })
     return () => { cancelled = true }
   }, [applications, scouting])
+
+  return { overview, ready, empty: overview ? isNetworkEmpty(overview) : false }
+}
+
+// ─── The panel ────────────────────────────────────────────────────────────────
+
+// Panel body for OutreachView's Network tab — the host owns the title bar,
+// the tab strip, and the scroll container; this owns the content only.
+export function NetworkPanel({ overview, ready }: {
+  overview: NetworkOverview | null
+  ready: boolean
+}) {
+  const loaded = useDataStore(s => s.loaded)
 
   const rosterRows = useMemo(
     () => (overview ? buildRosterRows(overview) : []),
@@ -81,118 +97,105 @@ export function NetworkView() {
   const empty = overview ? isNetworkEmpty(overview) : false
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Network</h1>
-        {!showSkeleton && overview && !empty && (
-          <span className="text-label text-text-4 font-mono" aria-live="polite">
-            {overview.counts.contacts} {overview.counts.contacts === 1 ? 'contact' : 'contacts'}
-            {' · '}{overview.counts.companiesWithPath} warm {overview.counts.companiesWithPath === 1 ? 'company' : 'companies'}
-            {overview.counts.dueNudges > 0 && <> · <span className="text-accent">{overview.counts.dueNudges} {overview.counts.dueNudges === 1 ? 'nudge' : 'nudges'} due</span></>}
-          </span>
-        )}
-      </div>
+    <div className="space-y-4">
+      {showSkeleton ? (
+        <div className="space-y-4" aria-hidden>
+          <div className="h-40 shimmer rounded-lg" />
+          <div className="h-32 shimmer rounded-lg" />
+        </div>
+      ) : overview === null ? (
+        // The main process couldn't load the lens core — an old repo checkout
+        // is the realistic cause. Say exactly that; nothing decorative.
+        <p className="text-label text-text-3 max-w-xl leading-relaxed">
+          The network lens couldn&apos;t load. It needs{' '}
+          <code className="font-mono text-[11px] text-text-2">scripts/lib/network-lens-core.mjs</code>{' '}
+          in your career-ops folder — update the repo, then reopen this tab.
+        </p>
+      ) : empty ? (
+        <RosterStarter />
+      ) : (
+        <>
+          {/* Roster exists but data/network.md itself is empty — the threads
+              below come from the outreach log alone. Still show how to start
+              the roster; it's the asset this lens exists to map. */}
+          {overview.roster.length === 0 && <RosterStarter compact />}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {showSkeleton ? (
-          <div className="space-y-4" aria-hidden>
-            <div className="h-40 shimmer rounded-lg" />
-            <div className="h-32 shimmer rounded-lg" />
-          </div>
-        ) : overview === null ? (
-          // The main process couldn't load the lens core — an old repo checkout
-          // is the realistic cause. Say exactly that; nothing decorative.
-          <p className="text-label text-text-3 max-w-xl leading-relaxed">
-            The network lens couldn&apos;t load. It needs{' '}
-            <code className="font-mono text-[11px] text-text-2">scripts/lib/network-lens-core.mjs</code>{' '}
-            in your career-ops folder — update the repo, then reopen this tab.
-          </p>
-        ) : empty ? (
-          <RosterStarter />
-        ) : (
-          <>
-            {/* Roster exists but data/network.md itself is empty — the threads
-                below come from the outreach log alone. Still show how to start
-                the roster; it's the asset this lens exists to map. */}
-            {overview.roster.length === 0 && <RosterStarter compact />}
+          {/* 1 · Warm paths into the pipeline, most actionable play first. */}
+          {overview.companies.length > 0 && (
+            <Section
+              title="Warm paths"
+              sub={`${overview.counts.companiesWithPath} pipeline ${overview.counts.companiesWithPath === 1 ? 'company' : 'companies'} where you know someone`}
+            >
+              <div className="divide-y divide-border-default/60">
+                {overview.companies.map(c => <CompanyRow key={c.companyKey} c={c} />)}
+              </div>
+            </Section>
+          )}
+          {overview.companies.length === 0 && overview.roster.length > 0 && overview.counts.pipelineTargets > 0 && (
+            <p className="text-label text-text-4">
+              None of your {overview.counts.contacts} mapped {overview.counts.contacts === 1 ? 'contact works' : 'contacts work'} at
+              a company in your pipeline yet.
+            </p>
+          )}
 
-            {/* 1 · Warm paths into the pipeline, most actionable play first. */}
-            {overview.companies.length > 0 && (
-              <Section
-                title="Warm paths"
-                sub={`${overview.counts.companiesWithPath} pipeline ${overview.counts.companiesWithPath === 1 ? 'company' : 'companies'} where you know someone`}
-              >
-                <div className="divide-y divide-border-default/60">
-                  {overview.companies.map(c => <CompanyRow key={c.companyKey} c={c} />)}
-                </div>
-              </Section>
-            )}
-            {overview.companies.length === 0 && overview.roster.length > 0 && overview.counts.pipelineTargets > 0 && (
-              <p className="text-label text-text-4">
-                None of your {overview.counts.contacts} mapped {overview.counts.contacts === 1 ? 'contact works' : 'contacts work'} at
-                a company in your pipeline yet.
-              </p>
-            )}
+          {/* 2 · Cadence on open outreach threads. */}
+          {overview.threads.length > 0 && (
+            <Section
+              title="Open threads"
+              sub={`${overview.counts.threads} logged · ${overview.counts.dueNudges} due a nudge`}
+            >
+              <div className="divide-y divide-border-default/60">
+                {overview.threads.map(t => (
+                  <ThreadRow key={`${t.company}|${t.contact}`.toLowerCase()} t={t} />
+                ))}
+              </div>
+            </Section>
+          )}
 
-            {/* 2 · Cadence on open outreach threads. */}
-            {overview.threads.length > 0 && (
-              <Section
-                title="Open threads"
-                sub={`${overview.counts.threads} logged · ${overview.counts.dueNudges} due a nudge`}
-              >
-                <div className="divide-y divide-border-default/60">
-                  {overview.threads.map(t => (
-                    <ThreadRow key={`${t.company}|${t.contact}`.toLowerCase()} t={t} />
-                  ))}
-                </div>
-              </Section>
-            )}
+          {/* 3 · Coverage gaps — apply-worthy companies with nobody mapped. */}
+          {gapSplit.priority.length > 0 && (
+            <Section
+              title="Coverage gaps"
+              sub="apply-worthy companies with no mapped contact — worth finding a path into"
+            >
+              <div className="divide-y divide-border-default/60">
+                {gapSplit.priority.map(g => <GapRow key={g.companyKey} g={g} />)}
+              </div>
+              {gapSplit.rest.length > 0 && (
+                <p className="text-micro text-text-4 pt-2">
+                  +{gapSplit.rest.length} more below the 7.0 apply threshold
+                </p>
+              )}
+            </Section>
+          )}
 
-            {/* 3 · Coverage gaps — apply-worthy companies with nobody mapped. */}
-            {gapSplit.priority.length > 0 && (
-              <Section
-                title="Coverage gaps"
-                sub="apply-worthy companies with no mapped contact — worth finding a path into"
-              >
-                <div className="divide-y divide-border-default/60">
-                  {gapSplit.priority.map(g => <GapRow key={g.companyKey} g={g} />)}
-                </div>
-                {gapSplit.rest.length > 0 && (
-                  <p className="text-micro text-text-4 pt-2">
-                    +{gapSplit.rest.length} more below the 7.0 apply threshold
-                  </p>
-                )}
-              </Section>
-            )}
+          {/* 4 · Latent leads — people you know at untargeted companies. */}
+          {overview.latentLeads.length > 0 && (
+            <Section
+              title="Latent leads"
+              sub="contacts at companies not in your pipeline — leads if you ever target them"
+            >
+              <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+                {overview.latentLeads.map(l => (
+                  <span key={`${l.companyKey}|${l.name}`} className="text-label text-text-3">
+                    <span className="text-text-2 font-medium">{l.name}</span>
+                    {' @ '}{l.company}
+                    {l.title && <span className="text-text-4"> · {l.title}</span>}
+                    <span className="text-text-4"> · {TIE_LABEL[l.relationship] ?? l.relationship}, {degreeLabel(l.degree, l.via)}</span>
+                  </span>
+                ))}
+              </div>
+            </Section>
+          )}
 
-            {/* 4 · Latent leads — people you know at untargeted companies. */}
-            {overview.latentLeads.length > 0 && (
-              <Section
-                title="Latent leads"
-                sub="contacts at companies not in your pipeline — leads if you ever target them"
-              >
-                <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-                  {overview.latentLeads.map(l => (
-                    <span key={`${l.companyKey}|${l.name}`} className="text-label text-text-3">
-                      <span className="text-text-2 font-medium">{l.name}</span>
-                      {' @ '}{l.company}
-                      {l.title && <span className="text-text-4"> · {l.title}</span>}
-                      <span className="text-text-4"> · {TIE_LABEL[l.relationship] ?? l.relationship}, {degreeLabel(l.degree, l.via)}</span>
-                    </span>
-                  ))}
-                </div>
-              </Section>
-            )}
-
-            {/* 5 · The roster itself. */}
-            {rosterRows.length > 0 && (
-              <Section title="Roster" sub="everyone in data/network.md">
-                <RosterTable rows={rosterRows} />
-              </Section>
-            )}
-          </>
-        )}
-      </div>
+          {/* 5 · The roster itself. */}
+          {rosterRows.length > 0 && (
+            <Section title="Roster" sub="everyone in data/network.md">
+              <RosterTable rows={rosterRows} />
+            </Section>
+          )}
+        </>
+      )}
     </div>
   )
 }

@@ -13,18 +13,15 @@ import {
   Database,
   FileText,
   TrendingUp,
-  Route,
   GitBranch,
   Scale,
   Search,
   Settings,
-  SlidersHorizontal,
   ChevronLeft,
   ChevronRight,
   Activity,
   User,
   AlertTriangle,
-  Waypoints,
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawns'
 import { useDataStore } from '@/store/data'
@@ -57,24 +54,24 @@ const PRIMARY_NAV: NavItem[] = [
 ]
 
 // Secondary tabs — supporting views (data, analytics, activity).
+// Several former standalone tabs now live as sub-tabs inside these views:
+// Network is Outreach › Network, Score Trend is Trends › Score Trend, and
+// the Configuration editor is Settings › Identity/Target Roles/Portals.
 // `view: 'scan'` is the internal key (legacy from when this tab actually
 // triggered scans); user-facing label is "Activity" since it now hosts
 // every running spawn — scans, filter runs, tailoring, company API probes.
 const SECONDARY_NAV: NavItem[] = [
   { view: 'offers',   label: 'Offers',   icon: Scale      },
-  { view: 'network',  label: 'Network',  icon: Waypoints  },
   { view: 'database', label: 'Database', icon: Database   },
-  { view: 'reports',    label: 'Reports',     icon: FileText   },
-  { view: 'trends',     label: 'Trends',      icon: TrendingUp },
-  { view: 'scoretrend', label: 'Score Trend', icon: Route      },
-  { view: 'pipeline',   label: 'Pipeline',    icon: GitBranch  },
-  { view: 'scan',       label: 'Activity',    icon: Activity   },
+  { view: 'reports',  label: 'Reports',  icon: FileText   },
+  { view: 'trends',   label: 'Trends',   icon: TrendingUp },
+  { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
+  { view: 'scan',     label: 'Activity', icon: Activity   },
 ]
 
 const BOTTOM_ITEMS: NavItem[] = [
-  { view: 'profile',  label: 'Profile',       icon: User              },
-  { view: 'config',   label: 'Configuration', icon: SlidersHorizontal },
-  { view: 'settings', label: 'Settings',      icon: Settings          },
+  { view: 'profile',  label: 'Profile',  icon: User     },
+  { view: 'settings', label: 'Settings', icon: Settings },
 ]
 
 export function Sidebar() {

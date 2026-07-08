@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Route, GitBranch, Activity, Settings, SlidersHorizontal, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft,
+  TrendingUp, Route, GitBranch, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { useProfilesStore } from '@/store/profiles'
@@ -35,8 +35,11 @@ export function CmdK() {
     return () => document.removeEventListener('keydown', handler)
   }, [])
 
-  const go = (view: Parameters<typeof navigate>[0], filter?: string) => {
-    navigate(view, filter)
+  // `tab` targets a sub-tab inside the destination view (Outreach › Network,
+  // Trends › Score Trend, Settings sections) via the nav store's one-shot
+  // viewTab request.
+  const go = (view: Parameters<typeof navigate>[0], filter?: string, tab?: string) => {
+    navigate(view, filter, '', tab)
     setOpen(false)
   }
 
@@ -77,26 +80,30 @@ export function CmdK() {
             </Command.Empty>
 
             <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Navigate</span>}>
+              {/* Former standalone views kept as entries targeting their new
+                  sub-tab home, so muscle-memory searches still land right:
+                  Network → Outreach › Network, Score Trend → Trends › Score
+                  Trend. Configuration's editor sections live under Settings. */}
               {([
                 { view: 'today',    label: 'Today',    icon: Sun        },
                 { view: 'scouting', label: 'Scouting', icon: Map        },
                 { view: 'applying', label: 'Applying', icon: Briefcase  },
                 { view: 'outreach', label: 'Outreach', icon: Users      },
                 { view: 'offers',   label: 'Offers',   icon: Scale      },
-                { view: 'network',  label: 'Network',  icon: Waypoints  },
+                { view: 'outreach', label: 'Network',  icon: Waypoints, tab: 'network' },
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-                { view: 'scoretrend', label: 'Score Trend',  icon: Route            },
-                { view: 'pipeline', label: 'Pipeline',       icon: GitBranch        },
-                { view: 'scan',     label: 'Activity',       icon: Activity         },
-                { view: 'config',   label: 'Configuration',  icon: SlidersHorizontal},
-                { view: 'settings', label: 'Settings',       icon: Settings         },
-              ] as const).map(({ view, label, icon: Icon }) => (
+                { view: 'trends',   label: 'Score Trend', icon: Route, tab: 'scoretrend' },
+                { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
+                { view: 'scan',     label: 'Activity', icon: Activity   },
+                { view: 'settings', label: 'Settings', icon: Settings   },
+                { view: 'profile',  label: 'Profile',  icon: User       },
+              ] as const).map(({ view, label, icon: Icon, ...rest }) => (
                 <Command.Item
-                  key={view}
+                  key={label}
                   value={label}
-                  onSelect={() => go(view)}
+                  onSelect={() => go(view, '', 'tab' in rest ? rest.tab : undefined)}
                   className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
                 >
                   <Icon size={14} className="text-text-3" />

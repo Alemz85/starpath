@@ -241,6 +241,7 @@ The app is a power-user product (register: product). Per the product doctrine, d
 - Mobile: hamburger collapse, full-screen overlay nav
 - Height: approximately 56px desktop, 48px mobile
 - Border-bottom: subtle `#DEE3E9` separator (`border-default`)
+- **Sub-view tabs**: views hosting more than one surface (Trends › Overview/Score Trend, Outreach › Board/Network, Settings sections) use the shared `<ViewTabs />` strip (`components/shared/ViewTabs.tsx`) directly under the title bar — `bg-bg-chrome` row, `text-label` tabs with a 2px `border-accent` underline on the active tab, inactive `text-text-4` → hover `text-text-2`, ARIA tablist + arrow-key nav, optional accent unsaved-changes dot. Don't hand-roll per-view tab strips; one bar per view, never nested.
 
 ### Image Treatment
 
