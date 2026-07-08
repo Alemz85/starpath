@@ -8,7 +8,10 @@ import {
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
 import { useDataStore } from '@/store/data'
+import { useNavStore } from '@/store/nav'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { ViewTabs, viewPanelId, viewTabId, type ViewTab } from '@/components/shared/ViewTabs'
+import { NetworkPanel, useNetworkOverview } from '@/components/network/NetworkView'
 import {
   buildOutreachBoard,
   appendOutreachTouch,
@@ -20,6 +23,14 @@ import {
 } from '@/lib/outreachDoc'
 
 const LOG_PATH = 'data/outreach.md'
+
+// Sub-tabs: Board is the touch log (cadence + writebacks), Network is the
+// roster/plays/gaps lens — one warm-outreach domain, two surfaces.
+type OutreachTab = 'board' | 'network'
+const OUTREACH_TABS: readonly ViewTab<OutreachTab>[] = [
+  { key: 'board', label: 'Board' },
+  { key: 'network', label: 'Network' },
+]
 
 // Cadence verdict → presentation. Reuses the same semantic ladder the Today
 // cockpit maps outreach onto (DESIGN-meta tokens only — no new hues):
@@ -58,6 +69,19 @@ export function OutreachView() {
   const [ready, setReady] = useState(false)
   const [composing, setComposing] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<OutreachTab>('board')
+
+  // Honor one-shot sub-tab requests from navigate('outreach', '', '', 'network')
+  // — nav.ts resets viewTab on the next payload-less navigate, so this only
+  // fires when a caller explicitly asked for a tab.
+  const requestedTab = useNavStore(s => s.viewTab)
+  useEffect(() => {
+    if (requestedTab === 'board' || requestedTab === 'network') setTab(requestedTab)
+  }, [requestedTab])
+
+  // One overview fetch serves both the Network title-bar meta and the panel
+  // body (the hook lives in NetworkView.tsx beside its data contract).
+  const net = useNetworkOverview()
 
   // Read the log straight off disk — it's a contacto-mode artifact, not in the
   // SQLite cache (same approach as TodayView). Re-read whenever the store data
@@ -125,73 +149,114 @@ export function OutreachView() {
   }, [logTouch])
 
   const showSkeleton = !loaded || !ready
+  const netSkeleton = !loaded || !net.ready
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Title-bar contents swap with the active tab — each tab's real meta,
+          or nothing while it loads; never a placeholder caption. */}
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Outreach</h1>
-        <span className="text-label text-text-4 font-mono" aria-live="polite" aria-atomic="true">
-          {showSkeleton ? '…' : `${counts.nudge} ${counts.nudge === 1 ? 'nudge' : 'nudges'} due`}
-        </span>
-        <div className="flex-1" />
-        <button
-          onClick={() => setComposing(true)}
-          disabled={showSkeleton || busy}
-          aria-label="Log a new outreach touch"
-          className="titlebar-no-drag inline-flex items-center gap-1.5 h-7 pl-2 pr-2.5 rounded-pill bg-accent hover:bg-accent-hover text-white text-label font-medium transition-colors shadow-pill disabled:opacity-40 disabled:pointer-events-none"
-        >
-          <Plus size={13} aria-hidden />
-          Log a touch
-        </button>
+        {tab === 'board' ? (
+          <>
+            <span className="text-label text-text-4 font-mono" aria-live="polite" aria-atomic="true">
+              {showSkeleton ? '…' : `${counts.nudge} ${counts.nudge === 1 ? 'nudge' : 'nudges'} due`}
+            </span>
+            <div className="flex-1" />
+            {/* The compose button belongs to the log, so it's Board-only; the
+                modal itself stays mounted at the view root. */}
+            <button
+              onClick={() => setComposing(true)}
+              disabled={showSkeleton || busy}
+              aria-label="Log a new outreach touch"
+              className="titlebar-no-drag inline-flex items-center gap-1.5 h-7 pl-2 pr-2.5 rounded-pill bg-accent hover:bg-accent-hover text-white text-label font-medium transition-colors shadow-pill disabled:opacity-40 disabled:pointer-events-none"
+            >
+              <Plus size={13} aria-hidden />
+              Log a touch
+            </button>
+          </>
+        ) : (
+          !netSkeleton && net.overview && !net.empty && (
+            <span className="text-label text-text-4 font-mono" aria-live="polite">
+              {net.overview.counts.contacts} {net.overview.counts.contacts === 1 ? 'contact' : 'contacts'}
+              {' · '}{net.overview.counts.companiesWithPath} warm {net.overview.counts.companiesWithPath === 1 ? 'company' : 'companies'}
+              {net.overview.counts.dueNudges > 0 && <> · <span className="text-accent">{net.overview.counts.dueNudges} {net.overview.counts.dueNudges === 1 ? 'nudge' : 'nudges'} due</span></>}
+            </span>
+          )
+        )}
       </div>
 
-      <div className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0">
-        {/* Editorial hero — the cadence headline + a four-column breakdown of the
-            contact mix, mirroring the Today / Applying hero pattern. */}
-        <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
-          <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
-            <h2 className="text-display-2 text-text-1">Stay in touch</h2>
-            {!showSkeleton && counts.nudge > 0 && (
-              <span className="text-label text-accent font-medium" aria-live="polite">
-                {counts.nudge} {counts.nudge === 1 ? 'contact is' : 'contacts are'} due a nudge
-              </span>
+      <ViewTabs
+        tabs={OUTREACH_TABS}
+        active={tab}
+        onSelect={setTab}
+        ariaLabel="Outreach sections"
+        idPrefix="outreach"
+      />
+
+      {tab === 'board' ? (
+        <div
+          role="tabpanel"
+          id={viewPanelId('outreach', 'board')}
+          aria-labelledby={viewTabId('outreach', 'board')}
+          className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0"
+        >
+          {/* Editorial hero — the cadence headline + a four-column breakdown of the
+              contact mix, mirroring the Today / Applying hero pattern. */}
+          <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
+            <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
+              <h2 className="text-display-2 text-text-1">Stay in touch</h2>
+              {!showSkeleton && counts.nudge > 0 && (
+                <span className="text-label text-accent font-medium" aria-live="polite">
+                  {counts.nudge} {counts.nudge === 1 ? 'contact is' : 'contacts are'} due a nudge
+                </span>
+              )}
+            </div>
+            {showSkeleton ? (
+              <div className="h-14 shimmer rounded-lg" aria-hidden />
+            ) : (
+              <div className="grid grid-cols-4 divide-x divide-border-default/50">
+                <StatTile value={counts.nudge}   label="Nudges due" sub="reach out now" accent={counts.nudge > 0 ? 'text-accent' : undefined} dot={counts.nudge > 0 ? 'bg-accent' : undefined} />
+                <StatTile value={counts.waiting} label="Waiting"    sub="on the clock" />
+                <StatTile value={counts.done}    label="Replied"    sub="they answered" accent={counts.done > 0 ? 'text-success' : undefined} />
+                <StatTile value={counts.cold}    label="Cold"       sub="no path left" />
+              </div>
             )}
           </div>
-          {showSkeleton ? (
-            <div className="h-14 shimmer rounded-lg" aria-hidden />
-          ) : (
-            <div className="grid grid-cols-4 divide-x divide-border-default/50">
-              <StatTile value={counts.nudge}   label="Nudges due" sub="reach out now" accent={counts.nudge > 0 ? 'text-accent' : undefined} dot={counts.nudge > 0 ? 'bg-accent' : undefined} />
-              <StatTile value={counts.waiting} label="Waiting"    sub="on the clock" />
-              <StatTile value={counts.done}    label="Replied"    sub="they answered" accent={counts.done > 0 ? 'text-success' : undefined} />
-              <StatTile value={counts.cold}    label="Cold"       sub="no path left" />
-            </div>
-          )}
-        </div>
 
-        {/* The contact list — nudges first. */}
-        <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1" role="region" aria-label="Outreach contacts">
-          {showSkeleton ? (
-            <div className="space-y-2" aria-hidden>
-              {[0, 1, 2].map(i => <div key={i} className="h-[72px] shimmer rounded-lg" />)}
-            </div>
-          ) : sorted.length === 0 ? (
-            <EmptyState onLog={() => setComposing(true)} />
-          ) : (
-            <div className="space-y-2 max-w-3xl" role="list">
-              {sorted.map(c => (
-                <ContactRow
-                  key={`${c.company}|${c.contact}`.toLowerCase()}
-                  contact={c}
-                  busy={busy}
-                  onNudge={() => nudgeAgain(c)}
-                  onOutcome={(o) => setOutcome(c, o)}
-                />
-              ))}
-            </div>
-          )}
+          {/* The contact list — nudges first. */}
+          <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1" role="region" aria-label="Outreach contacts">
+            {showSkeleton ? (
+              <div className="space-y-2" aria-hidden>
+                {[0, 1, 2].map(i => <div key={i} className="h-[72px] shimmer rounded-lg" />)}
+              </div>
+            ) : sorted.length === 0 ? (
+              <EmptyState onLog={() => setComposing(true)} />
+            ) : (
+              <div className="space-y-2 max-w-3xl" role="list">
+                {sorted.map(c => (
+                  <ContactRow
+                    key={`${c.company}|${c.contact}`.toLowerCase()}
+                    contact={c}
+                    busy={busy}
+                    onNudge={() => nudgeAgain(c)}
+                    onOutcome={(o) => setOutcome(c, o)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      ) : (
+        <div
+          role="tabpanel"
+          id={viewPanelId('outreach', 'network')}
+          aria-labelledby={viewTabId('outreach', 'network')}
+          className="flex-1 min-h-0 overflow-y-auto p-4"
+        >
+          <NetworkPanel overview={net.overview} ready={net.ready} />
+        </div>
+      )}
 
       {composing && (
         <LogTouchModal

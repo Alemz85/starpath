@@ -5,9 +5,9 @@ import { AlertTriangle, Loader2 } from 'lucide-react'
 
 // Shared "Unsaved changes" modal used in two places:
 //
-//   1. ConfigurationView's intra-tab switch (Identity ↔ Roles ↔ Portals)
-//      when the active sub-tab has dirty form state.
-//   2. AppShell's cross-view nav guard — when the user is on Configuration
+//   1. SettingsView's intra-view sub-tab switch (General ↔ Identity ↔
+//      Roles ↔ Portals) when the active sub-tab has dirty form state.
+//   2. AppShell's cross-view nav guard — when the user is on Settings
 //      with unsaved edits and clicks any other primary tab in the Sidebar.
 //
 // Behavior is intentionally identical across both surfaces so the user

@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useDataStore } from '@/store/data'
+import { useNavStore } from '@/store/nav'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -10,7 +11,10 @@ import { cn } from '@/lib/utils'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { ViewTabs, viewPanelId, viewTabId, type ViewTab } from '@/components/shared/ViewTabs'
+import { ScoreTrendPanel } from '@/components/scoretrend/ScoreTrendView'
 import { scoreColor as galaxyScoreColor } from '@/lib/tier'
+import { analyzeScoreTrend } from '@/lib/scoreTrend'
 import {
   type TimeRange, type DateBucket, type TopRow, type Distribution, type Funnel,
   type DimensionProfile, type TargetingMomentum, type MomentumDirection,
@@ -54,6 +58,18 @@ const DIMENSIONS: Array<{ key: DimKey; label: string }> = [
   { key: 'avg_wlb',              label: 'Work-Life'        },
 ]
 
+// Sub-tabs under the title bar: the landscape analytics (Overview) and the
+// re-evaluation trajectory panel (Score Trend, absorbed from the retired
+// standalone scoretrend view). 'scoretrend' doubles as the deep-link key —
+// navigate('trends', '', '', 'scoretrend') lands on that tab via the nav
+// store's one-shot viewTab request.
+type TrendsTab = 'overview' | 'scoretrend'
+
+const TRENDS_TABS: ReadonlyArray<ViewTab<TrendsTab>> = [
+  { key: 'overview',   label: 'Overview'    },
+  { key: 'scoretrend', label: 'Score Trend' },
+]
+
 // dataKey → human label, used by the custom chart tooltip to name each
 // active series (recharts only hands the tooltip the raw dataKey).
 const DIM_LABEL_BY_KEY: Record<string, string> =
@@ -70,6 +86,23 @@ export function TrendsView() {
   const applications = useDataStore(s => s.applications)
   const [activeDims, setActiveDims] = useState<Set<DimKey>>(new Set(['avg_overall', 'avg_current_fit', 'avg_aspirational_fit']))
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
+  const [tab, setTab] = useState<TrendsTab>('overview')
+
+  // One-shot sub-tab request from navigate('trends', '', '', <tab>) — CmdK
+  // and other deep links land on Score Trend through this.
+  const requestedTab = useNavStore(s => s.viewTab)
+  useEffect(() => {
+    if (requestedTab === 'overview' || requestedTab === 'scoretrend') setTab(requestedTab)
+  }, [requestedTab])
+
+  // Title-bar meta for the Score Trend tab — the same one-pass analysis the
+  // panel runs, needed here only for the "{n} evaluations · {n} re-evaluated"
+  // caption (the title bar belongs to the host, the panel stays self-
+  // contained). Gated on the tab so Overview-only sessions never pay for it.
+  const scoreTrendMeta = useMemo(
+    () => (tab === 'scoretrend' ? analyzeScoreTrend(scoreHistory) : null),
+    [tab, scoreHistory],
+  )
 
   // Filter once by time range; everything else (chart, top-X panels, stats)
   // derives from this. Computing client-side from scoreHistory (already in
@@ -137,178 +170,221 @@ export function TrendsView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Title bar — the meta caption and the time-range control follow the
+          active tab: the range only filters the Overview analytics (Score
+          Trend always reads the full history), so it renders only there. */}
       <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
         <h1 className="text-body text-text-1 font-medium">Trends</h1>
-        {stats && (
+        {tab === 'overview' && stats && (
           <span className="text-label text-text-4 font-mono">{stats.total} evaluations</span>
         )}
+        {tab === 'scoretrend' && loaded && scoreTrendMeta && !scoreTrendMeta.error && (
+          <span className="text-label text-text-4 font-mono">
+            {scoreTrendMeta.metadata?.evaluated ?? 0} evaluations · {scoreTrendMeta.trajectorySummary?.reevaluated ?? 0} re-evaluated
+          </span>
+        )}
         <div className="flex-1" />
-        <div className="titlebar-no-drag flex rounded-md overflow-hidden border border-border-default">
-          {(['all', '1y', '6m', '1m'] as const).map(r => (
-            <button
-              key={r}
-              onClick={() => setTimeRange(r)}
-              className={cn(
-                'px-2.5 py-1 text-label transition-colors',
-                timeRange === r ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',
-              )}
-            >
-              {TIME_RANGE_LABEL[r]}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {stats && (
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { label: 'Total evaluated',      value: stats.total },
-              { label: 'Avg overall',          value: stats.avgOverall },
-              { label: 'Avg current fit',      value: stats.avgCF },
-              { label: 'Avg aspirational fit', value: stats.avgAF },
-            ].map(({ label, value }) => (
-              <div key={label} className="bg-bg-panel border border-border-default rounded-lg p-3">
-                <div className="text-micro text-text-4 uppercase mb-1">{label}</div>
-                <div className="text-section font-mono text-text-1 font-medium">{value}</div>
-              </div>
+        {tab === 'overview' && (
+          <div className="titlebar-no-drag flex rounded-md overflow-hidden border border-border-default">
+            {(['all', '1y', '6m', '1m'] as const).map(r => (
+              <button
+                key={r}
+                onClick={() => setTimeRange(r)}
+                className={cn(
+                  'px-2.5 py-1 text-label transition-colors',
+                  timeRange === r ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',
+                )}
+              >
+                {TIME_RANGE_LABEL[r]}
+              </button>
             ))}
           </div>
         )}
+      </div>
 
-        <div className="flex flex-wrap gap-1.5">
-          {DIMENSIONS.map(({ key, label }, i) => (
-            <button
-              key={key}
-              onClick={() => toggleDim(key)}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-label border transition-colors',
-                activeDims.has(key)
-                  ? 'border-transparent text-white'
-                  : 'border-border-default text-text-4 hover:text-text-2',
+      <ViewTabs
+        tabs={TRENDS_TABS}
+        active={tab}
+        onSelect={setTab}
+        ariaLabel="Trends sections"
+        idPrefix="trends"
+      />
+
+      {/* Tab panels share one scroll container; inactive panels unmount so
+          neither tab pays for the other's charts. */}
+      <div className="flex-1 overflow-y-auto">
+        <div
+          role="tabpanel"
+          id={viewPanelId('trends', 'overview')}
+          aria-labelledby={viewTabId('trends', 'overview')}
+          hidden={tab !== 'overview'}
+          className="p-4 space-y-4"
+        >
+          {tab === 'overview' && (
+            <>
+              {stats && (
+                <div className="grid grid-cols-4 gap-3">
+                  {[
+                    { label: 'Total evaluated',      value: stats.total },
+                    { label: 'Avg overall',          value: stats.avgOverall },
+                    { label: 'Avg current fit',      value: stats.avgCF },
+                    { label: 'Avg aspirational fit', value: stats.avgAF },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="bg-bg-panel border border-border-default rounded-lg p-3">
+                      <div className="text-micro text-text-4 uppercase mb-1">{label}</div>
+                      <div className="text-section font-mono text-text-1 font-medium">{value}</div>
+                    </div>
+                  ))}
+                </div>
               )}
-              style={activeDims.has(key) ? {
-                backgroundColor: DIM_COLORS[i % DIM_COLORS.length] + '33',
-                borderColor: DIM_COLORS[i % DIM_COLORS.length] + '80',
-                color: DIM_COLORS[i % DIM_COLORS.length],
-              } : {}}
-            >
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: activeDims.has(key) ? DIM_COLORS[i % DIM_COLORS.length] : 'var(--divider-gray)' }}
-              />
-              {label}
-            </button>
-          ))}
+
+              <div className="flex flex-wrap gap-1.5">
+                {DIMENSIONS.map(({ key, label }, i) => (
+                  <button
+                    key={key}
+                    onClick={() => toggleDim(key)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-label border transition-colors',
+                      activeDims.has(key)
+                        ? 'border-transparent text-white'
+                        : 'border-border-default text-text-4 hover:text-text-2',
+                    )}
+                    style={activeDims.has(key) ? {
+                      backgroundColor: DIM_COLORS[i % DIM_COLORS.length] + '33',
+                      borderColor: DIM_COLORS[i % DIM_COLORS.length] + '80',
+                      color: DIM_COLORS[i % DIM_COLORS.length],
+                    } : {}}
+                  >
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ background: activeDims.has(key) ? DIM_COLORS[i % DIM_COLORS.length] : 'var(--divider-gray)' }}
+                    />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {!loaded ? (
+                <div className="h-64 shimmer rounded-lg" />
+              ) : byDate.length === 0 ? (
+                <div className="flex items-center justify-center h-64 rounded-lg border border-border-default bg-bg-panel/40">
+                  <EmptyState
+                    title="No score history yet"
+                    hint="Run a Filter to Database scan to populate the trend chart."
+                  />
+                </div>
+              ) : (
+                <div className="galaxy-bg border border-border-default rounded-lg p-4" style={{ height: 340 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={byDate} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+                      <CartesianGrid stroke="#DEE3E9" strokeDasharray="3 3" />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: '#5D6C7B', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={{ stroke: '#DEE3E9' }}
+                      />
+                      <YAxis
+                        domain={[0, 10]}
+                        tick={{ fill: '#5D6C7B', fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={28}
+                      />
+                      <Tooltip
+                        content={<ChartTooltip />}
+                        cursor={{ stroke: '#CED0D4', strokeDasharray: '3 3' }}
+                      />
+                      {DIMENSIONS.map(({ key }, i) =>
+                        activeDims.has(key) ? (
+                          <Line
+                            key={key}
+                            type="monotone"
+                            dataKey={key}
+                            stroke={DIM_COLORS[i % DIM_COLORS.length]}
+                            strokeWidth={2}
+                            dot={false}
+                            activeDot={{ r: 4 }}
+                          />
+                        ) : null
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              {/* Score distribution — the *shape* of pipeline quality, which
+                  neither the time-series (averages) nor the top-X panels (best
+                  performers) reveal. Bands map 1:1 to the documented score-
+                  interpretation scale (`_shared.md` § Score interpretation), and
+                  an accent bracket marks the 7.0 apply threshold so the headline
+                  read is "what fraction of what I evaluate is worth applying to". */}
+              {loaded && filtered.length > 0 && (
+                <ScoreDistributionCard dist={distribution} />
+              )}
+
+              {/* Dimension profile — the only panel that explains *why* a role
+                  scores well for this user. Ranks the seven scoring dimensions by
+                  how much they separate an apply-worthy role (overall ≥ 7) from the
+                  full corpus, turning the raw score columns into a targeting
+                  cheat-sheet: chase roles strong on the high-delta dimensions. */}
+              {loaded && profile.scoredCount > 0 && (
+                <DimensionProfileCard profile={profile} />
+              )}
+
+              {/* Targeting momentum — the only panel about the *direction* of pipeline
+                  quality. Splits the window into an earlier vs recent half and asks
+                  whether the roles you evaluate are getting better-fit as you refine
+                  targeting. Needs at least two scored rows to split; the card itself
+                  falls back to a hint when either half is too thin for a verdict. */}
+              {loaded && momentum.scoredCount >= 2 && (
+                <TargetingMomentumCard momentum={momentum} />
+              )}
+
+              {/* Archetype mix — the only panel about *where the evaluation effort
+                  goes* rather than how good it is. Share-of-attention per canonical
+                  archetype, a concentration cue (focused vs scattered), and — when the
+                  window has two real halves — how that allocation drifted earlier→
+                  recent. Gated on at least two distinct archetypes so a single-bucket
+                  corpus (nothing to compose) doesn't render a one-bar "mix". */}
+              {loaded && archetypeMix.distinct >= 2 && (
+                <ArchetypeMixCard mix={archetypeMix} />
+              )}
+
+              {/* Pipeline conversion — the downstream counterpart to the score
+                  analytics: of everything you actually applied to, how far did it
+                  get? Cumulative funnel (a status implies every earlier stage was
+                  reached), gated on having sent at least one application so it
+                  never shows an all-zero funnel. */}
+              {loaded && funnel.sent > 0 && (
+                <ConversionFunnelCard funnel={funnel} />
+              )}
+
+              {/* Top-X panels: separate rhythms for archetype (horizontal bars,
+                  structural shape) vs companies/locations (logo + count, more
+                  scannable). Time-series chart and these panels share the same
+                  time range so the cross-section reads cleanly. */}
+              {loaded && filtered.length > 0 && (
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <TopCompaniesCard items={topCompanies} />
+                  <TopLocationsCard items={topLocations} />
+                  <TopArchetypesCard items={topArchetypes} />
+                </div>
+              )}
+            </>
+          )}
         </div>
 
-        {!loaded ? (
-          <div className="h-64 shimmer rounded-lg" />
-        ) : byDate.length === 0 ? (
-          <div className="flex items-center justify-center h-64 rounded-lg border border-border-default bg-bg-panel/40">
-            <EmptyState
-              title="No score history yet"
-              hint="Run a Filter to Database scan to populate the trend chart."
-            />
-          </div>
-        ) : (
-          <div className="galaxy-bg border border-border-default rounded-lg p-4" style={{ height: 340 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={byDate} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
-                <CartesianGrid stroke="#DEE3E9" strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fill: '#5D6C7B', fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={{ stroke: '#DEE3E9' }}
-                />
-                <YAxis
-                  domain={[0, 10]}
-                  tick={{ fill: '#5D6C7B', fontSize: 11 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={28}
-                />
-                <Tooltip
-                  content={<ChartTooltip />}
-                  cursor={{ stroke: '#CED0D4', strokeDasharray: '3 3' }}
-                />
-                {DIMENSIONS.map(({ key }, i) =>
-                  activeDims.has(key) ? (
-                    <Line
-                      key={key}
-                      type="monotone"
-                      dataKey={key}
-                      stroke={DIM_COLORS[i % DIM_COLORS.length]}
-                      strokeWidth={2}
-                      dot={false}
-                      activeDot={{ r: 4 }}
-                    />
-                  ) : null
-                )}
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-
-        {/* Score distribution — the *shape* of pipeline quality, which
-            neither the time-series (averages) nor the top-X panels (best
-            performers) reveal. Bands map 1:1 to the documented score-
-            interpretation scale (`_shared.md` § Score interpretation), and
-            an accent bracket marks the 7.0 apply threshold so the headline
-            read is "what fraction of what I evaluate is worth applying to". */}
-        {loaded && filtered.length > 0 && (
-          <ScoreDistributionCard dist={distribution} />
-        )}
-
-        {/* Dimension profile — the only panel that explains *why* a role
-            scores well for this user. Ranks the seven scoring dimensions by
-            how much they separate an apply-worthy role (overall ≥ 7) from the
-            full corpus, turning the raw score columns into a targeting
-            cheat-sheet: chase roles strong on the high-delta dimensions. */}
-        {loaded && profile.scoredCount > 0 && (
-          <DimensionProfileCard profile={profile} />
-        )}
-
-        {/* Targeting momentum — the only panel about the *direction* of pipeline
-            quality. Splits the window into an earlier vs recent half and asks
-            whether the roles you evaluate are getting better-fit as you refine
-            targeting. Needs at least two scored rows to split; the card itself
-            falls back to a hint when either half is too thin for a verdict. */}
-        {loaded && momentum.scoredCount >= 2 && (
-          <TargetingMomentumCard momentum={momentum} />
-        )}
-
-        {/* Archetype mix — the only panel about *where the evaluation effort
-            goes* rather than how good it is. Share-of-attention per canonical
-            archetype, a concentration cue (focused vs scattered), and — when the
-            window has two real halves — how that allocation drifted earlier→
-            recent. Gated on at least two distinct archetypes so a single-bucket
-            corpus (nothing to compose) doesn't render a one-bar "mix". */}
-        {loaded && archetypeMix.distinct >= 2 && (
-          <ArchetypeMixCard mix={archetypeMix} />
-        )}
-
-        {/* Pipeline conversion — the downstream counterpart to the score
-            analytics: of everything you actually applied to, how far did it
-            get? Cumulative funnel (a status implies every earlier stage was
-            reached), gated on having sent at least one application so it
-            never shows an all-zero funnel. */}
-        {loaded && funnel.sent > 0 && (
-          <ConversionFunnelCard funnel={funnel} />
-        )}
-
-        {/* Top-X panels: separate rhythms for archetype (horizontal bars,
-            structural shape) vs companies/locations (logo + count, more
-            scannable). Time-series chart and these panels share the same
-            time range so the cross-section reads cleanly. */}
-        {loaded && filtered.length > 0 && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            <TopCompaniesCard items={topCompanies} />
-            <TopLocationsCard items={topLocations} />
-            <TopArchetypesCard items={topArchetypes} />
-          </div>
-        )}
+        {/* Score Trend — re-evaluation trajectories, absorbed from the retired
+            standalone view. The panel carries its own p-4 body padding. */}
+        <div
+          role="tabpanel"
+          id={viewPanelId('trends', 'scoretrend')}
+          aria-labelledby={viewTabId('trends', 'scoretrend')}
+          hidden={tab !== 'scoretrend'}
+        >
+          {tab === 'scoretrend' && <ScoreTrendPanel />}
+        </div>
       </div>
     </div>
   )

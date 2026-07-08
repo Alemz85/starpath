@@ -13,15 +13,12 @@ import { CommandCenter } from '@/components/command-center/CommandCenter'
 import { ApplyingView } from '@/components/applying/ApplyingView'
 import { OutreachView } from '@/components/outreach/OutreachView'
 import { OffersView } from '@/components/offers/OffersView'
-import { NetworkView } from '@/components/network/NetworkView'
 import { DatabaseView } from '@/components/database/DatabaseView'
 import { ReportsView } from '@/components/reports/ReportsView'
 import { TrendsView } from '@/components/trends/TrendsView'
-import { ScoreTrendView } from '@/components/scoretrend/ScoreTrendView'
 import { PipelineView } from '@/components/pipeline/PipelineView'
 import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
-import { ConfigurationView } from '@/components/configuration/ConfigurationView'
 import { ProfileView } from '@/components/profile/ProfileView'
 import { CompanyView } from '@/components/company/CompanyView'
 import { AddListingModal } from '@/components/scouting/AddListingModal'
@@ -52,7 +49,7 @@ export function AppShell() {
   }
 
   const handleDiscard = () => {
-    // Switching views unmounts ConfigurationView (and its sub-tabs),
+    // Switching views unmounts SettingsView (and its editor sub-tabs),
     // which evaporates each section's local form state and triggers
     // the registered cleanup effects that clear dirty flags. So the
     // discard path doesn't need to manually reset anything here —
@@ -82,14 +79,11 @@ export function AppShell() {
           {view === 'applying' && <ApplyingView />}
           {view === 'outreach' && <OutreachView />}
           {view === 'offers'   && <OffersView />}
-          {view === 'network'  && <NetworkView />}
           {view === 'database' && <DatabaseView />}
           {view === 'reports'  && <ReportsView />}
           {view === 'trends'   && <TrendsView />}
-          {view === 'scoretrend' && <ScoreTrendView />}
           {view === 'pipeline' && <PipelineView />}
           {view === 'scan'     && <ScanView />}
-          {view === 'config'   && <ConfigurationView />}
           {view === 'settings' && <SettingsView />}
           {view === 'profile'  && <ProfileView />}
           {view === 'company'  && <CompanyView slug={companySlug} />}
@@ -101,8 +95,8 @@ export function AppShell() {
 
       {/* Cross-view unsaved-changes guard. Fires when the user clicks a
           sidebar item (or anything else that calls navigate()) while
-          Configuration has dirty form state. The intra-Configuration
-          sub-tab modal is rendered separately by ConfigurationView. */}
+          Settings has dirty editor state. The intra-Settings sub-tab
+          modal is rendered separately by SettingsView. */}
       {pendingView && (
         <UnsavedChangesModal
           targetLabel={VIEW_LABELS[pendingView]}
