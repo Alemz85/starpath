@@ -37,7 +37,7 @@ test('parseScouting normalizes the display tier (T2+ → T2-high)', () => {
   assert.equal(rows[0].tier, 'T2-high')
 })
 
-test('parsePipeline reads bare, bulleted, task-list and local: URLs and flags stale', () => {
+test('parsePipeline reads bare, bulleted and local: URLs, flags stale, skips checked', () => {
   const md = [
     'https://job.com/1',
     '- [ ] https://job.com/2 (2020-01-01)',
@@ -46,7 +46,7 @@ test('parsePipeline reads bare, bulleted, task-list and local: URLs and flags st
     '- [x] https://job.com/3',
   ].join('\n')
   const urls = parsePipeline(md)
-  assert.equal(urls.length, 4)
+  assert.equal(urls.length, 3)
   assert.equal(urls[0].url, 'https://job.com/1')
   assert.equal(urls[1].url, 'https://job.com/2')
   assert.equal(urls[1].addedDate, '2020-01-01')
@@ -55,6 +55,20 @@ test('parsePipeline reads bare, bulleted, task-list and local: URLs and flags st
   // Bare URLs carry no scanner metadata.
   assert.equal(urls[0].company, undefined)
   assert.equal(urls[0].relevance, undefined)
+})
+
+test('parsePipeline excludes checked-off entries — the Inbox pending count must drop after Filter to Database', () => {
+  // Filter to Database checks entries off IN PLACE, preserving the scanner
+  // line format. Before this regression test, "- [x] url | Company | Title"
+  // still parsed as a pending row, so the pending count never decreased.
+  const md = [
+    '- [ ] https://boards.greenhouse.io/acme/jobs/1 | Acme | Analyst | relevance 4.5 — fresh',
+    '- [x] https://boards.greenhouse.io/acme/jobs/2 | Acme | Analyst II | relevance 6.0 — fresh',
+    '- [X] https://jobs.lever.co/globex/x1 | Globex | Ops Associate',
+  ].join('\n')
+  const urls = parsePipeline(md)
+  assert.equal(urls.length, 1)
+  assert.equal(urls[0].url, 'https://boards.greenhouse.io/acme/jobs/1')
 })
 
 test('parsePipeline captures company/title/relevance from scanner-written lines', () => {

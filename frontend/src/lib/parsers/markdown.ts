@@ -102,12 +102,15 @@ export function parsePipeline(md: string): PipelineUrl[] {
 
   return lines.flatMap(line => {
     const trimmed = line.trim()
-    // Supported prefixes: bare, "- ", "* ", "- [ ] ", "- [x] " (GFM
-    // task-list bullets used in pipeline.md to mark processing state).
-    const urlMatch = trimmed.match(/^[-*]?\s*(?:\[[ xX]\]\s+)?((?:https?:\/\/|local:)\S+)/)
+    // Supported prefixes: bare, "- ", "* ", "- [ ] " (GFM task-list bullets).
+    // A CHECKED box ("- [x]") means the entry was already processed — eval
+    // flows check entries off in place rather than deleting them, so checked
+    // lines must NOT parse as pending or the Inbox count never goes down.
+    const urlMatch = trimmed.match(/^[-*]?\s*(?:\[([ xX])\]\s+)?((?:https?:\/\/|local:)\S+)/)
     if (!urlMatch) return []
+    if (urlMatch[1] && urlMatch[1] !== ' ') return []
 
-    const url = urlMatch[1]
+    const url = urlMatch[2]
     // Try to extract date added from surrounding context (not always present)
     const dateMatch = trimmed.match(/\((\d{4}-\d{2}-\d{2})\)/)
     const addedDate = dateMatch?.[1]
