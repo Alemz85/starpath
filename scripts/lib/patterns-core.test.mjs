@@ -74,12 +74,13 @@ test('classifyOutcome: negative / self_filtered / pending', () => {
 
 /* ───── parseTracker ─────────────────────────────────────────────────────────*/
 
-const SAMPLE_TRACKER = `| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
-|---|------|---------|------|-------|--------|-----|--------|-------|
-| 1 | 2026-06-01 | Acme | Data Analyst | 7.5/10 | Applied | ✅ | [1](reports/tier-2/acme.md) | remote EU |
-| 2 | 2026-06-02 | Globex | Strategy | 8.0/10 | Interview | ✅ | [2](reports/tier-2/globex.md) | hybrid |
+// Current on-disk format carries a Deadline cell between PDF and Report (10-col).
+const SAMPLE_TRACKER = `| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
+|---|------|---------|------|-------|--------|-----|----------|--------|-------|
+| 1 | 2026-06-01 | Acme | Data Analyst | 7.5/10 | Applied | ✅ | 2026-06-30 | [1](reports/tier-2/acme.md) | remote EU |
+| 2 | 2026-06-02 | Globex | Strategy | 8.0/10 | Interview | ✅ | Rolling | [2](reports/tier-2/globex.md) | hybrid |
 not a table row
-| x | bad | row | skipped | - | - | - | - | - |`;
+| x | bad | row | skipped | - | - | - | - | - | - |`;
 
 test('parseTracker: maps columns and skips header/separator/non-numeric rows', () => {
   const rows = parseTracker(SAMPLE_TRACKER);
@@ -90,6 +91,35 @@ test('parseTracker: maps columns and skips header/separator/non-numeric rows', (
   );
   assert.equal(rows[0].notes, 'remote EU');
   assert.equal(rows[1].company, 'Globex');
+});
+
+// Regression (audit finding 2): the old parser hard-indexed the legacy 9-column
+// layout (report = parts[8]), so on a real 10-column row (Deadline between PDF
+// and Report) it read the Deadline as the report link and shifted Notes onto the
+// report cell. parseTracker now delegates to the deadline-aware parseAppRow.
+test('parseTracker: report/notes land in the right fields on a 10-column row', () => {
+  const rows = parseTracker(SAMPLE_TRACKER);
+  assert.equal(rows[0].report, '[1](reports/tier-2/acme.md)');   // NOT '2026-06-30'
+  assert.equal(rows[0].notes, 'remote EU');                       // NOT the report link
+  assert.equal(rows[1].report, '[2](reports/tier-2/globex.md)');
+  assert.equal(rows[1].notes, 'hybrid');
+});
+
+// The report link must survive parsing so enrichEntries can resolve it — a
+// mis-shifted report cell would break the entire report-backed analysis.
+test('parseTracker: 10-column report link stays resolvable for enrichEntries', () => {
+  const enriched = enrichEntries(parseTracker(SAMPLE_TRACKER), (p) => ({ archetype: 'X', path: p }));
+  assert.equal(enriched[0].report.path, 'reports/tier-2/acme.md');
+});
+
+// Geo-restriction classification must still fire when the restriction lives in
+// the Notes cell of a current 10-column row (Notes fallback in enrichEntries).
+test('parseTracker + enrichEntries: geo-restriction from Notes on a 10-col row', () => {
+  const tracker = `| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
+|---|------|---------|------|-------|--------|-----|----------|--------|-------|
+| 1 | 2026-06-01 | Acme | Data Analyst | 6.0/10 | Rejected | ❌ | n/d | [1](reports/tier-3/acme.md) | US only |`;
+  const enriched = enrichEntries(parseTracker(tracker), null);
+  assert.equal(enriched[0].remoteBucket, 'geo-restricted');
 });
 
 test('parseTracker: empty input → []', () => {

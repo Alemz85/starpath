@@ -110,6 +110,31 @@ test('parseSalary refuses USD (no silent USD→EUR)', () => {
   assert.equal(parseSalary('90K USD'), null)
 })
 
+// Regression (audit finding 6): hourly rates carrying a € symbol used to slip
+// past the literal "hourly"-only reject and get read as ANNUAL €25/€16 figures,
+// poisoning the medians. Any hour/hr/per-hour form must fail closed.
+test('parseSalary refuses hourly rates even when currency-tagged', () => {
+  assert.equal(parseSalary('€25/hour'), null)
+  assert.equal(parseSalary('€16/hr'), null)
+  assert.equal(parseSalary('€16 per hour'), null)
+})
+
+// DKK/krone must fail closed like USD (no silent krone→EUR conversion), instead
+// of dropping anonymously through the no-currency path.
+test('parseSalary refuses DKK / krone strings (no silent krone→EUR)', () => {
+  assert.equal(parseSalary('DKK 25.000/month'), null)
+  assert.equal(parseSalary('130 kr./t'), null)
+  assert.equal(parseSalary('45000 kr'), null)
+})
+
+// The new rejects must not disturb legitimate EUR/GBP annual parsing.
+test('parseSalary still parses EUR/GBP annual figures unchanged', () => {
+  assert.equal(parseSalary('£40K', { gbpToEur: 1.0 }).annualEur, 40000)
+  const eur = parseSalary('€55K')
+  assert.equal(eur.annualEur, 55000)
+  assert.equal(eur.period, 'year')
+})
+
 test('parseSalary refuses a bare unitless number (no currency symbol)', () => {
   // "40-65" with no €/£ could be anything — must not be read as euros.
   assert.equal(parseSalary('40-65'), null)

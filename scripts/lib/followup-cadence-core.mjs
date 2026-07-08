@@ -194,17 +194,27 @@ export function resolveReportPath(reportField, exists) {
 /**
  * Urgency band for one application.
  *
+ * DATA-MODEL LIMITATION (be honest about what this measures): applications.md
+ * has ONE date column — the application date — and no per-status timestamp. So
+ * for `responded`/`interview` the elapsed clock below is `daysSinceApp` (days
+ * since you APPLIED), NOT days since the company actually replied. A row that
+ * was applied to weeks ago and replied to today is already well past
+ * `responded_subsequent`, so it classifies as 'overdue' immediately rather than
+ * getting the intended "reply within the fresh window" nudge. Fixing this
+ * properly needs a status-change date in the schema; until then treat the
+ * responded/interview bands as "time since application", not "time since reply".
+ *
  *   applied:
  *     followupCount ≥ max          → 'cold'   (stop nudging)
  *     0 sent  & ≥ appliedFirst days → 'overdue'
  *     ≥1 sent & ≥ subsequent since last → 'overdue'
  *     else                          → 'waiting'
- *   responded:
- *     < responded_initial days      → 'urgent' (reply window is open NOW)
+ *   responded:  (clock = days since APPLICATION, see limitation above)
+ *     < responded_initial days      → 'urgent'
  *     ≥ responded_subsequent days   → 'overdue'
  *     else                          → 'waiting'
- *   interview:
- *     ≥ interview_thankyou days     → 'overdue' (thank-you is late)
+ *   interview:  (clock = days since APPLICATION, see limitation above)
+ *     ≥ interview_thankyou days     → 'overdue'
  *     else                          → 'waiting'
  */
 export function computeUrgency(status, daysSinceApp, daysSinceLastFollowup, followupCount, cadence = DEFAULT_CADENCE) {

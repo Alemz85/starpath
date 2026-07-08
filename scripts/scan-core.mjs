@@ -186,7 +186,14 @@ export const DEFAULT_LOCATION_ALLOWLIST = [
  * @returns {(location:string)=>boolean} true = keep
  */
 export function buildLocationFilter(allowlist) {
-  const list = (allowlist && allowlist.length > 0 ? allowlist : DEFAULT_LOCATION_ALLOWLIST)
+  // Filter blanks FIRST, THEN decide override-vs-default (parity with scan.py
+  // › set_location_allowlist). Deciding on the raw length would let an
+  // all-blank list like ['', '  '] "win" and then filter down to nothing —
+  // yielding a reject-everything predicate instead of the intended default.
+  const cleaned = (Array.isArray(allowlist) ? allowlist : [])
+    .map((l) => String(l).trim().toLowerCase())
+    .filter(Boolean);
+  const list = (cleaned.length > 0 ? cleaned : DEFAULT_LOCATION_ALLOWLIST)
     .map((l) => l.trim().toLowerCase())
     .filter(Boolean);
   return (location) => {
