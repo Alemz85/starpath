@@ -244,8 +244,11 @@ function buildCvIndex(cvText) {
 function keywordPresent(term, idx) {
   const parts = term.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return idx.stems.has(stemLite(parts[0]));
-  // verbatim phrase match first (handles 3+ word phrases)
-  if (idx.raw.includes(term.toLowerCase())) return true;
+  // verbatim phrase match first (handles 3+ word phrases) — word-boundary-aware,
+  // consistent with extractKeywords's `\b…\b` phrase matching. A raw includes()
+  // would falsely report "risk management" as covered by "nonrisk management".
+  const escaped = term.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`\\b${escaped}\\b`).test(idx.raw)) return true;
   // else require every adjacent pair to exist as a stem-bigram
   for (let i = 0; i < parts.length - 1; i++) {
     if (!idx.bigrams.has(`${stemLite(parts[i])} ${stemLite(parts[i + 1])}`)) return false;

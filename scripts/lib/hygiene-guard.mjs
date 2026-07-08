@@ -291,6 +291,21 @@ const SYSTEM_LAYER_DIRS = [
   'frontend/src',
 ];
 
+// Tracked root-level docs that are system layer per the Data Contract but live
+// OUTSIDE any scanned dir — CLAUDE.md and its siblings. Without these the guard
+// had a blind spot for exactly the files most likely to accrete worked examples
+// with the user's real data. Glob-what-exists: only files present are scanned.
+const SYSTEM_LAYER_ROOT_FILES = [
+  'CLAUDE.md', 'README.md', 'TODO.md', 'DATA_CONTRACT.md',
+  'DESIGN-meta.md', 'STRUCTURE.md', 'CONTEXT.md',
+];
+
+// batch/ is system layer too, but mostly gitignored (staging, worker output),
+// so we can't walk it wholesale. Scan only its handful of tracked files.
+const SYSTEM_LAYER_BATCH_FILES = [
+  'batch/batch-prompt.md', 'batch/batch-runner.sh', 'batch/README.md',
+];
+
 const SYSTEM_LAYER_EXTS = ['.md', '.mjs', '.ts', '.tsx', '.html', '.yml', '.sh'];
 
 /**
@@ -351,43 +366,52 @@ export async function runHygieneGuard({ root, verbose = false }) {
   const violations = [];
   const warnings = [];
 
+  // Build the full set of absolute paths to scan: every file under the system
+  // dirs, PLUS the tracked root-level docs and batch/ files that exist.
+  const filesToScan = [];
   for (const dir of SYSTEM_LAYER_DIRS) {
     const absDir = join(root, dir);
     if (!existsSync(absDir)) continue;
-    const files = walkFiles(absDir, SYSTEM_LAYER_EXTS, ['node_modules', '.next', 'dist', '__pycache__']);
+    filesToScan.push(...walkFiles(absDir, SYSTEM_LAYER_EXTS, ['node_modules', '.next', 'dist', '__pycache__']));
+  }
+  for (const rel of [...SYSTEM_LAYER_ROOT_FILES, ...SYSTEM_LAYER_BATCH_FILES]) {
+    const abs = join(root, rel);
+    if (existsSync(abs)) filesToScan.push(abs);
+  }
 
-    for (const absFile of files) {
-      const relFile = relative(root, absFile);
-      const content = readFileSafe(absFile);
-      if (!content) continue;
+  for (const absFile of filesToScan) {
+    const relFile = relative(root, absFile);
+    const content = readFileSafe(absFile);
+    if (!content) continue;
 
-      const lines = content.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        // Skip lines with explicit allowlist marker
-        if (line.includes(LINE_ALLOWLIST_MARKER) || line.includes(LINE_ALLOWLIST_MARKER_MD)) continue;
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // Skip lines with explicit allowlist marker
+      if (line.includes(LINE_ALLOWLIST_MARKER) || line.includes(LINE_ALLOWLIST_MARKER_MD)) continue;
 
-        for (const pat of patterns) {
-          if (!pat.regex.test(line)) continue;
+      for (const pat of patterns) {
+        if (!pat.regex.test(line)) continue;
 
-          // Check global allowlist
-          const allowed = GLOBAL_ALLOWLIST_ENTRIES.some(entry => {
-            if (!relFile.includes(entry.file)) return false;
-            return entry.ids === '*' || entry.ids.includes(pat.id);
-          });
+        // Check global allowlist
+        const allowed = GLOBAL_ALLOWLIST_ENTRIES.some(entry => {
+          if (!relFile.includes(entry.file)) return false;
+          return entry.ids === '*' || entry.ids.includes(pat.id);
+        });
 
-          // CLAUDE.md gets severity downgraded to warn (see comment above)
-          let severity = pat.severity;
-          if (relFile === 'CLAUDE.md') severity = 'warn';
+        // CLAUDE.md gets severity downgraded to warn (see comment above) — now
+        // that root docs are scanned, this branch is live: a real-data example
+        // in CLAUDE.md surfaces as a warning, not an error, and not silently.
+        let severity = pat.severity;
+        if (relFile === 'CLAUDE.md') severity = 'warn';
 
-          const hit = { file: relFile, line: i + 1, lineText: line.trim(), pattern: pat };
+        const hit = { file: relFile, line: i + 1, lineText: line.trim(), pattern: pat };
 
-          if (!allowed) {
-            if (severity === 'error') violations.push(hit);
-            else warnings.push(hit);
-          } else if (verbose) {
-            console.log(`[hygiene-guard] allowed: ${relFile}:${i + 1} (${pat.id})`);
-          }
+        if (!allowed) {
+          if (severity === 'error') violations.push(hit);
+          else warnings.push(hit);
+        } else if (verbose) {
+          console.log(`[hygiene-guard] allowed: ${relFile}:${i + 1} (${pat.id})`);
         }
       }
     }

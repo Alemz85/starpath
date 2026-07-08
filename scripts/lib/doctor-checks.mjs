@@ -12,7 +12,7 @@
  *   buildPipelineSummary(counts)     — row counts for a glanceable summary
  *   countTsvDataRows(content)        — count non-header, non-empty TSV rows
  *   countMarkdownTableRows(content)  — count data rows in a markdown table
- *   countPipelineItems(content)      — count non-empty, non-header pipeline lines
+ *   countPendingPipelineItems(content) — count unchecked (- [ ]) pipeline URLs
  *   parseTsvHeader(content)          — return the first non-empty line split on \t
  *   validateScoreHistoryHeader(cols) — check expected columns are present
  *   validateScanHistoryHeader(cols)  — check expected columns are present
@@ -24,6 +24,7 @@ import {
   PROFILE_REPORT_DIRS,
   parseActive,
   linkResolvesIntoProfile,
+  countPendingPipelineLines,
 } from './profile-core.mjs';
 import { HISTORY_HEADER } from './merge-staging-core.mjs';
 
@@ -72,6 +73,21 @@ export function parseTsvHeader(content) {
 }
 
 /**
+ * Extract the header cells of the first markdown table in `content` — the first
+ * line starting with `|`, split on the pipes with the empty leading/trailing
+ * cells dropped. Returns [] when there is no table (prose/heading-only files).
+ * Unlike parseTsvHeader this skips prose/heading lines to find the real header.
+ * @param {string} content
+ * @returns {string[]}
+ */
+export function parseMarkdownTableHeader(content) {
+  if (!content || typeof content !== 'string') return [];
+  const line = content.split('\n').find(l => l.trim().startsWith('|'));
+  if (!line) return [];
+  return line.split('|').map(c => c.trim()).filter(c => c.length > 0);
+}
+
+/**
  * Count data rows in a markdown table (pipe-separated).
  * Skips the header row and the separator row (---|---).
  * @param {string} content
@@ -88,17 +104,16 @@ export function countMarkdownTableRows(content) {
 }
 
 /**
- * Count pending pipeline entries (non-empty non-comment lines that look like URLs).
- * Pipeline.md is freeform; count lines containing http.
+ * Count PENDING pipeline entries — unchecked checkbox URL lines only
+ * (`- [ ] https://…`). Checked-off lines (`- [x]`) are processed history and
+ * must NOT count as inbox load. Delegates to the same counter the profile CLI
+ * uses (profile-core.mjs › countPendingPipelineLines) so "pending in inbox"
+ * means the same thing everywhere.
  * @param {string} content
  * @returns {number}
  */
-export function countPipelineItems(content) {
-  if (!content || typeof content !== 'string') return 0;
-  return content
-    .split('\n')
-    .filter(l => /https?:\/\//.test(l))
-    .length;
+export function countPendingPipelineItems(content) {
+  return countPendingPipelineLines(content);
 }
 
 // ── Header validators ───────────────────────────────────────────────────────
@@ -314,7 +329,7 @@ export function buildArtifactChecks(files, counts = {}) {
       label: 'data/pipeline.md not yet created (URL inbox — populated by scan)',
     });
   } else {
-    const items = countPipelineItems(files.pipeline);
+    const items = countPendingPipelineItems(files.pipeline);
     checks.push({ pass: true, label: `data/pipeline.md present (${items} pending URL${items === 1 ? '' : 's'} in inbox)` });
   }
 
@@ -325,13 +340,21 @@ export function buildArtifactChecks(files, counts = {}) {
       label: 'data/outreach.md not yet created (outreach tracker — populated by contacto mode)',
     });
   } else {
-    const cols  = parseTsvHeader(files.outreach.replace(/\|/g, '\t')); // md table → tsv-like
-    const { valid } = validateOutreachHeader(cols);
+    // Read the real markdown-table header (skips the heading/prose), then check
+    // it carries the columns the outreach-cadence parser needs. A malformed
+    // header would make outreach-cadence.mjs mis-read every thread, so a bad
+    // header is a real failing check (not the old inert pass-either-way branch).
+    const cols  = parseMarkdownTableHeader(files.outreach);
+    const { valid, missing } = validateOutreachHeader(cols);
     const rows  = countMarkdownTableRows(files.outreach);
     if (valid) {
       checks.push({ pass: true, label: `data/outreach.md present (${rows} outreach thread${rows === 1 ? '' : 's'})` });
     } else {
-      checks.push({ pass: true, label: `data/outreach.md present (${rows} outreach thread${rows === 1 ? '' : 's'})` });
+      checks.push({
+        pass: false,
+        label: `data/outreach.md has unexpected table header (missing: ${missing.join(', ')})`,
+        fix: 'Restore the canonical columns: | # | Date | Company | Role | Contact | Title | Channel | Touch | Outcome | Notes |',
+      });
     }
   }
 

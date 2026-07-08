@@ -25,6 +25,8 @@
 // Everything here is a pure function of its inputs — no filesystem, no clock, no
 // globals, no mutation. The thin file/CLI wrapper stays in analyze-patterns.mjs.
 
+import { parseAppRow } from './tracker-core.mjs'
+
 /* ───── Status normalization (mirrors verify-pipeline.mjs) ──────────────────
  *
  * applications.md statuses drift across languages and casings. We fold them to
@@ -68,23 +70,26 @@ export function classifyOutcome(status) {
 
 /* ───── applications.md parsing ─────────────────────────────────────────────
  *
- * The canonical column order is:
- *   | # | Date | Company | Role | Score | Status | PDF | Report | Notes |
- * We parse defensively: skip the header/separator rows (non-numeric `#`).
+ * The canonical column order carries an OPTIONAL Deadline cell between PDF and
+ * Report:
+ *   | # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
+ * Real writers (merge-tracker) emit that 10-column form; the legacy 9-column
+ * form (no Deadline) is still valid on disk. Hand-indexing `report = parts[8]`
+ * is therefore wrong for current data — it reads the Deadline as the report and
+ * shifts Notes onto the report cell. We delegate to parseAppRow (tracker-core),
+ * exactly like deadlines-core / followup-cadence-core, so the report/notes
+ * indices are resolved by the shared, deadline-aware logic.
  */
 export function parseTracker(content) {
   if (!content) return []
   const entries = []
   for (const line of content.split('\n')) {
-    if (!line.startsWith('|')) continue
-    const parts = line.split('|').map(s => s.trim())
-    if (parts.length < 9) continue
-    const num = parseInt(parts[1], 10)
-    if (Number.isNaN(num)) continue
+    const row = parseAppRow(line)
+    if (!row) continue
     entries.push({
-      num, date: parts[2], company: parts[3], role: parts[4],
-      score: parts[5], status: parts[6], pdf: parts[7], report: parts[8],
-      notes: parts[9] || '',
+      num: row.num, date: row.date, company: row.company, role: row.role,
+      score: row.score, status: row.status, pdf: row.pdf, report: row.report,
+      notes: row.notes,
     })
   }
   return entries

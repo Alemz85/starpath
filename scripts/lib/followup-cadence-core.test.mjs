@@ -245,6 +245,28 @@ test('computeUrgency interview: thank-you window passed → overdue', () => {
   assert.equal(computeUrgency('interview', 2, null, 0), 'overdue');
 });
 
+// KNOWN DATA-MODEL LIMITATION (audit finding 7): applications.md has no
+// status-change date, so the responded/interview clock is days-since-APPLICATION,
+// not days-since-reply. A row applied to 20 days ago whose status is now
+// Responded classifies as 'overdue' immediately — the documented "reply within
+// the fresh window" URGENT band effectively never fires for real rows. This
+// test PINS that actual behaviour so the honesty note and the code stay in sync;
+// it is not the ideal behaviour, it's the ceiling of what one date column allows.
+test('computeUrgency responded: realistic 20-day gap classifies as overdue (limitation)', () => {
+  assert.equal(computeUrgency('responded', 20, null, 0), 'overdue');
+});
+
+test('analyze: a Responded row applied 20 days ago is overdue, not urgent (limitation)', () => {
+  const apps = [
+    '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |',
+    '|---|------|---------|------|-------|--------|-----|--------|-------|',
+    '| 1 | 2026-06-01 | Acme | Analyst | 7.5/10 | Responded | ✅ | n/a | replied today |',
+  ].join('\n');
+  const r = analyze({ appsContent: apps, todayIso: '2026-06-21' }); // 20 days later
+  const entry = r.entries.find(e => e.num === 1);
+  assert.equal(entry.urgency, 'overdue'); // NOT 'urgent', despite a same-day reply
+});
+
 test('computeUrgency: respects a custom cadence', () => {
   const c = buildCadence('10');
   assert.equal(computeUrgency('applied', 8, null, 0, c), 'waiting'); // < 10

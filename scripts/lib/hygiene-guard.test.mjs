@@ -281,6 +281,39 @@ describe('runHygieneGuard — synthetic repo', () => {
     }
   });
 
+  // Regression (audit finding 3): the scanner only walked modes/scripts/
+  // templates/frontend-src, so root-level docs (CLAUDE.md et al.) and batch/
+  // were a blind spot — yet the Data Contract names them system layer.
+  it('catches personal data in a root-level CLAUDE.md (as a warning)', async () => {
+    const root = await makeFakeRepo({
+      'CLAUDE.md': '## Example\nFor a candidate like Jane Testuser, the score would be 8.\n',
+    });
+    try {
+      const result = await runHygieneGuard({ root });
+      // CLAUDE.md gets its severity downgraded to warn (cautionary examples),
+      // so the hit lands in warnings — but it must NOT be silently dropped.
+      const w = result.warnings.find(w => w.pattern.id === 'full_name' && w.file === 'CLAUDE.md');
+      assert.ok(w, 'full_name warning found in root CLAUDE.md');
+      const v = result.violations.find(v => v.file === 'CLAUDE.md');
+      assert.ok(!v, 'CLAUDE.md hit is a warning, not a hard violation');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  it('catches personal data in batch/batch-prompt.md', async () => {
+    const root = await makeFakeRepo({
+      'batch/batch-prompt.md': '## Worker prompt\nContact the candidate at jane@example.test.\n',
+    });
+    try {
+      const result = await runHygieneGuard({ root });
+      const v = result.violations.find(v => v.pattern.id === 'email' && v.file === 'batch/batch-prompt.md');
+      assert.ok(v, 'email violation found in batch/batch-prompt.md');
+    } finally {
+      cleanup(root);
+    }
+  });
+
   it('gracefully handles missing user data (returns zero patterns)', async () => {
     const root = join(tmpdir(), `hygiene-empty-${Date.now()}`);
     mkdirSync(root, { recursive: true });

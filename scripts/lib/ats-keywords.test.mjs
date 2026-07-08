@@ -135,6 +135,28 @@ test('analyzeCoverage flags a phrase the CV lacks even if one word is present', 
     'phrase should be missing when the adjacency is absent');
 });
 
+// Regression (audit finding 5): the raw-phrase fallback used
+// idx.raw.includes(term) with no word boundary, so a glued compound in the CV
+// ("nonrisk management") falsely covered the JD phrase "risk management".
+test('analyzeCoverage does NOT cover a phrase glued inside a CV compound word', () => {
+  const jd = 'Strong risk management experience required.';
+  const cv = 'I ran a nonrisk management program for internal audits.';
+  const r = analyzeCoverage(jd, cv);
+  assert.ok(terms(r.missing).includes('risk management'),
+    '"risk management" must be missing — "nonrisk management" is a different phrase');
+  assert.ok(!terms(r.covered).includes('risk management'));
+});
+
+// The same fallback must still credit a legitimate, standalone phrase match.
+test('analyzeCoverage still covers a legitimate multi-word phrase (word-boundary)', () => {
+  const jd = 'Strong risk management experience required.';
+  const cv = 'I led risk management across the portfolio.';
+  const r = analyzeCoverage(jd, cv);
+  assert.ok(terms(r.covered).includes('risk management'),
+    'standalone "risk management" in the CV must count as covered');
+  assert.ok(!terms(r.missing).includes('risk management'));
+});
+
 test('analyzeCoverage exposes weightedCoverage favouring frequent keywords', () => {
   const jd = 'python python python python graphql.'; // python heavily weighted
   const cvHasPython = analyzeCoverage(jd, 'all about python here');
