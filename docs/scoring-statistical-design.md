@@ -265,6 +265,30 @@ Sub-gate advisories appear in `insufficientData` with the same `action` text,
 their `sampleSize`, their gate, and the reason — so the user can see what the
 advisor *would* say once the evidence arrives, without being asked to act on it.
 
+### 3.5 Targeting momentum — `frontend/src/lib/trendsAnalytics.ts`
+
+The Trends view's momentum card splits the date-windowed scored corpus into two
+chronological halves and contrasts per-half **medians** (typical Overall, share
+above the apply bar). It asserts a direction — `improving` / `steady` /
+`declining` — so it is a verdict surface and must be gated. Its parameters:
+
+- **Deadband = the Overall noise floor (0.30).** A median swing below the floor
+  is `steady`, never a direction. The card must not restate the floor locally;
+  it reads the shared constant.
+- **Gate: ≥ 5 scored evaluations in EACH half** (`momentumMinPerHalf`). The
+  corpus-trend derivation (`k ≥ 10` per window, § 3.3) bounds how far one
+  extreme role can move a window **mean** and does not transfer to a median: a
+  median's breakdown is bounded by adjacent real observations, not by the
+  outlier's magnitude. At `n = 5` the median is the 3rd order statistic — one
+  aberrant listing can shift it only to a neighbouring observed value, and
+  flipping the verdict requires at least two listings moving together past the
+  floor. Five per half also makes the 10-evaluation total match § 3.3's
+  evidence minimum, so the two trend surfaces cannot disagree about whether
+  the corpus is trendable at all.
+- **Below the gate the card reports low signal explicitly** ("keep evaluating",
+  with the shortfall) and renders no direction — the § 4 rules apply to it in
+  full.
+
 ## 4. Presentation rules
 
 These bind every renderer: CLI summaries, mode prose, report blocks, and any UI

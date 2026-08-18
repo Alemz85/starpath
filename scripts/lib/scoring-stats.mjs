@@ -113,6 +113,16 @@ export const GATES = Object.freeze({
    *  a healthy rate. At a 20% true rate P(0 successes) = 0.8^n, which only
    *  drops below ~1-in-6 at n = 8. */
   calibrationMinApplied: 8,
+
+  /** Trends momentum (frontend targeting-momentum card): ≥5 scored evals in
+   *  EACH chronological half. The card compares per-half MEDIANS, so the
+   *  mean-based k ≥ 10 window derivation doesn't transfer: a median's
+   *  breakdown is bounded by adjacent real observations, not by an outlier's
+   *  magnitude. At n = 5 the median is the 3rd order statistic — one aberrant
+   *  listing can shift it only to a neighbouring observed value, and flipping
+   *  the verdict needs ≥2 listings moving together past the floor. 5 per half
+   *  also makes the 10-eval total match the corpus-trend evidence minimum. */
+  momentumMinPerHalf: 5,
 })
 
 /* ───── 4. Confidence tiers (docs § 3.1) ──────────────────────────────────── */
