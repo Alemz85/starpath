@@ -29,11 +29,15 @@ RETRY_FAILED=false
 START_FROM=0
 MAX_RETRIES=2
 MIN_SCORE=0
+# Pinned worker model — keep in lockstep with MODEL_IDS in
+# frontend/src/lib/spawnFormat.ts (the frontend's pipeline actions run the
+# same eval bundle on the same tier). Override per run with --model.
+MODEL="claude-opus-5"
 
 usage() {
   cat <<'USAGE'
 career-ops batch runner — process job offers in batch via claude -p workers
-Uses your default Claude model (Claude Max subscription).
+Workers run a pinned model ID (default: claude-opus-5; override with --model).
 
 Usage: batch-runner.sh [OPTIONS]
 
@@ -44,6 +48,7 @@ Options:
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
   --min-score N        Mark offers scoring below N as skipped in state (default: 0 = off)
+  --model ID           Claude model for workers (default: claude-opus-5)
   -h, --help           Show this help
 
 Files:
@@ -77,6 +82,7 @@ while [[ $# -gt 0 ]]; do
     --start-from) START_FROM="$2"; shift 2 ;;
     --max-retries) MAX_RETRIES="$2"; shift 2 ;;
     --min-score) MIN_SCORE="$2"; shift 2 ;;
+    --model) MODEL="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
   esac
@@ -375,7 +381,7 @@ process_offer() {
 
   local log_file="$LOGS_DIR/${report_num}-${id}.log"
 
-  # Launch claude -p worker (uses default model from Claude Max subscription).
+  # Launch claude -p worker on the pinned $MODEL (see the MODEL default above).
   # --output-format json makes the CLI emit a final result event with token
   # usage + cost, which feeds the per-spawn accounting in logs/usage.tsv
   # (TODO.md token-cost project: measure before optimizing).
@@ -390,6 +396,7 @@ process_offer() {
   claude -p \
     --dangerously-skip-permissions \
     --output-format json \
+    --model "$MODEL" \
     $CACHE_FLAG \
     --append-system-prompt-file "$PROMPT_FILE" \
     "$prompt" \

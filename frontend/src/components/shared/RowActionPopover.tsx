@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
-import { livenessKey } from '@/lib/scanHistory'
+import { livenessOf } from '@/lib/databaseRows'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
@@ -51,7 +51,15 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
     : anchor.y + 12
 
   const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
-  const liveness = useDataStore(s => s.liveness[livenessKey(entry.company, entry.role)])
+  // Resolve liveness through the SAME helper the table row uses (livenessOf),
+  // which defaults to 'active' for listings absent from the scan-history map.
+  // Reading the map directly used to return `undefined` for any listing whose
+  // score-history role didn't string-match a scanned title (every manually-added
+  // listing, e.g. one added via "+ Add listing"), and `undefined !== 'active'`
+  // flipped Generate Report to the disabled "expired" state — even though the
+  // table showed the very same row as active. Going through livenessOf makes the
+  // popover and the table structurally unable to disagree.
+  const liveness = useDataStore(s => livenessOf(entry, s.liveness))
   // Does a report file already exist for this entry? If so, hide the
   // Generate-report option — re-running it would just rewrite what's there.
   const hasReport = useDataStore(s => s.reports).some(r =>
