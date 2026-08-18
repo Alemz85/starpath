@@ -1739,8 +1739,8 @@ function ModelChoice({ label, sub, value, onChange, disabled = false }: {
 }) {
   const descId = useId()
   const options: Array<{ id: 'sonnet' | 'opus' | 'haiku'; name: string; tag: string }> = [
-    { id: 'sonnet', name: 'Sonnet', tag: 'cheaper · fast' },
-    { id: 'opus',   name: 'Opus',   tag: 'thorough'      },
+    { id: 'sonnet', name: 'Sonnet 5', tag: 'cheaper · fast' },
+    { id: 'opus',   name: 'Opus 5',   tag: 'thorough'      },
   ]
   return (
     <div className={cn('flex items-start justify-between gap-6 py-1', disabled && 'opacity-60')}>
