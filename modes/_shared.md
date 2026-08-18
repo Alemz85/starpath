@@ -723,6 +723,10 @@ After detecting the archetype, read `user/_profile.md` for the user's specific f
 - Apply sooner > learn more
 - 80/20 approach, timebox everything
 
+### Operational issues
+
+Hit a schema mismatch, an unparseable data file, a URL pattern that consistently fails verification, or a rubric ambiguity? Don't silently work around it and don't just mention it once in chat — log it so repeat patterns surface: `node scripts/agent-log.mjs log --category <schema|data|url|rubric|other> --subject "<short>" "<what happened>"`. Maintenance sessions check unresolved entries first (`node scripts/agent-log.mjs list --unresolved`).
+
 ---
 
 ## Professional Writing & ATS Compatibility
