@@ -3,6 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { CHAT_SYSTEM_PROMPT_FILE, buildChatClaudeArgs } from '@/lib/chat/args'
+import { MODEL_IDS } from '@/lib/spawnFormat'
 import {
   chatToolLabel,
   extractClaudeCliFailure,
@@ -50,9 +51,13 @@ test('--resume is present only once the session has a CLI session id', () => {
   assert.ok(!buildChatClaudeArgs('hi', { resumeId: '' }).includes('--resume'))
 })
 
-test('--model follows the configured alias, and is omitted without one', () => {
+test('--model carries the pinned full model ID for the configured alias, and is omitted without one', () => {
   const args = buildChatClaudeArgs('hi', { model: 'opus' })
-  assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2), ['--model', 'opus'])
+  assert.deepEqual(
+    args.slice(args.indexOf('--model'), args.indexOf('--model') + 2),
+    ['--model', MODEL_IDS.opus],
+  )
+  assert.ok(!args.includes('opus'), 'the bare alias must never reach the CLI')
   assert.ok(!buildChatClaudeArgs('hi').includes('--model'))
   assert.ok(!buildChatClaudeArgs('hi', { model: null }).includes('--model'))
 })
