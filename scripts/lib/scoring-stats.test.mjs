@@ -183,6 +183,7 @@ test('the gate table matches the values documented in the contract', () => {
     calibrationMinDimRows: 20,
     calibrationMinCompRows: 20,
     calibrationMinApplied: 8,
+    momentumMinPerHalf: 5,
   })
 })
 

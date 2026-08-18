@@ -106,6 +106,13 @@ export const GATES = {
   /** calibration: "0 of n converted" — at a 20% true rate P(0) = 0.8^n only
    *  drops below ~1-in-6 at n = 8. */
   calibrationMinApplied: 8,
+
+  /** Trends momentum card: ≥5 scored evals in EACH chronological half. The
+   *  card compares per-half MEDIANS, whose breakdown is bounded by adjacent
+   *  real observations — at n = 5 one aberrant listing can shift the median
+   *  only to a neighbouring value, and a verdict flip needs ≥2 listings
+   *  moving together past the floor (docs § 3.5). */
+  momentumMinPerHalf: 5,
 } as const
 
 export type GateKey = keyof typeof GATES

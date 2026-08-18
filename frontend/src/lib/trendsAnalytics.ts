@@ -12,6 +12,7 @@
 
 import type { ScoreEntry, ApplicationEntry, AppStatus } from '@/types'
 import { scoreColor } from '@/lib/tier'
+import { GATES, OVERALL_NOISE_FLOOR } from '@/lib/scoringStats'
 
 // ─── Time range ──────────────────────────────────────────────────────────────
 
@@ -297,17 +298,19 @@ export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
 //   • the verdict has a deadband (`MOMENTUM_DEADBAND`) so a trivial wobble reads
 //     as "steady", not a trend.
 
-// Minimum scored rows IN EACH HALF before the recent-vs-earlier delta is worth a
-// verdict. Same spirit as MIN_WINNERS_FOR_DELTA — under this the split is too
-// small to separate a real shift from who-happened-to-get-evaluated-when. With
-// 3 per side (6 total) a median is at least a 3-point sample rather than a coin
-// flip on one or two listings.
-export const MIN_PER_HALF_FOR_MOMENTUM = 3
+// Minimum scored rows IN EACH HALF before the recent-vs-earlier delta is worth
+// a verdict. This surface is declared in docs/scoring-statistical-design.md
+// § 3.5 and its gate lives in the shared contract table — the median-based
+// derivation (order-statistic breakdown, not the mean-based k ≥ 10 window
+// rule) is argued there, not here. Re-exported under the local name so the
+// card and its tests keep one import site.
+export const MIN_PER_HALF_FOR_MOMENTUM = GATES.momentumMinPerHalf
 
-// A median-overall swing smaller than this (on the 0–10 scale) reads as flat —
-// scoring is dimension-summed and rounded, so sub-0.3 wobble between two small
-// samples is noise, not a trend. Above it in either direction earns a verdict.
-export const MOMENTUM_DEADBAND = 0.3
+// A median-overall swing smaller than the contract's Overall noise floor reads
+// as flat — scoring is dimension-summed and rounded, so a sub-floor wobble
+// between two small samples is noise, not a trend. Above it in either
+// direction earns a verdict. Same constant every other scoring surface uses.
+export const MOMENTUM_DEADBAND = OVERALL_NOISE_FLOOR
 
 export type MomentumDirection = 'improving' | 'steady' | 'declining'
 
