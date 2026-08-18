@@ -179,8 +179,17 @@ export function TrendsView() {
           <span className="text-label text-text-4 font-mono">{stats.total} evaluations</span>
         )}
         {tab === 'scoretrend' && loaded && scoreTrendMeta && !scoreTrendMeta.error && (
-          <span className="text-label text-text-4 font-mono">
+          // Docs § 4 rule 1 (docs/scoring-statistical-design.md): the caption
+          // states the samples the panel below rests on, and — when anything
+          // has been re-evaluated — how many of those moves actually cleared
+          // the 0.30 Overall noise floor. No direction is claimed up here.
+          <span
+            className="text-label text-text-4 font-mono"
+            title={`Movement is counted against the ${scoreTrendMeta.metadata?.contract.noiseFloor ?? 0.30} Overall noise floor (${scoreTrendMeta.metadata?.contract.doc ?? 'docs/scoring-statistical-design.md'}); a corpus verdict needs ${scoreTrendMeta.metadata?.contract.minPerWindowForVerdict ?? 10} evaluations per calendar window.`}
+          >
             {scoreTrendMeta.metadata?.evaluated ?? 0} evaluations · {scoreTrendMeta.trajectorySummary?.reevaluated ?? 0} re-evaluated
+            {(scoreTrendMeta.trajectorySummary?.reevaluated ?? 0) > 0 &&
+              ` · ${scoreTrendMeta.trajectorySummary?.detectable ?? 0} past the noise floor`}
           </span>
         )}
         <div className="flex-1" />
