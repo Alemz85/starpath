@@ -176,6 +176,66 @@ export function upsertApplicationRow(raw: string, args: {
   return next.join('\n')
 }
 
+// Column indices in the canonical 10-column table. Only the cells this patch
+// can write are named; the rest are addressed by the functions above.
+const COL_STATUS = 5
+const COL_DEADLINE = 7
+const COL_NOTES = 9
+
+/** The cells a caller may set on an existing row. An absent key leaves the
+ *  cell exactly as it was — this never blanks anything by omission. */
+export interface ApplicationFieldPatch {
+  status?: AppStatus
+  /** `YYYY-MM-DD` | `Rolling` | `n/d` — validated by the caller. */
+  deadline?: string
+  notes?: string
+}
+
+/**
+ * Set named cells on the (company, role) row, leaving every other cell alone.
+ *
+ * `updateApplicationStatus` already covers the Status-only case and stays the
+ * path the status dropdown uses; this exists because a write that arrives with
+ * Status AND Deadline AND Notes at once (a chat proposal card) would otherwise
+ * need three passes or a second row-finding implementation.
+ *
+ * Runs `ensureDeadlineColumn` first for the same reason `upsertApplicationRow`
+ * does — and here it is load-bearing rather than defensive: on a legacy 9-col
+ * file, index 7 is Report and index 9 doesn't exist, so patching Deadline
+ * without the upgrade would overwrite the report link. Status alone is safe
+ * either way (index 5 in both layouts), which is why the existing function
+ * never needed this.
+ *
+ * Returns `raw` unchanged when no row matches or the patch is empty — the
+ * caller checks `findApplicationRowIndex` when it needs to distinguish
+ * "nothing to change" from "no such listing".
+ */
+export function updateApplicationFields(
+  raw: string,
+  company: string,
+  role: string,
+  patch: ApplicationFieldPatch,
+): string {
+  if (patch.status === undefined && patch.deadline === undefined && patch.notes === undefined) {
+    return raw
+  }
+
+  const upgraded = ensureDeadlineColumn(raw)
+  const lines = upgraded.split('\n')
+  const index = findApplicationRowIndex(lines, company, role)
+  if (index === -1) return raw
+
+  const cells = splitRow(lines[index])
+  // A row too short to hold the cell is left alone rather than padded — the
+  // upgrade above already normalized every genuine row, so a short row here is
+  // something hand-edited that this function has no business reshaping.
+  if (patch.status !== undefined && cells.length > COL_STATUS) cells[COL_STATUS] = patch.status
+  if (patch.deadline !== undefined && cells.length > COL_DEADLINE) cells[COL_DEADLINE] = patch.deadline
+  if (patch.notes !== undefined && cells.length > COL_NOTES) cells[COL_NOTES] = patch.notes
+  lines[index] = joinRow(cells)
+  return lines.join('\n')
+}
+
 export function updateApplicationStatus(
   raw: string,
   company: string,

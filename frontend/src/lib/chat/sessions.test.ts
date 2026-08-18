@@ -18,6 +18,7 @@ import {
   parseSessionsFile,
   serializeSessionsFile,
   setClaudeSessionId,
+  setProposalDecision,
 } from '@/lib/chat/sessions'
 import type { ChatSessionsFile } from '@/lib/chat/types'
 
@@ -166,4 +167,112 @@ test('a corrupt or foreign file degrades to no history instead of throwing', () 
   assert.equal(mixed.sessions.length, 1)
   assert.equal(mixed.sessions[0].messages.length, 1)
   assert.equal(mixed.sessions[0].messageCount, 1)
+})
+
+// ─── proposal decisions ───────────────────────────────────────────────────────
+
+const DECISION = { status: 'applied' as const, at: T1, detail: 'row added' }
+
+function withProposalTurn(): { file: ChatSessionsFile; id: string } {
+  const { file, id } = seeded()
+  const next = appendMessage(file, id, {
+    role: 'assistant', content: 'proposed', ts: T1, id: 'm1',
+  })
+  return { file: next, id }
+}
+
+test('a decision is recorded against the message that produced the fence', () => {
+  const { file, id } = withProposalTurn()
+  const next = setProposalDecision(file, id, 'm1', 'm1#p0', DECISION)
+  assert.deepEqual(getSession(next, id)!.messages[0].proposalDecisions, { 'm1#p0': DECISION })
+})
+
+test('a second decision on another block of the same message is additive', () => {
+  const { file, id } = withProposalTurn()
+  const once = setProposalDecision(file, id, 'm1', 'm1#p0', DECISION)
+  const twice = setProposalDecision(once, id, 'm1', 'm1#p1', { status: 'dismissed', at: T2 })
+  assert.deepEqual(getSession(twice, id)!.messages[0].proposalDecisions, {
+    'm1#p0': DECISION,
+    'm1#p1': { status: 'dismissed', at: T2 },
+  })
+})
+
+test('a decision is final — re-deciding the same block is a no-op', () => {
+  const { file, id } = withProposalTurn()
+  const once = setProposalDecision(file, id, 'm1', 'm1#p0', DECISION)
+  const again = setProposalDecision(once, id, 'm1', 'm1#p0', { status: 'dismissed', at: T2 })
+  assert.equal(again, once)  // same object — nothing was rewritten
+  assert.deepEqual(getSession(again, id)!.messages[0].proposalDecisions, { 'm1#p0': DECISION })
+})
+
+test('an unknown session, message or empty block id leaves the file untouched', () => {
+  const { file, id } = withProposalTurn()
+  assert.equal(setProposalDecision(file, 'nope', 'm1', 'm1#p0', DECISION), file)
+  assert.equal(setProposalDecision(file, id, 'missing', 'm1#p0', DECISION), file)
+  assert.equal(setProposalDecision(file, id, 'm1', '', DECISION), file)
+})
+
+test('recording a decision does not reorder the session rail', () => {
+  const { file, id } = withProposalTurn()
+  const before = getSession(file, id)!.updatedAt
+  const next = setProposalDecision(file, id, 'm1', 'm1#p0', DECISION)
+  assert.equal(getSession(next, id)!.updatedAt, before)
+})
+
+test('message ids and decisions survive a save/load round-trip', () => {
+  const { file, id } = withProposalTurn()
+  const decided = setProposalDecision(file, id, 'm1', 'm1#p0', DECISION)
+  const round = parseSessionsFile(serializeSessionsFile(decided))
+  assert.deepEqual(round, decided)
+  assert.equal(getSession(round, id)!.messages[0].id, 'm1')
+  assert.deepEqual(getSession(round, id)!.messages[0].proposalDecisions, { 'm1#p0': DECISION })
+})
+
+test('a session persisted before proposal cards existed still loads', () => {
+  // No `id`, no `proposalDecisions` — the pre-feature message shape.
+  const legacy = parseSessionsFile(JSON.stringify({
+    version: 1,
+    sessions: [{
+      id: 'old', startedAt: T0, updatedAt: T0, title: 'Old chat',
+      messages: [{ role: 'user', content: 'hi', ts: T0 }],
+    }],
+  }))
+  assert.equal(legacy.sessions.length, 1)
+  const message = legacy.sessions[0].messages[0]
+  assert.equal(message.content, 'hi')
+  assert.equal(message.id, undefined)
+  assert.equal(message.proposalDecisions, undefined)
+})
+
+test('corrupt decision records are dropped without losing the message', () => {
+  const loaded = parseSessionsFile(JSON.stringify({
+    version: 1,
+    sessions: [{
+      id: 's', startedAt: T0, messages: [{
+        role: 'assistant', content: 'x', ts: T0, id: 'm1',
+        proposalDecisions: {
+          good: { status: 'applied', at: T1 },
+          noStatus: { at: T1 },
+          badStatus: { status: 'failed', at: T1 },   // transient — never persisted
+          notAnObject: 'applied',
+          noTimestamp: { status: 'dismissed' },
+        },
+      }],
+    }],
+  }))
+  assert.equal(loaded.sessions[0].messages.length, 1)
+  assert.deepEqual(loaded.sessions[0].messages[0].proposalDecisions, {
+    good: { status: 'applied', at: T1 },
+  })
+})
+
+test('a non-string message id is dropped rather than poisoning block ids', () => {
+  const loaded = parseSessionsFile(JSON.stringify({
+    version: 1,
+    sessions: [{
+      id: 's', startedAt: T0,
+      messages: [{ role: 'user', content: 'x', ts: T0, id: 42 }],
+    }],
+  }))
+  assert.equal(loaded.sessions[0].messages[0].id, undefined)
 })
