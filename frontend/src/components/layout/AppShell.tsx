@@ -25,17 +25,30 @@ import { CompanyView } from '@/components/company/CompanyView'
 import { AddListingModal } from '@/components/scouting/AddListingModal'
 import { AuthBanner } from '@/components/shared/AuthBanner'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
+import { useAppStore } from '@/store/app'
+import { isViewEnabled, resolveView } from '@/lib/features'
 
 export function AppShell() {
   const load = useDataStore(s => s.load)
-  const view = useNavStore(s => s.view)
+  const rawView = useNavStore(s => s.view)
   const companySlug = useNavStore(s => s.companySlug)
   const pendingView = useNavStore(s => s.pendingView)
   const confirmPendingNavigate = useNavStore(s => s.confirmPendingNavigate)
   const cancelPendingNavigate = useNavStore(s => s.cancelPendingNavigate)
+  const navigate = useNavStore(s => s.navigate)
+  const features = useAppStore(s => s.features)
   const [savingDirty, setSavingDirty] = useState(false)
 
   useEffect(() => { load() }, [load])
+
+  // Feature-gate backstop: anything can still call navigate() toward a
+  // deactivated view (keyboard shortcut, cross-view button, stale deep link).
+  // Render the fallback immediately (no disabled-view flash) and repoint the
+  // nav store so the sidebar highlight agrees with what's on screen.
+  const view = resolveView(rawView, features)
+  useEffect(() => {
+    if (!isViewEnabled(rawView, features)) navigate(view)
+  }, [rawView, view, features, navigate])
 
   const handleSave = async () => {
     setSavingDirty(true)

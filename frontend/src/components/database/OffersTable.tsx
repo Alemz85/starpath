@@ -17,6 +17,7 @@ import { CompanyLink } from '@/components/shared/CompanyLink'
 import { parseCities } from '@/lib/entityId'
 import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
+import { useAppStore } from '@/store/app'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { scoreColor, scoreColorLight } from '@/lib/tier'
@@ -412,6 +413,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   // slide-over's peerContext uses — not the filtered rows, so filtering the
   // table never changes a row's percentile.
   const peerIndex = useMemo(() => buildPeerRankIndex(scoreHistory), [scoreHistory])
+  const peerEnabled = useAppStore(s => s.features.peerContext)
 
   // Refs that always mirror the latest state so the column-cell closures
   // can read fresh values without `expanded` / `toggleExpanded` being in
@@ -662,7 +664,12 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         )
       },
     }),
-  ], [reportSet, onOpenReport, statusByKey, peerIndex])
+  ].filter(c =>
+    // The Peers column follows the peer-context feature switch (Settings ›
+    // General › Features) — deactivated means the column doesn't exist, not
+    // that it renders empty.
+    peerEnabled || c.id !== 'peer',
+  ), [reportSet, onOpenReport, statusByKey, peerIndex, peerEnabled])
 
   const table = useReactTable({
     data: rows,

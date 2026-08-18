@@ -29,6 +29,7 @@ export const ipc = {
   setOnboardingComplete:(v: boolean)            => api().setOnboardingComplete(v),
   setTailoringComplete: (v?: boolean)           => api().setTailoringComplete(v),
   setModels:            (m: { pipeline: string; tailorCv: string; draftApp: string; interviewPrep: string; generateReport: string }) => api().setModels(m),
+  setFeatures:          (f: Record<string, boolean>) => api().setFeatures(f),
   selectFolder:         ()                     => api().selectFolder() as Promise<{ path: string; valid: boolean } | null>,
   selectCvPdf:          ()                     => api().selectCvPdf()  as Promise<{ path: string } | null>,
   validatePath:         (p: string)             => api().validatePath(p) as Promise<{ path: string; valid: boolean }>,
