@@ -26,6 +26,9 @@ import {
 } from '@/lib/reportMarkdown'
 import { peerContext, type PeerContext } from '@/lib/peerRank'
 import { PeerContextCard } from '@/components/reports/PeerContextCard'
+import {
+  GATES, classifyMovement, confidenceTier, formatWithinNoise, OVERALL_NOISE_FLOOR,
+} from '@/lib/scoringStats'
 
 type Tab = 'scouting' | 'application' | 'history'
 
@@ -98,8 +101,9 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
 
   // Live peer context — this entity's overall + dims vs. every other
   // evaluated entity sharing its primary archetype, computed fresh from
-  // score-history (see lib/peerRank.ts). Null when the cohort is under 5
-  // roles, in which case the panel is omitted entirely.
+  // score-history (see lib/peerRank.ts). Null when the cohort is under the
+  // 5-peer gate (docs/scoring-statistical-design.md § 3.2), in which case the
+  // panel is omitted ENTIRELY — never a placeholder, never a hedged block.
   const peer: PeerContext | null = useMemo(
     () => peerContext(scoreEntry, scoreHistory),
     [scoreEntry, scoreHistory],
@@ -496,9 +500,61 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   )
 }
 
+// Movement across this entity's own re-evaluations, classified against the
+// 0.30 Overall noise floor (docs/scoring-statistical-design.md § 1 + § 3.3).
+// A sub-floor first→latest gap is stated as "flat within noise" with its
+// evidence — never as a small improvement, never with an arrow — because that
+// gap is what one dimension re-judging itself produces for free.
+function HistoryMovement({ rows }: { rows: HistoryEntry[] }) {
+  // Same-date rows are duplicate writes, not re-evaluations over time, so they
+  // collapse to one — the rule lib/scoreTrend.ts uses to build a trajectory.
+  // `rows` arrives newest-first; walk it oldest-first so the surviving row per
+  // date is the last one written that day.
+  const byDate = new Map<string, HistoryEntry>()
+  for (const r of [...rows].reverse()) {
+    if (!Number.isFinite(r.overall) || r.overall <= 0 || !r.date) continue
+    byDate.set(r.date, r)
+  }
+  const scored = [...byDate.values()]   // oldest → newest
+  if (scored.length < GATES.trendMinEvals) return null
+  const first = scored[0]
+  const latest = scored[scored.length - 1]
+  const delta = Math.round((latest.overall - first.overall) * 100) / 100
+  const movement = classifyMovement(delta)
+  const confidence = confidenceTier(scored.length, GATES.trendMinEvals)
+  const flat = movement === 'within-noise'
+  const color = flat ? '#8595A4' : movement === 'improving' ? '#007D1E' : '#C80A28'
+
+  return (
+    <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1 mb-3 pb-2.5 border-b border-border-default">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4">
+        First → latest
+      </span>
+      <span className="font-mono tabular-nums text-[12px] text-text-2">
+        {first.overall.toFixed(1)} → {latest.overall.toFixed(1)}
+      </span>
+      <span
+        className="font-mono tabular-nums text-[12px] font-semibold"
+        style={{ color }}
+        title={flat
+          ? `${formatWithinNoise(delta)} — below the resolution of the rubric, so no direction is claimed`
+          : `Moved ${delta > 0 ? 'up' : 'down'} by at least the ${OVERALL_NOISE_FLOOR} Overall noise floor`}
+      >
+        {flat
+          ? `flat within noise (|Δ| ${Math.abs(delta).toFixed(2)} < ${OVERALL_NOISE_FLOOR.toFixed(2)})`
+          : `${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(2)}`}
+      </span>
+      <span className="text-[11px] text-text-4 font-mono">
+        {scored.length} evals · {confidence} confidence
+      </span>
+    </div>
+  )
+}
+
 function HistoryTable({ rows, onPick }: { rows: HistoryEntry[]; onPick: (date: string) => void }) {
   return (
     <div className="text-[12.5px]">
+      <HistoryMovement rows={rows} />
       <div className="text-text-4 mb-3">
         Past evaluations for this entity. Click a row to view the snapshot.
       </div>

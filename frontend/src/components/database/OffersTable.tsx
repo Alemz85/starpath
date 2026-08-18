@@ -217,21 +217,33 @@ function LeverChip({ lever }: { lever: LeverResult }) {
 // bottom-half rows recede further ("#9/12" in muted slate). No color beyond
 // text-weight contrast: percentile is within-archetype context, not absolute
 // score quality, so it must not borrow the score or tier scales.
+//
+// STATISTICAL CONTRACT (docs/scoring-statistical-design.md § 3.2 + § 4 rule 1):
+// the cell always prints the cohort size beside the band, and a `low`-
+// confidence rank (5–9 peers, where one peer is ≥10 percentile points) never
+// gets the emphasis treatment — at that sample the band name is a bucket
+// label, not a quartile claim, and the tooltip says so in full.
 function PeerRankChip({ rank }: { rank: PeerRankSummary | null }) {
   if (!rank) return null
-  const strong = rank.band === 'top5' || rank.band === 'top10' || rank.band === 'quartile'
+  const band = rank.band === 'top5' || rank.band === 'top10' || rank.band === 'quartile'
+  const emphasize = band && rank.confidence !== 'low'
   return (
     <span
       title={
         `#${rank.rankPosition} of ${rank.nPeers} evaluated ${rank.archetype} roles — ${rank.rankLabel}. ` +
-        'Live cohort, same math as the Peer context panel in the report slide-over.'
+        `${rank.confidence} confidence (n=${rank.nPeers}, gate ${rank.minPeers}).` +
+        (rank.confidence === 'low'
+          ? ` At ${rank.nPeers} peers one role is ~${Math.round(100 / rank.nPeers)} percentile points — read the half, not the quartile.`
+          : '') +
+        ' Live cohort, same math as the Peer context panel in the report slide-over.'
       }
       className={cn(
         'text-[10.5px] font-mono tabular-nums whitespace-nowrap',
-        strong ? 'text-text-2 font-semibold' : 'text-text-4',
+        emphasize ? 'text-text-2 font-semibold' : 'text-text-4',
       )}
     >
       {rank.compactLabel}
+      <span className="text-text-4 font-normal"> ·{rank.nPeers}</span>
     </span>
   )
 }
@@ -542,7 +554,10 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     col.display({
       id: 'peer',
       header: 'Peers',
-      size: 76,
+      // Widened from 76 so the band and its cohort size ("top 25% ·12") fit on
+      // one line — docs § 4 rule 1: a percentile without its n is not
+      // publishable output, so the n rides in the cell, not only the tooltip.
+      size: 96,
       // Sort by percentile: descending puts the strongest within-cohort
       // standouts first. Rows without a rank (cohort < MIN_PEERS or unscored)
       // sit at -1 so a descending sort sends them to the bottom.
@@ -673,7 +688,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                 const isPeers = headerStr === 'Peers'
                 const headerTitle =
                   isUpgradePath ? 'Cheapest single-dimension raise that moves this listing into a better tier. Sort ascending = easiest to upgrade first.'
-                  : isPeers ? 'Where this score ranks among all evaluated roles of the same archetype (live cohort). Blank = fewer than 5 peers evaluated. Sort descending = strongest standouts first.'
+                  : isPeers ? 'Where this score ranks among all evaluated roles of the same archetype (live cohort), followed by the cohort size. Blank = fewer than 5 peers evaluated, where no rank is publishable. Bold = 10+ peers back the band; muted = 5–9 peers, read as top/bottom half only. Sort descending = strongest standouts first.'
                   : undefined
                 const ariaSortVal: 'ascending' | 'descending' | 'none' = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
                 const toggleSort = canSort ? header.column.getToggleSortingHandler() : undefined

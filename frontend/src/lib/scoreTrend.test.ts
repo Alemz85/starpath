@@ -5,9 +5,11 @@ import {
   overallBand, classifyDelta,
   listingTrajectories, trajectorySummary,
   landscapeTrend, trendRecommendations, analyzeScoreTrend,
-  DIMENSIONS,
+  DIMENSIONS, OVERALL_NOISE_FLOOR,
 } from '@/lib/scoreTrend'
+import { GATES } from '@/lib/scoringStats'
 import { makeScoreEntry } from '@/test-utils/fixtures'
+import type { ScoreEntry } from '@/types'
 
 // ─── Key normalization (must match dedup-index.mjs) ──────────────────────────
 
@@ -248,4 +250,189 @@ test('DIMENSIONS keys are real numeric ScoreEntry fields', () => {
   for (const { key } of DIMENSIONS) {
     assert.equal(typeof e[key], 'number')
   }
+})
+
+// ─── Statistical contract (docs/scoring-statistical-design.md) ───────────────
+//
+// Legacy `verdict` / `stable` keep their ±0.25 and ±0.15 dead-bands (docs § 5);
+// the ADDED fields are the honest read and are what renderers must use.
+
+const traj = (company: string, points: Array<[string, number]>): ScoreEntry[] =>
+  points.map(([date, overall]) => makeScoreEntry({ company, role: 'r', date, overall }))
+
+test('a delta EXACTLY at the noise floor is detectable movement', () => {
+  const [t] = listingTrajectories(traj('Edge', [['2026-01-01', 7.0], ['2026-02-01', 7.3]]))
+  assert.equal(t.delta, 0.3)
+  assert.equal(t.movementClass, 'improving')
+  assert.equal(t.detectable, true)
+  assert.equal(t.noiseFloor, OVERALL_NOISE_FLOOR)
+})
+
+test('a delta one hundredth under the floor is flat within noise, both directions', () => {
+  const [up] = listingTrajectories(traj('Up', [['2026-01-01', 7.0], ['2026-02-01', 7.29]]))
+  assert.equal(up.delta, 0.29)
+  assert.equal(up.movementClass, 'within-noise')
+  assert.equal(up.detectable, false)
+  // …and the LEGACY verdict disagrees, on purpose: 0.29 clears its ±0.25
+  // dead-band. Docs § 5 — the contract field is the correct answer.
+  assert.equal(up.verdict, 'improving')
+
+  const [down] = listingTrajectories(traj('Down', [['2026-01-01', 7.29], ['2026-02-01', 7.0]]))
+  assert.equal(down.movementClass, 'within-noise')
+  assert.equal(down.verdict, 'declining')
+})
+
+test('one Current-Fit dimension wobbling a step never reads as movement', () => {
+  // 0.70/3 = 0.2333 → rounds to 0.23 in Overall; still under the floor.
+  const [t] = listingTrajectories(traj('Wobble', [['2026-01-01', 7.0], ['2026-02-01', 7.23]]))
+  assert.equal(t.movementClass, 'within-noise')
+})
+
+test('trajectory confidence is the tier over the evaluation count (gate 2)', () => {
+  const tiers = ([2, 3, 4, 8] as const).map(n => {
+    const points: Array<[string, number]> = Array.from({ length: n }, (_, i) => [
+      `2026-0${i + 1}-01`, 7 + i * 0.5,
+    ])
+    return listingTrajectories(traj(`N${n}`, points))[0].confidence
+  })
+  assert.deepEqual(tiers, ['low', 'low', 'moderate', 'high'])
+  assert.equal(GATES.trendMinEvals, 2)
+})
+
+test('trajectorySummary counts the noise-floor split alongside the legacy one', () => {
+  const rows = [
+    ...traj('Real',  [['2026-01-01', 6.0], ['2026-02-01', 8.0]]),   // +2.0 → improving
+    ...traj('Slid',  [['2026-01-01', 8.0], ['2026-02-01', 7.0]]),   // −1.0 → declining
+    ...traj('Jitter', [['2026-01-01', 7.0], ['2026-02-01', 7.29]]), // +0.29 → within-noise
+  ]
+  const s = trajectorySummary(listingTrajectories(rows))
+  assert.equal(s.reevaluated, 3)
+  assert.equal(s.movement.improving, 1)
+  assert.equal(s.movement.declining, 1)
+  assert.equal(s.movement['within-noise'], 1)
+  assert.equal(s.withinNoise, 1)
+  assert.equal(s.detectable, 2)
+  assert.equal(s.noiseFloor, OVERALL_NOISE_FLOOR)
+  // Legacy split still counts the 0.29 jitter as "improving" — kept for
+  // compatibility, never rendered as the answer.
+  assert.equal(s.verdicts.improving, 2)
+})
+
+// A landscape of `perWindow` evals per side, with the given window averages.
+// Dates are real ISO days (one eval per day) so the balanced-split search has
+// a genuine calendar axis to cut on, at any window size.
+function isoDay(start: string, offset: number): string {
+  const d = new Date(`${start}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + offset)
+  return d.toISOString().slice(0, 10)
+}
+
+function windows(perWindow: number, olderAvg: number, recentAvg: number): ScoreEntry[] {
+  return [
+    ...Array.from({ length: perWindow }, (_, i) =>
+      makeScoreEntry({ company: `O${i}`, role: 'r', date: isoDay('2025-11-01', i), overall: olderAvg })),
+    ...Array.from({ length: perWindow }, (_, i) =>
+      makeScoreEntry({ company: `R${i}`, role: 'r', date: isoDay('2026-03-01', i), overall: recentAvg })),
+  ]
+}
+
+test('a corpus verdict under the per-window gate is withheld, not weakened', () => {
+  const t = landscapeTrend(windows(9, 5, 8))   // 9 per window < 10
+  assert.equal(t.insufficientData, false)
+  assert.equal(t.reportableVerdict, 'insufficient-data')
+  assert.equal(t.verdictConfidence, 'insufficient')
+  assert.equal(t.verdictGate.met, false)
+  assert.equal(t.verdictGate.minPerWindow, GATES.trendMinPerWindowForVerdict)
+  assert.equal(t.verdictGate.olderCount, 9)
+  assert.equal(t.verdictGate.recentCount, 9)
+  assert.match(String(t.verdictGate.reason), /9 eval\(s\) in the earlier window/)
+  if (!t.insufficientData) {
+    // The legacy verdict still says "improving" — that's exactly why the
+    // contract field exists and why renderers must read it instead.
+    assert.equal(t.verdict, 'improving')
+  }
+})
+
+test('exactly 10 evals per window unlocks the verdict, at low confidence', () => {
+  const t = landscapeTrend(windows(10, 5, 8))   // ← boundary
+  assert.equal(t.insufficientData, false)
+  assert.equal(t.reportableVerdict, 'improving')
+  assert.equal(t.verdictGate.met, true)
+  assert.equal(t.verdictConfidence, 'low')      // 10–19 per window
+  if (!t.insufficientData) assert.equal(t.delta, 3)
+})
+
+test('corpus confidence climbs at 2× and 4× the window gate', () => {
+  assert.equal(landscapeTrend(windows(19, 5, 8)).verdictConfidence, 'low')
+  assert.equal(landscapeTrend(windows(20, 5, 8)).verdictConfidence, 'moderate')  // ← 2× gate
+  assert.equal(landscapeTrend(windows(39, 5, 8)).verdictConfidence, 'moderate')
+  assert.equal(landscapeTrend(windows(40, 5, 8)).verdictConfidence, 'high')      // ← 4× gate
+})
+
+test('above the gate but under the floor, the corpus verdict is flat within noise', () => {
+  const t = landscapeTrend(windows(12, 7.0, 7.2))   // Δ 0.20 < 0.30
+  assert.equal(t.verdictGate.met, true)
+  assert.equal(t.reportableVerdict, 'flat-within-noise')
+  if (!t.insufficientData) assert.equal(t.delta, 0.2)
+})
+
+test('the structural early-outs carry the gate too, so consumers never special-case', () => {
+  const tiny = landscapeTrend([
+    makeScoreEntry({ date: '2026-01-01', overall: 7 }),
+    makeScoreEntry({ date: '2026-02-01', overall: 8 }),
+  ])
+  assert.equal(tiny.insufficientData, true)
+  assert.equal(tiny.reportableVerdict, 'insufficient-data')
+  assert.equal(tiny.verdictGate.met, false)
+  assert.equal(tiny.verdictConfidence, 'insufficient')
+  assert.equal(tiny.noiseFloor, OVERALL_NOISE_FLOOR)
+})
+
+test('recommendations emit a withheld marker instead of a gated direction', () => {
+  const rows = windows(9, 5, 8)
+  const recs = trendRecommendations(listingTrajectories(rows), landscapeTrend(rows))
+  const corpus = recs.filter(r => r.action.startsWith('Landscape trend'))
+  assert.equal(corpus.length, 1)
+  assert.equal(corpus[0].insufficientData, true)
+  assert.equal(corpus[0].confidence, 'insufficient')
+  assert.equal(corpus[0].sampleSize, 9)
+  assert.equal(corpus[0].gate, GATES.trendMinPerWindowForVerdict)
+  // No direction anywhere in the withheld copy.
+  assert.ok(!recs.some(r => /sharpening|sliding/.test(r.action)))
+})
+
+test('recommendations state flat-within-noise as a finding, with its n', () => {
+  const rows = windows(12, 7.0, 7.2)
+  const recs = trendRecommendations(listingTrajectories(rows), landscapeTrend(rows))
+  const flat = recs.find(r => r.action.includes('flat within noise'))
+  assert.ok(flat)
+  assert.equal(flat.confidence, 'low')
+  assert.equal(flat.sampleSize, 12)
+  assert.match(flat.reasoning, /12 vs 12 evals/)
+  assert.ok(!/[↑↓]/.test(flat.action))
+})
+
+test('an ungated corpus direction states its sample and tier', () => {
+  const rows = windows(10, 5, 8)
+  const recs = trendRecommendations(listingTrajectories(rows), landscapeTrend(rows))
+  const sharpening = recs.find(r => r.action.includes('Targeting is sharpening'))
+  assert.ok(sharpening)
+  assert.equal(sharpening.confidence, 'low')
+  assert.equal(sharpening.sampleSize, 10)
+  assert.match(sharpening.reasoning, /10 earlier vs 10 recent evals; low confidence/)
+})
+
+test('a sub-floor listing move never becomes a re-check recommendation', () => {
+  // Δ 0.29 with a deliberately loose minDelta: the floor still blocks it.
+  const rows = traj('Jitter', [['2026-01-01', 7.0], ['2026-02-01', 7.29]])
+  const recs = trendRecommendations(listingTrajectories(rows), landscapeTrend(rows), { minDelta: 0.1 })
+  assert.ok(!recs.some(r => r.action.includes('Jitter')))
+})
+
+test('analyzeScoreTrend stamps the contract it was produced under', () => {
+  const a = analyzeScoreTrend(windows(10, 5, 8))
+  assert.equal(a.metadata?.contract.doc, 'docs/scoring-statistical-design.md')
+  assert.equal(a.metadata?.contract.noiseFloor, OVERALL_NOISE_FLOOR)
+  assert.equal(a.metadata?.contract.minEvalsPerTrajectory, GATES.trendMinEvals)
+  assert.equal(a.metadata?.contract.minPerWindowForVerdict, GATES.trendMinPerWindowForVerdict)
 })
