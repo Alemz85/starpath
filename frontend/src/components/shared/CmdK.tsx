@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { useProfilesStore } from '@/store/profiles'
+import { useAppStore } from '@/store/app'
+import { isViewEnabled } from '@/lib/features'
 import { switchTargets } from '@/lib/profiles'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
 
@@ -22,6 +24,7 @@ export function CmdK() {
   // pre-migration repos, so the group hides itself.
   const profiles = useProfilesStore(s => s.profiles)
   const profileTargets = switchTargets(profiles)
+  const features = useAppStore(s => s.features)
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -99,7 +102,14 @@ export function CmdK() {
                 { view: 'scan',     label: 'Activity', icon: Activity   },
                 { view: 'settings', label: 'Settings', icon: Settings   },
                 { view: 'profile',  label: 'Profile',  icon: User       },
-              ] as const).map(({ view, label, icon: Icon, ...rest }) => (
+              ] as const)
+                // Deactivated features drop their entries: whole-view gates
+                // via isViewEnabled, plus the Score Trend sub-tab jump which
+                // has its own flag (its host view, Trends, stays).
+                .filter(({ view, ...rest }) =>
+                  isViewEnabled(view, features) &&
+                  !('tab' in rest && rest.tab === 'scoretrend' && !features.scoreTrendTab))
+                .map(({ view, label, icon: Icon, ...rest }) => (
                 <Command.Item
                   key={label}
                   value={label}

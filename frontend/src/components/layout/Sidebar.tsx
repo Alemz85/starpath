@@ -26,6 +26,8 @@ import {
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawns'
 import { useDataStore } from '@/store/data'
+import { useAppStore } from '@/store/app'
+import { isViewEnabled } from '@/lib/features'
 import { buildCockpitFeed } from '@/lib/todayCockpit'
 import { StarpathLogo } from '@/components/shared/Logos'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
@@ -80,6 +82,11 @@ export function Sidebar() {
   const [expanded, setExpanded] = useState(true)
   const currentView = useNavStore(s => s.view)
   const navigate = useNavStore(s => s.navigate)
+  // Deactivated feature tabs (Settings › General › Features) drop off the
+  // rail entirely — same rows, one filter, no layout special-casing.
+  const features = useAppStore(s => s.features)
+  const primaryNav = PRIMARY_NAV.filter(item => isViewEnabled(item.view, features))
+  const secondaryNav = SECONDARY_NAV.filter(item => isViewEnabled(item.view, features))
   const anyRunning = useSpawnsStore(isAnyRunning)
   const failedCount = useSpawnsStore(unackedFailureCount)
 
@@ -281,11 +288,11 @@ export function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 p-2 overflow-y-auto">
         <div className="space-y-0.5">
-          {PRIMARY_NAV.map(renderItem)}
+          {primaryNav.map(renderItem)}
         </div>
         <div className={cn('my-2 border-t border-border-default/60', !expanded && 'mx-1')} aria-hidden />
         <div className="space-y-0.5">
-          {SECONDARY_NAV.map(renderItem)}
+          {secondaryNav.map(renderItem)}
         </div>
       </nav>
 

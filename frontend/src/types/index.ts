@@ -28,12 +28,50 @@ export const DEFAULT_MODEL_PREFS: ModelPrefs = {
   generateReport: 'opus',
 }
 
+// Optional UI surfaces that can be deactivated per user (Settings › General ›
+// Features). Deactivating hides the surface everywhere (sidebar, sub-tabs,
+// CmdK, panels, columns) — the code stays, so flipping the switch brings it
+// back without a rebuild. Data files and CLIs are unaffected either way.
+export const FEATURE_IDS = [
+  /** Today tab — the cross-pipeline "What's next?" landing cockpit. */
+  'todayView',
+  /** Outreach tab, including its Network sub-tab (warm-outreach lens). */
+  'outreachView',
+  /** Offers tab — weighted offer-comparison view. */
+  'offersView',
+  /** Trends › Score Trend sub-tab (re-evaluation trajectory). */
+  'scoreTrendTab',
+  /** Daily-brief digest panel embedded in the Scouting cockpit. */
+  'dailyBriefPanel',
+  /** Peers column in the Database table + peer-context card in the report slide-over. */
+  'peerContext',
+  /** Closed-applications (rejected/discarded) lane on the Applying view. */
+  'closedLane',
+] as const
+
+export type FeatureId = (typeof FEATURE_IDS)[number]
+
+export type FeaturePrefs = Record<FeatureId, boolean>
+
+// System default is everything ON — deactivation is a per-user choice stored
+// in the app config, never baked into the code.
+export const DEFAULT_FEATURE_PREFS: FeaturePrefs = {
+  todayView:       true,
+  outreachView:    true,
+  offersView:      true,
+  scoreTrendTab:   true,
+  dailyBriefPanel: true,
+  peerContext:     true,
+  closedLane:      true,
+}
+
 export interface AppConfig {
   repoPath?: string
   windowBounds?: { x: number; y: number; width: number; height: number }
   onboardingComplete?: boolean
   tailoringComplete?: boolean
   models?: ModelPrefs
+  features?: Partial<FeaturePrefs>
 }
 
 // ─── Score history (data/score-history.tsv) ───────────────────────────────────

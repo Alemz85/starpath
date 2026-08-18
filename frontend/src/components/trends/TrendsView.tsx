@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
+import { useAppStore } from '@/store/app'
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
@@ -88,12 +89,25 @@ export function TrendsView() {
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
   const [tab, setTab] = useState<TrendsTab>('overview')
 
+  // Score Trend is a deactivatable feature (Settings › General › Features).
+  // When off, the tab strip collapses to Overview only and any landed-on or
+  // deep-linked scoretrend state snaps back to Overview.
+  const scoreTrendEnabled = useAppStore(s => s.features.scoreTrendTab)
+  const tabs = useMemo(
+    () => (scoreTrendEnabled ? TRENDS_TABS : TRENDS_TABS.filter(t => t.key !== 'scoretrend')),
+    [scoreTrendEnabled],
+  )
+  useEffect(() => {
+    if (!scoreTrendEnabled && tab === 'scoretrend') setTab('overview')
+  }, [scoreTrendEnabled, tab])
+
   // One-shot sub-tab request from navigate('trends', '', '', <tab>) — CmdK
   // and other deep links land on Score Trend through this.
   const requestedTab = useNavStore(s => s.viewTab)
   useEffect(() => {
-    if (requestedTab === 'overview' || requestedTab === 'scoretrend') setTab(requestedTab)
-  }, [requestedTab])
+    if (requestedTab === 'overview') setTab(requestedTab)
+    if (requestedTab === 'scoretrend' && scoreTrendEnabled) setTab(requestedTab)
+  }, [requestedTab, scoreTrendEnabled])
 
   // Title-bar meta for the Score Trend tab — the same one-pass analysis the
   // panel runs, needed here only for the "{n} evaluations · {n} re-evaluated"
@@ -211,13 +225,17 @@ export function TrendsView() {
         )}
       </div>
 
-      <ViewTabs
-        tabs={TRENDS_TABS}
-        active={tab}
-        onSelect={setTab}
-        ariaLabel="Trends sections"
-        idPrefix="trends"
-      />
+      {/* With Score Trend deactivated only Overview remains — a one-tab strip
+          is chrome without a choice, so it hides entirely. */}
+      {tabs.length > 1 && (
+        <ViewTabs
+          tabs={tabs}
+          active={tab}
+          onSelect={setTab}
+          ariaLabel="Trends sections"
+          idPrefix="trends"
+        />
+      )}
 
       {/* Tab panels share one scroll container; inactive panels unmount so
           neither tab pays for the other's charts. */}

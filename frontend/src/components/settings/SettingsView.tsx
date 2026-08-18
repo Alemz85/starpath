@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useId, useCallback } from 'react'
 import { useAppStore } from '@/store/app'
+import type { FeatureId } from '@/types'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
@@ -428,6 +429,8 @@ function GeneralTab() {
   const setRepoPath = useAppStore(s => s.setRepoPath)
   const models = useAppStore(s => s.models)
   const setModel = useAppStore(s => s.setModel)
+  const features = useAppStore(s => s.features)
+  const setFeature = useAppStore(s => s.setFeature)
   const resetTailoring = useAppStore(s => s.resetTailoring)
   const refresh = useDataStore(s => s.refresh)
   const [refreshDone, setRefreshDone] = useState(false)
@@ -443,6 +446,19 @@ function GeneralTab() {
     { key: 'draftApp',       label: 'Draft Application',      sub: 'Per-listing form-fill draft on the Applying tab (modes/apply.md).' },
     { key: 'interviewPrep',  label: 'Prep Application',       sub: 'Per-listing interview / application brief generation (modes/interview-prep.md).' },
     { key: 'generateReport', label: 'Generate Report',        sub: 'Full per-listing prose reports — used by both the Reports tab Generate Top 5 button and the per-listing Generate Report action in the Database popover.' },
+  ]
+
+  // Optional UI surfaces. Off = the surface disappears everywhere (sidebar,
+  // sub-tabs, CmdK, panels, columns); the code and the underlying data files
+  // stay, so flipping back On restores it instantly.
+  const FEATURE_ROWS: Array<{ key: FeatureId; label: string; sub: string }> = [
+    { key: 'todayView',       label: 'Today tab',            sub: 'Cross-pipeline "what should I do next?" cockpit. When off, the app opens on Scouting.' },
+    { key: 'outreachView',    label: 'Outreach tab',         sub: 'Outreach tracker plus the Network warm-path sub-tab. data/outreach.md and the outreach CLIs keep working while it\'s off.' },
+    { key: 'offersView',      label: 'Offers tab',           sub: 'Weighted offer-comparison view. Worth re-enabling when live offers land.' },
+    { key: 'scoreTrendTab',   label: 'Score Trend sub-tab',  sub: 'Re-evaluation trajectory panel under Trends (npm run score-trend still has the numbers).' },
+    { key: 'dailyBriefPanel', label: 'Daily brief panel',    sub: 'The daily-brief digest embedded in the Scouting cockpit (npm run brief is unaffected).' },
+    { key: 'peerContext',     label: 'Peer context',         sub: 'Peers column in the Database table and the peer-rank card in report slide-overs. Scores are untouched.' },
+    { key: 'closedLane',      label: 'Closed applications lane', sub: 'The Rejected/Discarded strip on Applying. Closed rows stay visible in Database and Pipeline.' },
   ]
 
   const changeRepo = async () => {
@@ -498,6 +514,23 @@ function GeneralTab() {
               sub={row.sub}
               value={models[row.key]}
               onChange={(m) => setModel(row.key, m)}
+            />
+          ))}
+        </div>
+      </SettingRow>
+
+      <SettingRow
+        title="Features"
+        description="Optional surfaces you can switch off to slim the app down. Off means hidden everywhere — nothing is deleted, and switching back On restores the surface instantly."
+      >
+        <div className="mt-4 space-y-4" role="group" aria-label="Feature switches">
+          {FEATURE_ROWS.map(row => (
+            <FeatureToggle
+              key={row.key}
+              label={row.label}
+              sub={row.sub}
+              value={features[row.key]}
+              onChange={(enabled) => setFeature(row.key, enabled)}
             />
           ))}
         </div>
@@ -1726,6 +1759,51 @@ function LoadingRows() {
       {[48, 72, 48, 60].map((w, i) => (
         <div key={i} className="shimmer h-3 rounded" style={{ width: `${w}%` }} />
       ))}
+    </div>
+  )
+}
+
+// On/Off pair for a deactivatable feature — same row anatomy and segmented
+// control as ModelChoice so the General tab reads as one system.
+function FeatureToggle({ label, sub, value, onChange }: {
+  label: string
+  sub: string
+  value: boolean
+  onChange: (enabled: boolean) => void
+}) {
+  const descId = useId()
+  const options: Array<{ id: boolean; name: string }> = [
+    { id: true,  name: 'On'  },
+    { id: false, name: 'Off' },
+  ]
+  return (
+    <div className="flex items-start justify-between gap-6 py-1">
+      <div className="min-w-0" id={descId}>
+        <div className="text-label text-text-1 font-medium">{label}</div>
+        <div className="text-[11px] text-text-4 leading-snug mt-0.5">{sub}</div>
+      </div>
+      <div
+        className="flex rounded-md overflow-hidden border border-border-default shrink-0"
+        role="group"
+        aria-label={label}
+        aria-describedby={descId}
+      >
+        {options.map(opt => (
+          <button
+            key={String(opt.id)}
+            onClick={() => onChange(opt.id)}
+            aria-pressed={value === opt.id}
+            className={cn(
+              'px-3 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
+              value === opt.id
+                ? 'bg-accent/20 text-accent-text'
+                : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
+            )}
+          >
+            {opt.name}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

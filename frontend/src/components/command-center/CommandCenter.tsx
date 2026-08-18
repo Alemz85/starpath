@@ -204,6 +204,7 @@ function ScoutingActionPanel({
   const kill = useSpawnsStore(s => s.kill)
   const clear = useSpawnsStore(s => s.clear)
   const pipelineModel = useAppStore(s => s.models.pipeline)
+  const dailyBriefEnabled = useAppStore(s => s.features.dailyBriefPanel)
   const fullScan       = spawns[FULL_SCAN_ID]
   const apiScan        = spawns[API_SCAN_ID]
   const pipelineFilter = spawns[PIPELINE_FILTER_ID]
@@ -343,8 +344,9 @@ function ScoutingActionPanel({
           few prioritized items per section, computed by scripts/daily-brief.mjs
           (--json) and rendered natively. Occupies the cockpit's middle band;
           renders nothing at all when the brief has nothing to say, so the
-          Filtered Scan section below keeps its bottom anchor either way. */}
-      <DailyBriefPanel />
+          Filtered Scan section below keeps its bottom anchor either way.
+          Deactivatable via Settings › General › Features. */}
+      {dailyBriefEnabled && <DailyBriefPanel />}
 
       <FilteredScanRow />
 
