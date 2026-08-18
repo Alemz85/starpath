@@ -97,8 +97,8 @@ than reading, say which it is.
 2. **No tracker writes from a chat session.** `data/applications.md`, `data/scouting.md`,
    and the score/dedup TSVs are written through the merge scripts and the app's own
    buttons, so a conversational aside can't silently mutate the pipeline. When a change
-   to tracked data is the right outcome, describe exactly what should change and where
-   the user makes it in the app — see § Proposals.
+   to tracked data is the right outcome, propose it and let the user confirm — see
+   § Proposals for the fence contract.
 3. **Reading is unrestricted; writing is not.** Scratch files and drafts (`output/`,
    `jds/`, a draft in your reply) are fine. Never write to `user/*` on your own
    initiative — that's the user's personalization layer; propose the edit and let them
@@ -111,12 +111,51 @@ than reading, say which it is.
 
 ## Proposals
 
-Structured write-proposal fences — a machine-readable block the app can render as a
-Confirm/Discard card and apply through the same contracts the merge scripts use — are
-**specified by a follow-up change and are not available yet**.
+You never write to the tracker (rule 2 above). What you *can* do is propose a write: emit
+a fenced block, and the app renders it as a card with a Confirm button. Confirm applies it
+through the same validated path as the app's own Apply button. **The card is the only
+write path from chat** — proposing and then also editing the file would double-write.
 
-Until they land: when a conversation concludes that tracked data should change (a status
-move, a new tracker entry, a re-scored listing), describe the change in prose — which
-file, which row, what the new value should be, and which button in the app performs it —
-and leave the action to the user. Don't invent a fence format in the meantime; an
-unrecognised fence renders as a raw code block and reads as a bug.
+Emit **one fence per action**, at the top level of your reply (never nested inside another
+fence). The body is strict JSON: no comments, no trailing commas, no `//` annotations.
+
+**Add or refresh an applications entry** — use when a listing should be tracked, or when a
+tracked one needs a fresher score/deadline:
+
+````
+```starpath:apply
+{"company": "Acme", "role": "Data Analyst", "score": "7.8/10", "status": "Evaluated", "deadline": "2026-09-30", "url": "https://…", "notes": "…"}
+```
+````
+
+`company` and `role` required; everything else optional. If the listing is already tracked,
+Confirm refreshes that row instead of adding a second one.
+
+**Change the status of a tracked listing:**
+
+````
+```starpath:status
+{"company": "Acme", "role": "Data Analyst", "status": "Applied"}
+```
+````
+
+All three fields required. Confirm fails if no row matches — propose `starpath:apply` first
+for a listing that isn't tracked yet.
+
+**Field rules** (a block that breaks any of them renders as a dead code block, not a card):
+
+| Field | Rule |
+|-------|------|
+| `company`, `role` | Non-empty. Must match the tracked listing exactly when you mean an existing row — matching is case-insensitive but not fuzzy. |
+| `status` | Canonical only, from `templates/states.yml`: `Evaluated` `Applied` `Responded` `Interview` `Offer` `Rejected` `Discarded` `SKIP`. Defaults to `Evaluated` on `apply`. |
+| `score` | `X.X/10`, 0–10. |
+| `deadline` | `YYYY-MM-DD` (a real date), `Rolling`, or `n/d`. |
+| `url` | `http(s)` only. Shown on the card so the user can check the listing — `applications.md` has no URL column, so it isn't written to the row. |
+| `notes` | Short. Goes in the Notes cell. |
+| any string | **No `\|` characters** — the tracker is a pipe-delimited table and a stray pipe shifts every later column. |
+
+Propose only what the conversation actually concluded. A fence per listing the user agreed
+to track — not one per listing you happened to mention, and not a speculative status move
+they haven't decided on. After the fence, continue the reply normally: say what you
+proposed and why, in your own voice. Don't narrate the JSON or explain how to click
+Confirm — the card does that.

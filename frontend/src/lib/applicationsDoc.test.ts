@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   upsertApplicationRow,
   updateApplicationStatus,
+  updateApplicationFields,
   tierFolder,
   splitRow,
   joinRow,
@@ -198,4 +199,92 @@ test('splitRow / joinRow round-trip a data row', () => {
   assert.equal(cells.length, 10)
   assert.equal(cells[2], 'Acme')
   assert.equal(joinRow(cells), '| 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Applied | ✅ | n/d | [#1](reports/tier-2/Acme - ML Eng.md) | emailed Jane |')
+})
+
+// ─── updateApplicationFields (multi-cell patch) ───────────────────────────────
+
+test('patching writes only the named cells and preserves the rest', () => {
+  const next = updateApplicationFields(DOC, 'Globex', 'Analyst', {
+    status: 'Applied', deadline: '2026-07-15', notes: 'sent via portal',
+  })
+  const cells = row(next, 'Globex', 'Analyst')!
+  assert.equal(cells[5], 'Applied')
+  assert.equal(cells[7], '2026-07-15')
+  assert.equal(cells[9], 'sent via portal')
+  // Untouched columns.
+  assert.equal(cells[0], '2')
+  assert.equal(cells[1], '2026-04-28')
+  assert.equal(cells[4], '7.1/10')
+  assert.equal(cells[6], '❌')
+  assert.equal(cells[8], '[#2](reports/tier-2/Globex - Analyst.md)')
+  // The other listing is untouched.
+  assert.deepEqual(row(next, 'Acme', 'ML Eng'), row(DOC, 'Acme', 'ML Eng'))
+})
+
+test('an omitted key leaves that cell alone rather than blanking it', () => {
+  const next = updateApplicationFields(DOC, 'Acme', 'ML Eng', { status: 'Interview' })
+  const cells = row(next, 'Acme', 'ML Eng')!
+  assert.equal(cells[5], 'Interview')
+  assert.equal(cells[7], 'n/d')            // deadline preserved
+  assert.equal(cells[9], 'emailed Jane')   // notes preserved
+})
+
+test('an empty patch or an unknown listing returns the document unchanged', () => {
+  assert.equal(updateApplicationFields(DOC, 'Acme', 'ML Eng', {}), DOC)
+  assert.equal(updateApplicationFields(DOC, 'Nobody', 'Nothing', { status: 'Applied' }), DOC)
+})
+
+test('matching a listing is case-insensitive, like every other mutator', () => {
+  const next = updateApplicationFields(DOC, 'acme', 'ml eng', { notes: 'lowercased lookup' })
+  assert.equal(row(next, 'Acme', 'ML Eng')![9], 'lowercased lookup')
+})
+
+test('patching a legacy 9-column file upgrades it instead of eating the report link', () => {
+  const legacy = [
+    '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |',
+    '|---|------|---------|------|-------|--------|-----|--------|-------|',
+    '| 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Applied | ✅ | [#1](reports/tier-2/Acme - ML Eng.md) | emailed Jane |',
+  ].join('\n')
+  const next = updateApplicationFields(legacy, 'Acme', 'ML Eng', { deadline: '2026-07-15' })
+  const cells = row(next, 'Acme', 'ML Eng')!
+  assert.equal(cells.length, 10)
+  assert.equal(cells[7], '2026-07-15')
+  assert.equal(cells[8], '[#1](reports/tier-2/Acme - ML Eng.md)')  // report link intact
+  assert.equal(cells[9], 'emailed Jane')                            // notes intact
+})
+
+test('upsert then patch is the chat-proposal write path and lands one clean row', () => {
+  const upserted = upsertApplicationRow(DOC, {
+    company: 'Initech', role: 'Data Analyst', overall: 7.8, tier: 'T2',
+  })
+  const next = updateApplicationFields(upserted, 'Initech', 'Data Analyst', {
+    status: 'Applied', deadline: 'Rolling', notes: 'from chat',
+  })
+  assert.equal(next.split('\n').filter(isTableDataRow).length, 3)
+  const cells = row(next, 'Initech', 'Data Analyst')!
+  assert.equal(cells.length, 10)
+  assert.equal(cells[0], '3')
+  assert.equal(cells[3], 'Data Analyst')
+  assert.equal(cells[4], '7.8/10')
+  assert.equal(cells[5], 'Applied')
+  assert.equal(cells[7], 'Rolling')
+  assert.equal(cells[9], 'from chat')
+  // Confirming the same proposal twice refreshes in place — never a duplicate.
+  const again = updateApplicationFields(
+    upsertApplicationRow(next, { company: 'Initech', role: 'Data Analyst', overall: 7.8, tier: 'T2' }),
+    'Initech', 'Data Analyst', { status: 'Applied', deadline: 'Rolling', notes: 'from chat' },
+  )
+  assert.equal(again.split('\n').filter(isTableDataRow).length, 3)
+  assert.equal(again, next)
+})
+
+test('the parser reads back a patched row', () => {
+  const next = updateApplicationFields(DOC, 'Globex', 'Analyst', {
+    status: 'Offer', deadline: 'Rolling', notes: 'negotiating',
+  })
+  const parsed = parseApplications(next).find(a => a.company === 'Globex')!
+  assert.equal(parsed.status, 'Offer')
+  assert.equal(parsed.deadline, 'Rolling')
+  assert.equal(parsed.notes, 'negotiating')
+  assert.equal(parsed.score, '7.1/10')
 })

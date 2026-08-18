@@ -1,17 +1,69 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MessageSquare, Square } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
+import { useDataStore } from '@/store/data'
+import {
+  findApplicationRowIndex, updateApplicationFields, updateApplicationStatus, upsertApplicationRow,
+} from '@/lib/applicationsDoc'
 import { applyEnvelope, mergeRuntime } from '@/lib/chat/runtime'
 import { isLivePhase } from '@/lib/chat/types'
 import type {
   ChatPhase, ChatRuntimeEnvelope, ChatRuntimeSnapshot, ChatSession, ChatSessionMeta,
 } from '@/lib/chat/types'
+import { describeProposal, tierForProposal } from '@/lib/chat/proposals'
+import type { ChatProposal } from '@/lib/chat/proposals'
 import { ChatSessionRail } from './ChatSessionRail'
 import { ChatTranscript } from './ChatTranscript'
 import { ChatComposer } from './ChatComposer'
+
+const APPLICATIONS_PATH = 'data/applications.md'
+
+/**
+ * Apply one confirmed proposal to `data/applications.md`.
+ *
+ * This is deliberately NOT a new write path: it reads the file over the same
+ * `fs:read`/`fs:write` IPC the store uses and transforms it with the same
+ * `lib/applicationsDoc.ts` mutators behind the Apply button and the status
+ * dropdown. So the tracker's invariants — one row per (company, role),
+ * refresh-in-place instead of duplicate, the 9→10 column self-heal — hold for a
+ * chat confirm exactly as they do for a click in the Database.
+ *
+ * Returns the line the card shows once applied.
+ */
+async function applyProposalToTracker(proposal: ChatProposal): Promise<string> {
+  const raw = await ipc.readFile(APPLICATIONS_PATH) ?? ''
+
+  if (proposal.kind === 'status') {
+    // A status move needs a row to move. Saying so beats silently no-op'ing:
+    // updateApplicationStatus returns the document unchanged either way.
+    if (findApplicationRowIndex(raw.split('\n'), proposal.company, proposal.role) === -1) {
+      throw new Error(`${proposal.company} — ${proposal.role} isn't in your applications yet.`)
+    }
+    const next = updateApplicationStatus(raw, proposal.company, proposal.role, proposal.status)
+    if (next !== raw) await ipc.writeFile(APPLICATIONS_PATH, next)
+    return describeProposal(proposal).appliedLabel
+  }
+
+  // Upsert first (creates the row, or refreshes score/report on an existing
+  // one), then patch the cells upsert doesn't own. Both steps are no-ops when
+  // nothing actually changes, so confirming twice can't duplicate a listing.
+  const upserted = upsertApplicationRow(raw, {
+    company: proposal.company,
+    role: proposal.role,
+    overall: proposal.scoreValue ?? 0,
+    tier: tierForProposal(proposal),
+  })
+  const next = updateApplicationFields(upserted, proposal.company, proposal.role, {
+    status: proposal.status,
+    deadline: proposal.deadline,
+    notes: proposal.notes,
+  })
+  if (next !== raw) await ipc.writeFile(APPLICATIONS_PATH, next)
+  return describeProposal(proposal).appliedLabel
+}
 
 // Header chip copy per phase. "Working elsewhere" covers the case where a
 // generation is live on a conversation the user has navigated away from —
@@ -49,6 +101,12 @@ export function ChatView() {
   const [draft, setDraft] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  // Proposal cards: one decision at a time (single-flight across every card),
+  // plus per-block transient errors that are deliberately NOT persisted so
+  // Confirm stays available as a retry.
+  const [proposalBusy, setProposalBusy] =
+    useState<{ blockId: string; kind: 'applying' | 'dismissing' } | null>(null)
+  const [proposalErrors, setProposalErrors] = useState<Record<string, string>>({})
 
   // Mirrors `runtime` for the event listener, which is registered once and
   // must not close over a stale snapshot.
@@ -149,6 +207,63 @@ export function ChatView() {
     }
   }, [refreshSessions])
 
+  // Confirm: write the tracker first, and only record the decision once the
+  // write succeeded. Doing it in that order means a failed write leaves the
+  // card open for a retry rather than marking it applied with nothing on disk.
+  const confirmProposal = useCallback(async (
+    blockId: string, messageId: string, proposal: ChatProposal,
+  ) => {
+    if (proposalBusy) return  // single-flight
+    setProposalBusy({ blockId, kind: 'applying' })
+    setProposalErrors(prev => {
+      if (!(blockId in prev)) return prev
+      const { [blockId]: _cleared, ...rest } = prev
+      return rest
+    })
+    try {
+      const detail = await applyProposalToTracker(proposal)
+      // Only now record the decision. If this throws, the row is already
+      // written — and a retry re-runs an idempotent upsert, so the worst case
+      // is a card that still says "pending" over a tracker that is correct.
+      const updated = await ipc.chat.recordDecision(
+        session?.id ?? selectedId ?? '', messageId, blockId, { status: 'applied', detail },
+      )
+      if (updated) setSession(updated)
+      // The tracker moved — bring the rest of the app (Database, Pipeline,
+      // Applying) back in sync. The chokidar watcher would get there too; this
+      // just makes it immediate.
+      await useDataStore.getState().refresh()
+    } catch (e) {
+      setProposalErrors(prev => ({ ...prev, [blockId]: readIpcError(e) }))
+    } finally {
+      setProposalBusy(null)
+    }
+  }, [proposalBusy, selectedId, session?.id])
+
+  const dismissProposal = useCallback(async (blockId: string, messageId: string) => {
+    if (proposalBusy) return
+    setProposalBusy({ blockId, kind: 'dismissing' })
+    try {
+      const updated = await ipc.chat.recordDecision(
+        session?.id ?? selectedId ?? '', messageId, blockId, { status: 'dismissed' },
+      )
+      if (updated) setSession(updated)
+    } catch (e) {
+      setProposalErrors(prev => ({ ...prev, [blockId]: readIpcError(e) }))
+    } finally {
+      setProposalBusy(null)
+    }
+  }, [proposalBusy, selectedId, session?.id])
+
+  const proposalHandlers = useMemo(() => ({
+    busy: proposalBusy,
+    errors: proposalErrors,
+    onConfirm: (blockId: string, messageId: string, proposal: ChatProposal) =>
+      void confirmProposal(blockId, messageId, proposal),
+    onDismiss: (blockId: string, messageId: string) =>
+      void dismissProposal(blockId, messageId),
+  }), [confirmProposal, dismissProposal, proposalBusy, proposalErrors])
+
   const removeSession = useCallback(async (id: string) => {
     try {
       await ipc.chat.remove(id)
@@ -215,6 +330,8 @@ export function ChatView() {
           <ChatTranscript
             session={session}
             runtime={runtimeIsHere ? runtime : null}
+            generating={live}
+            proposals={proposalHandlers}
             onSuggestion={(prompt) => void send(prompt)}
           />
 

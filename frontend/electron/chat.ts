@@ -31,6 +31,7 @@ import path from 'path'
 import { ipcMain, type BrowserWindow } from 'electron'
 import type { ModelAlias } from '../src/types'
 import type {
+  ChatProposalDecision,
   ChatRuntimeEnvelope,
   ChatRuntimeSnapshot,
   ChatSessionsFile,
@@ -54,6 +55,7 @@ import {
   parseSessionsFile,
   serializeSessionsFile,
   setClaudeSessionId,
+  setProposalDecision,
 } from '../src/lib/chat/sessions'
 import { buildChatClaudeArgs } from '../src/lib/chat/args'
 import {
@@ -254,8 +256,12 @@ function sendMessage(
   }
 
   // The user's turn is persisted before the spawn: if the CLI dies on launch
-  // the transcript still shows what was asked.
-  file = appendMessage(file, session.id, { role: 'user', content: prompt, ts: now })
+  // the transcript still shows what was asked. Every message carries an id —
+  // proposal block ids are derived from it, which is what lets a Confirm
+  // decision be recorded against the exact turn that proposed it.
+  file = appendMessage(file, session.id, {
+    role: 'user', content: prompt, ts: now, id: randomUUID(),
+  })
   writeSessions(file)
 
   dispatch({ type: 'begin', generationId: randomUUID(), sessionId: session.id, message: prompt })
@@ -337,6 +343,7 @@ function sendMessage(
         role: 'assistant',
         content: assistantText,
         ts: new Date().toISOString(),
+        id: randomUUID(),
       }))
     }
 
@@ -360,6 +367,45 @@ function stopMessage(sessionId: unknown): boolean {
   active.stopped = true
   dispatch({ type: 'stopping' })
   return active.child.kill('SIGTERM')
+}
+
+// ─── Proposal decisions ───────────────────────────────────────────────────────
+
+const MAX_DECISION_ID_CHARS = 200
+const MAX_DECISION_DETAIL_CHARS = 300
+
+function requireId(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !value || value.length > MAX_DECISION_ID_CHARS) {
+    throw new Error(`${field} must be a non-empty string of at most ${MAX_DECISION_ID_CHARS} characters`)
+  }
+  return value
+}
+
+/**
+ * Validate a renderer-supplied decision at the IPC boundary. `at` is stamped
+ * HERE rather than taken from the caller — a renderer clock has no authority
+ * over what the transcript says happened when.
+ *
+ * The write itself is not validated here: the tracker was already written by
+ * the renderer through `lib/applicationsDoc.ts`, and this only records that the
+ * user decided. Everything this guards is shape.
+ */
+function normalizeDecision(value: unknown, at: string): ChatProposalDecision {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new Error('decision must be an object')
+  }
+  const record = value as Record<string, unknown>
+  if (record.status !== 'applied' && record.status !== 'dismissed') {
+    throw new Error("decision.status must be 'applied' or 'dismissed'")
+  }
+  if (record.detail !== undefined && typeof record.detail !== 'string') {
+    throw new Error('decision.detail must be a string')
+  }
+  const decision: ChatProposalDecision = { status: record.status, at }
+  if (typeof record.detail === 'string' && record.detail) {
+    decision.detail = record.detail.slice(0, MAX_DECISION_DETAIL_CHARS)
+  }
+  return decision
 }
 
 /**
@@ -407,6 +453,30 @@ export function registerChat(dependencies: ChatDeps): void {
     writeSessions(file)
     const { messages: _messages, ...meta } = session
     return meta
+  })
+
+  // Records what the user did with one proposal card. Idempotent by
+  // construction: `setProposalDecision` refuses to overwrite a block that
+  // already carries a decision, so a double-fired Confirm can't rewrite an
+  // applied card. Returns the refreshed session so the renderer paints the
+  // final state without a second round-trip.
+  ipcMain.handle('chat:proposal-decision', (
+    _e,
+    sessionId: unknown,
+    messageId: unknown,
+    blockId: unknown,
+    decision: unknown,
+  ) => {
+    const session = requireId(sessionId, 'sessionId')
+    const message = requireId(messageId, 'messageId')
+    const block = requireId(blockId, 'blockId')
+    const normalized = normalizeDecision(decision, new Date().toISOString())
+
+    const file = readSessions()
+    const next = setProposalDecision(file, session, message, block, normalized)
+    if (next === file) throw new Error('that proposal is no longer in the conversation')
+    writeSessions(next)
+    return getSession(next, session)
   })
 
   ipcMain.handle('chat:session-delete', (_e, id: unknown) => {
