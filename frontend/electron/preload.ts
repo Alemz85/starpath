@@ -75,6 +75,9 @@ const electronAPI = {
   chatSessionGet:    (id: string)        => ipcRenderer.invoke('chat:session-get', id),
   chatSessionNew:    ()                  => ipcRenderer.invoke('chat:session-new'),
   chatSessionDelete: (id: string)        => ipcRenderer.invoke('chat:session-delete', id),
+  // Persists a Confirm/Dismiss on one proposal card so it survives a restart.
+  chatProposalDecision: (sessionId: string, messageId: string, blockId: string, decision: unknown) =>
+    ipcRenderer.invoke('chat:proposal-decision', sessionId, messageId, blockId, decision),
   onChatEvent: (cb: (envelope: unknown) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, envelope: unknown) => cb(envelope)
     ipcRenderer.on('chat:event', listener)

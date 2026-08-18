@@ -5,7 +5,8 @@ import type { ElectronAPI } from '../../electron/preload'
 import type { NetworkOverview } from './networkLens'
 import type { ProfileListResult, ProfileMutationResult } from './profiles'
 import type {
-  ChatRuntimeEnvelope, ChatRuntimeSnapshot, ChatSession, ChatSessionMeta,
+  ChatProposalDecisionStatus, ChatRuntimeEnvelope, ChatRuntimeSnapshot,
+  ChatSession, ChatSessionMeta,
 } from './chat/types'
 
 declare global {
@@ -105,6 +106,14 @@ export const ipc = {
     get:           (id: string)        => api().chatSessionGet(id) as Promise<ChatSession | null>,
     create:        ()                  => api().chatSessionNew()   as Promise<ChatSessionMeta>,
     remove:        (id: string)        => api().chatSessionDelete(id) as Promise<boolean>,
+    // Records a proposal-card decision and returns the refreshed session.
+    // `at` is stamped in main, so callers pass status/detail only.
+    recordDecision: (
+      sessionId: string,
+      messageId: string,
+      blockId: string,
+      decision: { status: ChatProposalDecisionStatus; detail?: string },
+    ) => api().chatProposalDecision(sessionId, messageId, blockId, decision) as Promise<ChatSession | null>,
     onEvent:       (cb: (envelope: ChatRuntimeEnvelope) => void) =>
                      api().onChatEvent(e => cb(e as ChatRuntimeEnvelope)),
   },
