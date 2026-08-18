@@ -4,6 +4,7 @@ import { Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { scoreColor } from '@/lib/tier'
 import type { PeerContext } from '@/lib/peerRank'
+import { type ConfidenceTier } from '@/lib/scoringStats'
 
 // Peer context — the live "how does this score sit vs. the archetype
 // landscape" panel, rendered between the dimensional-scoring table and the
@@ -22,6 +23,13 @@ import type { PeerContext } from '@/lib/peerRank'
 //
 // The panel is omitted entirely below 5 cohort members (rule shared with
 // modes/scouting.md § Peer ranking) — the parent checks `peer == null`.
+//
+// STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.2 + § 4.
+// Every claim here states the n it rests on and its confidence tier, because
+// a rank over 5 peers resolves to ±20 percentile points and one over 20 to
+// ±5. At `low` confidence the band label ("top quartile") is a bucket NAME —
+// the caveat line under the strip says so in full, since the only supported
+// reading at that sample is which half the role sits in.
 
 interface PeerContextCardProps {
   peer: PeerContext
@@ -42,7 +50,7 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
         </h3>
         <span
           className="text-[11px] font-mono text-text-4 truncate max-w-[280px]"
-          title={`${peer.nPeers} evaluated roles share the primary archetype “${peer.archetype}”`}
+          title={`${peer.nPeers} evaluated roles share the primary archetype “${peer.archetype}” (cohort gate: ${peer.minPeers})`}
         >
           {peer.nPeers} {peer.archetype} roles
         </span>
@@ -51,8 +59,11 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
       {/* Rank plate + distribution strip */}
       <div className="px-4 py-3 rounded-lg bg-bg-elevated/60 border border-border-default">
         <div className="flex items-baseline justify-between gap-3">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4">
-            Rank vs archetype peers
+          <div className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4">
+              Rank vs archetype peers
+            </span>
+            <ConfidenceChip confidence={peer.confidence} n={peer.nPeers} gate={peer.minPeers} />
           </div>
           <div className="text-[13px] font-mono tabular-nums">
             <span className="font-semibold" style={{ color: selfColor }}>#{peer.rankPosition}</span>
@@ -65,33 +76,48 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
           peerOveralls={peer.peerOveralls}
           selfColor={selfColor}
         />
+        {peer.confidence === 'low' && (
+          <p className="mt-1.5 text-[10.5px] text-text-4 leading-snug">
+            At {peer.nPeers} peers one role is ~{Math.round(100 / peer.nPeers)} percentile points —
+            read this as which half the role sits in, not as a quartile.
+          </p>
+        )}
       </div>
 
       {/* Dimension deltas vs cohort average */}
       {peer.deltas.length > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5">
-          {peer.deltas.map(d => (
-            <div key={d.dim} className="flex items-baseline justify-between gap-2 min-w-0">
-              <span className="text-[11px] text-text-3 truncate" title={d.label}>{d.label}</span>
-              <span className="text-[11.5px] font-mono tabular-nums whitespace-nowrap">
-                <span className="text-text-2">{formatScore(d.value)}</span>
-                <span className="text-text-4"> vs {d.peerAvg.toFixed(1)}</span>
-                <span
-                  className={cn(
-                    'ml-1.5',
-                    d.outlier
-                      ? d.delta > 0 ? 'text-success font-semibold' : 'text-danger font-semibold'
-                      : 'text-text-4',
-                  )}
-                  title={d.outlier
-                    ? `${d.delta > 0 ? '+' : ''}${d.delta.toFixed(1)} vs the cohort average — an outlier (|Δ| ≥ 1.5)`
-                    : `${d.delta > 0 ? '+' : ''}${d.delta.toFixed(1)} vs the cohort average`}
-                >
-                  {d.delta > 0 ? '+' : ''}{d.delta.toFixed(1)}
+          {peer.deltas.map(d => {
+            // A dimension can be scored by fewer peers than the cohort has
+            // members. When it is, the row shows its OWN n — an outlier
+            // computed against 4 peers is weaker than the block it sits in
+            // (docs § 3.2) and has to say so, not just in a tooltip.
+            const sparser = d.peerN < peer.nPeers - 1
+            const signedDelta = `${d.delta > 0 ? '+' : ''}${d.delta.toFixed(1)}`
+            return (
+              <div key={d.dim} className="flex items-baseline justify-between gap-2 min-w-0">
+                <span className="text-[11px] text-text-3 truncate" title={d.label}>{d.label}</span>
+                <span className="text-[11.5px] font-mono tabular-nums whitespace-nowrap">
+                  <span className="text-text-2">{formatScore(d.value)}</span>
+                  <span className="text-text-4"> vs {d.peerAvg.toFixed(1)}</span>
+                  <span
+                    className={cn(
+                      'ml-1.5',
+                      d.outlier
+                        ? d.delta > 0 ? 'text-success font-semibold' : 'text-danger font-semibold'
+                        : 'text-text-4',
+                    )}
+                    title={d.outlier
+                      ? `${signedDelta} vs the average of ${d.peerN} peers scored on this dimension — an outlier (|Δ| ≥ 1.5 raw rubric points), ${d.confidence} confidence`
+                      : `${signedDelta} vs the average of ${d.peerN} peers scored on this dimension, ${d.confidence} confidence`}
+                  >
+                    {signedDelta}
+                  </span>
+                  {sparser && <span className="ml-1 text-text-4">n{d.peerN}</span>}
                 </span>
-              </span>
-            </div>
-          ))}
+              </div>
+            )
+          })}
         </div>
       )}
 
@@ -130,6 +156,21 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
         </div>
       )}
     </section>
+  )
+}
+
+// Confidence tier chip — the § 3.1 tier over the cohort size, printed beside
+// the claim it qualifies (docs § 4 rule 1: never a rank without its sample).
+// Deliberately monochrome: confidence is about resolution, not about whether
+// the role is good, so it must not borrow the score / tier / status scales.
+function ConfidenceChip({ confidence, n, gate }: { confidence: ConfidenceTier; n: number; gate: number }) {
+  return (
+    <span
+      className="shrink-0 inline-flex items-center rounded-pill border border-border-default bg-bg-panel px-1.5 py-px text-[9px] font-mono lowercase tracking-normal text-text-4"
+      title={`${confidence} confidence — ${n} peers in the cohort (gate ${gate}: <${gate} and this panel is omitted; ${gate}–${gate * 2 - 1} low, ${gate * 2}–${gate * 4 - 1} moderate, ${gate * 4}+ high)`}
+    >
+      {confidence} · n={n}
+    </span>
   )
 }
 
