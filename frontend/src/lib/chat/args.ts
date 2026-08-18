@@ -24,6 +24,7 @@
 // would leave two contradictory answers to "what may a spawn touch?".
 
 import type { ModelAlias } from '@/types'
+import { MODEL_IDS } from '@/lib/spawnFormat'
 
 /** Repo-relative path to the chat agent's system prompt. */
 export const CHAT_SYSTEM_PROMPT_FILE = 'modes/chat.md'
@@ -46,7 +47,9 @@ export function buildChatClaudeArgs(
     '--include-partial-messages',
     '--append-system-prompt-file', CHAT_SYSTEM_PROMPT_FILE,
   ]
-  if (options.model) args.push('--model', options.model)
+  // Alias resolved through MODEL_IDS at spawn time — the flag carries a pinned
+  // full model ID, never the bare alias (same rule as every other spawn).
+  if (options.model) args.push('--model', MODEL_IDS[options.model])
   if (options.resumeId) args.push('--resume', options.resumeId)
   args.push('-p', prompt)
   return args
