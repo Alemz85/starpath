@@ -289,6 +289,7 @@ const SYSTEM_LAYER_DIRS = [
   'scripts',
   'templates',
   'frontend/src',
+  'docs',
 ];
 
 // Tracked root-level docs that are system layer per the Data Contract but live
