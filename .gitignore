@@ -7,6 +7,10 @@ data/score-history.tsv
 data/comp-cache.tsv
 data/report-summaries.tsv
 data/dedup-index.tsv
+# Agent issue log — operational self-reports, shared across profiles (not a profile symlink)
+data/agent-log.tsv
+# Session handoff log — conversational thread state, shared across profiles (not a profile symlink)
+data/session-handoff.md
 # All reports content is per-profile personal data; only the tracked
 # reports/.gitkeep survives (the six content subdirs are profile symlinks
 # managed by scripts/profile.mjs).

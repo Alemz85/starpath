@@ -195,4 +195,8 @@ On failure, set `"status": "failed"` and describe the problem in `"error"`.
 
 **NEVER:** invent experience/metrics · modify `user/*` · generate a PDF or CV (evaluation never does — that's the separate `pdf` skill) · edit `data/scouting.md` / `data/applications.md` directly · write a generic portal URL into a header or TSV · use corporate-speak.
 
+## Operational issues
+
+Hit a schema mismatch, an unparseable data file, a URL pattern that consistently fails verification, or a rubric ambiguity? Don't silently work around it — log it: `node scripts/agent-log.mjs log --category <schema|data|url|rubric|other> --subject "<short>" "<what happened>"`.
+
 **ALWAYS:** read `batch/cv-summary.md` (or `user/cv.md` if the summary is missing) + `user/_profile.md` + `user/profile.yml` first · check `data/comp-cache.tsv` / `data/companies/{slug}.md` before WebSearch · cite exact CV lines on a match · write the score-history row and scouting TSV for every evaluation including skips · be direct — no fluff.
