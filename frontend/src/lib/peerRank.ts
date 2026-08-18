@@ -17,9 +17,22 @@
 //      than an average that includes the score being explained.
 // Rank / percentile / minPeers / the ±1.5 outlier threshold / the
 // same-company exclusion for comparables all mirror the script.
+//
+// STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.2.
+//
+// A peer rank is a claim about a pool of LLM judgments, and its resolution is
+// set by the pool size: at 5 peers one peer is 20 percentile points, so only
+// the half-split is readable; at 20 one peer is 5 points, the resolution the
+// rendered percentile already rounds to. The omission gate (below 5 peers the
+// block is omitted ENTIRELY, never a placeholder) and the ±1.5 outlier
+// threshold both predate this contract and are unchanged — the gate value now
+// comes from scoringStats.GATES rather than a local literal, and every result
+// additionally carries the n it rests on plus its confidence tier so no
+// renderer can state a rank without stating its sample.
 
 import type { ScoreEntry } from '@/types'
 import { entityId, parseCities } from '@/lib/entityId'
+import { GATES, confidenceTier, type ConfidenceTier } from '@/lib/scoringStats'
 
 export const PEER_DIMS = [
   { key: 'skills_match',     label: 'Skills Match' },
@@ -33,13 +46,17 @@ export const PEER_DIMS = [
 export type PeerDimKey = (typeof PEER_DIMS)[number]['key']
 
 /** |Δ| from the peer average at which a dimension counts as an outlier —
- *  same threshold as scripts/peer-rank.mjs. */
+ *  same threshold as scripts/peer-rank.mjs. Deliberately expressed in RAW
+ *  rubric points (a full step and a half, comfortably above one-step judge
+ *  wobble), not in Overall points, so it is never confused with the 0.30
+ *  Overall noise floor (docs § 3.2). */
 export const OUTLIER_THRESHOLD = 1.5
 
 /** Below this cohort size the panel is omitted entirely (never rendered
- *  with a "not enough data" placeholder) — same rule as the script and
- *  modes/scouting.md § Peer ranking. */
-export const MIN_PEERS = 5
+ *  with a "not enough data" placeholder) — same rule as the script,
+ *  modes/scouting.md § Peer ranking, and docs § 3.2. Sourced from the
+ *  contract's gate table so the renderer can't drift from the CLIs. */
+export const MIN_PEERS = GATES.peerMinPeers
 
 export interface PeerDimDelta {
   dim: PeerDimKey
@@ -52,6 +69,12 @@ export interface PeerDimDelta {
   delta: number
   /** |delta| ≥ OUTLIER_THRESHOLD — the load-bearing "stands out / lags" flag. */
   outlier: boolean
+  /** ADDED (docs § 3.2) — peers that actually scored THIS dimension. A
+   *  dimension can be sparser than the cohort, so it carries its own n. */
+  peerN: number
+  /** ADDED — tier over `peerN` with the peer gate. An outlier computed
+   *  against fewer peers than the block is weaker than the block, and says so. */
+  confidence: ConfidenceTier
 }
 
 export interface PeerComparable {
@@ -82,6 +105,13 @@ export interface PeerContext {
   deltas: PeerDimDelta[]
   /** Up to 3 closest peers by overall score, other companies only. */
   comparables: PeerComparable[]
+  /** ADDED (docs § 3.2) — the tier over `nPeers` with gate `minPeers`:
+   *  5–9 peers `low`, 10–19 `moderate`, 20+ `high`. At `low` the rank label
+   *  is a bucket NAME and only the half-split reading is supported. */
+  confidence: ConfidenceTier
+  /** ADDED — the gate this cohort had to clear, so a renderer can print the
+   *  rule without re-deriving it. */
+  minPeers: number
 }
 
 /** First segment of a hybrid archetype ("A + B" → "A"). "&" and "/" are NOT
@@ -193,6 +223,8 @@ export function peerContext(
       peerAvg: Number(peerAvg.toFixed(2)),
       delta,
       outlier: Math.abs(delta) >= OUTLIER_THRESHOLD,
+      peerN: peerVals.length,
+      confidence: confidenceTier(peerVals.length, minPeers),
     })
   }
   deltas.sort((a, b) => b.delta - a.delta)
@@ -223,6 +255,8 @@ export function peerContext(
     peerOveralls: others.map(o => o.overall),
     deltas,
     comparables,
+    confidence: confidenceTier(nPeers, minPeers),
+    minPeers,
   }
 }
 
@@ -255,6 +289,10 @@ export interface PeerRankSummary {
   rankLabel: string
   /** Chip-style label ("top 25%", "#7/12"). */
   compactLabel: string
+  /** ADDED (docs § 3.2) — tier over `nPeers`, identical to peerContext's. */
+  confidence: ConfidenceTier
+  /** ADDED — the omit gate this cohort cleared. */
+  minPeers: number
 }
 
 export interface PeerRankIndex {
@@ -328,6 +366,8 @@ export function buildPeerRankIndex(
         band,
         rankLabel: rankLabel(percentile, rankPosition, nPeers),
         compactLabel: compactRankLabel(band, rankPosition, nPeers),
+        confidence: confidenceTier(nPeers, minPeers),
+        minPeers,
       }
     },
   }

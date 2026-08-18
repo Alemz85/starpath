@@ -5,6 +5,7 @@ import {
   peerBand, compactRankLabel, buildPeerRankIndex,
   MIN_PEERS, OUTLIER_THRESHOLD, PEER_DIMS,
 } from '@/lib/peerRank'
+import { GATES } from '@/lib/scoringStats'
 import { makeScoreEntry } from '@/test-utils/fixtures'
 import type { ScoreEntry } from '@/types'
 
@@ -262,6 +263,10 @@ function assertRankParity(entry: ScoreEntry, history: ScoreEntry[], msg?: string
   assert.equal(summary.percentile,   ctx.percentile,   msg)
   assert.equal(summary.rankLabel,    ctx.rankLabel,    msg)
   assert.equal(summary.band, peerBand(ctx.percentile), msg)
+  // Contract fields must agree too, or the chip and the panel could state
+  // different confidence for the same cohort.
+  assert.equal(summary.confidence, ctx.confidence, msg)
+  assert.equal(summary.minPeers,   ctx.minPeers,   msg)
 }
 
 test('rankOf matches peerContext on a plain cohort with ties', () => {
@@ -367,4 +372,114 @@ test('rankOf parity sweep across a mixed multi-archetype landscape', () => {
   for (const r of rows) {
     assertRankParity(r, rows, `${r.company}|${r.role}|${r.location}|${r.date}`)
   }
+})
+
+// ─── Statistical contract (docs/scoring-statistical-design.md § 3.2) ─────────
+//
+// The omission gate is unchanged; what's new is that every result carries the
+// n it rests on and the confidence tier over that n, and that a dimension
+// outlier carries its OWN n when fewer peers scored that dimension.
+
+test('the omit gate is the contract gate, not a local literal', () => {
+  assert.equal(MIN_PEERS, GATES.peerMinPeers)
+  assert.equal(MIN_PEERS, 5)
+})
+
+// Cohort of exactly `size` distinct entities sharing one archetype, self first.
+function cohortOfSize(size: number, selfOverall = 7): ScoreEntry[] {
+  return cohort('Ops', [
+    { company: 'Self', overall: selfOverall },
+    ...Array.from({ length: size - 1 }, (_, i) => ({ company: `P${i}`, overall: 5 + (i % 5) * 0.1 })),
+  ])
+}
+
+test('confidence tiers land exactly on the 5 / 10 / 20 peer boundaries', () => {
+  const at = (n: number) => {
+    const rows = cohortOfSize(n)
+    const ctx = peerContext(rows[0], rows)
+    assert.ok(ctx, `cohort of ${n} should render`)
+    assert.equal(ctx.nPeers, n)
+    return ctx.confidence
+  }
+  assert.equal(at(5),  'low')       // ← gate: the block renders, at its weakest
+  assert.equal(at(9),  'low')
+  assert.equal(at(10), 'moderate')  // ← 2× gate
+  assert.equal(at(19), 'moderate')
+  assert.equal(at(20), 'high')      // ← 4× gate
+  assert.equal(at(40), 'high')
+})
+
+test('one peer below the gate renders nothing at all — no partial block', () => {
+  const four = cohortOfSize(4)
+  assert.equal(peerContext(four[0], four), null)
+  assert.equal(buildPeerRankIndex(four).rankOf(four[0]), null)
+})
+
+test('the batched index reports the same tier as the panel at each boundary', () => {
+  for (const n of [5, 9, 10, 19, 20]) {
+    const rows = cohortOfSize(n)
+    const ctx = peerContext(rows[0], rows)
+    const summary = buildPeerRankIndex(rows).rankOf(rows[0])
+    assert.ok(ctx && summary)
+    assert.equal(summary.confidence, ctx.confidence, `n=${n}`)
+    assert.equal(summary.nPeers, n)
+  }
+})
+
+test('a dimension scored by fewer peers carries its own n and its own tier', () => {
+  // 12 entities in the cohort; only 4 of the OTHER 11 scored strategic_fit,
+  // so that dimension is weaker evidence than the block it sits in.
+  const rows = cohort('Ops', [
+    { company: 'Self', overall: 8, skills_match: 8, strategic_fit: 9 },
+    ...Array.from({ length: 11 }, (_, i) => ({
+      company: `P${i}`,
+      overall: 6,
+      skills_match: 6,
+      ...(i < 4 ? { strategic_fit: 6 } : {}),
+    })),
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx)
+  assert.equal(ctx.nPeers, 12)
+  assert.equal(ctx.confidence, 'moderate')          // 12 peers, gate 5
+
+  const skills = ctx.deltas.find(d => d.dim === 'skills_match')
+  assert.ok(skills)
+  assert.equal(skills.peerN, 11)                    // every other peer scored it
+  assert.equal(skills.confidence, 'moderate')
+
+  const sf = ctx.deltas.find(d => d.dim === 'strategic_fit')
+  assert.ok(sf)
+  assert.equal(sf.peerN, 4)                         // sparser than the cohort
+  assert.equal(sf.confidence, 'insufficient')       // 4 < the 5-peer gate
+  assert.equal(sf.delta, 3)
+  assert.equal(sf.outlier, true)                    // still an outlier — a weaker one
+})
+
+test('the outlier threshold stays in RAW rubric points, not Overall points', () => {
+  // 1.5 raw dimension points is deliberately unrelated to the 0.30 Overall
+  // noise floor — confusing the two is the failure mode the contract names.
+  assert.equal(OUTLIER_THRESHOLD, 1.5)
+  const rows = cohort('Ops', [
+    { company: 'Self', overall: 7, skills_match: 7.4 },
+    ...Array.from({ length: 4 }, (_, i) => ({ company: `P${i}`, overall: 7, skills_match: 6 })),
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx)
+  const sm = ctx.deltas.find(d => d.dim === 'skills_match')
+  assert.ok(sm)
+  assert.equal(sm.delta, 1.4)
+  assert.equal(sm.outlier, false)   // 1.4 < 1.5, even though it dwarfs 0.30
+})
+
+test('every rendered peer result exposes the sample a renderer must print', () => {
+  const rows = cohortOfSize(7)
+  const ctx = peerContext(rows[0], rows)
+  const summary = buildPeerRankIndex(rows).rankOf(rows[0])
+  assert.ok(ctx && summary)
+  // n, the gate, and the tier — the three things docs § 4 rule 1 requires.
+  assert.equal(typeof ctx.nPeers, 'number')
+  assert.equal(ctx.minPeers, GATES.peerMinPeers)
+  assert.ok(['low', 'moderate', 'high'].includes(ctx.confidence))
+  assert.equal(summary.minPeers, GATES.peerMinPeers)
 })
