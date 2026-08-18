@@ -18,6 +18,7 @@
   "include": [
     "electron/**/*",
     "src/lib/parsers/**/*",
+    "src/lib/chat/**/*",
     "src/types/**/*"
   ],
   "exclude": ["node_modules", "**/*.test.ts"]

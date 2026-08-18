@@ -65,6 +65,22 @@ const electronAPI = {
     return () => ipcRenderer.removeListener('profile:changed', listener)
   },
 
+  // Chat — the conversational tab. One live generation at a time, owned by
+  // main (electron/chat.ts); `chatState` is the reattach snapshot a remounting
+  // renderer folds envelopes onto, `chat:event` is the single push channel.
+  chatSend:          (sessionId: string | null, message: string) => ipcRenderer.invoke('chat:send', sessionId, message),
+  chatStop:          (sessionId: string) => ipcRenderer.invoke('chat:stop', sessionId),
+  chatState:         ()                  => ipcRenderer.invoke('chat:state'),
+  chatSessions:      ()                  => ipcRenderer.invoke('chat:sessions'),
+  chatSessionGet:    (id: string)        => ipcRenderer.invoke('chat:session-get', id),
+  chatSessionNew:    ()                  => ipcRenderer.invoke('chat:session-new'),
+  chatSessionDelete: (id: string)        => ipcRenderer.invoke('chat:session-delete', id),
+  onChatEvent: (cb: (envelope: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, envelope: unknown) => cb(envelope)
+    ipcRenderer.on('chat:event', listener)
+    return () => ipcRenderer.removeListener('chat:event', listener)
+  },
+
   // Shell (one-shot)
   run: (cmd: string, args: string[]) => ipcRenderer.invoke('shell:run', cmd, args),
 
