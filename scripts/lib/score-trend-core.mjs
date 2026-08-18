@@ -33,11 +33,35 @@
 //     collapses to one trajectory).
 //   - parseScoreHistory / overallBand / DIMENSIONS  ← targeting-core.mjs.
 
+//
+// STATISTICAL CONTRACT: docs/scoring-statistical-design.md.
+//
+// A score is an LLM judgment on a coarse integer rubric, so a first→latest
+// delta of 0.1 is not a small improvement — it is below the resolution of the
+// instrument. Every surface here therefore carries, ALONGSIDE its pre-existing
+// fields (which keep their old names, types, and dead-bands for compatibility):
+//
+//   - per trajectory: `movementClass` ('within-noise' | 'improving' |
+//     'declining') against the 0.30 Overall noise floor, plus `confidence`
+//     over the evaluation count;
+//   - per corpus trend: `verdictGate` (≥10 scored evals per calendar window)
+//     and `reportableVerdict`, which is 'insufficient-data' under the gate and
+//     'flat-within-noise' when the window-mean delta is under the floor.
+//
+// The contract numbers live in scoring-stats.mjs — never re-declare them here.
+
 import { normalizeCompany, normalizeRole } from './dedup-index.mjs'
 import { parseScoreHistory, overallBand, DIMENSIONS } from './targeting-core.mjs'
+import {
+  OVERALL_NOISE_FLOOR,
+  GATES,
+  classifyMovement,
+  confidenceTier,
+} from './scoring-stats.mjs'
 
 // Re-export so the CLI and tests can pull the TSV parser from one import site.
 export { parseScoreHistory, overallBand, DIMENSIONS }
+export { OVERALL_NOISE_FLOOR }
 
 const round2 = (n) => Math.round(n * 100) / 100
 const mean = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0)
@@ -86,7 +110,7 @@ export function classifyDelta(delta, { stableBand = 0.25 } = {}) {
  *     most (the driver of the Overall move)
  *   - the verdict (improving / declining / stable)
  */
-export function listingTrajectories(rows, { stableBand = 0.25 } = {}) {
+export function listingTrajectories(rows, { stableBand = 0.25, noiseFloor = OVERALL_NOISE_FLOOR } = {}) {
   const groups = new Map()
   for (const r of rows) {
     if (!Number.isFinite(r.overall)) continue
@@ -144,6 +168,16 @@ export function listingTrajectories(rows, { stableBand = 0.25 } = {}) {
       peakOverall: round2(Math.max(...overalls)),
       troughOverall: round2(Math.min(...overalls)),
       verdict: classifyDelta(delta, { stableBand }),
+      // ── Statistical contract (ADDED; `verdict` above is untouched) ────────
+      // `movementClass` is the honest read: below the 0.30 noise floor a delta
+      // is 'within-noise' — a first-class reported outcome, not a weak
+      // direction. `confidence` is the tier over the evaluation count, so a
+      // two-point trajectory can never read as more than 'low' (one difference
+      // cannot separate a trend from one noisy evaluation).
+      movementClass: classifyMovement(delta, { floor: noiseFloor }),
+      detectable: Math.abs(delta) >= noiseFloor,
+      noiseFloor,
+      confidence: confidenceTier(seq.length, GATES.trendMinEvals),
       dimDeltas,
       topMover,
       // Full chronological trail so the CLI can print the path if asked.
@@ -166,11 +200,16 @@ export function listingTrajectories(rows, { stableBand = 0.25 } = {}) {
  */
 export function trajectorySummary(trajectories) {
   const verdicts = { improving: 0, declining: 0, stable: 0 }
+  // Contract split (ADDED): how many moves actually cleared the noise floor.
+  // "flat within noise" is reported as a result, not as an absent row.
+  const movement = { improving: 0, declining: 0, 'within-noise': 0, unknown: 0 }
   let bandUp = 0
   let bandDown = 0
   const bandRank = { weak: 0, pass: 1, solid: 2, strong: 3, unknown: -1 }
   for (const t of trajectories) {
     verdicts[t.verdict] = (verdicts[t.verdict] || 0) + 1
+    const mc = t.movementClass ?? classifyMovement(t.delta)
+    movement[mc] = (movement[mc] || 0) + 1
     if (t.bandChanged) {
       const from = bandRank[t.bandFrom] ?? -1
       const to = bandRank[t.bandTo] ?? -1
@@ -188,6 +227,15 @@ export function trajectorySummary(trajectories) {
     // Listings that crossed a band boundary on re-eval (a verdict actually flipped).
     bandUpgrades: bandUp,
     bandDowngrades: bandDown,
+    // ── Statistical contract (ADDED) ──────────────────────────────────────
+    // `verdicts` above keeps its ±0.25 dead-band semantics. `movement` is the
+    // same population re-counted against the 0.30 noise floor, and
+    // `withinNoise` / `detectable` are the headline split a renderer should
+    // print instead of the improving/declining/stable one.
+    movement,
+    withinNoise: movement['within-noise'],
+    detectable: movement.improving + movement.declining,
+    noiseFloor: OVERALL_NOISE_FLOOR,
   }
 }
 
@@ -207,9 +255,31 @@ export function trajectorySummary(trajectories) {
  * side, there's no usable time axis — we report insufficientData rather than
  * fabricate a lopsided or zero delta.
  */
-export function landscapeTrend(rows, { minPerWindow = 3 } = {}) {
+export function landscapeTrend(rows, {
+  minPerWindow = 3,
+  minPerWindowForVerdict = GATES.trendMinPerWindowForVerdict,
+  noiseFloor = OVERALL_NOISE_FLOOR,
+} = {}) {
   const scored = rows.filter(r => Number.isFinite(r.overall) && r.date)
   const dates = [...new Set(scored.map(r => r.date))].sort()
+
+  // The gate a corpus verdict must clear before it may be spoken at all
+  // (docs § 3.3): no single evaluation may move a window mean by more than the
+  // noise floor, which needs ≥10 scored evals in EACH window. Attached to
+  // every return path — including the structural early-outs — so a consumer
+  // can always ask "may I render a verdict?" without special-casing.
+  const withheld = (olderCount, recentCount, why) => ({
+    verdictGate: {
+      minPerWindow: minPerWindowForVerdict,
+      olderCount,
+      recentCount,
+      met: false,
+      reason: why,
+    },
+    reportableVerdict: 'insufficient-data',
+    verdictConfidence: 'insufficient',
+    noiseFloor,
+  })
 
   if (scored.length < minPerWindow * 2 || dates.length < 2) {
     return {
@@ -217,6 +287,7 @@ export function landscapeTrend(rows, { minPerWindow = 3 } = {}) {
       reason: `Need ≥${minPerWindow * 2} scored evals across ≥2 distinct dates to trend (have ${scored.length} across ${dates.length}).`,
       evaluated: scored.length,
       distinctDates: dates.length,
+      ...withheld(0, 0, `No usable time axis: ${scored.length} scored evals across ${dates.length} distinct date(s).`),
     }
   }
 
@@ -243,6 +314,7 @@ export function landscapeTrend(rows, { minPerWindow = 3 } = {}) {
       reason: `Evaluation dates too concentrated to split into two ≥${minPerWindow}-row windows.`,
       evaluated: scored.length,
       distinctDates: dates.length,
+      ...withheld(0, 0, `No calendar boundary yields two windows of ≥${minPerWindow} rows.`),
     }
   }
 
@@ -260,6 +332,27 @@ export function landscapeTrend(rows, { minPerWindow = 3 } = {}) {
     const strong = arr.filter(o => overallBand(o) === 'strong' || overallBand(o) === 'solid').length
     return Math.round((strong / arr.length) * 100)
   }
+
+  // ── Statistical contract (ADDED) ────────────────────────────────────────
+  // The corpus verdict must clear BOTH gates independently: enough evaluations
+  // per window (so one role can't drive the mean) AND a window-mean delta at or
+  // above the noise floor (so the move isn't judge wobble averaged up).
+  const gateMet = older.length >= minPerWindowForVerdict && recent.length >= minPerWindowForVerdict
+  const verdictGate = {
+    minPerWindow: minPerWindowForVerdict,
+    olderCount: older.length,
+    recentCount: recent.length,
+    met: gateMet,
+    reason: gateMet
+      ? null
+      : `Corpus verdict withheld: ${older.length} eval(s) in the earlier window and ${recent.length} in the recent window; ${minPerWindowForVerdict} required in each.`,
+  }
+  const reportableVerdict = !gateMet
+    ? 'insufficient-data'
+    : (Math.abs(delta) < noiseFloor ? 'flat-within-noise' : classifyMovement(delta, { floor: noiseFloor }))
+  const verdictConfidence = gateMet
+    ? confidenceTier(Math.min(older.length, recent.length), minPerWindowForVerdict)
+    : 'insufficient'
 
   return {
     insufficientData: false,
@@ -282,7 +375,14 @@ export function landscapeTrend(rows, { minPerWindow = 3 } = {}) {
     // Net change in the share of strong/solid evals — the cleanest "am I
     // sourcing better roles?" number.
     strongSolidShareDelta: bandShare(recentOveralls) - bandShare(olderOveralls),
+    // Pre-contract field — kept verbatim (±0.15 dead-band) for compatibility.
+    // Where it disagrees with `reportableVerdict`, the contract field is the
+    // correct answer and this one is legacy.
     verdict: classifyDelta(delta, { stableBand: 0.15 }),
+    verdictGate,
+    reportableVerdict,
+    verdictConfidence,
+    noiseFloor,
   }
 }
 
@@ -299,6 +399,7 @@ export function trendRecommendations(trajectories, trend, { minDelta = 0.5 } = {
   //    user was warming to that's now sliding is the one most worth a fresh look.
   const decliners = trajectories
     .filter(t => t.verdict === 'declining' && Math.abs(t.delta) >= minDelta)
+    .filter(t => t.movementClass === undefined || t.detectable !== false)
     .sort((a, b) => a.delta - b.delta)
   const worst = decliners[0]
   if (worst) {
@@ -315,6 +416,7 @@ export function trendRecommendations(trajectories, trend, { minDelta = 0.5 } = {
   //    prioritize before it closes.
   const improvers = trajectories
     .filter(t => t.verdict === 'improving' && t.delta >= minDelta)
+    .filter(t => t.movementClass === undefined || t.detectable !== false)
     .sort((a, b) => b.delta - a.delta)
   const best = improvers[0]
   if (best) {
@@ -327,24 +429,73 @@ export function trendRecommendations(trajectories, trend, { minDelta = 0.5 } = {
     })
   }
 
-  // 3. Landscape-level verdict.
+  // 3. Landscape-level verdict — gated (docs § 3.3).
+  //
+  // Under the ≥10-per-window gate the corpus claim is NOT rendered in a weaker
+  // form; an explicit insufficient-data marker replaces it. `verdictGate` is
+  // attached by landscapeTrend on every path, so the only callers that skip
+  // this branch are ones passing a hand-built trend object (pre-contract
+  // shape), which keep their old behavior.
+  if (trend && !trend.insufficientData && trend.verdictGate && !trend.verdictGate.met) {
+    recs.push({
+      action: `Landscape trend: insufficient data — corpus verdict withheld`,
+      reasoning: `${trend.verdictGate.reason} A window mean built on fewer evaluations can be moved past the ${trend.noiseFloor ?? OVERALL_NOISE_FLOOR} noise floor by a single role, so the direction would be a report about one listing. Keep evaluating; the verdict unlocks itself.`,
+      impact: 'low',
+      insufficientData: true,
+      confidence: 'insufficient',
+      sampleSize: Math.min(trend.verdictGate.olderCount, trend.verdictGate.recentCount),
+      gate: trend.verdictGate.minPerWindow,
+    })
+    return recs
+  }
+  if (trend && !trend.insufficientData && trend.reportableVerdict === 'flat-within-noise') {
+    recs.push({
+      action: `Landscape trend: flat within noise — recent evals avg ${trend.recent.avgOverall} vs ${trend.older.avgOverall} earlier (Δ ${trend.delta})`,
+      reasoning: `The gap between the two calendar windows is under the ${trend.noiseFloor ?? OVERALL_NOISE_FLOOR} Overall noise floor, which is what a single dimension re-judging itself produces. Targeting is neither sharpening nor sliding on this evidence (${trend.verdictConfidence} confidence, ${trend.verdictGate.olderCount} vs ${trend.verdictGate.recentCount} evals).`,
+      impact: 'low',
+      confidence: trend.verdictConfidence,
+      sampleSize: Math.min(trend.verdictGate.olderCount, trend.verdictGate.recentCount),
+      gate: trend.verdictGate.minPerWindow,
+    })
+    return recs
+  }
   if (trend && !trend.insufficientData) {
     if (trend.verdict === 'improving') {
       recs.push({
         action: `Targeting is sharpening — recent evals avg ${trend.recent.avgOverall} vs ${trend.older.avgOverall} earlier (+${trend.delta})`,
-        reasoning: `The roles you've evaluated lately score higher than your earlier ones${trend.strongSolidShareDelta > 0 ? `, and the strong/solid share rose ${trend.strongSolidShareDelta} pts` : ''}. Keep sourcing the way you have been.`,
+        reasoning: `The roles you've evaluated lately score higher than your earlier ones${trend.strongSolidShareDelta > 0 ? `, and the strong/solid share rose ${trend.strongSolidShareDelta} pts` : ''}. Keep sourcing the way you have been.${sampleNote(trend)}`,
         impact: 'medium',
+        confidence: trend.verdictConfidence,
+        sampleSize: sampleSizeOf(trend),
+        gate: trend.verdictGate?.minPerWindow,
       })
     } else if (trend.verdict === 'declining') {
       recs.push({
         action: `Evaluated quality is sliding — recent evals avg ${trend.recent.avgOverall} vs ${trend.older.avgOverall} earlier (${trend.delta})`,
-        reasoning: `Lately you're evaluating weaker roles than before. Re-tighten scan keywords or raise the pre-evaluation bar before scoring more.`,
+        reasoning: `Lately you're evaluating weaker roles than before. Re-tighten scan keywords or raise the pre-evaluation bar before scoring more.${sampleNote(trend)}`,
         impact: 'high',
+        confidence: trend.verdictConfidence,
+        sampleSize: sampleSizeOf(trend),
+        gate: trend.verdictGate?.minPerWindow,
       })
     }
   }
 
   return recs
+}
+
+/** The n behind a corpus verdict: the smaller of the two calendar windows. */
+function sampleSizeOf(trend) {
+  const g = trend?.verdictGate
+  if (!g) return null
+  return Math.min(g.olderCount, g.recentCount)
+}
+
+/** Docs § 4 rule 1 — always show n. Silent for pre-contract trend objects. */
+function sampleNote(trend) {
+  const n = sampleSizeOf(trend)
+  if (n == null) return ''
+  return ` (${trend.verdictGate.olderCount} earlier vs ${trend.verdictGate.recentCount} recent evals; ${trend.verdictConfidence} confidence)`
 }
 
 /* ───── Top-level analysis object (consumed by the CLI/mode) ──────────────── */
@@ -367,6 +518,14 @@ export function analyzeTrend(rows, opts = {}) {
       reevaluatedListings: trajectories.length,
       dateRange: { from: dates[0], to: dates[dates.length - 1] },
       analysisDate: new Date().toISOString().split('T')[0],
+      // The contract this analysis was produced under, so any renderer can
+      // print the floor and the gate it is bound by without re-deriving them.
+      contract: {
+        doc: 'docs/scoring-statistical-design.md',
+        noiseFloor: opts.noiseFloor ?? OVERALL_NOISE_FLOOR,
+        minEvalsPerTrajectory: GATES.trendMinEvals,
+        minPerWindowForVerdict: opts.minPerWindowForVerdict ?? GATES.trendMinPerWindowForVerdict,
+      },
     },
     trajectorySummary: trajectorySummary(trajectories),
     listingTrajectories: trajectories,

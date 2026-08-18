@@ -25,7 +25,20 @@
 // object (the same shape calibration.mjs consumes). The thin file/CLI wrapper
 // lives in scripts/calibration-advisor.mjs.
 
+//
+// STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.4.
+//
+// The advisor produces two kinds of output and they are held to different
+// standards. A DIAGNOSTIC describes the log ("this company's roles average
+// 5.8 over 3 evals") and may be shown with its n at any sample size. An
+// ADVISORY asks the user to change calibration, which silently alters every
+// future score — so it is gated. Every advisory carries `sampleSize`, `gate`,
+// and `confidence`; an advisory under its gate is not softened or hedged, it
+// is moved into the `insufficientData` list and never rendered as a
+// recommendation. Gate values live in scoring-stats.mjs, never here.
+
 import { overallBand, normalizeArchetype, DIMENSIONS } from './targeting-core.mjs'
+import { GATES, confidenceTier, describeSample } from './scoring-stats.mjs'
 
 /* ───── small stats helpers (kept local so the lib is import-light) ───────── */
 const round1 = (n) => Math.round(n * 10) / 10
@@ -129,6 +142,8 @@ export function brandBonusDrift(rows, calibration = {}, { minRoles = 2 } = {}) {
       avgOverall: avg,
       band,
       verdict,
+      // ADDED — the n is `roles`; this is its tier against the advisory gate.
+      confidence: confidenceTier(grp.overalls.length, GATES.calibrationMinCompanyRoles),
     })
   }
   return out.sort((a, b) => a.avgOverall - b.avgOverall)
@@ -156,7 +171,12 @@ export function brandBonusCandidates(rows, calibration = {}, { minRoles = 3, min
     if (grp.overalls.length < minRoles) continue
     const avg = round1(mean(grp.overalls))
     if (avg < minAvg) continue
-    out.push({ company: grp.name, roles: grp.overalls.length, avgOverall: avg })
+    out.push({
+      company: grp.name,
+      roles: grp.overalls.length,
+      avgOverall: avg,
+      confidence: confidenceTier(grp.overalls.length, GATES.calibrationMinCompanyRoles),
+    })
   }
   return out.sort((a, b) => b.avgOverall - a.avgOverall || b.roles - a.roles)
 }
@@ -173,7 +193,11 @@ export function brandBonusCandidates(rows, calibration = {}, { minRoles = 3, min
 export function dimensionSignal(rows, { minRows = 5, lowStdev = 0.8 } = {}) {
   return DIMENSIONS.map(({ key, label }) => {
     const vals = finite(rows.map(r => r[key]))
-    if (vals.length < minRows) return { key, label, count: vals.length, status: 'sparse' }
+    // `count` is the n of this dimension; `confidence` tiers it against the
+    // per-dim advisory gate (20 — a share claim from fewer observations has a
+    // confidence interval wide enough to contain "not pinned at all").
+    const confidence = confidenceTier(vals.length, GATES.calibrationMinDimRows)
+    if (vals.length < minRows) return { key, label, count: vals.length, status: 'sparse', confidence }
     const m = round2(mean(vals))
     const sd = round2(stdev(vals))
     // Share at each extreme.
@@ -184,7 +208,7 @@ export function dimensionSignal(rows, { minRows = 5, lowStdev = 0.8 } = {}) {
     if (sd <= lowStdev && ceilShare >= 70) { status = 'pinned-ceiling'; pinned = 'ceiling' }
     else if (sd <= lowStdev && floorShare >= 70) { status = 'pinned-floor'; pinned = 'floor' }
     else if (sd <= lowStdev) { status = 'low-variance' }
-    return { key, label, count: vals.length, mean: m, stdev: sd, ceilShare, floorShare, status, pinned }
+    return { key, label, count: vals.length, mean: m, stdev: sd, ceilShare, floorShare, status, pinned, confidence }
   })
 }
 
@@ -199,7 +223,8 @@ export function dimensionSignal(rows, { minRows = 5, lowStdev = 0.8 } = {}) {
  */
 export function compReality(rows, { minRows = 5 } = {}) {
   const vals = finite(rows.map(r => r.salary_adj_city))
-  if (vals.length < minRows) return { count: vals.length, status: 'sparse' }
+  const confidence = confidenceTier(vals.length, GATES.calibrationMinCompRows)
+  if (vals.length < minRows) return { count: vals.length, status: 'sparse', confidence }
   const m = round1(mean(vals))
   const med = round1(median(vals))
   const lowShare = Math.round((vals.filter(v => v <= 4).length / vals.length) * 100)
@@ -207,7 +232,7 @@ export function compReality(rows, { minRows = 5 } = {}) {
   let status = 'aligned'
   if (m <= 4.5 || lowShare >= 50) status = 'targets-above-market'
   else if (m >= 9 || highShare >= 80) status = 'targets-below-market'
-  return { count: vals.length, mean: m, median: med, lowShare, highShare, status }
+  return { count: vals.length, mean: m, median: med, lowShare, highShare, status, confidence }
 }
 
 /* ───── 5. Score → outcome calibration (needs applications.md outcomes) ───────
@@ -290,6 +315,9 @@ export function scoreOutcomeCalibration(rows, outcomes = [], { minApplied = 3 } 
       convertRate,
       avgScore,
       flag,
+      // ADDED — the n is `applied`; gate 8, because "0 of n converted" is only
+      // remarkable once 0 is unlikely under a healthy conversion rate.
+      confidence: confidenceTier(f.applied, GATES.calibrationMinApplied),
     })
   }
   archetypes.sort((a, b) => (b.avgScore ?? 0) - (a.avgScore ?? 0))
@@ -308,13 +336,34 @@ export function scoreOutcomeCalibration(rows, outcomes = [], { minApplied = 3 } 
  * CRITICAL: this module NEVER writes user files. It only describes the edit the
  * user can choose to make. That keeps the system layer free of user data and
  * respects "personalization goes in user/*, the user applies it."
+ *
+ * STATISTICAL CONTRACT (docs § 3.4): every advisory ALSO carries
+ *   - sampleSize = the n the claim rests on
+ *   - gate       = the minimum n its claim type requires
+ *   - confidence = the § 3.1 tier over (sampleSize, gate)
+ * and an advisory whose confidence is 'insufficient' is routed out of the
+ * recommendation list entirely by partitionSuggestions() below.
  */
 export function buildSuggestions(diag) {
+  return partitionSuggestions(diag).suggestions
+}
+
+/**
+ * Split the advisories into the ones the evidence supports and the ones it
+ * doesn't. The suppressed entries keep their full text so a renderer can show
+ * "what the advisor would say once the evidence arrives" — clearly labelled as
+ * insufficient data, never as a recommendation.
+ *
+ * @returns {{ suggestions: Array, insufficientData: Array }}
+ */
+export function partitionSuggestions(diag) {
   const s = []
 
   for (const d of diag.brandBonusDrift || []) {
     if (d.verdict === 'misdirected') {
       s.push({
+        sampleSize: d.roles,
+        gate: GATES.calibrationMinCompanyRoles,
         target: 'user/profile.yml',
         action: `Reconsider the brand bonus on "${d.company}" — its roles average ${d.avgOverall}/10 (weak) across ${d.roles} evals`,
         reasoning: `"${d.company}" is in ${d.source}, but even with the bonus its roles don't clear the apply bar. The bonus is propping up a company the landscape isn't rewarding for you.`,
@@ -323,6 +372,8 @@ export function buildSuggestions(diag) {
       })
     } else if (d.verdict === 'inert' && d.kind === 'dream') {
       s.push({
+        sampleSize: d.roles,
+        gate: GATES.calibrationMinCompanyRoles,
         target: 'user/profile.yml',
         action: `"${d.company}" already scores ${d.avgOverall}/10 unaided — its dream-company AF floor never bites`,
         reasoning: `The dream floor (AF→8.0) only matters for borderline roles. "${d.company}" clears it on its own across ${d.roles} evals, so the override is cosmetic and hides whether a specific role is genuinely strong.`,
@@ -334,6 +385,8 @@ export function buildSuggestions(diag) {
 
   for (const c of (diag.brandBonusCandidates || []).slice(0, 5)) {
     s.push({
+      sampleSize: c.roles,
+      gate: GATES.calibrationMinCompanyRoles,
       target: 'user/profile.yml',
       action: `Consider adding "${c.company}" to a brand-bonus list — ${c.roles} evals averaging ${c.avgOverall}/10`,
       reasoning: `"${c.company}" consistently produces strong roles for you but carries no brand bonus. Crediting it would correctly prioritize it in borderline scoring.`,
@@ -345,6 +398,8 @@ export function buildSuggestions(diag) {
   for (const d of diag.dimensionSignal || []) {
     if (d.status === 'pinned-ceiling') {
       s.push({
+        sampleSize: d.count,
+        gate: GATES.calibrationMinDimRows,
         target: 'user/_profile.md',
         action: `"${d.label}" is pinned at the ceiling (mean ${d.mean}, ${d.ceilShare}% ≥9) — it isn't discriminating between roles`,
         reasoning: `When a dimension scores ~max on almost every evaluation it can't separate good roles from bad, so its rubric weight is wasted. Either the anchor is too generous or this dimension genuinely doesn't vary for your search.`,
@@ -353,6 +408,8 @@ export function buildSuggestions(diag) {
       })
     } else if (d.status === 'pinned-floor') {
       s.push({
+        sampleSize: d.count,
+        gate: GATES.calibrationMinDimRows,
         target: 'user/_profile.md',
         action: `"${d.label}" is pinned at the floor (mean ${d.mean}, ${d.floorShare}% ≤2) — it's a blanket drag, not a signal`,
         reasoning: `A dimension stuck near the floor on nearly every role is either mis-anchored (too harsh) or pointing at a systemic targeting gap rather than a per-role distinction.`,
@@ -365,6 +422,8 @@ export function buildSuggestions(diag) {
   const comp = diag.compReality
   if (comp?.status === 'targets-above-market') {
     s.push({
+      sampleSize: comp.count,
+      gate: GATES.calibrationMinCompRows,
       target: 'user/profile.yml',
       action: `Comp scores chronically low (mean ${comp.mean}/10, ${comp.lowShare}% ≤4) — your comp targets sit above this landscape`,
       reasoning: `salary_adj_city is the savings-power score for the cities you target. A persistently low average means the roles you evaluate rarely meet your comp expectations — the targets, the city mix, or the seniority band may be misaligned with the market you're searching.`,
@@ -373,6 +432,8 @@ export function buildSuggestions(diag) {
     })
   } else if (comp?.status === 'targets-below-market') {
     s.push({
+      sampleSize: comp.count,
+      gate: GATES.calibrationMinCompRows,
       target: 'user/profile.yml',
       action: `Comp scores maxed out (mean ${comp.mean}/10) — your comp floor is set so low it never bites`,
       reasoning: `Nearly every role clears your comp expectation, so comp isn't differentiating roles. You may be under-asking for the market you're in.`,
@@ -384,6 +445,8 @@ export function buildSuggestions(diag) {
   for (const a of (diag.scoreOutcome?.archetypes || [])) {
     if (a.flag === 'high-score-no-convert') {
       s.push({
+        sampleSize: a.applied,
+        gate: GATES.calibrationMinApplied,
         target: 'user/_profile.md',
         action: `"${a.archetype}" scores high (avg ${a.avgScore}) but 0/${a.applied} applications converted`,
         reasoning: `The rubric loves this archetype, yet the market keeps rejecting your applications to it. The scoring is over-crediting something — a gap the rubric isn't capturing (seniority, location reality, a missing must-have).`,
@@ -392,6 +455,8 @@ export function buildSuggestions(diag) {
       })
     } else if (a.flag === 'low-score-converts') {
       s.push({
+        sampleSize: a.applied,
+        gate: GATES.calibrationMinApplied,
         target: 'user/_profile.md',
         action: `"${a.archetype}" scores low (avg ${a.avgScore}) yet converts ${a.convertRate}% (${a.positive}/${a.applied})`,
         reasoning: `The market responds well to this archetype but the rubric under-rates it. A real strength isn't being credited — worth finding which dimension is unfairly dragging it.`,
@@ -402,7 +467,28 @@ export function buildSuggestions(diag) {
   }
 
   const order = { high: 0, medium: 1, low: 2 }
-  return s.sort((a, b) => order[a.severity] - order[b.severity])
+  const bySeverity = (a, b) => order[a.severity] - order[b.severity]
+
+  // Attach the tier, then split. Nothing is softened: an advisory either has
+  // the evidence to be a recommendation or it is insufficient data.
+  const tiered = s.map(x => ({
+    ...x,
+    ...describeSample(x.sampleSize, x.gate),
+    // describeSample returns { n, gate, confidence, sufficient }; keep the
+    // advisory's own `sampleSize` name as the public one and drop the alias.
+    n: undefined,
+  })).map(({ n, ...rest }) => rest)
+
+  return {
+    suggestions: tiered.filter(x => x.sufficient).sort(bySeverity),
+    insufficientData: tiered
+      .filter(x => !x.sufficient)
+      .map(x => ({
+        ...x,
+        reason: `Needs ${x.gate} observations for this claim; have ${x.sampleSize}. Shown for transparency — not a recommendation.`,
+      }))
+      .sort(bySeverity),
+  }
 }
 
 /* ───── Top-level analysis object (consumed by the CLI/mode) ──────────────── */
@@ -423,6 +509,8 @@ export function analyzeCalibration(rows, { calibration = {}, outcomes = [], opts
     scoreOutcome: scoreOutcomeCalibration(scored, outcomes, opts),
   }
 
+  const { suggestions, insufficientData } = partitionSuggestions(diag)
+
   const dates = scored.map(r => r.date).filter(Boolean).sort()
   return {
     metadata: {
@@ -434,8 +522,22 @@ export function analyzeCalibration(rows, { calibration = {}, outcomes = [], opts
       outcomesAvailable: diag.scoreOutcome.available,
       dateRange: { from: dates[0], to: dates[dates.length - 1] },
       analysisDate: new Date().toISOString().split('T')[0],
+      // The gates this run was bound by, so a renderer can state them without
+      // re-deriving (docs/scoring-statistical-design.md § 3.4).
+      contract: {
+        doc: 'docs/scoring-statistical-design.md',
+        gates: {
+          companyRoles: GATES.calibrationMinCompanyRoles,
+          dimRows: GATES.calibrationMinDimRows,
+          compRows: GATES.calibrationMinCompRows,
+          applied: GATES.calibrationMinApplied,
+        },
+      },
     },
     diagnostics: diag,
-    suggestions: buildSuggestions(diag),
+    suggestions,
+    // ADDED — advisories the evidence does not yet support. Never rendered as
+    // recommendations; shown so the user can see what unlocks with more data.
+    insufficientData,
   }
 }
