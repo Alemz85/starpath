@@ -9,6 +9,20 @@
 
 // ─── Claude invocation ──────────────────────────────────────────────────────
 
+export type ClaudeModel = 'sonnet' | 'opus' | 'haiku'
+
+// Central tier-alias → pinned model-ID map — the ONE place to bump when a new
+// Claude generation ships. Call sites (and the stored ModelPrefs) keep using
+// tier aliases; every spawn resolves through this map so workers always run
+// the pinned current generation instead of whatever the installed CLI version
+// happens to resolve a bare alias to. (Same pattern as Alke's CHAT_MODEL_ARGS:
+// one constant, explicit full model IDs.)
+export const MODEL_IDS: Record<ClaudeModel, string> = {
+  opus:   'claude-opus-5',
+  sonnet: 'claude-sonnet-5',
+  haiku:  'claude-haiku-4-5-20251001',
+}
+
 // Suffix appended to every `claude -p` prompt so the model knows there's no
 // human on the other end to confirm anything. Without this, Claude will often
 // emit a "should I batch all 47 URLs?" question and exit cleanly when stdin
@@ -37,13 +51,16 @@ export const NON_INTERACTIVE_SUFFIX =
  *     `pipeline`; Settings → Models writes to all five fields.
  * Pass undefined to omit the flag entirely and let the Claude CLI default
  * apply (used as a graceful fallback if a caller can't decide).
+ *
+ * The alias is resolved through MODEL_IDS at spawn time — the flag carries a
+ * pinned full model ID, never the bare alias.
  */
-export function claudeArgs(slashCommand: string, model?: 'sonnet' | 'opus' | 'haiku'): string[] {
+export function claudeArgs(slashCommand: string, model?: ClaudeModel): string[] {
   return [
     '--dangerously-skip-permissions',
     '--output-format', 'stream-json',
     '--verbose',
-    ...(model ? ['--model', model] : []),
+    ...(model ? ['--model', MODEL_IDS[model]] : []),
     '-p',
     slashCommand + NON_INTERACTIVE_SUFFIX,
   ]

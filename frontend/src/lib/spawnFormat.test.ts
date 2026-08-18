@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   NON_INTERACTIVE_SUFFIX,
+  MODEL_IDS,
   claudeArgs,
   humanizeJsonlChunk,
   humanizeJsonlLine,
@@ -27,10 +28,21 @@ test('claudeArgs builds the non-interactive flag set and appends the batch suffi
     '--dangerously-skip-permissions',
     '--output-format', 'stream-json',
     '--verbose',
-    '--model', 'sonnet',
+    '--model', 'claude-sonnet-5',
     '-p',
     '/career-ops scan' + NON_INTERACTIVE_SUFFIX,
   ])
+})
+
+// Pin the map itself: every alias must resolve to the current generation's
+// full model ID. Bump these literals (and MODEL_IDS) together when a new
+// Claude family ships — this test is the reminder.
+test('MODEL_IDS pins every tier alias to the current generation', () => {
+  assert.deepEqual(MODEL_IDS, {
+    opus:   'claude-opus-5',
+    sonnet: 'claude-sonnet-5',
+    haiku:  'claude-haiku-4-5-20251001',
+  })
 })
 
 test('claudeArgs omits --model entirely when no model is given', () => {
@@ -42,10 +54,11 @@ test('claudeArgs omits --model entirely when no model is given', () => {
   assert.ok(args[args.length - 1].endsWith(NON_INTERACTIVE_SUFFIX))
 })
 
-test('claudeArgs threads each supported model through verbatim', () => {
+test('claudeArgs resolves each alias to its pinned model ID — never the bare alias', () => {
   for (const m of ['sonnet', 'opus', 'haiku'] as const) {
     const args = claudeArgs('/x', m)
-    assert.equal(args[args.indexOf('--model') + 1], m)
+    assert.equal(args[args.indexOf('--model') + 1], MODEL_IDS[m])
+    assert.ok(!args.includes(m), `bare alias '${m}' must not reach the CLI`)
   }
 })
 

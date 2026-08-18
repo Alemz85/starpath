@@ -11,7 +11,7 @@ import {
   filterAllPrompt,
   top5ReportsPrompt,
 } from './evalSpawn'
-import { NON_INTERACTIVE_SUFFIX } from './spawnFormat'
+import { NON_INTERACTIVE_SUFFIX, MODEL_IDS } from './spawnFormat'
 
 // ─── claudeEvalArgs ──────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ test('claudeEvalArgs keeps the non-interactive flag set from claudeArgs', () => 
   assert.ok(args.includes('--dangerously-skip-permissions'))
   assert.ok(args.includes('stream-json'))
   assert.ok(args.includes('--verbose'))
-  assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2), ['--model', 'opus'])
+  assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2), ['--model', MODEL_IDS.opus])
   assert.equal(args[args.length - 1], 'task' + NON_INTERACTIVE_SUFFIX)
   assert.equal(args[args.length - 2], '-p')
 })
