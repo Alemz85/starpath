@@ -20,6 +20,7 @@ import {
   queryApplications, queryScouting, queryScoreHistory, queryPipeline,
   queryReports, queryApplicationsWithScores, queryTrends,
 } from './db'
+import { registerChat, killChatChild } from './chat'
 
 const execAsync = promisify(exec)
 
@@ -837,6 +838,23 @@ ipcMain.handle('network:overview', async () => {
   }
 })
 
+// ─── IPC: Chat ────────────────────────────────────────────────────────────────
+//
+// The conversational tab. Everything about it (single live generation, spawn +
+// stream loop, persisted runtime, `chat:*` handlers) lives in electron/chat.ts;
+// main only hands it the pieces it owns — userData, the configured repo path
+// (the spawn's cwd), the window to push envelopes at, and the PATH-augmented
+// env every other spawn here uses. Chat state persists as JSON under
+// {userData}/chat/, never in the SQLite cache — that cache stays fully
+// derivable from the repo's Markdown/TSV.
+registerChat({
+  userDataDir: app.getPath('userData'),
+  getRepoPath,
+  getWindow: () => mainWindow,
+  env: SHELL_ENV,
+  getModel: () => readConfig().models?.pipeline,
+})
+
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -867,6 +885,10 @@ app.on('before-quit', async (event) => {
     try { proc.kill() } catch { /* already gone */ }
   }
   spawnedProcesses.clear()
+  // The chat child is tracked separately (electron/chat.ts owns it) — killing
+  // it here also flushes the interrupted runtime so the next launch can show
+  // the partial reply instead of losing it.
+  try { killChatChild() } catch (e) { console.error('[shutdown] chat cleanup failed:', e) }
   try {
     await shutdownDb()
   } catch (e) {

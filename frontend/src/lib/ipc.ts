@@ -4,6 +4,9 @@
 import type { ElectronAPI } from '../../electron/preload'
 import type { NetworkOverview } from './networkLens'
 import type { ProfileListResult, ProfileMutationResult } from './profiles'
+import type {
+  ChatRuntimeEnvelope, ChatRuntimeSnapshot, ChatSession, ChatSessionMeta,
+} from './chat/types'
 
 declare global {
   interface Window {
@@ -88,6 +91,22 @@ export const ipc = {
     create:    (opts: { slug: string; from?: string; label?: string }) =>
                  api().profileCreate(opts) as Promise<ProfileMutationResult>,
     onChanged: (cb: (slug: string) => void) => api().onProfileChanged(cb),
+  },
+
+  // Chat — the conversational tab. Main owns the single live generation; the
+  // renderer reattaches by pulling `state()` on mount and folding every
+  // `onEvent` envelope whose sequence is ahead of the snapshot's.
+  chat: {
+    send:          (sessionId: string | null, message: string) =>
+                     api().chatSend(sessionId, message) as Promise<{ sessionId: string; generationId: string }>,
+    stop:          (sessionId: string) => api().chatStop(sessionId) as Promise<boolean>,
+    state:         ()                  => api().chatState()    as Promise<ChatRuntimeSnapshot | null>,
+    sessions:      ()                  => api().chatSessions() as Promise<ChatSessionMeta[]>,
+    get:           (id: string)        => api().chatSessionGet(id) as Promise<ChatSession | null>,
+    create:        ()                  => api().chatSessionNew()   as Promise<ChatSessionMeta>,
+    remove:        (id: string)        => api().chatSessionDelete(id) as Promise<boolean>,
+    onEvent:       (cb: (envelope: ChatRuntimeEnvelope) => void) =>
+                     api().onChatEvent(e => cb(e as ChatRuntimeEnvelope)),
   },
 
   // Shell
