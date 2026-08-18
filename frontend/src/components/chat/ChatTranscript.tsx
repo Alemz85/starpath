@@ -1,13 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronRight, Terminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isLivePhase } from '@/lib/chat/types'
-import type { ChatRuntimeSnapshot, ChatSession } from '@/lib/chat/types'
+import type { ChatProposalDecision, ChatRuntimeSnapshot, ChatSession } from '@/lib/chat/types'
+import { splitChatContent } from '@/lib/chat/proposals'
+import type { ChatProposal } from '@/lib/chat/proposals'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { ChatProposalCard, type ProposalLock } from './ChatProposalCard'
 
 // Openers that are genuinely answerable from the repo's own data — each one
 // maps to files the agent can read (pipeline, scouting tiers, deadlines) rather
@@ -18,14 +21,31 @@ const SUGGESTIONS = [
   'Where is my pipeline thinnest right now?',
 ]
 
+/** How the transcript talks to ChatView about proposal cards. The view owns
+ *  the write (through the applications.md mutators) and the single-flight
+ *  guard; the transcript only routes clicks and reads back state. */
+export interface ProposalHandlers {
+  /** The one decision in flight, or null. Single-flight across all cards. */
+  busy: { blockId: string; kind: 'applying' | 'dismissing' } | null
+  /** blockId → last transient failure, cleared on retry. */
+  errors: Record<string, string>
+  onConfirm(blockId: string, messageId: string, proposal: ChatProposal): void
+  onDismiss(blockId: string, messageId: string): void
+}
+
 interface ChatTranscriptProps {
   session: ChatSession | null
   /** The live/last generation, only when it belongs to this conversation. */
   runtime: ChatRuntimeSnapshot | null
+  /** True while any generation is running — cards stay locked until it lands. */
+  generating: boolean
+  proposals: ProposalHandlers
   onSuggestion(prompt: string): void
 }
 
-export function ChatTranscript({ session, runtime, onSuggestion }: ChatTranscriptProps) {
+export function ChatTranscript({
+  session, runtime, generating, proposals, onSuggestion,
+}: ChatTranscriptProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const followOutput = useRef(true)
 
@@ -97,14 +117,35 @@ export function ChatTranscript({ session, runtime, onSuggestion }: ChatTranscrip
               message.role === 'user' ? (
                 <UserTurn key={`${message.ts}-${index}`} content={message.content} />
               ) : (
-                <AssistantTurn key={`${message.ts}-${index}`} content={message.content} />
+                <AssistantTurn
+                  key={`${message.ts}-${index}`}
+                  content={message.content}
+                  messageId={message.id ?? null}
+                  decisions={message.proposalDecisions}
+                  // A persisted turn is actionable unless a generation is
+                  // running — one write at a time, same rule as the composer.
+                  lock={generating ? 'streaming' : null}
+                  proposals={proposals}
+                />
               )
             ))}
 
             {showRuntimeTurn && runtime && (
               <div className="space-y-2">
                 {showRuntimeText
-                  ? <AssistantTurn content={runtime.assistantText} streaming={streaming} />
+                  ? (
+                    <AssistantTurn
+                      content={runtime.assistantText}
+                      streaming={streaming}
+                      // The live turn isn't in the session file yet, so there
+                      // is no message to record a decision against. It re-renders
+                      // as a persisted turn (with working buttons) the moment
+                      // the generation lands.
+                      messageId={null}
+                      lock={streaming ? 'streaming' : 'unpersisted'}
+                      proposals={proposals}
+                    />
+                  )
                   : streaming
                     ? <p className="text-label text-text-3">Reading your pipeline…</p>
                     : null}
@@ -141,17 +182,67 @@ function UserTurn({ content }: { content: string }) {
  * (ReactMarkdown + remark-gfm + `.prose-report`, the same pairing
  * ReportSlideOver and ReportsView use) — one markdown treatment app-wide, and
  * no new dependency.
+ *
+ * `starpath:apply` / `starpath:status` fences are lifted out of the prose and
+ * rendered as Confirm cards (`lib/chat/proposals.ts`). Anything that doesn't
+ * validate stays in the markdown and draws as an ordinary code block, so a
+ * malformed proposal degrades to exactly what it looked like before cards
+ * existed — never a half-card.
  */
-function AssistantTurn({ content, streaming = false }: { content: string; streaming?: boolean }) {
+function AssistantTurn({
+  content, streaming = false, messageId = null, decisions, lock = null, proposals,
+}: {
+  content: string
+  streaming?: boolean
+  messageId?: string | null
+  decisions?: Record<string, ChatProposalDecision>
+  lock?: ProposalLock
+  proposals?: ProposalHandlers
+}) {
+  // A turn with no persisted id can't carry a decision, so its blocks get a
+  // throwaway namespace — they render, but Confirm is locked (see `lock`).
+  const segments = useMemo(
+    () => splitChatContent(content, messageId ?? 'live', streaming),
+    [content, messageId, streaming],
+  )
+  const lastIndex = segments.length - 1
+
   return (
-    <div className="prose-report">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-      {streaming && (
-        <span
-          className="inline-block w-[2px] h-[14px] align-[-2px] bg-accent animate-pulse"
-          aria-hidden
-        />
-      )}
+    <div className="space-y-3">
+      {segments.map((segment, index) => {
+        if (segment.kind === 'markdown') {
+          return (
+            <div key={`md-${index}`} className="prose-report">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
+              {streaming && index === lastIndex && (
+                <span
+                  className="inline-block w-[2px] h-[14px] align-[-2px] bg-accent animate-pulse"
+                  aria-hidden
+                />
+              )}
+            </div>
+          )
+        }
+        return (
+          <ChatProposalCard
+            key={segment.id}
+            proposal={segment.proposal}
+            decision={decisions?.[segment.id] ?? null}
+            error={proposals?.errors[segment.id] ?? null}
+            busy={proposals?.busy?.blockId === segment.id}
+            applying={
+              proposals?.busy?.blockId === segment.id && proposals.busy.kind === 'applying'
+            }
+            lock={messageId ? lock : (lock ?? 'unpersisted')}
+            onConfirm={() => {
+              if (messageId) proposals?.onConfirm(segment.id, messageId, segment.proposal)
+            }}
+            onDismiss={() => {
+              if (messageId) proposals?.onDismiss(segment.id, messageId)
+            }}
+          />
+        )
+      })}
     </div>
   )
 }

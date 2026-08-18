@@ -73,10 +73,36 @@ export interface ChatRuntimeSnapshot {
   lastSequence: number
 }
 
+/**
+ * What the user did with one proposal card (`lib/chat/proposals.ts`). Only
+ * TERMINAL outcomes persist: a failed apply is transient state the card holds
+ * in memory so Confirm can be retried, and writing it here would freeze a
+ * recoverable error into the transcript forever.
+ */
+export type ChatProposalDecisionStatus = 'applied' | 'dismissed'
+
+export interface ChatProposalDecision {
+  status: ChatProposalDecisionStatus
+  /** ISO timestamp, always stamped in the main process — never by the caller. */
+  at: string
+  /** Short human-readable trace of what was written. */
+  detail?: string
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   ts: string
+  /**
+   * Stable per-message id, assigned when the message is appended. Proposal
+   * block ids are derived from it, which is what lets a Confirm/Dismiss
+   * decision survive a restart. OPTIONAL because sessions persisted before
+   * proposal cards existed have no id — those turns predate the fence contract
+   * and so carry no proposals, but they must still load.
+   */
+  id?: string
+  /** blockId → decision, for the proposal fences in this message. */
+  proposalDecisions?: Record<string, ChatProposalDecision>
 }
 
 export interface ChatSessionMeta {

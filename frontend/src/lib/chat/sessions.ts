@@ -8,7 +8,9 @@
 // Every function here is (file, args) -> new file. `electron/chat.ts` owns the
 // read/write; nothing in this module touches the filesystem.
 
-import type { ChatMessage, ChatSession, ChatSessionMeta, ChatSessionsFile } from './types'
+import type {
+  ChatMessage, ChatProposalDecision, ChatSession, ChatSessionMeta, ChatSessionsFile,
+} from './types'
 import { truncateUtf8, utf8Length } from './runtime'
 
 /** Conversations kept on disk; the oldest fall off the end. */
@@ -19,6 +21,10 @@ export const MAX_MESSAGE_BYTES = 128 * 1024
 export const MAX_TITLE_CHARS = 80
 /** Ceiling for the whole serialized file; overflow evicts oldest sessions. */
 export const MAX_SESSIONS_FILE_BYTES = 8 * 1024 * 1024
+/** Proposal decisions kept per message — one per fence, bounded like the rest. */
+export const MAX_DECISIONS_PER_MESSAGE = 20
+export const MAX_DECISION_DETAIL_CHARS = 300
+export const MAX_ID_CHARS = 200
 
 export function emptySessionsFile(): ChatSessionsFile {
   return { version: 1, sessions: [] }
@@ -26,6 +32,31 @@ export function emptySessionsFile(): ChatSessionsFile {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** One persisted decision, or null if the record is unusable. Stored decisions
+ *  are only ever terminal — see `ChatProposalDecision`. */
+function sanitizeDecision(value: unknown): ChatProposalDecision | null {
+  if (!isRecord(value)) return null
+  if (value.status !== 'applied' && value.status !== 'dismissed') return null
+  if (typeof value.at !== 'string' || !value.at) return null
+  const decision: ChatProposalDecision = { status: value.status, at: value.at }
+  if (typeof value.detail === 'string' && value.detail) {
+    decision.detail = value.detail.slice(0, MAX_DECISION_DETAIL_CHARS)
+  }
+  return decision
+}
+
+function sanitizeDecisions(value: unknown): Record<string, ChatProposalDecision> | undefined {
+  if (!isRecord(value)) return undefined
+  const entries: Array<[string, ChatProposalDecision]> = []
+  for (const [blockId, raw] of Object.entries(value)) {
+    if (!blockId || blockId.length > MAX_ID_CHARS) continue
+    const decision = sanitizeDecision(raw)
+    if (decision) entries.push([blockId, decision])
+    if (entries.length >= MAX_DECISIONS_PER_MESSAGE) break
+  }
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
 }
 
 function sanitizeMessage(value: unknown): ChatMessage | null {
@@ -37,11 +68,19 @@ function sanitizeMessage(value: unknown): ChatMessage | null {
   ) {
     return null
   }
-  return {
+  const message: ChatMessage = {
     role: value.role,
     content: truncateUtf8(value.content, MAX_MESSAGE_BYTES),
     ts: value.ts,
   }
+  // `id` and `proposalDecisions` post-date the original file format, so their
+  // absence is normal, not corruption — an older sessions.json loads unchanged.
+  if (typeof value.id === 'string' && value.id && value.id.length <= MAX_ID_CHARS) {
+    message.id = value.id
+  }
+  const decisions = sanitizeDecisions(value.proposalDecisions)
+  if (decisions) message.proposalDecisions = decisions
+  return message
 }
 
 function sanitizeSession(value: unknown): ChatSession | null {
@@ -205,6 +244,46 @@ export function setClaudeSessionId(
   const session = getSession(file, id)
   if (!session || session.claudeSessionId === claudeSessionId) return file
   return mapSession(file, id, (s) => ({ ...s, claudeSessionId }))
+}
+
+/**
+ * Record what the user did with one proposal card.
+ *
+ * The decision is stored ON THE MESSAGE that produced the fence, located by
+ * `messageId`, so it is evicted together with that message and can never
+ * outlive the card it describes. Unknown session or message → the file comes
+ * back untouched (the caller reports a miss rather than writing a decision that
+ * belongs nowhere).
+ *
+ * Deliberately does NOT bump `updatedAt`: confirming a card is not a new turn,
+ * and re-sorting the session rail on a Confirm click would be a surprise.
+ */
+export function setProposalDecision(
+  file: ChatSessionsFile,
+  sessionId: string,
+  messageId: string,
+  blockId: string,
+  decision: ChatProposalDecision,
+): ChatSessionsFile {
+  const session = getSession(file, sessionId)
+  if (!session) return file
+  const target = session.messages.find(m => m.id === messageId)
+  if (!target) return file
+  if (!blockId || blockId.length > MAX_ID_CHARS) return file
+
+  const existing = target.proposalDecisions ?? {}
+  // A decision is final. Re-deciding an already-decided block is a no-op, so a
+  // duplicate IPC (a double click that raced the re-render) can't rewrite an
+  // "applied" card into "dismissed".
+  if (existing[blockId]) return file
+  if (Object.keys(existing).length >= MAX_DECISIONS_PER_MESSAGE) return file
+
+  const merged = { ...existing, [blockId]: decision }
+  return mapSession(file, sessionId, s => ({
+    ...s,
+    messages: s.messages.map(m =>
+      m.id === messageId ? { ...m, proposalDecisions: merged } : m),
+  }))
 }
 
 export function deleteSession(file: ChatSessionsFile, id: string): ChatSessionsFile {
