@@ -9,8 +9,10 @@ import {
   compReality,
   scoreOutcomeCalibration,
   buildSuggestions,
+  partitionSuggestions,
   analyzeCalibration,
 } from './calibration-advisor.mjs'
+import { GATES } from './scoring-stats.mjs'
 
 /* ───── helpers ──────────────────────────────────────────────────── */
 
@@ -283,7 +285,7 @@ test('scoreOutcomeCalibration joins on an explicit archetype field when present'
 test('buildSuggestions emits a misdirected-bonus suggestion', () => {
   const diag = {
     brandBonusDrift: [
-      { company: 'WeakCo', source: 'dream_companies', kind: 'dream', roles: 3, avgOverall: 5.2, band: 'weak', verdict: 'misdirected' },
+      { company: 'WeakCo', source: 'dream_companies', kind: 'dream', roles: 5, avgOverall: 5.2, band: 'weak', verdict: 'misdirected' },
     ],
   }
   const s = buildSuggestions(diag)
@@ -295,10 +297,10 @@ test('buildSuggestions emits a misdirected-bonus suggestion', () => {
 test('buildSuggestions sorts high severity first', () => {
   const diag = {
     brandBonusDrift: [
-      { company: 'WeakCo', source: 'dream_companies', kind: 'dream', roles: 3, avgOverall: 5.2, verdict: 'misdirected' }, // medium
+      { company: 'WeakCo', source: 'dream_companies', kind: 'dream', roles: 5, avgOverall: 5.2, verdict: 'misdirected' }, // medium
     ],
-    compReality: { status: 'targets-above-market', mean: 3.5, lowShare: 60 }, // high
-    brandBonusCandidates: [{ company: 'RisingCo', roles: 3, avgOverall: 8.1 }], // low
+    compReality: { status: 'targets-above-market', mean: 3.5, lowShare: 60, count: 40 }, // high
+    brandBonusCandidates: [{ company: 'RisingCo', roles: 5, avgOverall: 8.1 }], // low
   }
   const s = buildSuggestions(diag)
   assert.equal(s[0].severity, 'high')
@@ -307,7 +309,7 @@ test('buildSuggestions sorts high severity first', () => {
 
 test('buildSuggestions never returns an apply/write instruction — only an edit hint', () => {
   const diag = {
-    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', status: 'pinned-ceiling', mean: 9.8, ceilShare: 95 }],
+    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 }],
   }
   const s = buildSuggestions(diag)
   assert.equal(s.length, 1)
@@ -343,18 +345,179 @@ test('analyzeCalibration produces a full report with metadata + suggestions', ()
 })
 
 test('analyzeCalibration integrates outcomes when provided', () => {
-  const rows = [
-    row({ archetype: 'Tech Sales', company: 'A', role: 'AE', overall: 8.0 }),
-    row({ archetype: 'Tech Sales', company: 'B', role: 'AE', overall: 8.1 }),
-    row({ archetype: 'Tech Sales', company: 'C', role: 'AE', overall: 8.2 }),
-  ]
-  const outcomes = [
-    { company: 'A', role: 'AE', status: 'rejected' },
-    { company: 'B', role: 'AE', status: 'rejected' },
-    { company: 'C', role: 'AE', status: 'rejected' },
-  ]
+  // 8 applications = the § 3.4 gate for a conversion claim: below it, "0 of n
+  // converted" is an ordinary run of bad luck, not a rubric defect.
+  const companies = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+  const rows = companies.map(c => row({ archetype: 'Tech Sales', company: c, role: 'AE', overall: 8.0 }))
+  const outcomes = companies.map(c => ({ company: c, role: 'AE', status: 'rejected' }))
   const out = analyzeCalibration(rows, { outcomes })
   assert.equal(out.metadata.outcomesAvailable, true)
   const has = out.suggestions.some(s => /high \(avg/.test(s.action) && /Tech Sales/.test(s.action))
   assert.ok(has, 'expected a high-score-no-convert suggestion for Tech Sales')
+})
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Statistical contract (docs/scoring-statistical-design.md § 3.4)
+ *
+ * Diagnostics describe and are ungated; advisories prescribe and are gated.
+ * An advisory below its gate is not softened — it leaves the recommendation
+ * list entirely and lands in `insufficientData`.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ───── advisory gates: exactly at, and one under ────────────────────────── */
+
+const driftDiag = (roles) => ({
+  brandBonusDrift: [
+    { company: 'WeakCo', source: 'dream_companies', kind: 'dream', roles, avgOverall: 5.2, band: 'weak', verdict: 'misdirected' },
+  ],
+})
+
+test('brand advisory is suppressed one role under the gate', () => {
+  const p = partitionSuggestions(driftDiag(GATES.calibrationMinCompanyRoles - 1))
+  assert.equal(p.suggestions.length, 0)
+  assert.equal(p.insufficientData.length, 1)
+  assert.equal(p.insufficientData[0].confidence, 'insufficient')
+  assert.equal(p.insufficientData[0].sampleSize, 3)
+  assert.equal(p.insufficientData[0].gate, 4)
+  assert.match(p.insufficientData[0].reason, /not a recommendation/i)
+  // The text is preserved so the user can see what unlocks with more evidence.
+  assert.match(p.insufficientData[0].action, /WeakCo/)
+})
+
+test('brand advisory unlocks at EXACTLY the gate, tiered low', () => {
+  const p = partitionSuggestions(driftDiag(GATES.calibrationMinCompanyRoles))
+  assert.equal(p.suggestions.length, 1)
+  assert.equal(p.insufficientData.length, 0)
+  assert.equal(p.suggestions[0].confidence, 'low')
+  assert.equal(p.suggestions[0].sampleSize, 4)
+})
+
+test('brand advisory confidence climbs at 2× and 4× the gate', () => {
+  assert.equal(partitionSuggestions(driftDiag(8)).suggestions[0].confidence, 'moderate')
+  assert.equal(partitionSuggestions(driftDiag(16)).suggestions[0].confidence, 'high')
+})
+
+test('dimension-pinning advisory needs 20 scored evaluations of that dimension', () => {
+  const dim = (count) => ({
+    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count }],
+  })
+  assert.equal(partitionSuggestions(dim(19)).suggestions.length, 0)
+  assert.equal(partitionSuggestions(dim(19)).insufficientData.length, 1)
+  assert.equal(partitionSuggestions(dim(20)).suggestions.length, 1)
+  assert.equal(partitionSuggestions(dim(20)).suggestions[0].confidence, 'low')
+})
+
+test('comp-target advisory needs 20 scored salary observations', () => {
+  const comp = (count) => ({ compReality: { status: 'targets-above-market', mean: 3.5, lowShare: 60, count } })
+  assert.equal(partitionSuggestions(comp(19)).suggestions.length, 0)
+  assert.equal(partitionSuggestions(comp(20)).suggestions.length, 1)
+})
+
+test('conversion advisory needs 8 applications in the archetype', () => {
+  const so = (applied) => ({
+    scoreOutcome: {
+      available: true,
+      archetypes: [{ archetype: 'Growth Analytics', applied, positive: 0, negative: applied, convertRate: 0, avgScore: 8.2, flag: 'high-score-no-convert' }],
+    },
+  })
+  assert.equal(partitionSuggestions(so(7)).suggestions.length, 0)
+  assert.equal(partitionSuggestions(so(7)).insufficientData.length, 1)
+  assert.equal(partitionSuggestions(so(8)).suggestions.length, 1)
+  assert.equal(partitionSuggestions(so(8)).suggestions[0].sampleSize, 8)
+})
+
+/* ───── buildSuggestions stays the same shape as before ──────────────────── */
+
+test('buildSuggestions still returns a plain sorted array (old contract)', () => {
+  const diag = driftDiag(6)
+  const arr = buildSuggestions(diag)
+  assert.ok(Array.isArray(arr))
+  assert.deepEqual(arr, partitionSuggestions(diag).suggestions)
+  for (const k of ['target', 'action', 'reasoning', 'severity', 'edit']) {
+    assert.ok(k in arr[0], `suggestion lost pre-contract field: ${k}`)
+  }
+})
+
+/* ───── diagnostics stay ungated but now state their n ───────────────────── */
+
+test('diagnostics keep firing below the advisory gate — they only describe', () => {
+  // 2 roles is under the 4-role advisory gate, but the drift DIAGNOSTIC still
+  // reports what the log says, with its own confidence tier attached.
+  const rows = repeat(2, { company: 'WeakCo', overall: 5.0 })
+  const drift = brandBonusDrift(rows, { dream_companies: ['WeakCo'] })
+  assert.equal(drift.length, 1)
+  assert.equal(drift[0].roles, 2)
+  assert.equal(drift[0].confidence, 'insufficient')
+})
+
+test('dimensionSignal and compReality carry a confidence tier at every size', () => {
+  const sparse = dimensionSignal(repeat(3, { brand_value: 10 })).find(d => d.key === 'brand_value')
+  assert.equal(sparse.status, 'sparse')
+  assert.equal(sparse.confidence, 'insufficient')
+
+  const moderate = dimensionSignal(repeat(40, { brand_value: 10 })).find(d => d.key === 'brand_value')
+  assert.equal(moderate.status, 'pinned-ceiling')
+  assert.equal(moderate.confidence, 'moderate')   // 2× the 20-row gate
+
+  const many = dimensionSignal(repeat(80, { brand_value: 10 })).find(d => d.key === 'brand_value')
+  assert.equal(many.confidence, 'high')           // 4× the gate
+
+  assert.equal(compReality(repeat(3, { salary_adj_city: 3 })).confidence, 'insufficient')
+  assert.equal(compReality(repeat(20, { salary_adj_city: 3 })).confidence, 'low')
+})
+
+test('scoreOutcomeCalibration tiers each archetype by its applied count', () => {
+  const companies = ['A', 'B', 'C', 'D']
+  const rows = companies.map(c => row({ archetype: 'Field Ops', company: c, role: 'Coord', overall: 8.0 }))
+  const outcomes = companies.map(c => ({ company: c, role: 'Coord', status: 'rejected' }))
+  const r = scoreOutcomeCalibration(rows, outcomes)
+  assert.equal(r.archetypes[0].applied, 4)
+  assert.equal(r.archetypes[0].confidence, 'insufficient') // gate is 8
+})
+
+/* ───── analyzeCalibration: additive shape ──────────────────────────────── */
+
+test('analyzeCalibration publishes its gates and an insufficientData list', () => {
+  const rows = [
+    ...repeat(3, { company: 'ThinCo', overall: 5.0 }),
+    ...repeat(3, { company: 'OtherCo', overall: 7.0 }),
+  ]
+  const out = analyzeCalibration(rows, { calibration: { dream_companies: ['ThinCo'] } })
+  assert.equal(out.metadata.contract.gates.companyRoles, 4)
+  assert.equal(out.metadata.contract.gates.dimRows, 20)
+  assert.equal(out.metadata.contract.gates.applied, 8)
+  assert.ok(Array.isArray(out.insufficientData))
+  // ThinCo has 3 roles — described in diagnostics, withheld from advisories.
+  assert.equal(out.diagnostics.brandBonusDrift.length, 1)
+  assert.equal(out.suggestions.some(s => /ThinCo/.test(s.action)), false)
+  assert.equal(out.insufficientData.some(s => /ThinCo/.test(s.action)), true)
+})
+
+test('analyzeCalibration keeps every pre-contract top-level field', () => {
+  const rows = repeat(6, { company: 'StarCo', overall: 9.0 })
+  const out = analyzeCalibration(rows, { calibration: { dream_companies: ['StarCo'] } })
+  for (const k of ['metadata', 'diagnostics', 'suggestions']) {
+    assert.ok(k in out, `analyzeCalibration lost pre-contract field: ${k}`)
+  }
+  for (const k of ['evaluated', 'calibrationConfigured', 'outcomesAvailable', 'dateRange', 'analysisDate']) {
+    assert.ok(k in out.metadata, `metadata lost pre-contract field: ${k}`)
+  }
+  for (const k of ['brandBonusDrift', 'brandBonusCandidates', 'dimensionSignal', 'compReality', 'scoreOutcome']) {
+    assert.ok(k in out.diagnostics, `diagnostics lost pre-contract field: ${k}`)
+  }
+})
+
+test('no advisory ever carries an insufficient confidence tier', () => {
+  // The invariant behind the whole gate: a rendered recommendation is never
+  // labelled insufficient — it is withheld instead.
+  const diag = {
+    brandBonusDrift: [{ company: 'X', source: 'dream_companies', kind: 'dream', roles: 1, avgOverall: 5, verdict: 'misdirected' }],
+    brandBonusCandidates: [{ company: 'Y', roles: 2, avgOverall: 8.4 }],
+    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', status: 'pinned-ceiling', mean: 9.9, ceilShare: 99, count: 6 }],
+    compReality: { status: 'targets-above-market', mean: 3, lowShare: 70, count: 6 },
+  }
+  const p = partitionSuggestions(diag)
+  assert.equal(p.suggestions.length, 0)
+  assert.equal(p.insufficientData.length, 4)
+  for (const s of p.suggestions) assert.notEqual(s.confidence, 'insufficient')
 })

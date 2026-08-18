@@ -150,6 +150,7 @@ const rel = (p) => p.startsWith(ROOT) ? p.slice(ROOT.length + 1) : p
 /* ───── Human-readable summary ───────────────────────────────────── */
 function printSummary(r) {
   const { metadata: m, diagnostics: d, suggestions } = r
+  const insufficient = r.insufficientData || []
   const line = (s = '') => process.stdout.write(s + '\n')
 
   line()
@@ -168,7 +169,7 @@ function printSummary(r) {
     line('  RUBRIC SIGNAL HEALTH')
     for (const x of flagged) {
       const where = x.pinned === 'ceiling' ? `${x.ceilShare}% ≥9` : `${x.floorShare}% ≤2`
-      line(`    ⚠  ${pad(x.label, 20)} pinned at ${x.pinned} (mean ${x.mean}, ${where}) — no signal`)
+      line(`    ⚠  ${pad(x.label, 20)} pinned at ${x.pinned} (mean ${x.mean}, ${where}) — no signal  [n=${x.count}, ${x.confidence}]`)
     }
     line()
   }
@@ -179,7 +180,7 @@ function printSummary(r) {
     line('  BRAND-BONUS DRIFT')
     for (const x of drift) {
       const tag = x.verdict === 'misdirected' ? '✗ misdirected' : '· inert'
-      line(`    ${pad(tag, 14)} ${pad(x.company, 22)} avg ${x.avgOverall}/10 over ${x.roles}  [${x.source}]`)
+      line(`    ${pad(tag, 14)} ${pad(x.company, 22)} avg ${x.avgOverall}/10 over ${x.roles}  [${x.source}]  [n=${x.roles}, ${x.confidence}]`)
     }
     line()
   }
@@ -189,7 +190,7 @@ function printSummary(r) {
   if (cand.length) {
     line('  UN-CREDITED STRONG COMPANIES (candidates to add)')
     for (const x of cand) {
-      line(`    +  ${pad(x.company, 22)} avg ${x.avgOverall}/10 over ${x.roles} evals`)
+      line(`    +  ${pad(x.company, 22)} avg ${x.avgOverall}/10 over ${x.roles} evals  [n=${x.roles}, ${x.confidence}]`)
     }
     line()
   }
@@ -201,7 +202,7 @@ function printSummary(r) {
     const label = comp.status === 'targets-above-market'
       ? `targets ABOVE market (mean ${comp.mean}/10, ${comp.lowShare}% ≤4)`
       : `targets BELOW market (mean ${comp.mean}/10, comp never bites)`
-    line(`    ⚠  ${label}`)
+    line(`    ⚠  ${label}  [n=${comp.count}, ${comp.confidence}]`)
     line()
   }
 
@@ -215,32 +216,54 @@ function printSummary(r) {
         const desc = a.flag === 'high-score-no-convert'
           ? `scores high (${a.avgScore}) but 0/${a.applied} converted`
           : `scores low (${a.avgScore}) yet converts ${a.convertRate}%`
-        line(`    ⚠  ${pad(a.archetype, 24)} ${desc}`)
+        line(`    ⚠  ${pad(a.archetype, 24)} ${desc}  [n=${a.applied}, ${a.confidence}]`)
       }
       line()
     }
   }
 
   // ── Suggestions ──
+  const sev = { high: '●', medium: '◐', low: '○' }
+
   if (!suggestions.length) {
-    line('  ✓ No calibration mismatches detected with the current evidence.')
+    if (insufficient.length) {
+      // Don't claim a clean bill of health when the only reason nothing fired
+      // is that the evidence is too thin — that's a different statement.
+      line(`  ⃠ No advisory has enough evidence yet — ${insufficient.length} withheld below their sample gates.`)
+    } else {
+      line('  ✓ No calibration mismatches detected with the current evidence.')
+    }
     line('    (More evaluations / outcomes sharpen this — re-run as the history grows.)')
     line()
-    return
+  } else {
+    line('  SUGGESTED EDITS (review and apply yourself — nothing was changed)')
+    line('  ───────────────────────────────────────────────────────────────')
+    suggestions.forEach((s) => {
+      line()
+      line(`  ${sev[s.severity] || '·'} [${s.severity}] ${s.action}`)
+      line(`     why:  ${s.reasoning}`)
+      line(`     edit: ${s.target} — ${s.edit}`)
+      line(`     n:    ${s.sampleSize} observation(s) · ${s.confidence} confidence (gate ${s.gate})`)
+    })
+    line()
+    line('  Nothing was written. Apply the edits you agree with to your user/* files.')
+    line()
   }
 
-  line('  SUGGESTED EDITS (review and apply yourself — nothing was changed)')
-  line('  ───────────────────────────────────────────────────────────────')
-  const sev = { high: '●', medium: '◐', low: '○' }
-  suggestions.forEach((s, i) => {
+  // ── Suppressed advisories (docs/scoring-statistical-design.md § 3.4) ──
+  // These are NOT recommendations. They are shown so the user can see what the
+  // advisor would say once the evidence arrives — an advisory below its gate is
+  // withheld outright rather than rendered with a hedge.
+  if (insufficient.length) {
+    line('  INSUFFICIENT DATA — not recommendations, shown for transparency')
+    line('  ───────────────────────────────────────────────────────────────')
+    insufficient.forEach((s) => {
+      line()
+      line(`  ⃠  ${s.action}`)
+      line(`     held: ${s.reason}`)
+    })
     line()
-    line(`  ${sev[s.severity] || '·'} [${s.severity}] ${s.action}`)
-    line(`     why:  ${s.reasoning}`)
-    line(`     edit: ${s.target} — ${s.edit}`)
-  })
-  line()
-  line('  Nothing was written. Apply the edits you agree with to your user/* files.')
-  line()
+  }
 }
 
 function pad(s, n) {
