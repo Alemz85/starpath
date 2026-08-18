@@ -83,7 +83,7 @@ Treat the script's numbers as canonical. Do not recompute CF/AF/tier by hand —
 
 | Field | What it gives you | Where it lands in the report |
 |-------|-------------------|------------------------------|
-| `landscapeTrend.verdict` | `improving` / `declining` / `stable` — the headline "is my targeting sharpening?" call, from earlier-window avg Overall vs recent-window avg Overall | TL;DR trajectory line + § 4 opening verdict |
+| `landscapeTrend.reportableVerdict` | the GATED headline "is my targeting sharpening?" call: `improving` / `declining` when the window-mean delta clears the noise floor, `flat-within-noise` when it doesn't, `insufficient-data` when either window has too few evals (`verdictGate`, per `docs/scoring-statistical-design.md`). Read THIS, never the legacy ungated `verdict` — and carry `verdictConfidence` wherever the call is stated | TL;DR trajectory line + § 4 opening verdict |
 | `landscapeTrend.older` / `.recent` | each window's `count`, `avgOverall`, `strongSolidShare`, `dateRange` — the two numbers the verdict is built from | § 4 comparison table |
 | `landscapeTrend.delta` / `.strongSolidShareDelta` | signed Overall move and the cleaner "share of strong/solid roles" move between windows | § 4 + § 1 if it changes the read |
 | `landscapeTrend.splitDate` | the boundary the engine chose (closest-to-50/50, NOT a naive median) | § 4 confounder check — see below |
@@ -122,7 +122,7 @@ Count rows in `score-history.tsv` and tracker entries. If the corpus is too thin
 
 **Minimum thresholds:**
 - At least 15 rows in `score-history.tsv` (or 10 tracker entries if score-history is empty) to produce the "where you stand today" section
-- For a real § 4 Trajectory section, don't eyeball a day count — let `score-trend.mjs` decide: if `landscapeTrend.insufficientData` is false, the engine found two balanced calendar windows and the section is real; if it's true (or 2+ prior positioning reports exist as a coarse fallback), establish a baseline only.
+- For a real § 4 Trajectory section, don't eyeball a day count — let `score-trend.mjs` decide: if `landscapeTrend.insufficientData` is false AND `landscapeTrend.verdictGate.met` is true, the engine found two adequately-sized calendar windows and the section is real; if either fails (or 2+ prior positioning reports exist as a coarse fallback), establish a baseline only — `reportableVerdict` will already say `insufficient-data` in that case.
 
 ### Step 1 — Gather quantitative signals (kept internal until Step 3)
 
@@ -146,7 +146,7 @@ You will **not** dump any of this as the first thing the user sees — it goes i
 
 **G) Dream company coverage** — for each company in `user/profile.yml → target_roles.dream_companies`: postings seen, rollup averages, roles surfaced.
 
-**H) Trajectory — is targeting sharpening?** — straight from `score-trend.mjs`. Read `landscapeTrend`: if `insufficientData` is true, the corpus can't be trended yet (record the `reason` in Appendix H and render § 4 as a baseline note). Otherwise capture the `verdict`, the earlier-vs-recent `avgOverall` pair, the `delta`, the `strongSolidShareDelta`, and the `splitDate`. Then read `trajectorySummary` (the improving/declining/stable split across re-evaluated listings + `bandUpgrades`/`bandDowngrades`) and skim `listingTrajectories[]` for any role that crossed a band on re-eval — those are the per-listing color points for § 2 and § 4. This is the ONLY signal that answers whether the user is getting better at sourcing, so it earns a line in the TL;DR even though its detail lands in § 4 and the Appendix.
+**H) Trajectory — is targeting sharpening?** — straight from `score-trend.mjs`. Read `landscapeTrend`: if `insufficientData` is true OR `reportableVerdict` is `insufficient-data`, the corpus can't be trended yet (record the `reason` — or `verdictGate.reason` — in Appendix H and render § 4 as a baseline note). Otherwise capture the `reportableVerdict` + `verdictConfidence`, the earlier-vs-recent `avgOverall` pair, the `delta`, the `strongSolidShareDelta`, and the `splitDate`. Then read `trajectorySummary` (the improving/declining/stable split across re-evaluated listings + `bandUpgrades`/`bandDowngrades`) and skim `listingTrajectories[]` for any role that crossed a band on re-eval — those are the per-listing color points for § 2 and § 4. This is the ONLY signal that answers whether the user is getting better at sourcing, so it earns a line in the TL;DR even though its detail lands in § 4 and the Appendix.
 
 All of these outputs land in the **Appendix** (H feeds § 4 directly). The body of the report uses them as evidence for judgments — it does not re-list them.
 
@@ -158,7 +158,7 @@ Before writing any prose, force yourself to answer these five questions in one s
 2. **What's the one thing the user should STOP doing or de-prioritize?** (Anchor to the lowest-`avgOverall` archetype from `fingerprints[]` that still eats real `share`, the leakiest portal config, or a structural bottleneck the user has been ignoring.)
 3. **What's the single cheapest fix with the largest cross-archetype leverage?** (This is `systemicConstraint.lever` — the dimension whose single-point lift re-bands the typical role in the most archetypes. Frame it against `systemicConstraint.dominant`: the dimension that *binds* the most archetypes is usually the expensive one, so the move is the cheaper lever that buys the most re-bandings. Usually that lever cashes out as a positioning reframe, a portal-config tightening, or a missing portal — something that attacks the constraint across multiple archetypes. Don't quote a timeline; just identify the move.)
 4. **What's the runner-up path, and why is it runner-up rather than primary?** (Forces the counterfactual; prevents wishy-washy "do everything" recommendations.)
-5. **Is the user's targeting sharpening, flat, or sliding — and what does that change?** (This is `landscapeTrend.verdict` from `score-trend`. It's not decoration: a *sharpening* trend means "keep sourcing the way you have been — the cheap fixes in Q3 compound" and the user can lean in; a *sliding* trend means the most urgent action is upstream — re-tighten scan keywords or raise the pre-evaluation bar BEFORE chasing levers, because the funnel itself is drifting. A *flat* trend says the levers in Q3 are where the movement has to come from, since sourcing alone isn't moving the needle. If `insufficientData`, say "baseline — can't yet tell" and don't fake a direction.)
+5. **Is the user's targeting sharpening, flat, or sliding — and what does that change?** (This is `landscapeTrend.reportableVerdict` from `score-trend`. It's not decoration: a *sharpening* trend means "keep sourcing the way you have been — the cheap fixes in Q3 compound" and the user can lean in; a *sliding* trend means the most urgent action is upstream — re-tighten scan keywords or raise the pre-evaluation bar BEFORE chasing levers, because the funnel itself is drifting. A *flat-within-noise* verdict says the levers in Q3 are where the movement has to come from, since sourcing isn't moving the needle beyond the noise floor. If it's `insufficient-data`, say "baseline — can't yet tell" and don't fake a direction — the gate withheld the verdict for a reason.)
 
 These five answers become the **TL;DR block at the top of the report** (Step 3, output structure below). They also constrain every per-archetype section — if a section's verdict contradicts the punchline, one of them is wrong and you need to reconcile before writing. Q5 in particular sets the *tone* of the whole report: a sharpening funnel earns an offensive review (double down, harvest), a sliding one earns a defensive one (fix sourcing first).
 
@@ -198,7 +198,7 @@ Write the full report to `reports/positioning/positioning-{YY-MM}.md`. Use this 
 
 **Highest-leverage cheap fix:** {The single positioning / portal / framing change that attacks the binding constraint across multiple archetypes, with the dimension it lifts. No timeline — name the move and what it unlocks.}
 
-**Trajectory:** {`landscapeTrend.verdict` in plain words — "Sharpening: recent evals avg {X.X} vs {Y.Y} earlier (+{Δ})" / "Sliding: …" / "Flat" / "Baseline — not enough history to trend yet". One clause on what it changes: lean in (sharpening) · fix sourcing first (sliding) · levers carry the movement (flat).}
+**Trajectory:** {`landscapeTrend.reportableVerdict` in plain words, always with the window sizes — "Sharpening: recent {n} evals avg {X.X} vs {Y.Y} across {n} earlier (+{Δ}, {verdictConfidence} confidence)" / "Sliding: …" / "Flat within noise (|Δ| under the {noiseFloor} floor)" / "Baseline — not enough history to trend yet". One clause on what it changes: lean in (sharpening) · fix sourcing first (sliding) · levers carry the movement (flat).}
 
 ---
 
@@ -258,11 +258,11 @@ Only recommend ONE priority path. The whole point of this report is to cut throu
 
 **This section is now driven by `score-trend.mjs`, not by eyeballing old report files.** The engine splits every evaluation into a calendar-balanced earlier vs recent window and replays the real bands on each — so "your targeting is improving" is a deterministic claim with two numbers behind it, not a vibe.
 
-**Gate:** if `landscapeTrend.insufficientData` is true, render only the baseline note ("Not enough history to trend yet — {the engine's `reason`}. Re-run once the corpus spans a wider date range.") and stop. Do NOT fabricate a direction from a handful of dates. (Prior positioning reports, if any exist, can still add a second, coarser data point — mention them, but the engine's verdict is the primary signal.)
+**Gate:** if `landscapeTrend.insufficientData` is true OR `reportableVerdict` is `insufficient-data`, render only the baseline note ("Not enough history to trend yet — {the engine's `reason`, or `verdictGate.reason` when the windows are too thin}. Re-run once the corpus spans a wider date range.") and stop. Do NOT fabricate a direction from a handful of dates, and never fall back to the legacy ungated `verdict` — it exists only for compatibility. (Prior positioning reports, if any exist, can still add a second, coarser data point — mention them, but the engine's verdict is the primary signal.)
 
 When `landscapeTrend` IS usable:
 
-**Lead with the verdict in one paragraph.** State `landscapeTrend.verdict` plainly and what it changes: *sharpening* → the funnel is working, lean into the focus path and let the cheap levers compound; *sliding* → the most urgent move is upstream, re-tighten scan keywords / raise the pre-evaluation bar before chasing levers, because the corpus quality is drifting down; *flat* → sourcing alone isn't moving the needle, so the levers in § 3 are where movement has to come from. Anchor to the earlier-vs-recent `avgOverall` pair and the `strongSolidShareDelta` (the cleanest "am I sourcing better roles?" number). Then fold in `trajectorySummary`: of the listings you looked at twice, how the improving/declining/stable split fell and whether any crossed a band (`bandUpgrades`/`bandDowngrades`) — a wave of upgrades on re-eval is the user getting better-positioned for roles they already saw.
+**Lead with the verdict in one paragraph.** State `landscapeTrend.reportableVerdict` plainly — with each window's `count` and the `verdictConfidence` — and what it changes: *sharpening* → the funnel is working, lean into the focus path and let the cheap levers compound; *sliding* → the most urgent move is upstream, re-tighten scan keywords / raise the pre-evaluation bar before chasing levers, because the corpus quality is drifting down; *flat-within-noise* → sourcing isn't moving the needle beyond the noise floor, so the levers in § 3 are where movement has to come from. Anchor to the earlier-vs-recent `avgOverall` pair and the `strongSolidShareDelta` (the cleanest "am I sourcing better roles?" number). Then fold in `trajectorySummary`: of the listings you looked at twice, how the improving/declining/stable split fell and whether any crossed a band (`bandUpgrades`/`bandDowngrades`) — a wave of upgrades on re-eval is the user getting better-positioned for roles they already saw.
 
 **Then one table** (max): earlier window vs recent window on `count`, `avgOverall`, `strongSolidShare`, and `dateRange`, plus the 1–2 re-evaluated listings that moved a band (from `listingTrajectories[]`). Don't exhaustively list every re-evaluated role — pick the ones that change the read.
 
@@ -301,7 +301,7 @@ This is where ALL the tables live. The body of the report references them as evi
 ### I. Data sources
 - `score-history.tsv`: {N} rows, {from} → {to}
 - `positioning-intel.mjs`: backbone aggregates (run `node scripts/positioning-intel.mjs --summary`); {archetypesAnalyzed} archetypes with ≥ {minRoles} roles
-- `score-trend.mjs`: trajectory engine (run `node scripts/score-trend.mjs --summary`); {landscapeTrend.verdict or "insufficient data"}, {reevaluatedListings} re-evaluated listings, split at {splitDate or "n/a"}
+- `score-trend.mjs`: trajectory engine (run `node scripts/score-trend.mjs --summary`); {landscapeTrend.reportableVerdict}, {reevaluatedListings} re-evaluated listings, split at {splitDate or "n/a"}
 - `applications.md`: {M} entries
 - `report-summaries.tsv`: {K} cached summaries
 - Reports sampled for qualitative color ({≤5}): {filenames}
