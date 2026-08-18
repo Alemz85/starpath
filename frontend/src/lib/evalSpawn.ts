@@ -28,12 +28,13 @@
 // evaluations, and still need their own mode files.
 
 import { ipc } from '@/lib/ipc'
-import { NON_INTERACTIVE_SUFFIX } from '@/lib/spawnFormat'
+import { NON_INTERACTIVE_SUFFIX, MODEL_IDS, type ClaudeModel } from '@/lib/spawnFormat'
 
 /** Repo-relative path to the compact scouting-eval bundle. */
 export const COMPACT_EVAL_BUNDLE = 'batch/batch-prompt.md'
 
-export type ClaudeModel = 'sonnet' | 'opus' | 'haiku'
+// Re-exported for API stability — call sites import the alias type from here.
+export type { ClaudeModel }
 
 /**
  * Args for a non-interactive Claude eval spawn that loads the compact bundle
@@ -55,7 +56,7 @@ export function claudeEvalArgs(taskPrompt: string, model?: ClaudeModel): string[
     '--output-format', 'stream-json',
     '--verbose',
     '--append-system-prompt-file', COMPACT_EVAL_BUNDLE,
-    ...(model ? ['--model', model] : []),
+    ...(model ? ['--model', MODEL_IDS[model]] : []),
     '-p',
     taskPrompt + NON_INTERACTIVE_SUFFIX,
   ]

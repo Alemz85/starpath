@@ -639,8 +639,8 @@ function ModelChip() {
   }, [open])
 
   const options: Array<{ id: 'sonnet' | 'opus'; label: string; tag: string }> = [
-    { id: 'opus',   label: 'Opus',   tag: 'thorough' },
-    { id: 'sonnet', label: 'Sonnet', tag: 'cheaper · fast' },
+    { id: 'opus',   label: 'Opus 5',   tag: 'thorough' },
+    { id: 'sonnet', label: 'Sonnet 5', tag: 'cheaper · fast' },
   ]
   const current = options.find(o => o.id === pipeline) ?? options[0]
 
