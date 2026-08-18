@@ -30,6 +30,8 @@
     "triage": "node scripts/triage-pipeline.mjs",
     "cv-summary": "node scripts/cv-summary.mjs",
     "profile": "node scripts/profile.mjs",
+    "agent-log": "node scripts/agent-log.mjs",
+    "handoff": "node scripts/session-handoff.mjs",
     "test": "node --test \"scripts/**/*.test.mjs\"",
     "test:all": "node scripts/test-all.mjs"
   },
