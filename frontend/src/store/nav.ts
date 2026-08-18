@@ -3,6 +3,7 @@ import { useConfigDirty } from './configDirty'
 
 export type ViewId =
   | 'today'
+  | 'chat'
   | 'scouting'
   | 'applying'
   | 'outreach'
@@ -21,6 +22,7 @@ export type ViewId =
 // Keep in sync with the Sidebar's NavItem labels.
 export const VIEW_LABELS: Record<ViewId, string> = {
   today:    'Today',
+  chat:     'Chat',
   scouting: 'Scouting',
   applying: 'Applying',
   outreach: 'Outreach',

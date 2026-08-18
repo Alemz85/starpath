@@ -7,6 +7,7 @@ import { buildOutreachBoard } from '@/lib/outreachDoc'
 import { useNavStore, type ViewId } from '@/store/nav'
 import {
   Sun,
+  MessageSquare,
   Map,
   Briefcase,
   Users,
@@ -48,6 +49,7 @@ interface NavItem {
 // is independent from this navigation.
 const PRIMARY_NAV: NavItem[] = [
   { view: 'today',    label: 'Today',    icon: Sun        },
+  { view: 'chat',     label: 'Chat',     icon: MessageSquare },
   { view: 'scouting', label: 'Scouting', icon: Map        },
   { view: 'applying', label: 'Applying', icon: Briefcase  },
   { view: 'outreach', label: 'Outreach', icon: Users      },

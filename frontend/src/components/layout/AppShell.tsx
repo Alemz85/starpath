@@ -9,6 +9,7 @@ import { useNavStore, VIEW_LABELS } from '@/store/nav'
 import { useConfigDirty } from '@/store/configDirty'
 import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
 import { TodayView } from '@/components/today/TodayView'
+import { ChatView } from '@/components/chat/ChatView'
 import { CommandCenter } from '@/components/command-center/CommandCenter'
 import { ApplyingView } from '@/components/applying/ApplyingView'
 import { OutreachView } from '@/components/outreach/OutreachView'
@@ -75,6 +76,7 @@ export function AppShell() {
             the view stays a direct flex child of <main>. */}
         <ErrorBoundary key={view} label={VIEW_LABELS[view]}>
           {view === 'today'    && <TodayView />}
+          {view === 'chat'     && <ChatView />}
           {view === 'scouting' && <CommandCenter />}
           {view === 'applying' && <ApplyingView />}
           {view === 'outreach' && <OutreachView />}
