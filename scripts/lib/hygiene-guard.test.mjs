@@ -314,6 +314,35 @@ describe('runHygieneGuard — synthetic repo', () => {
     }
   });
 
+  // docs/ is a system-layer contract surface (e.g. docs/scoring-statistical-design.md)
+  // and was a blind spot alongside the earlier root-docs/batch/ gap — SYSTEM_LAYER_DIRS
+  // now walks it like modes/scripts/templates/frontend-src.
+  it('catches personal data in a docs/ file', async () => {
+    const root = await makeFakeRepo({
+      'docs/example-design.md': '## Example\nFor a candidate like Jane Testuser, the score would be 8.\n',
+    });
+    try {
+      const result = await runHygieneGuard({ root });
+      const v = result.violations.find(v => v.pattern.id === 'full_name' && v.file === 'docs/example-design.md');
+      assert.ok(v, 'full_name violation found in docs/ file');
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  it('does NOT flag a docs/ file with no personal data', async () => {
+    const root = await makeFakeRepo({
+      'docs/architecture.md': '## Architecture\nThe agent reads user/cv.md at evaluation time.\n',
+    });
+    try {
+      const result = await runHygieneGuard({ root });
+      const v = result.violations.find(v => v.file === 'docs/architecture.md');
+      assert.ok(!v, 'no violation for clean docs/ file');
+    } finally {
+      cleanup(root);
+    }
+  });
+
   it('gracefully handles missing user data (returns zero patterns)', async () => {
     const root = join(tmpdir(), `hygiene-empty-${Date.now()}`);
     mkdirSync(root, { recursive: true });
