@@ -10,6 +10,7 @@ const electronAPI = {
   setModels: (models: {
     pipeline: string; tailorCv: string; draftApp: string; interviewPrep: string; generateReport: string
   }) => ipcRenderer.invoke('app:set-models', models),
+  setFeatures: (features: Record<string, boolean>) => ipcRenderer.invoke('app:set-features', features),
   selectFolder: () => ipcRenderer.invoke('app:select-folder'),
   selectCvPdf: () => ipcRenderer.invoke('app:select-cv-pdf'),
   validatePath: (p: string) => ipcRenderer.invoke('app:validate-path', p),

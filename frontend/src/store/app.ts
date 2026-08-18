@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
-import type { ModelAlias, ModelPrefs } from '@/types'
-import { DEFAULT_MODEL_PREFS } from '@/types'
+import type { FeatureId, FeaturePrefs, ModelAlias, ModelPrefs } from '@/types'
+import { DEFAULT_FEATURE_PREFS, DEFAULT_MODEL_PREFS } from '@/types'
 
 // Returns true if the currently-pointed-at repo already has the four critical
 // user files filled in to a meaningful degree. Used to bypass the onboarding
@@ -22,6 +22,7 @@ interface AppState {
   tailoringComplete: boolean
   claudeInstalled: boolean
   models: ModelPrefs
+  features: FeaturePrefs
 
   // Claude auth health. `null` = session is good. A reason is set either at
   // launch (expired/lost token detected) or at runtime when a spawned
@@ -36,6 +37,7 @@ interface AppState {
   setTailoringComplete: () => Promise<void>
   resetTailoring: () => Promise<void>
   setModel: (category: keyof ModelPrefs, model: ModelAlias) => Promise<void>
+  setFeature: (id: FeatureId, enabled: boolean) => Promise<void>
   recheckClaude: () => Promise<boolean>
   checkAuth: () => Promise<void>
   flagAuthError: (reason: AuthErrorReason) => void
@@ -54,6 +56,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   tailoringComplete: true,
   claudeInstalled: false,
   models: DEFAULT_MODEL_PREFS,
+  features: DEFAULT_FEATURE_PREFS,
   authError: null,
   reloginInProgress: false,
 
@@ -89,6 +92,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       tailoringComplete,
       claudeInstalled: claudeCheck?.installed ?? false,
       models:          cfg?.models ?? DEFAULT_MODEL_PREFS,
+      // Partial on disk — absent keys fall back to "active" so a config
+      // written before a feature existed never hides the new surface.
+      features:        { ...DEFAULT_FEATURE_PREFS, ...cfg?.features },
     })
 
     // Surface an expired/lost Claude session at launch — before the user
@@ -174,5 +180,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next: ModelPrefs = { ...get().models, [category]: model }
     await ipc.setModels(next)
     set({ models: next })
+  },
+
+  setFeature: async (id, enabled) => {
+    const next: FeaturePrefs = { ...get().features, [id]: enabled }
+    await ipc.setFeatures(next)
+    set({ features: next })
   },
 }))
