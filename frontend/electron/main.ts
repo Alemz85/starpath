@@ -9,6 +9,7 @@ import {
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import { FEATURE_IDS } from '../src/types'
 import https from 'https'
 import http from 'http'
 import { pathToFileURL } from 'url'
@@ -61,6 +62,11 @@ interface AppConfig {
     interviewPrep:  'sonnet' | 'opus' | 'haiku'
     generateReport: 'sonnet' | 'opus' | 'haiku'
   }
+  /** Per-user deactivation switches for optional UI surfaces (Settings ›
+   *  General › Features). Partial: absent keys mean "feature active" —
+   *  renderer merges over DEFAULT_FEATURE_PREFS. Keys mirror FEATURE_IDS in
+   *  src/types (single source of truth; validated in app:set-features). */
+  features?: Record<string, boolean>
 }
 
 function readConfig(): AppConfig {
@@ -391,6 +397,19 @@ ipcMain.handle('app:set-models', (_e, models: unknown) => {
       generateReport: m.generateReport as 'sonnet' | 'opus' | 'haiku',
     },
   })
+})
+
+ipcMain.handle('app:set-features', (_e, features: unknown) => {
+  if (!features || typeof features !== 'object') throw new Error('features must be object')
+  const next: Record<string, boolean> = {}
+  for (const [key, value] of Object.entries(features as Record<string, unknown>)) {
+    if (!FEATURE_IDS.includes(key as (typeof FEATURE_IDS)[number])) {
+      throw new Error(`unknown feature "${key}"`)
+    }
+    if (typeof value !== 'boolean') throw new Error(`features.${key} must be boolean`)
+    next[key] = value
+  }
+  writeConfig({ ...readConfig(), features: next })
 })
 
 ipcMain.handle('app:select-folder', async () => {

@@ -24,6 +24,7 @@ import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
 export function ApplyingView() {
   const repoPath = useAppStore(s => s.repoPath)
   const models = useAppStore(s => s.models)
+  const closedLaneEnabled = useAppStore(s => s.features.closedLane)
   const applications = useDataStore(s => s.applications)
   const pipeline = useDataStore(s => s.pipeline)
   const loaded = useDataStore(s => s.loaded)
@@ -232,8 +233,12 @@ export function ApplyingView() {
         </div>
 
         {/* Closed-out applications (Rejected / Discarded) — collapsed strip so
-            they stay auditable and reversible without cluttering the board. */}
-        <ClosedApplicationsPanel apps={closedApps} onRestore={handleRestore} />
+            they stay auditable and reversible without cluttering the board.
+            Deactivatable (Settings › General › Features); closed rows remain
+            visible in Database and Pipeline either way. */}
+        {closedLaneEnabled && (
+          <ClosedApplicationsPanel apps={closedApps} onRestore={handleRestore} />
+        )}
 
         {/* No inline activity panel — live logs live exclusively on the
             Scan tab. The footer pings the user there when anything is

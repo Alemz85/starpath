@@ -99,10 +99,15 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   // Live peer context — this entity's overall + dims vs. every other
   // evaluated entity sharing its primary archetype, computed fresh from
   // score-history (see lib/peerRank.ts). Null when the cohort is under 5
-  // roles, in which case the panel is omitted entirely.
+  // roles, in which case the panel is omitted entirely. Also null when the
+  // peer-context feature is deactivated (Settings › General › Features) —
+  // the report then renders exactly as written, including any frozen
+  // at-eval-time peer block, since with no live card there's nothing to
+  // supersede it.
+  const peerEnabled = useAppStore(s => s.features.peerContext)
   const peer: PeerContext | null = useMemo(
-    () => peerContext(scoreEntry, scoreHistory),
-    [scoreEntry, scoreHistory],
+    () => (peerEnabled ? peerContext(scoreEntry, scoreHistory) : null),
+    [peerEnabled, scoreEntry, scoreHistory],
   )
 
   // Multi-city detection from the row's location string. When the JD
