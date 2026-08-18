@@ -13,6 +13,11 @@
  * modes/scouting.md, the peer block is OMITTED entirely below the
  * threshold, never rendered with a "not enough data yet" placeholder.
  *
+ * Statistical honesty (docs/scoring-statistical-design.md § 3.2): above the
+ * gate every rendered claim states its n and carries a confidence tier, so a
+ * rank computed from 5 peers can't be read like one computed from 40. The
+ * gate itself is unchanged; the tiers are additive.
+ *
  * Usage as script:
  *
  *   echo '{ "archetype": "Strategy & Operations", "company": "Microsoft",
@@ -25,6 +30,7 @@
  */
 
 import { readTsv } from './lib/cache-tsv.mjs'
+import { GATES, confidenceTier } from './lib/scoring-stats.mjs'
 
 const SCORE_HISTORY_PATH = 'data/score-history.tsv'
 const DIM_KEYS = [
@@ -44,14 +50,19 @@ const OUTLIER_THRESHOLD = 1.5
 /**
  * @returns {Promise<null | {
  *   archetype, n_peers, rank, rank_position, percentile,
- *   outliers: Array<{ dim, label, peer_avg, delta }>,
+ *   confidence,                                  // ADDED — tier from n_peers
+ *   outliers: Array<{ dim, label, peer_avg, delta, peer_n, confidence }>,
  *   comparables: Array<{ company, role, overall, delta }>,
  *   formatted: string  // ready-to-paste 3-line markdown
  * }>}
+ *
+ * `n_peers` IS the n of the block (it predates this contract and keeps its
+ * name and meaning). `confidence` is the § 3.1 tier over it with gate 5:
+ * 5–9 peers `low`, 10–19 `moderate`, 20+ `high`.
  */
 export async function peerRank(
   { archetype, company, this_overall, this_dims },
-  { minPeers = 5 } = {},
+  { minPeers = GATES.peerMinPeers } = {},
 ) {
   const { rows } = await readTsv(SCORE_HISTORY_PATH)
   const primarySeg = (archetype ?? '').split(' + ')[0].trim()
@@ -72,7 +83,16 @@ export async function peerRank(
   const rank_position = peers.length - beats   // 1 = top
   const rank = rankLabel(percentile, rank_position, peers.length)
 
-  // Outliers — dim-by-dim Δ from peer mean, ≥ OUTLIER_THRESHOLD
+  // Confidence tier over the peer count (docs § 3.1, gate = minPeers). At the
+  // gate one peer is 20 percentile points, so only the top-half / bottom-half
+  // split is meaningful; at 4× the gate one peer is ≤5 points, which is the
+  // resolution the rendered percentile already rounds to.
+  const confidence = confidenceTier(peers.length, minPeers)
+
+  // Outliers — dim-by-dim Δ from peer mean, ≥ OUTLIER_THRESHOLD.
+  // Each outlier carries its OWN n (peers that scored that dimension) because
+  // a dimension can be sparser than the block: an outlier computed against
+  // fewer peers is weaker than the block itself and has to say so.
   const outliers = []
   for (const dim of DIM_KEYS) {
     if (this_dims[dim] == null) continue
@@ -86,6 +106,8 @@ export async function peerRank(
         label:    DIM_LABELS[dim] ?? dim,
         peer_avg: Number(peerAvg.toFixed(2)),
         delta:    Number(delta.toFixed(1)),
+        peer_n:      peerVals.length,
+        confidence:  confidenceTier(peerVals.length, minPeers),
       })
     }
   }
@@ -104,13 +126,20 @@ export async function peerRank(
     .slice(0, 3)
     .map(c => ({ ...c, overall: Number(c.overall.toFixed(2)) }))
 
-  // Pre-formatted markdown block — paste verbatim into reports
+  // Pre-formatted markdown block — paste verbatim into reports.
+  //
+  // Kept at exactly THREE bold lines: the report parsers (and the desktop
+  // app's static-block carve) key off this shape. The n and the confidence
+  // tier ride inside line 1 rather than becoming a fourth line.
+  const lowNote = confidence === 'low'
+    ? ' — at this sample read the half, not the quartile'
+    : ''
   const formatted = [
-    `**Rank vs ${primarySeg} peers:** ${this_overall.toFixed(1)}/10 — ${rank} of ${peers.length} roles evaluated`,
+    `**Rank vs ${primarySeg} peers:** ${this_overall.toFixed(1)}/10 — ${rank} of ${peers.length} peers evaluated · ${confidence} confidence (n=${peers.length})${lowNote}`,
     `**Dimension outliers:** ${
       outliers.length === 0
         ? 'none ≥ ±1.5 from peer average'
-        : outliers.map(o => `${o.label} ${o.delta >= 0 ? '+' : ''}${o.delta.toFixed(1)} ${o.delta >= 0 ? 'above' : 'below'} avg`).join(' · ')
+        : outliers.map(o => `${o.label} ${o.delta >= 0 ? '+' : ''}${o.delta.toFixed(1)} ${o.delta >= 0 ? 'above' : 'below'} avg (n=${o.peer_n})`).join(' · ')
     }`,
     `**Closest comparables:** ${
       comparables.length === 0
@@ -125,6 +154,9 @@ export async function peerRank(
     rank,
     rank_position,
     percentile,
+    // ADDED (docs § 3.2) — the tier every rendered claim must carry.
+    confidence,
+    min_peers: minPeers,
     outliers,
     comparables,
     formatted,
