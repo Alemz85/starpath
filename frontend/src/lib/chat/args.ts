@@ -24,7 +24,12 @@
 // would leave two contradictory answers to "what may a spawn touch?".
 
 import type { ModelAlias } from '@/types'
-import { MODEL_IDS } from '@/lib/spawnFormat'
+// Relative, not '@/lib/spawnFormat': this file is compiled into the Electron
+// main process by tsconfig.electron.json, whose `paths` alias typechecks but is
+// never rewritten in the emitted CommonJS — an aliased VALUE import crashes the
+// app at boot ("Cannot find module '@/lib/spawnFormat'"). `import type` aliases
+// are fine (erased at compile).
+import { MODEL_IDS } from '../spawnFormat'
 
 /** Repo-relative path to the chat agent's system prompt. */
 export const CHAT_SYSTEM_PROMPT_FILE = 'modes/chat.md'
