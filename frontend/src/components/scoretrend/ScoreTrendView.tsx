@@ -14,7 +14,7 @@ import {
   analyzeScoreTrend,
   type Trajectory, type LandscapeTrend, type TrajectorySummary,
   type TrendRecommendation, type MovementClass, type MetricTrend, type MetricSummary,
-  type MetricMove, type TrendMetric, type WindowStats, TREND_METRICS,
+  type MetricTrack, type TrendMetric, type WindowStats, TREND_METRICS,
 } from '@/lib/scoreTrend'
 import { VerdictChip } from '@/components/shared/EligibilityChip'
 import { formatWithinNoise } from '@/lib/scoringStats'
@@ -48,6 +48,7 @@ const MOVEMENT_META: Record<MovementClass, { label: string; arrow: string; color
 const METRIC_LABEL: Record<TrendMetric, string> = { want: 'Want', ease: 'Ease' }
 
 const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '±0')
+const fmtScore = (n: number | null) => (n == null ? '—' : n.toFixed(1))
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
 export function ScoreTrendPanel() {
@@ -147,7 +148,7 @@ function MovesCard({ recs }: { recs: TrendRecommendation[] }) {
 function LandscapeTrendCard({ trend }: { trend: LandscapeTrend }) {
   if (trend.insufficientData) {
     return (
-      <Panel title="Landscape trend" meta="Earlier vs recent">
+      <Panel title="Landscape trend" meta="Earlier vs later">
         <p className="text-label text-text-3">
           {trend.reason} Once you have enough evaluations across distinct dates, this
           shows whether the roles you score lately are more wanted, and more reachable, than your earlier ones.
@@ -165,22 +166,20 @@ function LandscapeTrendCard({ trend }: { trend: LandscapeTrend }) {
   return (
     <Panel
       title="Landscape trend"
-      meta={`${trend.older.count} earlier · ${trend.recent.count} recent`}
+      meta={`${trend.earlier.count} earlier · ${trend.later.count} later`}
     >
       {/* Scoring v2: one row per axis, Want and Ease each against their own
           noise floor (docs/scoring-v2.md §9). */}
       <div className="grid grid-cols-[3rem_1fr_1fr_auto_5rem] items-center gap-x-3 gap-y-2">
         <span />
-        <WindowHeading title="Earlier" w={trend.older} />
-        <WindowHeading title="Recent" w={trend.recent} />
+        <WindowHeading title="Earlier" w={trend.earlier} />
+        <WindowHeading title="Later" w={trend.later} />
         <span />
         <span />
         {TREND_METRICS.map(m => (
           <MetricTrendRow
             key={m}
             label={METRIC_LABEL[m]}
-            older={m === 'want' ? trend.older.avgWant : trend.older.avgEase}
-            recent={m === 'want' ? trend.recent.avgWant : trend.recent.avgEase}
             mt={trend[m]}
             withheld={withheld}
             withheldReason={withheldReason}
@@ -193,30 +192,30 @@ function LandscapeTrendCard({ trend }: { trend: LandscapeTrend }) {
       <p className="mt-3 text-label text-text-3">
         {withheld
           ? `${withheldReason} A window mean built on fewer evaluations can be pushed past the noise floor by one role, so no direction is claimed here yet.`
-          : `${trend.verdictGate.olderCount} earlier vs ${trend.verdictGate.recentCount} recent evals · ${trend.verdictConfidence} confidence. What moved, not why: the scanner may have pulled a different segment on either side of ${trend.splitDate}.`}
+          : `${trend.verdictGate.earlierCount} earlier vs ${trend.verdictGate.laterCount} later scored evals · ${trend.verdictConfidence} confidence. What moved, not why: the scanner may have pulled a different segment on either side of ${trend.splitDate}.`}
       </p>
 
-      {/* Apply-worthy share movement (verdict Go / Stretch / Solid) — the
+      {/* Actionable share movement (verdict Go / Stretch / Solid) — the
           cleanest "am I sourcing better roles?" number. */}
       <div className="flex items-baseline justify-between gap-3 mt-3 pt-2.5 border-t border-border-default text-label">
-        <span className="text-text-3">Apply-worthy share (Go / Stretch / Solid)</span>
+        <span className="text-text-3">Actionable share (Go / Stretch / Solid)</span>
         <span className="tabular-nums">
-          <span className="text-text-4">{trend.older.applyWorthyShare}%</span>
+          <span className="text-text-4">{trend.earlier.actionableShare}%</span>
           <span className="text-text-4 px-1">→</span>
-          <span className="text-text-2 font-medium">{trend.recent.applyWorthyShare}%</span>
-          {trend.applyWorthyShareDelta !== 0 && (
+          <span className="text-text-2 font-medium">{trend.later.actionableShare}%</span>
+          {trend.actionableShareDelta !== 0 && (
             // Same window gate as the verdict: under it, the share move is one
             // role's worth of share and gets no sign or colour (§ 4 rule 5).
             <span
               className={cn(
                 'ml-1.5',
-                withheld ? 'text-text-4' : trend.applyWorthyShareDelta > 0 ? 'text-success' : 'text-danger',
+                withheld ? 'text-text-4' : trend.actionableShareDelta > 0 ? 'text-success' : 'text-danger',
               )}
               title={withheld ? `Direction withheld: ${withheldReason}` : undefined}
             >
               {withheld
-                ? `(|Δ| ${Math.abs(trend.applyWorthyShareDelta)}pt)`
-                : `(${trend.applyWorthyShareDelta > 0 ? '+' : '−'}${Math.abs(trend.applyWorthyShareDelta)}pt)`}
+                ? `(|Δ| ${Math.abs(trend.actionableShareDelta)}pt)`
+                : `(${trend.actionableShareDelta > 0 ? '+' : '−'}${Math.abs(trend.actionableShareDelta)}pt)`}
             </span>
           )}
         </span>
@@ -237,14 +236,14 @@ function WindowHeading({ title, w }: { title: string; w: WindowStats }) {
   )
 }
 
-// One axis of the landscape trend: earlier avg → recent avg, the verdict chip
-// and the delta. The recent figure takes the verdict colour only when a
-// direction was earned; the earlier one stays muted so the eye reads
-// left→right as "from → to".
+// One axis of the landscape trend: earlier window mean → later window mean,
+// the verdict chip and the delta. The later figure takes the verdict colour
+// only when a direction was earned; the earlier one stays muted so the eye
+// reads left→right as "from → to".
 function MetricTrendRow({
-  label, older, recent, mt, withheld, withheldReason,
+  label, mt, withheld, withheldReason,
 }: {
-  label: string; older: number; recent: number; mt: MetricTrend; withheld: boolean; withheldReason: string
+  label: string; mt: MetricTrend; withheld: boolean; withheldReason: string
 }) {
   const directional = !withheld && (mt.reportableVerdict === 'improving' || mt.reportableVerdict === 'declining')
   const flat = !withheld && mt.reportableVerdict === 'flat-within-noise'
@@ -255,12 +254,12 @@ function MetricTrendRow({
   return (
     <>
       <span className="label">{label}</span>
-      <span className="text-stat tabular-nums text-text-3">{older.toFixed(1)}</span>
+      <span className="text-stat tabular-nums text-text-3">{fmtScore(mt.earlier)}</span>
       <span
         className="text-stat tabular-nums"
         style={{ color: undirected ? '#5D6C7B' : v.color }}
       >
-        {recent.toFixed(1)}
+        {fmtScore(mt.later)}
       </span>
       {withheld || (!directional && !flat) ? (
         <Chip size="md" className="text-text-4 justify-self-start" title={withheldReason}>
@@ -271,7 +270,7 @@ function MetricTrendRow({
           tone={v.tone}
           size="md"
           className="justify-self-start"
-          title={flat ? formatWithinNoise(mt.delta, { floor: mt.noiseFloor }) : undefined}
+          title={flat ? formatWithinNoise(mt.delta, { floor: mt.noiseFloor }) : `${mt.n} scored evals in the smaller window · ${mt.confidence} confidence`}
         >
           {v.arrow && <span aria-hidden>{v.arrow}</span>}{v.label}
         </Chip>
@@ -279,7 +278,7 @@ function MetricTrendRow({
       <span className="text-micro tabular-nums text-text-4 text-right">
         {/* No sign below the floor or under the gate — an unsigned |Δ|
             states the gap without claiming a direction (§ 4 rule 5). */}
-        {undirected ? `|Δ| ${Math.abs(mt.delta).toFixed(2)} avg` : `${signed(mt.delta)} avg`}
+        {mt.delta == null ? '—' : undirected ? `|Δ| ${Math.abs(mt.delta).toFixed(2)} avg` : `${signed(mt.delta)} avg`}
       </span>
     </>
   )
@@ -288,7 +287,9 @@ function MetricTrendRow({
 // ─── Re-evaluated summary ────────────────────────────────────────────────────
 
 function ReevalSummaryCard({ summary }: { summary: TrajectorySummary }) {
-  const { reevaluated, verdictUpgrades, verdictDowngrades } = summary
+  const { reevaluated } = summary
+  const verdictUpgrades = summary.verdictMoves.upgrade
+  const verdictDowngrades = summary.verdictMoves.downgrade
   return (
     <Panel
       title="Re-evaluated listings"
@@ -307,20 +308,20 @@ function ReevalSummaryCard({ summary }: { summary: TrajectorySummary }) {
 // floor: the "Flat within noise" cell is the honest home of every sub-floor
 // move, and the average move loses its colour when it is itself sub-floor.
 function MetricSummaryRow({ label, s, reevaluated }: { label: string; s: MetricSummary; reevaluated: number }) {
-  const { movement, withinNoise, avgDelta, noiseFloor } = s
-  const avgDetectable = Math.abs(avgDelta) >= noiseFloor
+  const { improving, declining, withinNoise, avgDelta, noiseFloor, n } = s
+  const avgDetectable = n > 0 && Math.abs(avgDelta) >= noiseFloor
   const cells: Array<{ label: string; value: string; className: string; title: string }> = [
-    { label: 'Improving', value: String(movement.improving), className: 'text-success',
+    { label: 'Improving', value: String(improving), className: 'text-success',
       title: `Listings whose first→latest ${label} rose by at least the ${noiseFloor} noise floor` },
-    { label: 'Declining', value: String(movement.declining), className: 'text-danger',
+    { label: 'Declining', value: String(declining), className: 'text-danger',
       title: `Listings whose first→latest ${label} fell by at least the ${noiseFloor} noise floor` },
     { label: 'Flat within noise', value: String(withinNoise), className: 'text-text-3',
       title: `Listings whose ${label} |Δ| is under the ${noiseFloor} floor — the resolution limit, not a small move` },
     { label: 'Avg move', value: avgDetectable ? signed(avgDelta) : `|Δ| ${Math.abs(avgDelta).toFixed(2)}`,
       className: avgDetectable ? (avgDelta > 0 ? 'text-success' : 'text-danger') : 'text-text-3',
       title: avgDetectable
-        ? `Mean first→latest ${label} move across ${reevaluated} re-evaluated listings`
-        : `Mean ${label} move across ${reevaluated} re-evaluated listings is under the ${noiseFloor} floor — no direction claimed` },
+        ? `Mean first→latest ${label} move across ${n} listings with two or more scored evals (${reevaluated} re-evaluated)`
+        : `Mean ${label} move across ${n} listings with two or more scored evals is under the ${noiseFloor} floor — no direction claimed` },
   ]
   return (
     <div>
@@ -350,6 +351,9 @@ function TrajectoryListCard({ trajectories }: { trajectories: Trajectory[] }) {
 }
 
 function TrajectoryRow({ t }: { t: Trajectory }) {
+  // A per-dimension delta is only ever the DRIVER of a rollup move that
+  // cleared its floor (docs § 2); the core leaves `topMover` null otherwise.
+  const driver = t.want.topMover ?? t.ease.topMover
   return (
     <li className="flex items-center gap-3 py-2.5">
       <CompanyLink company={t.company} size={24} className="shrink-0" />
@@ -361,23 +365,31 @@ function TrajectoryRow({ t }: { t: Trajectory }) {
         <div className="flex items-center gap-2 mt-0.5 min-w-0">
           <span
             className="text-micro tabular-nums text-text-4 shrink-0"
-            title={`${t.evals} evaluations on distinct dates · ${t.confidence} confidence`}
+            title={`${t.evals} evaluations on distinct dates${t.blockedEvals > 0 ? ` (${t.blockedEvals} blocked)` : ''} · ${t.confidence} confidence`}
           >
-            {t.evals} evals · {t.confidence}
+            {t.evals} evals{t.blockedEvals > 0 ? ` · ${t.blockedEvals} blocked` : ''} · {t.confidence}
           </span>
           {t.verdictChanged && (
-            <span className="inline-flex items-center gap-1 shrink-0">
+            // A verdict move between two scored cells on a sub-floor wobble
+            // crossed a grid line without a real move behind it: the chips
+            // stay, but the row says so instead of implying a change.
+            <span
+              className="inline-flex items-center gap-1 shrink-0"
+              title={t.verdictMoveDetectable
+                ? `Verdict ${t.verdictMove} between first and latest evaluation`
+                : 'Crossed a verdict line on a move under the noise floor'}
+            >
               <VerdictChip verdict={t.verdictFrom} />
               <span className="text-micro text-text-4" aria-hidden>→</span>
               <VerdictChip verdict={t.verdictTo} />
+              {!t.verdictMoveDetectable && (
+                <span className="text-micro text-text-4">within noise</span>
+              )}
             </span>
           )}
-          {/* A per-dimension delta is only shown as the DRIVER of a move that
-              cleared its floor (docs § 2) — under the floor there is no move
-              for it to drive. */}
-          {t.topMover && t.detectable && (
+          {driver && (
             <span className="text-micro text-text-4 truncate">
-              {t.topMover.label} {signed(t.topMover.delta)}
+              {driver.label} {signed(driver.delta)}
             </span>
           )}
         </div>
@@ -385,20 +397,27 @@ function TrajectoryRow({ t }: { t: Trajectory }) {
 
       <div className="flex flex-col gap-1 shrink-0">
         {TREND_METRICS.map(m => (
-          <MoveCell key={m} label={METRIC_LABEL[m]} mv={t[m]} seq={t.sequence.map(p => p[m])} evals={t.evals} />
+          <MoveCell
+            key={m}
+            label={METRIC_LABEL[m]}
+            mv={t[m]}
+            seq={t.sequence.map(p => p[m]).filter((v): v is number => v != null)}
+          />
         ))}
       </div>
     </li>
   )
 }
 
-// One axis of a trajectory: sparkline + first → latest + the delta. The delta
-// carries a sign and a movement colour ONLY when it cleared that axis's noise
-// floor; below it the row states the flat result with an unsigned |Δ|
-// (§ 4 rules 3 and 5).
-function MoveCell({ label, mv, seq, evals }: { label: string; mv: MetricMove; seq: number[]; evals: number }) {
+// One axis of a trajectory: sparkline + first → latest + the delta, over the
+// listing's SCORED evaluations. The delta carries a sign and a movement colour
+// ONLY when it cleared that axis's noise floor; below it the row states the
+// flat result with an unsigned |Δ| (§ 4 rules 3 and 5). With fewer than two
+// scored evals (the rest blocked) there is no score move: a dash, no class.
+function MoveCell({ label, mv, seq }: { label: string; mv: MetricTrack; seq: number[] }) {
   const v = MOVEMENT_META[mv.movementClass]
   const flat = mv.movementClass === 'within-noise'
+  const noMove = mv.delta == null
   return (
     <div className="flex items-center gap-2 tabular-nums">
       <span className="text-micro text-text-3 w-8">{label}</span>
@@ -409,9 +428,13 @@ function MoveCell({ label, mv, seq, evals }: { label: string; mv: MetricMove; se
       <span
         className="text-label font-medium w-16 text-right"
         style={{ color: v.color }}
-        title={flat ? `${formatWithinNoise(mv.delta, { floor: mv.noiseFloor })} across ${evals} evals` : `${v.label} across ${evals} evals`}
+        title={noMove
+          ? `${mv.n} scored eval${mv.n === 1 ? '' : 's'}: no ${label} move to classify`
+          : flat
+            ? `${formatWithinNoise(mv.delta, { floor: mv.noiseFloor })} across ${mv.n} scored evals`
+            : `${v.label} across ${mv.n} scored evals`}
       >
-        {flat ? `Flat ${Math.abs(mv.delta).toFixed(2)}` : signed(mv.delta)}
+        {mv.delta == null ? '—' : flat ? `Flat ${Math.abs(mv.delta).toFixed(2)}` : signed(mv.delta)}
       </span>
     </div>
   )

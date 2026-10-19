@@ -50,9 +50,8 @@ interface NavItem {
 // CF/AF rollup weights are controlled by `phase` (Settings/CmdK), which
 // is independent from this navigation.
 const PRIMARY_NAV: NavItem[] = [
-  { view: 'today',    label: 'Today',    icon: Sun        },
   { view: 'chat',     label: 'Chat',     icon: MessageSquare },
-  { view: 'scouting', label: 'Scouting', icon: Map        },
+  { view: 'scouting', label: 'Scout',    icon: Map        },
   { view: 'applying', label: 'Applying', icon: Briefcase  },
   { view: 'outreach', label: 'Outreach', icon: Users      },
 ]
@@ -133,8 +132,9 @@ export function Sidebar() {
   // on the rail that means "act now" (mirrors the cockpit's pending dot)
   // rather than "inventory size". Today shares that accent — both mean "act".
   const badges: Partial<Record<ViewId, { count: number; accent?: boolean }>> = {
-    today:    { count: todayUrgent, accent: true },
-    scouting: { count: pipeline.length, accent: true },
+    // Scout's badge = things to act on: listings to filter + deadlines
+    // closing this week.
+    scouting: { count: pipeline.length + todayUrgent, accent: true },
     applying: { count: activeCount },
     outreach: { count: outreachNudges, accent: true },
     reports:  { count: reports.length },

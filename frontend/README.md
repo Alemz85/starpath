@@ -51,7 +51,7 @@ Sidebar is split into three tiers — **primary** (workflow stage), **secondary*
 
 | Tier | Tab | Purpose |
 |------|-----|---------|
-| Primary | **Scouting** | Cockpit for landscape mapping. Full Scan / API Only / Filter to Database / Generate Reports buttons → spawn `claude -p '/career-ops <mode>'` (or `node scripts/scan.mjs`). Full Scan and API Only also fire the JobSpy aggregator (Indeed + Google) in parallel as a zero-token sibling. Activity panel streams live output. |
+| Primary | **Scout** | Home cockpit (Scouting + Today merged): overview card, scan actions, deadlines. Full Scan / API Only / Filter to Database / Generate Reports buttons → spawn `claude -p '/career-ops <mode>'` (or `node scripts/scan.mjs`). Full Scan and API Only also fire the JobSpy aggregator (Indeed + Google) in parallel as a zero-token sibling. Activity panel streams live output. |
 | Primary | **Applying** | Cockpit for active applications. Stats, active-application list with per-row Tailor CV / Draft / Prep / Report buttons + `FilesStrip` artifact indicators + status dropdown. Kanban inbox for new URLs. |
 | Secondary | **Database** | Universal lens over `data/score-history.tsv`. Score-dial column, listing card with logo + role, relative dates, liveness facet (active <14d / stale 14–90d / closed) derived from `data/scan-history.tsv`. Row click → action popover. |
 | Secondary | **Reports** | Browse `reports/tier-*/*.md`. Slide-over has `Apply` / `View in Database` / `Open URL` pills + `FilesStrip` and tabs for Scouting report / Application prep. |

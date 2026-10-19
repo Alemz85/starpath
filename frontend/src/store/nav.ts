@@ -21,9 +21,9 @@ export type ViewId =
 // the error-boundary label, and the Company view's "back to …" affordance.
 // Keep in sync with the Sidebar's NavItem labels.
 export const VIEW_LABELS: Record<ViewId, string> = {
-  today:    'Today',
+  today:    'Scout',
   chat:     'Chat',
-  scouting: 'Scouting',
+  scouting: 'Scout',
   applying: 'Applying',
   outreach: 'Outreach',
   offers:   'Offers',
@@ -96,6 +96,8 @@ export const useNavStore = create<NavState>((set, get) => ({
   pendingCompanySlug: '',
   pendingViewTab: '',
   navigate: (view, databaseFilter = '', companySlug = '', viewTab = '') => {
+    // Today merged into Scout; the id stays valid for old deep links.
+    if (view === 'today') view = 'scouting'
     const state = get()
     // Same-view navs are no-ops UNLESS they carry a fresh payload — a
     // company→company hop, a new database filter, or a sub-tab request

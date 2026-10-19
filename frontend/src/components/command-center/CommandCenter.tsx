@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useId } from 'react'
 import { clsx } from 'clsx'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
@@ -12,15 +12,9 @@ import { ipc } from '@/lib/ipc'
 import { ClaudeLogo } from '@/components/shared/Logos'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
-import { Button, PageHeader, Panel, Stat, StatStrip, type StatTone } from '@/components/ui'
-import {
-  Play, Zap, Filter, Square, ArrowRight,
-  ChevronDown, Check, Plus, Star,
-  AlertTriangle, RotateCw, Loader2,
-} from 'lucide-react'
+import { Button, Panel, Stat, StatStrip, type StatTone } from '@/components/ui'
+import { Play, Zap, Filter, Square, ArrowRight, ChevronDown, Check, Plus, Star, AlertTriangle, RotateCw, Loader2, ListFilter, X } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
-import { DailyBriefPanel } from '@/components/command-center/DailyBriefPanel'
-import { formatRelative } from '@/lib/utils'
 
 // Class strings below are combined with `clsx`, not `cn`: tailwind-merge
 // reads custom size tokens (`text-label`, `text-body`) as text colours and
@@ -104,83 +98,9 @@ const LOADING_MESSAGES = [
   'Filtering out the unicorn-hunting startups…',
 ]
 
-export function CommandCenter() {
-  const repoPath = useAppStore(s => s.repoPath)
-  const scoreHistory = useDataStore(s => s.scoreHistory)
-  const applications = useDataStore(s => s.applications)
-  const pipeline = useDataStore(s => s.pipeline)
-  const scansThisMonth = useDataStore(s => s.scansThisMonth)
-  const loaded = useDataStore(s => s.loaded)
-  const refresh = useDataStore(s => s.refresh)
-
-  const totalEvaluated = scoreHistory.length
-  const distinctCompanies = useMemo(
-    () => new Set(scoreHistory.map(e => e.company).filter(Boolean)).size,
-    [scoreHistory],
-  )
-  const active = applications.filter(a =>
-    ['Applied', 'Responded', 'Interview', 'Offer'].includes(a.status)
-  ).length
-  const pendingListings = pipeline.length
-  const lastScanDate = scoreHistory.length
-    ? [...scoreHistory].sort((a, b) => b.date.localeCompare(a.date))[0]?.date ?? null
-    : null
-
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      <PageHeader
-        title="Scouting"
-        meta={loaded && lastScanDate ? `Last scan ${formatRelative(lastScanDate)}` : undefined}
-      />
-
-      <div className="flex-1 flex flex-col min-h-0 p-5 gap-5 overflow-hidden">
-        {/* Key figures inline, no card. Pending is the one "act now"
-            figure: accent tone plus a dot whenever there is something to
-            filter. */}
-        {loaded ? (
-          <StatStrip className="shrink-0">
-            <Stat
-              value={totalEvaluated}
-              label="Evaluated"
-              hint={`${distinctCompanies} ${distinctCompanies === 1 ? 'company' : 'companies'}`}
-            />
-            <Stat
-              value={active}
-              label="Active"
-              hint={active === 1 ? 'application' : 'applications'}
-            />
-            <Stat
-              value={pendingListings}
-              label="Pending"
-              hint="ready to filter"
-              tone={pendingListings > 0 ? 'accent' : 'default'}
-              dot={pendingListings > 0}
-            />
-            <Stat
-              value={scansThisMonth}
-              label="Scans"
-              hint="this month"
-            />
-          </StatStrip>
-        ) : (
-          <div className="shrink-0 flex items-stretch gap-10" aria-hidden>
-            {[0, 1, 2, 3].map(i => (
-              <div key={i} className="h-[60px] w-20 shimmer rounded" />
-            ))}
-          </div>
-        )}
-
-        {/* Scouting cockpit: action row, then the daily brief and the
-            filtered-scan panel share the remaining height. */}
-        <ScoutingActionPanel repoPath={repoPath} onPipelineDone={refresh} />
-      </div>
-    </div>
-  )
-}
-
 // ─── Scouting Action Panel ──────────────────────────────────────────────────
 
-function ScoutingActionPanel({
+export function ScoutingActionPanel({
   repoPath,
   onPipelineDone,
 }: {
@@ -192,7 +112,6 @@ function ScoutingActionPanel({
   const kill = useSpawnsStore(s => s.kill)
   const clear = useSpawnsStore(s => s.clear)
   const pipelineModel = useAppStore(s => s.models.pipeline)
-  const dailyBriefEnabled = useAppStore(s => s.features.dailyBriefPanel)
   const fullScan       = spawns[FULL_SCAN_ID]
   const apiScan        = spawns[API_SCAN_ID]
   const pipelineFilter = spawns[PIPELINE_FILTER_ID]
@@ -258,7 +177,7 @@ function ScoutingActionPanel({
   }
 
   return (
-    <div className="flex-1 flex flex-col min-h-0">
+    <div className="shrink-0 flex flex-col">
       <HoverDescriptionRow
         slotMaxWidth={960}
         items={[
@@ -291,6 +210,15 @@ function ScoutingActionPanel({
             ),
           },
           {
+            key: 'filtered',
+            description: 'Scan only the companies you pick. Opens a picker preselected with your dream companies; costs Claude tokens.',
+            node: <FilteredScanButton disabled={!repoPath} />,
+          },
+          {
+            key: 'sep',
+            node: <div className="w-px h-5 mx-1 bg-border-default" aria-hidden />,
+          },
+          {
             key: 'filter',
             description: 'Discard off-archetype, wrong-seniority and geo-locked listings, then score the survivors (~20–30%) into the Database. No prose reports.',
             node: (
@@ -305,7 +233,7 @@ function ScoutingActionPanel({
             ),
           },
           {
-            key: 'sep',
+            key: 'sep2',
             node: <div className="w-px h-5 mx-1 bg-border-default" aria-hidden />,
           },
           {
@@ -327,11 +255,6 @@ function ScoutingActionPanel({
           remaining height; renders nothing at all when the brief has nothing
           to say, and the Filtered scan panel then takes the whole area.
           Deactivatable via Settings › General › Features. */}
-      <div className="flex-1 min-h-0 flex flex-col gap-3 mt-2">
-        {dailyBriefEnabled && <DailyBriefPanel className="shrink-0 max-h-[50%]" />}
-        <FilteredScanRow />
-      </div>
-
       {/* Activity is now exclusively on the Activity tab. When something is
           running anywhere, surface a quiet pointer so the user knows where
           to go for the live log. */}
@@ -340,14 +263,15 @@ function ScoutingActionPanel({
   )
 }
 
-// ─── Filtered Scan ──────────────────────────────────────────────────────────
+// ─── Filtered scan ──────────────────────────────────────────────────────────
 //
-// Always-visible panel listing every tracked_company in portals.yml as a
-// toggle chip. Pre-selects the user's dream_companies (from profile.yml) on
-// first mount of the session, then leaves the selection alone. The Run
-// button spawns Claude with `/career-ops scan` plus an explicit allowlist of
-// company names — Claude reads the regular scan mode and constrains to
-// those companies (covers both API-method and websearch-method ones).
+// A pill in the action row that opens a company picker. The picker lists
+// every tracked_company in portals.yml as a toggle chip, pre-selects the
+// user's dream_companies (from profile.yml) on first mount of the session,
+// then leaves the selection alone. Running spawns Claude with `/career-ops
+// scan` plus an explicit allowlist of company names (covers both API-method
+// and websearch-method ones). The selection is loaded by the button itself
+// so the dream defaults are in place before the picker is ever opened.
 
 const METHOD_LABEL: Record<'api' | 'websearch' | 'unknown', string> = {
   api: 'API',
@@ -355,19 +279,20 @@ const METHOD_LABEL: Record<'api' | 'websearch' | 'unknown', string> = {
   unknown: 'unknown method',
 }
 
-function FilteredScanRow() {
+type TrackedCompany = { name: string; method: 'api' | 'websearch' | 'unknown' }
+
+function FilteredScanButton({ disabled }: { disabled?: boolean }) {
   const repoPath = useAppStore(s => s.repoPath)
   const spawns = useSpawnsStore(s => s.spawns)
   const start = useSpawnsStore(s => s.start)
   const kill = useSpawnsStore(s => s.kill)
   const clear = useSpawnsStore(s => s.clear)
   const filteredScan = spawns[FILTERED_SCAN_ID]
-  const selected     = useScanFilter(s => s.selected)
-  const toggle       = useScanFilter(s => s.toggle)
+  const selected      = useScanFilter(s => s.selected)
   const applyDefaults = useScanFilter(s => s.applyDreamDefaults)
-  const clearAll     = useScanFilter(s => s.clear)
 
-  const [companies, setCompanies] = useState<Array<{ name: string; method: 'api' | 'websearch' | 'unknown' }>>([])
+  const [open, setOpen] = useState(false)
+  const [companies, setCompanies] = useState<TrackedCompany[]>([])
   const [dreamCompanies, setDreamCompanies] = useState<string[]>([])
 
   // Load on mount: portals.yml → tracked_companies (with their scan
@@ -390,8 +315,10 @@ function FilteredScanRow() {
     if (dreamCompanies.length > 0) applyDefaults(dreamCompanies)
   }, [dreamCompanies, applyDefaults])
 
-  const handleRun = () => {
-    if (filteredScan?.status === 'running') { kill(FILTERED_SCAN_ID); return }
+  const running = filteredScan?.status === 'running'
+
+  const run = () => {
+    if (running) { kill(FILTERED_SCAN_ID); return }
     if (filteredScan) clear(FILTERED_SCAN_ID)
     if (selected.size === 0) return
     const list = Array.from(selected).join(', ')
@@ -401,108 +328,167 @@ function FilteredScanRow() {
       `For each named company, follow its scan_method (api → direct API call; websearch → WebSearch with the company's scan_query). ` +
       `Append new URLs to data/pipeline.md per the standard scan mode; respect data/scan-history.tsv for dedup.`
     start(FILTERED_SCAN_ID, `Filtered scan (${selected.size})`, 'claude', claudeArgs(slash, 'sonnet'))
+    setOpen(false)
   }
 
-  const handleResetDefaults = () => applyDefaults(dreamCompanies, true)
+  const noCompanies = companies.length === 0
 
-  if (companies.length === 0) {
-    // No tracked_companies in portals.yml yet — onboarding wizard probably
-    // hasn't completed. Hide the panel entirely instead of showing an empty
-    // canvas; user gets the chips back as soon as they configure portals.
-    return null
-  }
+  return (
+    <>
+      {running ? (
+        <Button
+          tone="stop"
+          size="lg"
+          pill
+          onClick={run}
+          title="Click to stop (live log on the Activity tab)"
+          icon={<Square size={12} className="fill-current" aria-hidden />}
+        >
+          Stop filtered scan
+        </Button>
+      ) : (
+        <Button
+          tone="secondary"
+          size="lg"
+          pill
+          onClick={() => setOpen(true)}
+          disabled={disabled || noCompanies}
+          title={noCompanies ? 'No tracked companies in user/portals.yml yet' : undefined}
+          icon={<ListFilter size={15} aria-hidden />}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          Filtered scan
+          {selected.size > 0 && <span className="text-text-4 font-normal">{selected.size}</span>}
+        </Button>
+      )}
+      {open && (
+        <FilteredScanDialog
+          companies={companies}
+          dreamCompanies={dreamCompanies}
+          onRun={run}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  )
+}
 
-  const running = filteredScan?.status === 'running'
+function FilteredScanDialog({ companies, dreamCompanies, onRun, onClose }: {
+  companies: TrackedCompany[]
+  dreamCompanies: string[]
+  onRun: () => void
+  onClose: () => void
+}) {
+  const selected      = useScanFilter(s => s.selected)
+  const toggle        = useScanFilter(s => s.toggle)
+  const applyDefaults = useScanFilter(s => s.applyDreamDefaults)
+  const clearAll      = useScanFilter(s => s.clear)
+  const titleId = useId()
+  const runRef = useRef<HTMLButtonElement>(null)
 
-  // Dream companies first (alphabetical within group), then everyone else
-  // (alphabetical). Sorting at render time avoids reflow when the user
-  // toggles selection — only the sort key (dream / non-dream) is fixed
-  // while the user works through the list.
-  const sortedCompanies = (() => {
-    const dreamSet = new Set(dreamCompanies)
-    return [...companies].sort((a, b) => {
-      const aDream = dreamSet.has(a.name)
-      const bDream = dreamSet.has(b.name)
-      if (aDream !== bDream) return aDream ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
-  })()
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    runRef.current?.focus()
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // Dream companies first (alphabetical within group), then everyone else.
+  const dreamSet = new Set(dreamCompanies)
+  const sorted = [...companies].sort((a, b) => {
+    const aDream = dreamSet.has(a.name)
+    const bDream = dreamSet.has(b.name)
+    if (aDream !== bDream) return aDream ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
 
   const selectedNames = [...selected]
-  const dreamSelected = selectedNames.filter(n => dreamCompanies.includes(n)).length
-  const matchesDreams = selected.size === dreamCompanies.length && selectedNames.every(n => dreamCompanies.includes(n))
+  const dreamSelected = selectedNames.filter(n => dreamSet.has(n)).length
+  const matchesDreams = selected.size === dreamCompanies.length && selectedNames.every(n => dreamSet.has(n))
   const meta = selected.size === 0
-    ? 'Pick companies to scan only those'
+    ? 'Pick the companies to scan'
     : `${selected.size} of ${companies.length} selected` +
       (dreamCompanies.length > 0 ? ` · ${matchesDreams ? 'matches your dream list' : `${dreamSelected} dream`}` : '')
 
   return (
-    <Panel
-      title="Filtered scan"
-      meta={meta}
-      className="flex-1 min-h-0 flex flex-col"
-      action={
-        <div className="flex items-center gap-1">
-          {selected.size > 0 && (
-            <Button tone="ghost" size="sm" onClick={clearAll}>Clear</Button>
-          )}
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[12vh] bg-black/30 px-6"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={e => e.stopPropagation()}
+        className="w-[720px] max-w-full max-h-[76vh] flex flex-col rounded-xl bg-bg-base border border-border-default shadow-lift overflow-hidden"
+        style={{ animation: 'chip-appear 160ms cubic-bezier(0.25, 1, 0.5, 1) both' }}
+      >
+        <div className="flex items-start gap-3 px-5 pt-4 pb-3">
+          <div className="flex-1 min-w-0">
+            <h2 id={titleId} className="text-title text-text-1">Filtered scan</h2>
+            <p className="text-label text-text-3 mt-0.5">{meta}</p>
+          </div>
+          <Button tone="ghost" size="sm" iconOnly aria-label="Close" onClick={onClose} icon={<X size={15} />} />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4" style={{ scrollbarWidth: 'thin' }}>
+          <div className="flex flex-wrap gap-1.5">
+            {sorted.map(c => {
+              const isSelected = selected.has(c.name)
+              const isDream = dreamSet.has(c.name)
+              return (
+                <button
+                  key={c.name}
+                  type="button"
+                  onClick={() => toggle(c.name)}
+                  aria-pressed={isSelected}
+                  title={`${c.name} · ${METHOD_LABEL[c.method]}${isDream ? ' · dream company' : ''}`}
+                  className={clsx(
+                    'chip chip-md h-7 px-2.5 gap-1.5 transition-colors duration-150 ease-quart',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+                    isSelected
+                      ? 'chip-accent hover:bg-accent/20'
+                      : 'hover:bg-bg-base hover:border-border-strong hover:text-text-1',
+                  )}
+                >
+                  <CompanyLogo company={c.name} size={14} className="shrink-0" />
+                  <span className="truncate max-w-[160px]">{c.name}</span>
+                  {isDream && <Star size={12} className="shrink-0 text-accent-text" aria-hidden />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 px-5 py-3 border-t border-border-default bg-bg-elevated/60">
+          <Button tone="ghost" size="sm" onClick={clearAll} disabled={selected.size === 0}>Clear</Button>
           {dreamCompanies.length > 0 && (
             <Button
               tone="ghost"
               size="sm"
-              onClick={handleResetDefaults}
+              onClick={() => applyDefaults(dreamCompanies, true)}
               title="Reset selection to your dream_companies list from profile.yml"
             >
               Reset to dreams
             </Button>
           )}
+          <div className="flex-1" />
+          <Button tone="secondary" size="sm" onClick={onClose}>Cancel</Button>
           <Button
-            tone={running ? 'stop' : 'tinted'}
+            ref={runRef}
+            tone="primary"
             size="sm"
-            icon={running ? <Square size={12} className="fill-current" aria-hidden /> : <Filter size={13} aria-hidden />}
-            onClick={handleRun}
-            disabled={!repoPath || (!running && selected.size === 0)}
-            title={running
-              ? 'Stop the run (live log on the Activity tab)'
-              : selected.size === 0
-                ? 'Select at least one company first'
-                : `Spawn Claude to scan only the ${selected.size} selected ${selected.size === 1 ? 'company' : 'companies'}. Costs Claude tokens.`}
+            icon={<Play size={13} aria-hidden />}
+            onClick={onRun}
+            disabled={selected.size === 0}
+            title={selected.size === 0 ? 'Select at least one company first' : `Scan only the ${selected.size} selected ${selected.size === 1 ? 'company' : 'companies'}. Costs Claude tokens.`}
           >
-            {running ? 'Stop filtered scan' : 'Run filtered scan'}
+            Run filtered scan
           </Button>
         </div>
-      }
-    >
-      {/* Chip canvas — always expanded, scrolls inside the panel. */}
-      <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
-        <div className="flex flex-wrap gap-1.5">
-          {sortedCompanies.map(c => {
-            const isSelected = selected.has(c.name)
-            const isDream = dreamCompanies.includes(c.name)
-            return (
-              <button
-                key={c.name}
-                type="button"
-                onClick={() => toggle(c.name)}
-                aria-pressed={isSelected}
-                title={`${c.name} · ${METHOD_LABEL[c.method]}${isDream ? ' · dream company' : ''}`}
-                className={clsx(
-                  'chip chip-md h-[26px] px-2 gap-1.5 transition-colors duration-150 ease-quart',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
-                  isSelected
-                    ? 'chip-accent hover:bg-accent/20'
-                    : 'hover:bg-bg-base hover:border-border-strong hover:text-text-1',
-                )}
-              >
-                <CompanyLogo company={c.name} size={14} className="shrink-0" />
-                <span className="truncate max-w-[160px]">{c.name}</span>
-                {isDream && <Star size={12} className="shrink-0 text-accent-text" aria-hidden />}
-              </button>
-            )
-          })}
-        </div>
       </div>
-    </Panel>
+    </div>
   )
 }
 
@@ -687,6 +673,8 @@ function ActionButton({
     return (
       <Button
         tone="stop"
+        size="lg"
+        pill
         onClick={onClick}
         title="Click to stop"
         icon={<Square size={12} className="fill-current" aria-hidden />}
@@ -698,10 +686,12 @@ function ActionButton({
   return (
     <Button
       tone={tone === 'primary' ? 'primary' : 'secondary'}
+      size="lg"
+      pill
       onClick={onClick}
       disabled={disabled}
       title={title}
-      icon={<Icon size={14} aria-hidden />}
+      icon={<Icon size={15} aria-hidden />}
     >
       {label}
     </Button>
@@ -716,9 +706,11 @@ function AddListingButton({ disabled }: { disabled?: boolean }) {
   return (
     <Button
       tone="tinted"
+      size="lg"
+      pill
       onClick={() => show()}
       disabled={disabled}
-      icon={<Plus size={14} aria-hidden />}
+      icon={<Plus size={15} aria-hidden />}
     >
       Add listing
     </Button>

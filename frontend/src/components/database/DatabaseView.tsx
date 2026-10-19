@@ -170,19 +170,19 @@ export function DatabaseView() {
         />
 
         {/* Search row */}
-        <div className="h-11 flex items-center px-4 border-b border-border-default bg-bg-cosmos shrink-0">
+        <div className="h-14 flex items-center px-4 shrink-0">
           <FilterBar value={query} onChange={setQuery} />
         </div>
 
         {/* Main area */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 gap-3 px-4 pb-4">
           {/* Facet sidebar */}
           {facetExpanded && (
             <FacetSidebar filters={filters} onChange={setFilters} options={options} counts={facetCounts} />
           )}
 
           {/* Table */}
-          <div className="flex-1 min-w-0 overflow-hidden bg-bg-base">
+          <div className="flex-1 min-w-0 overflow-hidden card">
             {loaded ? (
               <DatabaseTable
                 rows={visibleRows}
@@ -246,11 +246,11 @@ function TableSkeleton() {
   return (
     <div className="h-full overflow-hidden" aria-busy="true" aria-live="polite">
       <span className="sr-only">Loading database…</span>
-      <div className="h-9 border-b border-border-default" aria-hidden />
+      <div className="h-10 border-b border-border-default" aria-hidden />
       {Array.from({ length: SKELETON_ROWS }, (_, i) => (
         <div
           key={i}
-          className="h-10 flex items-center gap-2.5 pl-9 pr-4 border-b border-border-default"
+          className="h-[52px] flex items-center gap-2.5 pl-9 pr-4 border-b border-border-default/50"
           style={{ opacity: 1 - i * 0.06 }}
           aria-hidden
         >

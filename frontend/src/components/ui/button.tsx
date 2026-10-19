@@ -19,6 +19,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   /** Square icon-only button; pass the label through `aria-label`. */
   iconOnly?: boolean
   loading?: boolean
+  /** Fully rounded; used for the page-level action row. */
+  pill?: boolean
 }
 
 // Literal class maps: Tailwind only emits `@layer components` classes it can
@@ -39,7 +41,7 @@ const SIZE_CLASS: Record<ButtonSize, string> = {
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
-  { tone = 'secondary', size = 'md', icon, trailing, iconOnly, loading, className, children, disabled, type = 'button', ...rest },
+  { tone = 'secondary', size = 'md', icon, trailing, iconOnly, loading, pill, className, children, disabled, type = 'button', ...rest },
   ref,
 ) {
   return (
@@ -52,6 +54,8 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
         TONE_CLASS[tone],
         SIZE_CLASS[size],
         iconOnly && 'btn-icon',
+        pill && !iconOnly && (size === 'lg' ? 'rounded-pill px-5' : 'rounded-pill px-4'),
+        pill && iconOnly && 'rounded-pill',
         className,
       )}
       {...rest}

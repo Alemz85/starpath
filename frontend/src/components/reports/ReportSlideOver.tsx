@@ -261,7 +261,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         aria-modal="true"
         aria-label={`${company} · ${role}`}
         className={cn(
-          'fixed right-0 top-0 bottom-0 z-40 w-[880px] max-w-[calc(100vw-220px)] bg-bg-base border-l border-border-default flex flex-col shadow-lift',
+          'fixed right-0 top-0 bottom-0 z-40 w-[920px] max-w-[calc(100vw-220px)] bg-bg-base border-l border-border-default flex flex-col shadow-lift',
           'transition-[transform,opacity] duration-200 ease-quart',
           open ? 'translate-x-0 opacity-100' : 'translate-x-4 opacity-0',
         )}
@@ -269,9 +269,9 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         <div className="titlebar-drag h-10 shrink-0" />
 
         {/* Header: identity · verdict line · actions */}
-        <div className="px-6 pb-2 shrink-0">
-          <div className="flex items-start gap-3.5">
-            <CompanyLogo company={company} size={40} className="shrink-0 mt-0.5" />
+        <div className="px-8 pt-2 pb-3 shrink-0">
+          <div className="flex items-start gap-4">
+            <CompanyLogo company={company} size={44} className="shrink-0" />
             <div className="flex-1 min-w-0">
               <h2 className="text-page text-text-1 truncate" title={company}>{company}</h2>
               <p className="text-body text-text-3 leading-snug line-clamp-2" title={role}>{role}</p>
@@ -279,7 +279,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
             <Button tone="ghost" size="sm" iconOnly aria-label="Close" title="Close (Esc)" onClick={handleClose} icon={<X size={15} />} />
           </div>
 
-          <div className="mt-3 flex items-center gap-x-2.5 gap-y-1 flex-wrap text-label text-text-3">
+          <div className="mt-4 flex items-center gap-x-3 gap-y-1.5 flex-wrap text-label text-text-3">
             <EligibilityChip status={scoreEntry.eligibility} />
             <VerdictChip verdict={entryVerdict} />
             {(entryBlocked || isScored(scoreEntry)) && (
@@ -304,7 +304,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           </div>
 
           {siblings.length > 0 && (
-            <div className="mt-1.5 flex items-center gap-x-2 flex-wrap text-label text-text-3">
+            <div className="mt-2 flex items-center gap-x-2.5 flex-wrap text-label text-text-3">
               <span>Also evaluated in</span>
               {siblings.map(s => (
                 <button
@@ -320,14 +320,14 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
             </div>
           )}
 
-          <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <div className="mt-5 flex items-center gap-2.5 flex-wrap">
             <ApplyAction company={company} role={role} scoreEntry={scoreEntry} size="sm" />
             {url && (
               <Button tone="secondary" size="sm" icon={<ExternalLink size={13} />} onClick={() => ipc.openExternal(url)}>
                 Open listing
               </Button>
             )}
-            <FilesStrip company={company} role={role} size="sm" className="ml-1" />
+            <FilesStrip company={company} role={role} size="sm" className="ml-2" />
             <div className="flex-1" />
             {!hideDatabaseLink && (
               <Button tone="ghost" size="sm" icon={<DatabaseIcon size={13} />} onClick={() => { navigate('database', company); handleClose() }}>
@@ -338,7 +338,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         </div>
 
         {/* Tabs */}
-        <div role="tablist" aria-label="Report sections" className="flex items-center gap-5 border-b border-border-default shrink-0 px-6">
+        <div role="tablist" aria-label="Report sections" className="flex items-center gap-7 border-b border-border-default shrink-0 px-8 mt-1">
           <TabButton label="Scouting report" active={activeTab === 'scouting'} disabled={!scoutingContent} onClick={() => setActiveTab('scouting')} />
           <TabButton label="Application prep" active={activeTab === 'application'} disabled={!applicationContent} onClick={() => setActiveTab('application')} hint="Not generated yet" />
           <TabButton label="History" count={historyAvailable ? history.length : undefined} active={activeTab === 'history'} disabled={!historyAvailable} onClick={() => setActiveTab('history')} hint="Only one evaluation so far" />
@@ -349,7 +349,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           {!loading && !error && activeTab !== 'history' && (
             <SectionIndex scrollEl={scrollEl} contentKey={`${activeTab}:${company}:${role}`} />
           )}
-          <div ref={setScrollEl} className="flex-1 min-w-0 overflow-y-auto pl-4 pr-6 py-5">
+          <div ref={setScrollEl} className="flex-1 min-w-0 overflow-y-auto pl-5 pr-8 py-6">
             {loading && (
               <div className="flex flex-col gap-3" aria-busy>
                 {[80, 60, 90, 50, 70].map((w, i) => (
@@ -404,7 +404,7 @@ function TabButton({ label, count, active, disabled, onClick, hint }: {
       onClick={disabled ? undefined : onClick}
       title={disabled ? hint ?? `${label} is not available` : undefined}
       className={cn(
-        'flex items-center gap-1.5 px-0.5 pt-1.5 pb-2.5 text-[13px] border-b-2 -mb-px transition-colors',
+        'flex items-center gap-1.5 px-0.5 pt-2.5 pb-3 text-[13px] border-b-2 -mb-px transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset',
         active
           ? 'text-text-1 border-accent'
@@ -480,17 +480,17 @@ function SectionIndex({ scrollEl, contentKey }: { scrollEl: HTMLDivElement | nul
     scrollEl.scrollTo({ top: offset, behavior: 'smooth' })
   }
 
-  if (items.length < 2) return <div className="w-[140px] shrink-0" aria-hidden />
+  if (items.length < 2) return <div className="w-[168px] shrink-0" aria-hidden />
 
   return (
-    <nav className="w-[140px] shrink-0 py-5 pl-3 pr-1 overflow-y-auto" aria-label="Report outline">
-      <ul className="flex flex-col gap-0.5">
+    <nav className="w-[168px] shrink-0 py-6 pl-5 pr-2 overflow-y-auto" aria-label="Report outline">
+      <ul className="flex flex-col gap-1">
         {items.map(item => (
           <li key={item.slug}>
             <button
               onClick={() => jump(item.slug)}
               className={cn(
-                'w-full text-left px-2 py-1.5 rounded text-label leading-snug transition-colors',
+                'w-full text-left px-2.5 py-2 rounded text-label leading-snug transition-colors',
                 active === item.slug ? 'bg-accent-soft text-text-1 font-medium' : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
               )}
               aria-current={active === item.slug ? 'location' : undefined}

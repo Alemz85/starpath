@@ -21,6 +21,14 @@
 // its own noise floor, and Priority (the sort key) a third. A delta below the
 // floor of ITS metric is "flat within noise" — never a direction.
 
+/** Want: one motivator moving one integer step at the default equal weights
+ *  (4 motivators) moves the motivator mean, and so Want, by 1/4. */
+export const WANT_DIM_STEP = 0.25
+
+/** Ease: one step on a 0.35-weight stage of the weighted geometric mean near
+ *  the middle of the scale moves Ease by ≈ 0.32. */
+export const EASE_DIM_STEP = 0.32
+
 /** One integer step on one motivator at equal weights moves Want by 0.25;
  *  the floor is that, rounded up. */
 export const WANT_NOISE_FLOOR = 0.30
@@ -39,6 +47,14 @@ export const NOISE_FLOORS: Record<ScoreMetric, number> = {
   ease: EASE_NOISE_FLOOR,
   priority: PRIORITY_NOISE_FLOOR,
 }
+
+/** The noise floor for 'want' | 'ease' | 'priority' (Priority's for anything else). */
+export function noiseFloorFor(metric: string | null | undefined): number {
+  return (metric != null && metric in NOISE_FLOORS) ? NOISE_FLOORS[metric as ScoreMetric] : PRIORITY_NOISE_FLOOR
+}
+
+/** Options shared by the movement helpers: name the metric, or pass its floor. */
+export interface FloorOptions { metric?: ScoreMetric; floor?: number }
 
 /* ───── 2. Dimension classes (docs § 2) ───────────────────────────────────── */
 
@@ -176,7 +192,7 @@ export type MovementClass = 'within-noise' | 'improving' | 'declining' | 'unknow
  */
 export function classifyMovement(
   delta: number | null | undefined,
-  { floor = PRIORITY_NOISE_FLOOR }: { floor?: number } = {},
+  { metric, floor = noiseFloorFor(metric) }: FloorOptions = {},
 ): MovementClass {
   const d = Number(delta)
   if (!Number.isFinite(d)) return 'unknown'
@@ -187,7 +203,7 @@ export function classifyMovement(
 /** True when |Δ| is under the resolution limit — i.e. not evidence of change. */
 export function isWithinNoise(
   delta: number | null | undefined,
-  { floor = PRIORITY_NOISE_FLOOR }: { floor?: number } = {},
+  { metric, floor = noiseFloorFor(metric) }: FloorOptions = {},
 ): boolean {
   return classifyMovement(delta, { floor }) === 'within-noise'
 }
@@ -203,7 +219,7 @@ export function formatSample(n: number | null | undefined, noun = 'observation')
 /** "flat within noise (|Δ| 0.10 < 0.30 floor)" — the first-class flat result. */
 export function formatWithinNoise(
   delta: number | null | undefined,
-  { floor = PRIORITY_NOISE_FLOOR }: { floor?: number } = {},
+  { metric, floor = noiseFloorFor(metric) }: FloorOptions = {},
 ): string {
   const d = Math.abs(Number(delta) || 0)
   return `flat within noise (|Δ| ${d.toFixed(2)} < ${floor.toFixed(2)} floor)`

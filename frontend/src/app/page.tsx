@@ -1,7 +1,7 @@
 'use client'
 
-import { CommandCenter } from '@/components/command-center/CommandCenter'
+import { ScoutView } from '@/components/scout/ScoutView'
 
 export default function HomePage() {
-  return <CommandCenter />
+  return <ScoutView />
 }

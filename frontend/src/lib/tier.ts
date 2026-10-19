@@ -37,11 +37,12 @@ export const TIER_BG_HEX: Partial<Record<TierKey, string>> = {
 // Numeric score → display colour. Scoring v2 colours the Want and the Ease
 // numbers each on their own with this ladder (Priority is never coloured as a
 // headline, docs/scoring-v2.md §5). One hue, so the eye sorts by depth, never
-// by category:
-//   ≥ 8.0 → deep indigo   (Strong / Stellar — apply)
-//   ≥ 7.0 → galaxy violet (Decent — apply if the pipeline is thin)
-//   ≥ 5.0 → slate         (below the apply threshold)
-//   <  5.0 → faded slate  (sub-floor)
+// by category. The colour is a magnitude cue only: whether to apply comes
+// from the verdict (Want × Ease grid), never from these cut-offs.
+//   ≥ 8.0 → deep indigo
+//   ≥ 7.0 → galaxy violet
+//   ≥ 5.0 → slate
+//   <  5.0 → faded slate
 export function scoreColor(v: number): string {
   if (v >= 8)   return TIER_HEX.T1
   if (v >= 7)   return TIER_HEX.T2

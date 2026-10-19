@@ -52,7 +52,7 @@ export const FACTORS: readonly Factor[] = ['comp', 'fit', 'growth', 'brand', 'lo
 
 export const FACTOR_LABELS: Record<Factor, string> = {
   comp: 'Compensation',
-  fit: 'Fit',
+  fit: 'Fit (Want)',
   growth: 'Growth / Mobility',
   brand: 'Brand Value',
   location: 'Location',

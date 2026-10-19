@@ -111,8 +111,8 @@ export function FacetSidebar({ filters, onChange, options, counts }: FacetSideba
     (rangeOn(filters.easeMin, filters.easeMax) ? 1 : 0)
 
   return (
-    <div className="w-[200px] shrink-0 border-r border-border-default/70 flex flex-col overflow-y-auto">
-      <div className="flex items-center justify-between gap-2 pl-3 pr-2 h-9 shrink-0 border-b border-border-default">
+    <div className="w-[196px] shrink-0 flex flex-col overflow-y-auto">
+      <div className="flex items-center justify-between gap-2 pl-2 pr-1 h-8 shrink-0">
         <span className="label">Filters</span>
         {activeCount > 0 ? (
           <Button tone="ghost" size="xs" onClick={clearAll} icon={<X size={12} aria-hidden />}>
@@ -123,7 +123,7 @@ export function FacetSidebar({ filters, onChange, options, counts }: FacetSideba
         )}
       </div>
 
-      <div className="flex-1 px-1.5 py-2 space-y-2">
+      <div className="flex-1 py-1 space-y-2">
         <FacetGroup
           label="Liveness"
           items={['active', 'stale', 'closed']}
@@ -286,7 +286,7 @@ function FacetGroup({
               <label
                 key={item}
                 className={clsx(
-                  'h-7 flex items-center gap-2 px-2 rounded cursor-pointer hover:bg-bg-elevated transition-colors duration-150',
+                  'h-8 flex items-center gap-2 px-2 rounded cursor-pointer hover:bg-bg-elevated transition-colors duration-150',
                   muted && 'opacity-50',
                 )}
               >

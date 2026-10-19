@@ -49,7 +49,7 @@ const col = createColumnHelper<ScoreEntry>()
 // 804px, so the table fits a ~1100px container (a 1530px window with the app
 // sidebar and the facet rail) without scrolling; narrower windows scroll
 // horizontally with the caret + Listing columns pinned on the left.
-const LISTING_MIN_WIDTH = 300
+const LISTING_MIN_WIDTH = 280
 const CARET_WIDTH = 28
 const RIGHT_ALIGNED = new Set(['score', 'date'])
 
@@ -520,7 +520,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const status = statusByKey.get(livenessKey(entry.company, entry.role))
         return (
           <div className="flex items-center gap-2.5 min-w-0">
-            <CompanyLink company={company} size={28} className="shrink-0" />
+            <CompanyLink company={company} size={32} className="shrink-0" />
             <div className="min-w-0 flex-1">
               <div className="text-[13px] leading-tight font-semibold text-text-1 truncate" title={company}>
                 {company}
@@ -568,7 +568,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       // Wide enough for the band and its cohort size ("Top 25% of 12") on one
       // line — docs § 4 rule 1: a percentile without its n is not publishable
       // output, so the n rides in the cell, not only the tooltip.
-      size: 96,
+      size: 88,
       // Sort by percentile: descending puts the strongest within-cohort
       // standouts first. Rows without a rank (cohort < MIN_PEERS or unscored)
       // sit at -1 so a descending sort sends them to the bottom.
@@ -584,7 +584,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     col.display({
       id: 'fixability',
       header: 'Upgrade path',
-      size: 110,
+      size: 100,
       // Sort by how cheap the upgrade is: near-misses (smallest lift) first,
       // rows with no lever last. `sortingFn` reads the lever lift; a missing
       // lever sorts to the bottom of an ascending sort (Infinity).
@@ -598,7 +598,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     }),
     col.accessor('location', {
       header: 'Location',
-      size: 120,
+      size: 108,
       cell: info => {
         const raw = info.getValue() || ''
         // "City, Country" reads as the city; single-URL multi-city listings
@@ -619,7 +619,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     }),
     col.accessor('archetype', {
       header: 'Archetype',
-      size: 126,
+      size: 112,
       cell: info => {
         const display = canonicalizeArchetype(info.getValue())
         if (!display) return <span className="text-label text-text-4">—</span>
@@ -708,7 +708,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   const lastColumnId = visibleColumns[visibleColumns.length - 1]?.id
 
   return (
-    <div className="h-full overflow-auto relative bg-bg-base">
+    <div className="h-full overflow-auto relative bg-bg-base rounded-lg">
       <table
         className="w-full table-fixed border-separate border-spacing-0 text-left"
         style={{ minWidth: tableMinWidth }}
@@ -736,7 +736,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                     aria-sort={canSort ? ariaSortVal : undefined}
                     title={headerTitle}
                     className={clsx(
-                      'th h-9 bg-bg-base border-b border-border-default sticky top-0',
+                      'th h-10 bg-bg-base border-b border-border-default sticky top-0',
                       cellPad(id),
                       STICKY_LEFT[id] ? clsx(STICKY_LEFT[id], 'z-30') : 'z-20',
                       canSort && 'cursor-pointer hover:text-text-1 transition-colors duration-150',
@@ -796,7 +796,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                       <td
                         key={cell.id}
                         className={clsx(
-                          'h-10 align-middle border-b border-border-default/70 transition-colors duration-150',
+                          'h-[52px] align-middle border-b border-border-default/50 transition-colors duration-150',
                           cellPad(colId),
                           surface,
                           STICKY_LEFT[colId] && clsx(STICKY_LEFT[colId], 'z-10'),

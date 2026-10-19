@@ -50,6 +50,18 @@ test('partitionGaps splits at the apply threshold and preserves order', () => {
   assert.deepEqual(rest.map(g => g.company), ['Umbra Partners', 'Kite Labs'])
 })
 
+test('partitionGaps reads a v2 top role by its verdict, not by Priority', () => {
+  const role = (want: number, ease: number) => ({ role: 'Analyst', score: Math.sqrt(want * ease), want, ease, scoreLabel: `W${want} · E${ease}`, source: 'scouting' as const })
+  const gaps: NetworkGap[] = [
+    { ...gap('Zephyr Group', 6.4), roles: [role(8.2, 5.0)] },  // stretch → act, though Priority < 7
+    { ...gap('Vantor', 7.38), roles: [role(7.9, 6.9)] },       // thin → quiet, though Priority ≥ 7
+    { ...gap('Kite Labs', 7.5), roles: [role(7.5, 7.5)] },     // solid → act
+  ]
+  const { priority, rest } = partitionGaps(gaps)
+  assert.deepEqual(priority.map(g => g.company), ['Zephyr Group', 'Kite Labs'])
+  assert.deepEqual(rest.map(g => g.company), ['Vantor'])
+})
+
 test('partitionGaps handles empty input', () => {
   assert.deepEqual(partitionGaps([]), { priority: [], rest: [] })
 })

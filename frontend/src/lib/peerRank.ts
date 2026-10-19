@@ -14,14 +14,22 @@
 //      (the script ranks raw rows, so a listing re-evaluated 3× counts 3×).
 //   2. Dimension averages are computed over the OTHER peers (excluding this
 //      entity), so "vs peer avg" means "vs the rest of the cohort" rather
-//      than an average that includes the score being explained.
-// Rank / percentile / minPeers / the ±1.5 outlier threshold / the
-// same-company exclusion for comparables all mirror the script.
+//      than an average that includes the score being explained. The same
+//      applies to the Want / Ease peer averages.
+// Rank / percentile / minPeers / the ±1.5 outlier threshold / the rank-label
+// bands / the same-company exclusion for comparables all mirror the script.
+// (Minor: a dimension cell of 0 is read as "not scored" — v2 rubric dims are
+// 1–10, so a 0 can only be a legacy placeholder, never a real judgment.)
 //
 // Scoring v2 (docs/scoring-v2.md §5, §9): peers are ranked on PRIORITY
-// (sqrt(Want × Ease)) — the sort key, never a headline score — and the
-// dimension outliers run over the nine agent-judged v2 dimensions. Blocked
-// rows have no Priority and are excluded from the cohort.
+// (sqrt(Want × Ease)) — the sort key, never a headline score. The listing's
+// Want and its Ease are ALSO each placed among the same peers — two separate
+// claims, never combined (mirrors the script's `want` / `ease` blocks). The
+// dimension outliers run over all ten v2 dimensions, the script's
+// targeting-core DIMENSIONS (salary_adj_city included: it is script-computed,
+// not a lever, but "salary for the city sits 2 below peers" is still a true
+// and useful comparison). A blocked target (eligibility red / verdict
+// blocked) gets no block; blocked rows never enter a cohort.
 //
 // STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.2.
 //
@@ -38,14 +46,15 @@
 import type { ScoreEntry, Verdict } from '@/types'
 import { entityId, parseCities } from '@/lib/entityId'
 import { GATES, confidenceTier, type ConfidenceTier } from '@/lib/scoringStats'
-import { DIM_LABELS, JUDGED_DIMS, priorityOf, verdictOf, type JudgedDimKey } from '@/lib/scoreBands'
+import { DIM_LABELS, V2_DIMS, isBlocked, priorityOf, verdictOf, type V2DimKey } from '@/lib/scoreBands'
 
-/** The nine agent-judged v2 dimensions (Want motivators + City + WLB + the
- *  three Ease dims). salary_adj_city is script-computed, so not compared. */
-export const PEER_DIMS: ReadonlyArray<{ key: JudgedDimKey; label: string }> =
-  JUDGED_DIMS.map(key => ({ key, label: DIM_LABELS[key] }))
+/** All ten v2 dimensions in report row order (motivators, hygiene, Ease) —
+ *  the same set and order as targeting-core's DIMENSIONS, which the script
+ *  iterates for its outliers. */
+export const PEER_DIMS: ReadonlyArray<{ key: V2DimKey; label: string }> =
+  V2_DIMS.map(key => ({ key, label: DIM_LABELS[key] }))
 
-export type PeerDimKey = JudgedDimKey
+export type PeerDimKey = V2DimKey
 
 /** |Δ| from the peer average at which a dimension counts as an outlier —
  *  same threshold as scripts/peer-rank.mjs. Deliberately expressed in RAW
@@ -79,6 +88,27 @@ export interface PeerDimDelta {
   confidence: ConfidenceTier
 }
 
+/** Where the listing's Want (or its Ease) sits among the same peers — the
+ *  twin of the script's `want` / `ease` blocks. One claim per metric; Want
+ *  and Ease are never combined into one placement. */
+export interface PeerPlacement {
+  /** This entity's Want (or Ease). */
+  value: number
+  /** Mean of the OTHER peers' values (2 decimals). */
+  peerAvg: number
+  /** % of the peers carrying this metric (self included) strictly below. */
+  percentile: number
+  /** Same bands and wording as the Priority rank label. */
+  rankLabel: string
+  /** 1 = top. Ties rank below. */
+  rankPosition: number
+  /** Peers carrying this metric, INCLUDING this entity. Can be smaller than
+   *  `nPeers` when a peer row has a Priority but no stored Want / Ease. */
+  peerN: number
+  /** Tier over `peerN` with the peer gate. */
+  confidence: ConfidenceTier
+}
+
 export interface PeerComparable {
   company: string
   role: string
@@ -104,6 +134,11 @@ export interface PeerContext {
   rankLabel: string
   /** This entity's Priority (the rank key, echoed for the renderer). */
   priority: number
+  /** Where this entity's Want sits among the same peers; null when the
+   *  entity (or every peer) has no Want. */
+  want: PeerPlacement | null
+  /** Where this entity's Ease sits among the same peers; null likewise. */
+  ease: PeerPlacement | null
   /** The OTHER peers' Priorities — feeds the distribution strip. */
   peerPriorities: number[]
   /** All comparable dimensions, sorted by delta descending (strongest
@@ -127,12 +162,12 @@ export function primaryArchetype(raw: string | null | undefined): string {
 }
 
 /** Latest row per entity (company + role-canonical + city), so re-evaluated
- *  listings count once. Rows without a Priority (blocked / unscored) are
- *  dropped. */
+ *  listings count once. Blocked rows (eligibility red / verdict blocked) and
+ *  rows without a Priority are dropped — the script's peer filter. */
 export function dedupeLatestPerEntity(rows: ScoreEntry[]): Map<string, ScoreEntry> {
   const byEntity = new Map<string, ScoreEntry>()
   for (const r of rows) {
-    if (priorityOf(r) == null) continue
+    if (isBlocked(r) || priorityOf(r) == null) continue
     const id = entityId(r.company, r.role, parseCities(r.location))
     const prev = byEntity.get(id)
     if (!prev || r.date.localeCompare(prev.date) >= 0) byEntity.set(id, r)
@@ -181,6 +216,26 @@ function rankLabel(percentile: number, position: number, total: number): string 
     : BAND_LABELS[band]
 }
 
+const finite = (v: number | null | undefined): v is number => v != null && Number.isFinite(v)
+
+/** Place `value` among `others` (self counted as the +1), script math. */
+function placement(value: number, others: number[], minPeers: number): PeerPlacement {
+  const peerN = others.length + 1
+  const beats = others.filter(v => v < value).length
+  const percentile = Math.round((beats / peerN) * 100)
+  const rankPosition = peerN - beats
+  const avg = others.reduce((a, b) => a + b, 0) / others.length
+  return {
+    value,
+    peerAvg: Number(avg.toFixed(2)),
+    percentile,
+    rankLabel: rankLabel(percentile, rankPosition, peerN),
+    rankPosition,
+    peerN,
+    confidence: confidenceTier(peerN, minPeers),
+  }
+}
+
 function sameCompany(a: string, b: string): boolean {
   if (!a || !b) return false
   return a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -191,7 +246,8 @@ export function peerContext(
   history: ScoreEntry[],
   { minPeers = MIN_PEERS }: { minPeers?: number } = {},
 ): PeerContext | null {
-  const selfPriority = entry ? priorityOf(entry) : null
+  if (!entry || isBlocked(entry)) return null
+  const selfPriority = priorityOf(entry)
   if (selfPriority == null) return null
   const seg = primaryArchetype(entry.archetype)
   if (!seg) return null
@@ -214,6 +270,15 @@ export function peerContext(
   const beats = others.filter(o => pr(o) < selfPriority).length
   const percentile = Math.round((beats / nPeers) * 100)
   const rankPosition = nPeers - beats
+
+  // Want and Ease, each placed among the same peers — separate claims.
+  const metricPlacement = (metric: 'want' | 'ease'): PeerPlacement | null => {
+    const value = entry[metric]
+    if (!finite(value)) return null
+    const vals = others.map(o => o[metric]).filter(finite)
+    if (vals.length === 0) return null
+    return placement(value, vals, minPeers)
+  }
 
   // Dimension deltas vs the rest of the cohort. Dims missing on this entity
   // (null = not scored) are skipped rather than rendered as a fake gap.
@@ -264,6 +329,8 @@ export function peerContext(
     percentile,
     rankLabel: rankLabel(percentile, rankPosition, nPeers),
     priority: selfPriority,
+    want: metricPlacement('want'),
+    ease: metricPlacement('ease'),
     peerPriorities: others.map(pr),
     deltas,
     comparables,
@@ -309,7 +376,7 @@ export interface PeerRankSummary {
 
 export interface PeerRankIndex {
   /** Rank the entry vs. its live archetype cohort, or null when the entry is
-   *  unscored / archetype-less / the cohort is under minPeers (omit rule —
+   *  blocked / unscored / archetype-less / the cohort is under minPeers (omit rule —
    *  the caller renders nothing, never a placeholder). */
   rankOf(entry: ScoreEntry): PeerRankSummary | null
 }
@@ -354,7 +421,7 @@ export function buildPeerRankIndex(
 
   return {
     rankOf(entry: ScoreEntry): PeerRankSummary | null {
-      const selfP = entry ? priorityOf(entry) : null
+      const selfP = entry && !isBlocked(entry) ? priorityOf(entry) : null
       if (selfP == null) return null
       const seg = primaryArchetype(entry.archetype)
       if (!seg) return null

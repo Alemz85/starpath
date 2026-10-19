@@ -432,7 +432,7 @@ function GeneralTab() {
     label: string
     sub: string
   }> = [
-    { key: 'pipeline',       label: 'Filter to Database',     sub: 'Score-only run that filters pending URLs and writes scoring rows to data/scouting.md. Also editable via the Model chip on the Scouting cockpit.' },
+    { key: 'pipeline',       label: 'Filter to Database',     sub: 'Score-only run that filters pending URLs and writes scoring rows to data/scouting.md. Also editable via the Model chip on the Scout tab.' },
     { key: 'tailorCv',       label: 'Tailor CV',              sub: 'Per-listing CV regeneration on the Applying tab (modes/pdf.md).' },
     { key: 'draftApp',       label: 'Draft Application',      sub: 'Per-listing form-fill draft on the Applying tab (modes/apply.md).' },
     { key: 'interviewPrep',  label: 'Prep Application',       sub: 'Per-listing interview / application brief generation (modes/interview-prep.md).' },
@@ -443,11 +443,10 @@ function GeneralTab() {
   // sub-tabs, CmdK, panels, columns); the code and the underlying data files
   // stay, so flipping back On restores it instantly.
   const FEATURE_ROWS: Array<{ key: FeatureId; label: string; sub: string }> = [
-    { key: 'todayView',       label: 'Today tab',            sub: 'Cross-pipeline "what should I do next?" cockpit. When off, the app opens on Scouting.' },
     { key: 'outreachView',    label: 'Outreach tab',         sub: 'Outreach tracker plus the Network warm-path sub-tab. data/outreach.md and the outreach CLIs keep working while it\'s off.' },
     { key: 'offersView',      label: 'Offers tab',           sub: 'Weighted offer-comparison view. Worth re-enabling when live offers land.' },
     { key: 'scoreTrendTab',   label: 'Score Trend sub-tab',  sub: 'Re-evaluation trajectory panel under Trends (npm run score-trend still has the numbers).' },
-    { key: 'dailyBriefPanel', label: 'Daily brief panel',    sub: 'The daily-brief digest embedded in the Scouting cockpit (npm run brief is unaffected).' },
+    { key: 'dailyBriefPanel', label: 'Daily brief panel',    sub: 'The daily-brief digest embedded in the Scout tab (npm run brief is unaffected).' },
     { key: 'peerContext',     label: 'Peer context',         sub: 'Peers column in the Database table and the peer-rank card in report slide-overs. Scores are untouched.' },
     { key: 'closedLane',      label: 'Closed applications lane', sub: 'The Rejected/Discarded strip on Applying. Closed rows stay visible in Database and Pipeline.' },
   ]

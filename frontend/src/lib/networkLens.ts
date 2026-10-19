@@ -9,6 +9,8 @@
 // needs on top of it. Pure, no I/O — tested with fictional fixtures in
 // networkLens.test.ts.
 
+import { assignVerdict } from './scoreBands'
+
 // ─── The IPC shape (mirrors buildNetworkOverview's return) ───────────────────
 
 /** Outreach-plan decision-ladder plays, most actionable first. */
@@ -38,7 +40,14 @@ export interface NetworkContact {
 
 export interface RoleRef {
   role: string
+  /** Priority (√(Want·Ease)) for a v2 row, the legacy X.X/10 number for an
+   *  old applications.md cell. A sort key only — display `scoreLabel` or the
+   *  Want · Ease pair, never this number. */
   score: number
+  want?: number | null
+  ease?: number | null
+  /** "W8.3 · E5.6" (v2) or "7.4/10" (legacy), '' when unscored. */
+  scoreLabel?: string
   source: 'application' | 'scouting'
 }
 
@@ -82,7 +91,10 @@ export interface CompanyPath {
 export interface NetworkGap {
   company: string
   companyKey: string
+  /** Best role's Priority (sort key only). */
   topScore: number
+  /** Best role's display label ("W8.3 · E5.6"), '' when unscored. */
+  topScoreLabel?: string
   roles: RoleRef[]
 }
 
@@ -135,21 +147,35 @@ export interface NetworkOverview {
 
 // ─── Renderer-side helpers ───────────────────────────────────────────────────
 
-/** The apply threshold from the score-interpretation ladder (modes/_shared.md
- *  § Score interpretation) — a gap only demands a referral hunt when the role
- *  is worth applying to. */
+/** The legacy apply threshold (v1 X.X/10 cells only). A v2 role is worth a
+ *  referral hunt when its verdict is go, stretch or solid (docs/scoring-v2.md
+ *  §4), never by a cut-off on Priority. */
 export const GAP_SCORE_THRESHOLD = 7.0
 
-/** Split coverage gaps into the ones worth acting on (best role at/above the
- *  apply threshold) and the quiet rest. Order within each half is preserved
- *  (the core already ranks by topScore desc). */
+const APPLY_WORTHY = new Set(['go', 'stretch', 'solid'])
+
+/** Is the gap's best role worth applying to? v2 roles by verdict (promoted
+ *  roles are never blocked, so eligibility is green); legacy cells by the
+ *  old threshold. */
+export function gapIsApplyWorthy(g: NetworkGap, threshold: number = GAP_SCORE_THRESHOLD): boolean {
+  const top = g.roles[0]
+  if (top && top.want != null && top.ease != null) {
+    const v = assignVerdict({ want: top.want, ease: top.ease, eligibility: 'green' })
+    return v != null && APPLY_WORTHY.has(v.verdict)
+  }
+  return g.topScore >= threshold
+}
+
+/** Split coverage gaps into the ones worth acting on (best role apply-worthy)
+ *  and the quiet rest. Order within each half is preserved (the core already
+ *  ranks by topScore desc). */
 export function partitionGaps(
   gaps: NetworkGap[],
   threshold: number = GAP_SCORE_THRESHOLD,
 ): { priority: NetworkGap[]; rest: NetworkGap[] } {
   const priority: NetworkGap[] = []
   const rest: NetworkGap[] = []
-  for (const g of gaps) (g.topScore >= threshold ? priority : rest).push(g)
+  for (const g of gaps) (gapIsApplyWorthy(g, threshold) ? priority : rest).push(g)
   return { priority, rest }
 }
 

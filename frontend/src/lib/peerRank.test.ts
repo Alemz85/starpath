@@ -183,7 +183,28 @@ test('dims the entry has not scored (null) are skipped, not treated as gaps', ()
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
   assert.deepEqual(ctx.deltas.map(d => d.dim), ['skills_match'])
-  assert.ok(PEER_DIMS.length === 9)   // the nine judged v2 dims
+})
+
+test('outliers run over all ten v2 dims, the script\'s DIMENSIONS, salary_adj_city included', () => {
+  assert.deepEqual(PEER_DIMS.map(d => d.key), [
+    'growth_mobility', 'optionality_exit', 'brand_value', 'role_content',
+    'best_cities', 'salary_adj_city', 'work_life_balance',
+    'skills_match', 'experience_bar', 'competition',
+  ])
+  const rows = cohort('Ops', [
+    { company: 'A', priority: 7, salary_adj_city: 3 },
+    { company: 'B', priority: 6, salary_adj_city: 6 },
+    { company: 'C', priority: 6, salary_adj_city: 7 },
+    { company: 'D', priority: 6, salary_adj_city: 6 },
+    { company: 'E', priority: 6, salary_adj_city: 5 },
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx)
+  const sal = ctx.deltas.find(d => d.dim === 'salary_adj_city')
+  assert.ok(sal)
+  assert.equal(sal.label, 'Salary Adj for City')
+  assert.equal(sal.delta, -3)
+  assert.equal(sal.outlier, true)
 })
 
 test('sub-outlier deltas are reported but not flagged', () => {
@@ -218,6 +239,102 @@ test('comparables exclude the same company, sort by closeness, cap at 3', () => 
   assert.equal(ctx.comparables.length, 3)
   assert.deepEqual(ctx.comparables.map(c => c.company), ['E', 'B', 'C'])
   assert.ok(ctx.comparables.every(c => c.company !== 'Self'))
+})
+
+test('comparables carry Want, Ease, verdict and Priority', () => {
+  const rows = cohort('Ops', [
+    { company: 'Self', priority: 7.0, want: 7.5, ease: 6.5 },
+    { company: 'B', priority: 6.9, want: 8.1, ease: 5.9, verdict: 'stretch' },
+    { company: 'C', priority: 5.0, want: 5.0, ease: 5.0 },
+    { company: 'D', priority: 4.5, want: 4.5, ease: 4.5 },
+    { company: 'E', priority: 4.0, want: 4.0, ease: 4.0 },
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx)
+  const [b] = ctx.comparables
+  assert.equal(b.company, 'B')
+  assert.equal(b.want, 8.1)
+  assert.equal(b.ease, 5.9)
+  assert.equal(b.verdict, 'stretch')
+  assert.equal(b.priority, 6.9)
+})
+
+// ─── Want / Ease placement ────────────────────────────────────────────────────
+
+test('Want and Ease are each placed among the same peers, as separate claims', () => {
+  const rows = cohort('Ops', [
+    { company: 'Self', priority: 7, want: 9.0, ease: 5.0 },
+    { company: 'B', priority: 7, want: 6.0, ease: 8.0 },
+    { company: 'C', priority: 7, want: 7.0, ease: 7.0 },
+    { company: 'D', priority: 7, want: 8.0, ease: 6.0 },
+    { company: 'E', priority: 7, want: 5.0, ease: 9.0 },
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx && ctx.want && ctx.ease)
+  // Want beats all 4 others → 80th percentile of 5, #1, top quartile.
+  assert.equal(ctx.want.value, 9)
+  assert.equal(ctx.want.percentile, 80)
+  assert.equal(ctx.want.rankPosition, 1)
+  assert.equal(ctx.want.rankLabel, 'top quartile')
+  assert.equal(ctx.want.peerAvg, 6.5)                 // OTHER peers only
+  assert.equal(ctx.want.peerN, 5)
+  assert.equal(ctx.want.confidence, 'low')
+  // Ease beats nobody → bottom half, last.
+  assert.equal(ctx.ease.value, 5)
+  assert.equal(ctx.ease.percentile, 0)
+  assert.equal(ctx.ease.rankPosition, 5)
+  assert.equal(ctx.ease.rankLabel, 'bottom half (#5 of 5)')
+  assert.equal(ctx.ease.peerAvg, 7.5)
+})
+
+test('Want / Ease placement ties rank below, like the Priority rank', () => {
+  const rows = cohort('Ops', [
+    { company: 'Self', priority: 7, want: 7.0, ease: 7.0 },
+    { company: 'B', priority: 7, want: 7.0, ease: 6.0 },
+    { company: 'C', priority: 7, want: 6.0, ease: 6.0 },
+    { company: 'D', priority: 7, want: 6.0, ease: 6.0 },
+    { company: 'E', priority: 7, want: 6.0, ease: 6.0 },
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx && ctx.want && ctx.ease)
+  assert.equal(ctx.want.rankPosition, 2)               // tie with B ranks below
+  assert.equal(ctx.want.percentile, 60)
+  assert.equal(ctx.want.rankLabel, 'top half')
+  assert.equal(ctx.ease.rankPosition, 1)
+})
+
+test('a Want / Ease placement carries its own n when peers are sparser', () => {
+  // 12 entities; only 6 of the 11 others carry a stored Want.
+  const rows = cohort('Ops', [
+    { company: 'Self', priority: 7, want: 8, ease: 6 },
+    ...Array.from({ length: 11 }, (_, i) => ({
+      company: `P${i}`,
+      priority: 6,
+      ease: 6,
+      ...(i < 6 ? { want: 6 } : {}),
+    })),
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx && ctx.want && ctx.ease)
+  assert.equal(ctx.nPeers, 12)
+  assert.equal(ctx.want.peerN, 7)                      // 6 others + self
+  assert.equal(ctx.want.confidence, 'low')
+  assert.equal(ctx.ease.peerN, 12)
+  assert.equal(ctx.ease.confidence, 'moderate')
+})
+
+test('Want / Ease placement is null when the entry or every peer lacks it', () => {
+  const rows = cohort('Ops', [
+    { company: 'Self', priority: 7, want: 8 },           // no Ease on self
+    { company: 'B', priority: 6, ease: 6 },              // no Want on peers
+    { company: 'C', priority: 6, ease: 6 },
+    { company: 'D', priority: 6, ease: 6 },
+    { company: 'E', priority: 6, ease: 6 },
+  ])
+  const ctx = peerContext(rows[0], rows)
+  assert.ok(ctx)
+  assert.equal(ctx.want, null)
+  assert.equal(ctx.ease, null)
 })
 
 // ─── peerBand / compactRankLabel ──────────────────────────────────────────────
@@ -494,4 +611,21 @@ test('blocked (red) rows have no Priority and never join a cohort', () => {
   assert.equal(peerContext(rows[0], [...rows, blocked]), null)
   assert.equal(peerContext(blocked, [...rows, blocked]), null)
   assert.equal(buildPeerRankIndex([...rows, blocked]).rankOf(blocked), null)
+})
+
+test('a stored blocked verdict blocks too, even with a stale Priority cell', () => {
+  const rows = cohort('Ops', [
+    { company: 'A', priority: 7 }, { company: 'B', priority: 6 },
+    { company: 'C', priority: 5 }, { company: 'D', priority: 8 }, { company: 'E', priority: 7.5 },
+  ])
+  // Eligibility not red, but the verdict says blocked — the script's
+  // normalizeTarget treats either as blocked.
+  const blocked = makeScoreEntry({ archetype: 'Ops', company: 'Z', role: 'Blocked', location: 'Berlin', priority: 9, verdict: 'blocked' })
+  assert.equal(peerContext(blocked, [...rows, blocked]), null)
+  assert.equal(buildPeerRankIndex([...rows, blocked]).rankOf(blocked), null)
+  // …and it never joins anyone else's cohort.
+  const ctx = peerContext(rows[0], [...rows, blocked])
+  assert.ok(ctx)
+  assert.equal(ctx.nPeers, 5)
+  assertRankParity(rows[0], [...rows, blocked])
 })

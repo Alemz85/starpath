@@ -110,7 +110,7 @@ The Scouting cockpit, Applying board, Today and Outreach lose their galaxy-wash 
 
 Import from `@/components/ui`.
 
-- **Button** `tone` primary | secondary | ghost | tinted | danger | stop, `size` xs | sm | md | lg, `icon`, `trailing`, `iconOnly`, `loading`. Primary = the one main action in view. Secondary = everything else that commits. Ghost = low-emphasis and toolbar actions. Tinted = accent-wash for "AI run" actions (Generate, Analyze, Run filtered scan). Stop = a running action that can be killed. Raw elements may use the CSS classes `.btn .btn-primary …`.
+- **Button** `tone` primary | secondary | ghost | tinted | danger | stop, `size` xs | sm | md | lg, `icon`, `trailing`, `iconOnly`, `loading`, `pill`. A page-level action row (Scouting's scan buttons) uses `size="lg" pill`; everything inside panels, tables and dialogs stays on the 8px shape. Primary = the one main action in view. Secondary = everything else that commits. Ghost = low-emphasis and toolbar actions. Tinted = accent-wash for "AI run" actions (Generate, Analyze, Run filtered scan). Stop = a running action that can be killed. Raw elements may use the CSS classes `.btn .btn-primary …`.
 - **Chip** `tone` neutral | accent | success | warning | danger | muted | plain, `size`. Always pill-shaped, sentence case. **TierChip** for tiers, **StatusChip** for lifecycle statuses.
 - **PageHeader** title · meta · actions.
 - **StatStrip / Stat** value · label · hint · tone · dot · title. The strip is a card with the galaxy wash by default; `flat` for strips inside panels.
@@ -127,7 +127,7 @@ Every interactive element has hover, focus-visible, disabled and (where it appli
 
 ## 8. Tables and lists
 
-Header cells use `.th` (12 / 500 / `text-3`, sentence case) on the table surface with a bottom hairline, no fill. Rows are 36–40px with a `border-default/70` hairline between them, hover `bg-bg-elevated`, selected `bg-accent-soft`. The table fits its container; when it cannot, the first column is sticky and the rest scroll. Numbers are right-aligned and tabular. Secondary facts (peer rank, upgrade lever, archetype) are plain `text-3` text, not chips, unless they carry a state.
+A full-page table lives in a `card` on the page wash (the Database), with its filter rail beside it on the wash rather than in a bordered sidebar. Header cells use `.th` (12 / 500 / `text-3`, sentence case) on the table surface with a bottom hairline, no fill. Rows are 44–52px (52 when a row carries two text lines and a logo) with a `border-default/50` hairline between them, hover `bg-bg-elevated`, selected `bg-accent-soft`. The table fits its container; when it cannot, the first column is sticky and the rest scroll. Numbers are right-aligned and tabular. Secondary facts (peer rank, upgrade lever, archetype) are plain `text-3` text, not chips, unless they carry a state.
 
 ## 9. Motion
 

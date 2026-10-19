@@ -118,7 +118,7 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
         aria-haspopup="listbox"
         aria-activedescendant={activeIdx >= 0 ? `token-suggestion-${activeIdx}` : undefined}
         role="combobox"
-        className="input pl-8 pr-9"
+        className="input h-9 rounded-md pl-9 pr-9 text-[13.5px]"
         spellCheck={false}
       />
       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">

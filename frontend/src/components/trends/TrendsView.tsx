@@ -148,13 +148,13 @@ export function TrendsView() {
   const distribution = useMemo(() => buildDistribution(filtered), [filtered])
 
   // Dimension profile — averages each scoring dimension across the corpus and,
-  // crucially, contrasts the apply-worthy subset (verdict Go / Stretch / Solid) against all
+  // crucially, contrasts the actionable subset (verdict Go / Stretch / Solid) against all
   // scored rows so the user can see which dimensions actually *drive* a high
   // score vs which are flat noise for targeting. Pure derivation in lib/.
   const profile = useMemo(() => buildDimensionProfile(filtered), [filtered])
 
   // Targeting momentum — splits the windowed corpus chronologically into an
-  // earlier vs recent half and contrasts their quality (median Want and Ease, apply
+  // earlier vs later half and contrasts their quality (median Want and Ease, apply
   // rate, per-dimension means). Answers "is the stuff I evaluate getting
   // better-fit over time?" — the trend *direction* the noisy daily line and the
   // static snapshots above can't show. Pure derivation in lib/; honest about
@@ -164,7 +164,7 @@ export function TrendsView() {
   // Archetype mix — the only panel about the *composition* of the corpus rather
   // than its quality. Buckets every scored row by canonical archetype to show
   // where evaluation effort is going (share of attention + a concentration cue),
-  // and contrasts the earlier vs recent half so a drift in focus reads as a
+  // and contrasts the earlier vs later half so a drift in focus reads as a
   // signed share-point shift. Canonicalization is injected so the lib stays
   // React-free; honest about small samples (suppresses the shift under the floor).
   const archetypeMix = useMemo(
@@ -192,15 +192,18 @@ export function TrendsView() {
   // Title-bar caption for the Score trend tab. Docs § 4 rule 1
   // (docs/scoring-statistical-design.md): the caption states the samples the
   // panel below rests on, and — when anything has been re-evaluated — how many
-  // of those moves actually cleared their metric's noise floor (Want 0.30,
-  // Ease 0.35). No direction is claimed up here.
-  const scoreTrendCaption = tab === 'scoretrend' && loaded && scoreTrendMeta && !scoreTrendMeta.error ? (
+  // listings moved past a noise floor on Want or Ease (each against its own
+  // floor, read from the analysis contract). No direction is claimed up here.
+  const scoreTrendContract = scoreTrendMeta?.metadata?.contract
+  const scoreTrendReevaluated = scoreTrendMeta?.trajectorySummary?.reevaluated ?? 0
+  const scoreTrendPastFloor = (scoreTrendMeta?.listingTrajectories ?? [])
+    .filter(t => t.want.detectable || t.ease.detectable).length
+  const scoreTrendCaption = tab === 'scoretrend' && loaded && scoreTrendMeta && !scoreTrendMeta.error && scoreTrendContract ? (
     <span
-      title={`Movement is counted against the Want ${scoreTrendMeta.metadata?.contract.noiseFloors.want ?? 0.30} / Ease ${scoreTrendMeta.metadata?.contract.noiseFloors.ease ?? 0.35} noise floors (${scoreTrendMeta.metadata?.contract.doc ?? 'docs/scoring-statistical-design.md'}); a corpus verdict needs ${scoreTrendMeta.metadata?.contract.minPerWindowForVerdict ?? 10} evaluations per calendar window.`}
+      title={`Movement is counted against the Want ${scoreTrendContract.noiseFloors.want} and Ease ${scoreTrendContract.noiseFloors.ease} noise floors (${scoreTrendContract.doc}); a corpus verdict needs ${scoreTrendContract.minPerWindowForVerdict} scored evaluations per calendar window.`}
     >
-      {scoreTrendMeta.metadata?.evaluated ?? 0} evaluations · {scoreTrendMeta.trajectorySummary?.reevaluated ?? 0} re-evaluated
-      {(scoreTrendMeta.trajectorySummary?.reevaluated ?? 0) > 0 &&
-        ` · ${scoreTrendMeta.trajectorySummary?.detectable ?? 0} past the noise floor`}
+      {scoreTrendMeta.metadata?.evaluated ?? 0} evaluations · {scoreTrendReevaluated} re-evaluated
+      {scoreTrendReevaluated > 0 && ` · ${scoreTrendPastFloor} past a noise floor`}
     </span>
   ) : null
 
@@ -342,7 +345,7 @@ export function TrendsView() {
                   neither the time-series (averages) nor the top-X panels (best
                   performers) reveal. Bands map 1:1 to the scoring-v2 verdicts
                   (docs/scoring-v2.md §4), and an accent bracket marks the
-                  apply-worthy verdicts (Go / Stretch / Solid) so the headline
+                  actionable verdicts (Go / Stretch / Solid) so the headline
                   read is "what fraction of what I evaluate is worth applying to". */}
               {loaded && filtered.length > 0 && (
                 <ScoreDistributionCard dist={distribution} />
@@ -350,14 +353,14 @@ export function TrendsView() {
 
               {/* Dimension profile — the only panel that explains *why* a role
                   scores well for this user. Ranks the scoring dimensions by how
-                  much they separate an apply-worthy role (Go / Stretch / Solid) from the
+                  much they separate an actionable role (Go / Stretch / Solid) from the
                   full corpus: chase roles strong on the high-delta dimensions. */}
               {loaded && profile.scoredCount > 0 && (
                 <DimensionProfileCard profile={profile} />
               )}
 
               {/* Targeting momentum — the only panel about the *direction* of
-                  pipeline quality. Splits the window into an earlier vs recent
+                  pipeline quality. Splits the window into an earlier vs later
                   half; needs at least two scored rows to split, and the card
                   falls back to a hint when the halves are too thin (or share
                   one date) for a verdict. */}
@@ -415,7 +418,7 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
     <Panel
       title="Verdict distribution"
       meta={<>
-        <span className="text-accent-text font-medium">{applyPct}%</span> apply-worthy
+        <span className="text-accent-text font-medium">{applyPct}%</span> actionable
         {scored > 0 && ` · median Want ${medianWant.toFixed(1)} · Ease ${medianEase.toFixed(1)}`}
         {total > 0 && ` · ${eligibility.red} blocked · ${eligibility.amber} check first`}
       </>}
@@ -455,13 +458,13 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
         ))}
       </div>
 
-      {/* Apply-worthy bracket — spans the three apply-worthy verdicts (the
+      {/* Actionable bracket — spans the three actionable verdicts (the
           first 3 of 7 equal columns: Go / Stretch / Solid). The 3:4 flex split
           lines the accent rule up under those columns. */}
       <div className="flex gap-2.5 mt-1.5">
         <div className="flex-[3] flex items-center gap-1.5">
           <span className="h-px flex-1 bg-accent/30" />
-          <span className="text-micro text-accent-text whitespace-nowrap">Apply-worthy</span>
+          <span className="text-micro text-accent-text whitespace-nowrap">Actionable</span>
           <span className="h-px flex-1 bg-accent/30" />
         </div>
         <div className="flex-[4]" aria-hidden />
@@ -474,8 +477,8 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
 //
 // Each row is a scoring dimension. The grey track shows the full-corpus average
 // (the baseline "what every role offers"); the violet inner bar shows the
-// apply-worthy subset's average for the same dimension. When the violet bar
-// overshoots the grey one, that dimension *lifts* a role into apply-worthy
+// actionable subset's average for the same dimension. When the violet bar
+// overshoots the grey one, that dimension *lifts* a role into actionable
 // territory — a positive delta, in violet on the right. A negative delta
 // (winners score lower here) reads in slate: it's a tradeoff the user accepts.
 // Both bars are on the same 0–10 scale so the eye reads magnitude directly.
@@ -487,14 +490,14 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
       title="What drives your fit"
       meta={lowSignal
         ? `${scoredCount} scored · ranked by average`
-        : <><span className="text-accent-text font-medium">{winnerCount}</span> apply-worthy of {scoredCount}</>}
+        : <><span className="text-accent-text font-medium">{winnerCount}</span> actionable of {scoredCount}</>}
     >
       {/* Legend — names the two bars so the magnitudes are unambiguous. The
           delta column is only meaningful with enough winners, so its legend
           entry hides under the low-signal fallback. */}
       <div className="flex items-center gap-4 mb-3">
         <LegendDot color="#CED0D4" label="All scored" />
-        {!lowSignal && <LegendDot color="#7C5CFF" label="Apply-worthy (Go / Stretch / Solid)" />}
+        {!lowSignal && <LegendDot color="#7C5CFF" label="Actionable (Go / Stretch / Solid)" />}
       </div>
 
       <ul className="flex flex-col gap-2.5">
@@ -513,7 +516,7 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
                   {showWinners && <DeltaBadge delta={d.delta} />}
                 </span>
               </div>
-              {/* Track = all-scored average. Overlaid inner bar = apply-worthy
+              {/* Track = all-scored average. Overlaid inner bar = actionable
                   average, drawn on the same 0–10 scale so the gap is the delta. */}
               <div className="relative h-2 rounded-pill bg-bg-elevated overflow-hidden">
                 <div
@@ -537,7 +540,7 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
 
       {lowSignal && (
         <p className="text-label text-text-3 mt-3">
-          Evaluate a few more apply-worthy roles to compare what separates a strong fit from the rest.
+          Evaluate a few more actionable roles (Go / Stretch / Solid) to compare what separates a strong fit from the rest.
         </p>
       )}
     </Panel>
@@ -553,7 +556,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   )
 }
 
-// Signed delta — violet for "this dimension lifts a role into apply-worthy
+// Signed delta — violet for "this dimension lifts a role into actionable
 // territory", slate for "winners are weaker here (a tradeoff)". Near-zero
 // deltas read as flat so they don't masquerade as a signal.
 function DeltaBadge({ delta }: { delta: number }) {
@@ -564,7 +567,7 @@ function DeltaBadge({ delta }: { delta: number }) {
     <span
       className="text-micro font-medium tabular-nums"
       style={{ color }}
-      title="Apply-worthy average minus the full-corpus average for this dimension"
+      title="Actionable (Go / Stretch / Solid) average minus the full-corpus average for this dimension"
     >
       {flat ? '±0.0' : `${sign}${Math.abs(delta).toFixed(1)}`}
     </span>
@@ -573,7 +576,7 @@ function DeltaBadge({ delta }: { delta: number }) {
 
 // ─── Targeting momentum card ─────────────────────────────────────────────────
 //
-// Two stat blocks (earlier half · recent half) sit either side of two verdict
+// Two stat blocks (earlier half · later half) sit either side of two verdict
 // chips, one per axis, so the headline reads at a glance: "median Want
 // 6.2 → 7.4, improving; Ease steady". Want and Ease each carry their own
 // direction against their own deadband (docs/scoring-v2.md §9). The
@@ -584,11 +587,11 @@ function DeltaBadge({ delta }: { delta: number }) {
 // per-half floor (or on a same-day corpus) the whole verdict layer collapses to
 // a single honest hint instead of asserting a trend on noise.
 
-// `arrow` is the glyph in the chip; `color` tints the recent-median figures.
-const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string; tone: ChipTone; color: string }> = {
-  improving: { label: 'Improving', arrow: '↑', tone: 'success', color: '#007D1E' },
-  declining: { label: 'Declining', arrow: '↓', tone: 'danger',  color: '#C80A28' },
-  steady:    { label: 'Steady',    arrow: '→', tone: 'muted',   color: '#050505' },
+// `arrow` is the glyph in the chip; the halves' numbers take the shared WantEase colours.
+const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string; tone: ChipTone }> = {
+  improving: { label: 'Improving', arrow: '↑', tone: 'success' },
+  declining: { label: 'Declining', arrow: '↓', tone: 'danger' },
+  steady:    { label: 'Steady',    arrow: '→', tone: 'muted' },
 }
 
 const signedTenths = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(n).toFixed(1)}`
@@ -608,21 +611,21 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
     <Panel
       title="Targeting momentum"
       meta={lowSignal
-        ? `Recent vs earlier · ${momentum.scoredCount} scored`
-        : `${earlier.count} earlier · ${recent.count} recent`}
+        ? `Earlier vs later · ${momentum.scoredCount} scored`
+        : `${earlier.count} earlier · ${recent.count} later`}
     >
       {lowSignal ? (
         <p className="text-label text-text-3">
           {sameDay
-            ? `All ${momentum.scoredCount} scored evaluations are from ${fmtDay(earlier.dateFrom)}, so there is no earlier and recent half to compare yet. Evaluate on a few more days and this will show whether your recent picks score higher than your earlier ones.`
-            : 'Not enough scored evaluations on each side of the timeline to read a trend yet. Evaluate a few more and this will show whether your recent picks are scoring higher than your earlier ones.'}
+            ? `All ${momentum.scoredCount} scored evaluations are from ${fmtDay(earlier.dateFrom)}, so there is no earlier and later half to compare yet. Evaluate on a few more days and this will show whether your later picks score higher than your earlier ones.`
+            : 'Not enough scored evaluations on each side of the timeline to read a trend yet. Evaluate a few more and this will show whether your later picks are scoring higher than your earlier ones.'}
         </p>
       ) : (
         <>
-          {/* Earlier → verdict → recent. The two halves use the same metric
+          {/* Earlier → direction → later. The two halves use the same metric
               rows; the centre chip carries the direction. */}
           <div className="flex items-stretch gap-3">
-            <HalfBlock title="Earlier" want={earlier.medianWant} ease={earlier.medianEase} from={earlier.dateFrom} to={earlier.dateTo} muted />
+            <HalfBlock title="Earlier" want={earlier.medianWant} ease={earlier.medianEase} from={earlier.dateFrom} to={earlier.dateTo} />
             <div className="flex flex-col items-center justify-center gap-2.5 shrink-0 px-1">
               {([['Want', wantVerdict, wantMedianDelta], ['Ease', easeVerdict, easeMedianDelta]] as const).map(([axis, v, d]) => (
                 <span key={axis} className="flex flex-col items-center gap-1">
@@ -635,12 +638,12 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
                 </span>
               ))}
             </div>
-            <HalfBlock title="Recent" want={recent.medianWant} ease={recent.medianEase} from={recent.dateFrom} to={recent.dateTo} wantAccent={wantVerdict.color} easeAccent={easeVerdict.color} />
+            <HalfBlock title="Later" want={recent.medianWant} ease={recent.medianEase} from={recent.dateFrom} to={recent.dateTo} />
           </div>
 
-          {/* Apply-rate movement — the apply-worthy verdict share, earlier→recent. */}
+          {/* Actionable share movement (Go / Stretch / Solid), earlier → later. */}
           <div className="flex items-baseline justify-between gap-3 mt-3 pt-2.5 border-t border-border-default text-label">
-            <span className="text-text-3">Apply-worthy share (Go / Stretch / Solid)</span>
+            <span className="text-text-3">Actionable share (Go / Stretch / Solid)</span>
             <span className="tabular-nums">
               <span className="text-text-4">{earlier.applyPct}%</span>
               <span className="text-text-4 px-1">→</span>
@@ -682,26 +685,18 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
 }
 
 // One half of the momentum comparison: median Want and Ease (the headline
-// pair) with the date span beneath. The recent block tints each median to its
-// axis's verdict colour; the earlier block stays muted so the eye reads
-// left→right as "from → to".
+// pair, via the shared WantEase so each number takes its own ladder colour)
+// with the date span beneath. Direction lives in the centre chips only.
 function HalfBlock({
-  title, want, ease, from, to, muted, wantAccent, easeAccent,
+  title, want, ease, from, to,
 }: {
   title: string; want: number; ease: number; from: string; to: string
-  muted?: boolean; wantAccent?: string; easeAccent?: string
 }) {
   const span = from && to ? (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`) : '—'
-  const tint = (accent?: string) => (muted ? '#5D6C7B' : (accent ?? '#050505'))
   return (
     <div className="flex-1 min-w-0 rounded-lg bg-bg-elevated px-3 py-2.5">
       <div className="label mb-1.5">{title} · median</div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-label text-text-4">Want</span>
-        <span className="text-stat tabular-nums" style={{ color: tint(wantAccent) }}>{want.toFixed(1)}</span>
-        <span className="text-label text-text-4 ml-2">Ease</span>
-        <span className="text-stat tabular-nums" style={{ color: tint(easeAccent) }}>{ease.toFixed(1)}</span>
-      </div>
+      <WantEase want={want} ease={ease} />
       <div className="text-label tabular-nums text-text-4 mt-1.5 truncate" title={span}>{span}</div>
     </div>
   )
@@ -758,7 +753,7 @@ function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
         <span>Archetype</span>
         <span className="flex items-baseline gap-2 shrink-0">
           {!lowSignal && (
-            <span className="w-8 text-right" title="Recent-half minus earlier-half share of attention (percentage points)">Shift</span>
+            <span className="w-8 text-right" title="Later-half minus earlier-half share of attention (percentage points)">Shift</span>
           )}
           <span className="w-20 text-right" title="Average Want · Ease for this archetype">Want · Ease</span>
           <span className="w-9 text-right" title="Share of scored evaluations">Share</span>
@@ -807,14 +802,14 @@ function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
           ? <>+{rest.length} more archetype{rest.length === 1 ? '' : 's'} · {restCount} eval{restCount === 1 ? '' : 's'}</>
           : lowSignal
             ? 'Shift hidden: too few evaluations on each side of the timeline yet'
-            : 'Shift is the recent minus earlier share of attention'}
+            : 'Shift is the later minus earlier share of attention'}
       </p>
     </Panel>
   )
 }
 
 // Signed share-of-attention shift for an archetype, in percentage points
-// (recent half minus earlier half). Violet when an archetype is gaining focus,
+// (later half minus earlier half). Violet when an archetype is gaining focus,
 // slate when it's fading; near-zero reads as flat so a stable bucket doesn't
 // masquerade as a mover. Mirrors DeltaBadge so the two cards rhyme.
 function ShareShiftBadge({ shift }: { shift: number }) {
@@ -825,7 +820,7 @@ function ShareShiftBadge({ shift }: { shift: number }) {
     <span
       className="text-micro font-medium tabular-nums"
       style={{ color }}
-      title="Recent-half minus earlier-half share of attention (percentage points)"
+      title="Later-half minus earlier-half share of attention (percentage points)"
     >
       {flat ? '±0' : `${sign}${Math.abs(shift)}`}
     </span>

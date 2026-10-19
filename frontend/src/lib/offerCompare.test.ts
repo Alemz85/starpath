@@ -264,4 +264,6 @@ test('every factor has a label and help string', () => {
     assert.ok(FACTOR_HELP[f] && FACTOR_HELP[f].length > 0)
   }
   assert.equal(FACTORS.length, 6)
+  // Same label as scripts/lib/offer-compare.mjs: the fit factor is Want only.
+  assert.equal(FACTOR_LABELS.fit, 'Fit (Want)')
 })

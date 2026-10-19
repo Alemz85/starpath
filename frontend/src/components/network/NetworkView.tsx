@@ -7,11 +7,12 @@ import {
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { CompanyLink } from '@/components/shared/CompanyLink'
-import { Chip, Panel, ScoreNumber, type ChipTone } from '@/components/ui'
+import { Chip, Panel, type ChipTone } from '@/components/ui'
+import { WantEase } from '@/components/shared/WantEase'
 import {
   buildRosterRows, degreeLabel, isNetworkEmpty, partitionGaps,
   type CompanyPath, type NetworkGap, type NetworkOverview, type NetworkThread,
-  type PlayId, type RosterRow, type ThreadAction,
+  type PlayId, type RoleRef, type RosterRow, type ThreadAction,
 } from '@/lib/networkLens'
 
 // ─── Vocabulary → presentation ────────────────────────────────────────────────
@@ -163,7 +164,7 @@ export function NetworkPanel({ overview, ready }: {
               </div>
               {gapSplit.rest.length > 0 && (
                 <p className="text-label text-text-4 pt-2">
-                  +{gapSplit.rest.length} more below the 7.0 apply threshold
+                  +{gapSplit.rest.length} more whose best role is not a Go, Stretch or Solid
                 </p>
               )}
             </Panel>
@@ -244,7 +245,7 @@ function CompanyRow({ c }: { c: CompanyPath }) {
         {c.topRole && (
           <span className="text-label text-text-3">
             {c.topRole.role}
-            <ScoreNumber value={c.topRole.score} size="sm" className="ml-1.5" />
+            <RoleScore r={c.topRole} />
           </span>
         )}
         <MetaChip meta={meta} />
@@ -303,6 +304,17 @@ function ThreadRow({ t }: { t: NetworkThread }) {
   )
 }
 
+// A role's scores: the Want · Ease pair for a v2 row, the legacy label
+// ("7.4/10") as quiet text for an old applications.md cell. Never Priority,
+// which is only the order the core ranked these rows in.
+function RoleScore({ r }: { r: RoleRef }) {
+  if (r.want != null && r.ease != null) {
+    return <WantEase want={r.want} ease={r.ease} size="sm" className="ml-1.5" />
+  }
+  if (r.scoreLabel) return <span className="ml-1.5 text-text-4">{r.scoreLabel}</span>
+  return null
+}
+
 function GapRow({ g }: { g: NetworkGap }) {
   const top = g.roles[0]
   return (
@@ -311,7 +323,7 @@ function GapRow({ g }: { g: NetworkGap }) {
       {top && (
         <span className="text-label text-text-3">
           {top.role}
-          <ScoreNumber value={g.topScore} size="sm" className="ml-1.5" />
+          <RoleScore r={top} />
         </span>
       )}
       <span className="text-label text-text-4">No contact mapped</span>

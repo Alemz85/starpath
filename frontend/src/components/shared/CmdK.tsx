@@ -98,8 +98,7 @@ export function CmdK() {
                   Network → Outreach › Network, Score Trend → Trends › Score
                   Trend. Configuration's editor sections live under Settings. */}
               {([
-                { view: 'today',    label: 'Today',    icon: Sun        },
-                { view: 'scouting', label: 'Scouting', icon: Map        },
+                { view: 'scouting', label: 'Scout',    icon: Map        },
                 { view: 'applying', label: 'Applying', icon: Briefcase  },
                 { view: 'outreach', label: 'Outreach', icon: Users      },
                 { view: 'offers',   label: 'Offers',   icon: Scale      },

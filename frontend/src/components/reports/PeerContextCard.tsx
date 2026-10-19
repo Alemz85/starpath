@@ -4,7 +4,7 @@ import { ArrowUpRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NEUTRAL_SCORE_COLOR } from '@/lib/tier'
 import { WantEase } from '@/components/shared/WantEase'
-import type { PeerContext } from '@/lib/peerRank'
+import type { PeerContext, PeerPlacement } from '@/lib/peerRank'
 import { type ConfidenceTier } from '@/lib/scoringStats'
 import { Chip, SectionHeading } from '@/components/ui'
 
@@ -14,7 +14,9 @@ import { Chip, SectionHeading } from '@/components/ui'
 //
 // The distribution strip ranks on Priority (√(Want × Ease), the v2 sort key).
 // Priority is a rank axis here, never a headline score, so the strip is drawn
-// in neutral slate and comparables show their Want · Ease pair.
+// in neutral slate and comparables show their Want · Ease pair. Under the
+// rank, a quiet line says where the role's Want and its Ease each sit among
+// the same peers: two separate placements, never folded into one.
 //
 // Statistical contract (docs/scoring-statistical-design.md § 3.2 + § 4): every
 // claim prints the n it rests on and its confidence tier; at `low` confidence
@@ -52,6 +54,7 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
               <span className="text-text-3"> · {peer.rankLabel}</span>
             </div>
           </div>
+          <PlacementLine want={peer.want} ease={peer.ease} nPeers={peer.nPeers} />
           <DistributionStrip priority={peer.priority} peerPriorities={peer.peerPriorities} selfColor={selfColor} />
           {peer.confidence === 'low' && (
             <p className="mt-1.5 text-label text-text-4 leading-snug">
@@ -121,6 +124,34 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
         )}
       </div>
     </section>
+  )
+}
+
+// "Want top quartile · Ease bottom half (#7 of 12)". Each placement prints its
+// own n only when fewer peers carry that score than the cohort holds.
+function PlacementLine({ want, ease, nPeers }: {
+  want: PeerPlacement | null
+  ease: PeerPlacement | null
+  nPeers: number
+}) {
+  const parts = [
+    want ? { name: 'Want', p: want } : null,
+    ease ? { name: 'Ease', p: ease } : null,
+  ].filter((x): x is { name: string; p: PeerPlacement } => x != null)
+  if (parts.length === 0) return null
+  return (
+    <p className="mt-1 text-label text-text-3 tabular-nums">
+      {parts.map(({ name, p }, i) => (
+        <span
+          key={name}
+          title={`${name} ${p.value.toFixed(2)} vs the average of the other peers ${p.peerAvg.toFixed(2)}: #${p.rankPosition} of ${p.peerN}, ${p.confidence} confidence`}
+        >
+          {i > 0 && <span className="text-text-4" aria-hidden> · </span>}
+          {name} {p.rankLabel}
+          {p.peerN < nPeers && <span className="ml-1 text-text-4">n{p.peerN}</span>}
+        </span>
+      ))}
+    </p>
   )
 }
 
