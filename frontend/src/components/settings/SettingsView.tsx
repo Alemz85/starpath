@@ -504,7 +504,7 @@ function GeneralTab() {
 
       <SettingRow
         title="Models"
-        description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough."
+        description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough. Each always runs the latest version your Claude CLI knows."
       >
         <div className="mt-4 space-y-4" role="group" aria-label="Model assignments">
           {MODEL_ROWS.map(row => (
@@ -1817,8 +1817,8 @@ function ModelChoice({ label, sub, value, onChange, disabled = false }: {
 }) {
   const descId = useId()
   const options: Array<{ id: 'sonnet' | 'opus' | 'haiku'; name: string; tag: string }> = [
-    { id: 'sonnet', name: 'Sonnet 5', tag: 'cheaper · fast' },
-    { id: 'opus',   name: 'Opus 5',   tag: 'thorough'      },
+    { id: 'sonnet', name: 'Sonnet', tag: 'cheaper · fast' },
+    { id: 'opus',   name: 'Opus',   tag: 'thorough'      },
   ]
   return (
     <div className={cn('flex items-start justify-between gap-6 py-1', disabled && 'opacity-60')}>

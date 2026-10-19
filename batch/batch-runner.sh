@@ -29,15 +29,16 @@ RETRY_FAILED=false
 START_FROM=0
 MAX_RETRIES=2
 MIN_SCORE=0
-# Pinned worker model — keep in lockstep with MODEL_IDS in
-# frontend/src/lib/spawnFormat.ts (the frontend's pipeline actions run the
-# same eval bundle on the same tier). Override per run with --model.
-MODEL="claude-opus-5"
+# Worker model — the bare tier alias, which the Claude CLI resolves to the
+# newest Opus it knows (auto-latest; keep the CLI updated). Same rule as
+# modelArg()/MODEL_PINS in frontend/src/lib/spawnFormat.ts. Pin a version per
+# run with --model <full-model-id>.
+MODEL="opus"
 
 usage() {
   cat <<'USAGE'
 career-ops batch runner — process job offers in batch via claude -p workers
-Workers run a pinned model ID (default: claude-opus-5; override with --model).
+Workers run the latest Opus (default alias: opus; pin a version with --model).
 
 Usage: batch-runner.sh [OPTIONS]
 
@@ -48,7 +49,7 @@ Options:
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
   --min-score N        Mark offers scoring below N as skipped in state (default: 0 = off)
-  --model ID           Claude model for workers (default: claude-opus-5)
+  --model ID           Claude model for workers (default: opus = latest Opus)
   -h, --help           Show this help
 
 Files:
@@ -381,7 +382,7 @@ process_offer() {
 
   local log_file="$LOGS_DIR/${report_num}-${id}.log"
 
-  # Launch claude -p worker on the pinned $MODEL (see the MODEL default above).
+  # Launch claude -p worker on $MODEL (see the MODEL default above).
   # --output-format json makes the CLI emit a final result event with token
   # usage + cost, which feeds the per-spawn accounting in logs/usage.tsv
   # (TODO.md token-cost project: measure before optimizing).

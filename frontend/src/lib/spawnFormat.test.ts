@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   NON_INTERACTIVE_SUFFIX,
-  MODEL_IDS,
+  MODEL_PINS,
+  modelArg,
   claudeArgs,
   humanizeJsonlChunk,
   humanizeJsonlLine,
@@ -28,21 +29,16 @@ test('claudeArgs builds the non-interactive flag set and appends the batch suffi
     '--dangerously-skip-permissions',
     '--output-format', 'stream-json',
     '--verbose',
-    '--model', 'claude-sonnet-5',
+    '--model', 'sonnet',
     '-p',
     '/career-ops scan' + NON_INTERACTIVE_SUFFIX,
   ])
 })
 
-// Pin the map itself: every alias must resolve to the current generation's
-// full model ID. Bump these literals (and MODEL_IDS) together when a new
-// Claude family ships — this test is the reminder.
-test('MODEL_IDS pins every tier alias to the current generation', () => {
-  assert.deepEqual(MODEL_IDS, {
-    opus:   'claude-opus-5',
-    sonnet: 'claude-sonnet-5',
-    haiku:  'claude-haiku-4-5-20251001',
-  })
+// Auto-latest is the default: no tier is pinned, so every spawn hands the CLI
+// the bare alias and gets the newest model in that tier.
+test('MODEL_PINS is empty by default — every tier tracks the latest model', () => {
+  assert.deepEqual(MODEL_PINS, {})
 })
 
 test('claudeArgs omits --model entirely when no model is given', () => {
@@ -54,11 +50,21 @@ test('claudeArgs omits --model entirely when no model is given', () => {
   assert.ok(args[args.length - 1].endsWith(NON_INTERACTIVE_SUFFIX))
 })
 
-test('claudeArgs resolves each alias to its pinned model ID — never the bare alias', () => {
+test('claudeArgs passes each tier alias through modelArg', () => {
   for (const m of ['sonnet', 'opus', 'haiku'] as const) {
     const args = claudeArgs('/x', m)
-    assert.equal(args[args.indexOf('--model') + 1], MODEL_IDS[m])
-    assert.ok(!args.includes(m), `bare alias '${m}' must not reach the CLI`)
+    assert.equal(args[args.indexOf('--model') + 1], modelArg(m))
+    assert.equal(modelArg(m), m)
+  }
+})
+
+test('modelArg honours a pin when one is set', () => {
+  MODEL_PINS.opus = 'claude-opus-test-pin'
+  try {
+    assert.equal(modelArg('opus'), 'claude-opus-test-pin')
+    assert.equal(modelArg('sonnet'), 'sonnet')
+  } finally {
+    delete MODEL_PINS.opus
   }
 })
 

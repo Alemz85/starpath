@@ -29,7 +29,7 @@ import type { ModelAlias } from '@/types'
 // never rewritten in the emitted CommonJS — an aliased VALUE import crashes the
 // app at boot ("Cannot find module '@/lib/spawnFormat'"). `import type` aliases
 // are fine (erased at compile).
-import { MODEL_IDS } from '../spawnFormat'
+import { modelArg } from '../spawnFormat'
 
 /** Repo-relative path to the chat agent's system prompt. */
 export const CHAT_SYSTEM_PROMPT_FILE = 'modes/chat.md'
@@ -52,9 +52,9 @@ export function buildChatClaudeArgs(
     '--include-partial-messages',
     '--append-system-prompt-file', CHAT_SYSTEM_PROMPT_FILE,
   ]
-  // Alias resolved through MODEL_IDS at spawn time — the flag carries a pinned
-  // full model ID, never the bare alias (same rule as every other spawn).
-  if (options.model) args.push('--model', MODEL_IDS[options.model])
+  // Same rule as every other spawn: modelArg() passes the bare alias (the CLI
+  // resolves it to the latest model in that tier) unless MODEL_PINS freezes it.
+  if (options.model) args.push('--model', modelArg(options.model))
   if (options.resumeId) args.push('--resume', options.resumeId)
   args.push('-p', prompt)
   return args

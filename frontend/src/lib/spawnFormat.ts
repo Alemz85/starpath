@@ -11,16 +11,20 @@
 
 export type ClaudeModel = 'sonnet' | 'opus' | 'haiku'
 
-// Central tier-alias → pinned model-ID map — the ONE place to bump when a new
-// Claude generation ships. Call sites (and the stored ModelPrefs) keep using
-// tier aliases; every spawn resolves through this map so workers always run
-// the pinned current generation instead of whatever the installed CLI version
-// happens to resolve a bare alias to. (Same pattern as Alke's CHAT_MODEL_ARGS:
-// one constant, explicit full model IDs.)
-export const MODEL_IDS: Record<ClaudeModel, string> = {
-  opus:   'claude-opus-5',
-  sonnet: 'claude-sonnet-5',
-  haiku:  'claude-haiku-4-5-20251001',
+// Auto-latest model resolution. Every spawn passes the bare tier alias
+// (`opus` / `sonnet` / `haiku`) and the Claude CLI resolves it to the newest
+// model it knows in that tier — so spawns upgrade on their own when a new
+// generation ships, as long as the CLI itself is kept up to date (an old CLI
+// resolves the alias to an old model, and rejects model IDs newer than it).
+//
+// MODEL_PINS is the opt-out: set a tier to a full model ID to freeze it on that
+// version. Empty by default — leave it that way unless a specific version is
+// needed. batch/batch-runner.sh follows the same rule (MODEL="opus").
+export const MODEL_PINS: Partial<Record<ClaudeModel, string>> = {}
+
+/** The `--model` value for a tier: its pin if one is set, else the bare alias. */
+export function modelArg(model: ClaudeModel): string {
+  return MODEL_PINS[model] ?? model
 }
 
 // Suffix appended to every `claude -p` prompt so the model knows there's no
@@ -52,15 +56,15 @@ export const NON_INTERACTIVE_SUFFIX =
  * Pass undefined to omit the flag entirely and let the Claude CLI default
  * apply (used as a graceful fallback if a caller can't decide).
  *
- * The alias is resolved through MODEL_IDS at spawn time — the flag carries a
- * pinned full model ID, never the bare alias.
+ * The alias goes through modelArg() — the bare alias (CLI resolves it to the
+ * latest model in that tier) unless MODEL_PINS freezes it.
  */
 export function claudeArgs(slashCommand: string, model?: ClaudeModel): string[] {
   return [
     '--dangerously-skip-permissions',
     '--output-format', 'stream-json',
     '--verbose',
-    ...(model ? ['--model', MODEL_IDS[model]] : []),
+    ...(model ? ['--model', modelArg(model)] : []),
     '-p',
     slashCommand + NON_INTERACTIVE_SUFFIX,
   ]
