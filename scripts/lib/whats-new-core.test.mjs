@@ -2,7 +2,7 @@
 // "what's new & worth my time since last scan" digest. whats-new.mjs only wraps
 // these with file I/O + rendering, so this suite pins the logic: scan-history
 // parsing, URL-join normalization, cutoff inference, the scan↔score join, the
-// priority bucketing, and the ranked digest assembly.
+// verdict bucketing, and the ranked digest assembly.
 //
 // Plain ESM, zero deps: `node --test scripts/**/*.test.mjs`.
 
@@ -14,24 +14,23 @@ import {
   runDates,
   resolveCutoff,
   indexScoresByUrl,
+  bucketOf,
   priorityOf,
+  verdictOf,
+  blockedReasonOf,
+  verdictStars,
   buildDigest,
+  BUCKET_LABELS,
+  BUCKET_ORDER,
   PRIORITY_LABELS,
   PRIORITY_ORDER,
 } from './whats-new-core.mjs'
+import { parseScoreHistory } from './targeting-core.mjs'
+import { historyTsv } from './testing/score-history-fixture.mjs'
 
 const SCAN_HEADER = [
   'url', 'first_seen', 'portal', 'title', 'company', 'location', 'status',
   'scan_dates',
-].join('\t')
-
-const SCORE_HEADER = [
-  'date', 'archetype', 'skills_match', 'ease_of_entry', 'strategic_fit',
-  'current_fit', 'growth_mobility', 'optionality_exit', 'brand_value',
-  'sales_trap_risk', 'aspirational_fit', 'overall', 'best_cities',
-  'salary_adj_city', 'work_life_balance', 'best_fit_roles', 'mode',
-  'company', 'role', 'tier', 'source', 'location', 'employment_type',
-  'duration', 'salary_raw', 'url',
 ].join('\t')
 
 function scanRow(over = {}) {
@@ -44,19 +43,17 @@ function scanRow(over = {}) {
   return [m.url, m.first_seen, m.portal, m.title, m.company, m.location, m.status, m.scan_dates].join('\t')
 }
 
-function scoreRow(over = {}) {
-  const cells = new Array(26).fill('')
-  cells[0] = over.date ?? '2026-06-24'
-  cells[1] = over.archetype ?? 'Strategy & Operations'
-  cells[11] = over.overall ?? '7.5'
-  cells[17] = over.company ?? 'Acme'
-  cells[18] = over.role ?? 'Strategy Intern'
-  cells[25] = over.url ?? 'https://x.test/jobs/1'
-  return cells.join('\t')
-}
-
 const scanTsv = (...rows) => [SCAN_HEADER, ...rows].join('\n')
-const scoreTsv = (...rows) => [SCORE_HEADER, ...rows].join('\n')
+
+// Score rows go through the real v2 fixture builder + the real parser, so
+// Want / Ease / verdict / tier always agree with the engine.
+// Dimension presets (fictional listings):
+const GO = { skills_match: 8, experience_bar: 8, competition: 7, growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }
+const STRETCH = { skills_match: 6, experience_bar: 6, competition: 5, growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }
+const SOLID = { skills_match: 8, experience_bar: 8, competition: 7 }
+const THIN = {}
+const SKIP = { growth_mobility: 4, optionality_exit: 4, brand_value: 4, role_content: 4 }
+const scores = (...rows) => parseScoreHistory(historyTsv(...rows))
 
 /* ───── parseScanHistory ─────────────────────────────────────────── */
 
@@ -82,14 +79,14 @@ test('parseScanHistory skips blank lines and empties', () => {
 
 test('normalizeUrl collapses scheme, host case, and trailing slash', () => {
   assert.equal(
-    normalizeUrl('https://Job-Boards.Greenhouse.io/acme/jobs/123/'),
-    normalizeUrl('http://job-boards.greenhouse.io/acme/jobs/123'),
+    normalizeUrl('https://Job-Boards.Example.test/acme/jobs/123/'),
+    normalizeUrl('http://job-boards.example.test/acme/jobs/123'),
   )
 })
 
 test('normalizeUrl preserves gh_jid query id but drops tracking params', () => {
-  const a = normalizeUrl('https://n26.com/careers/positions/7806657?gh_jid=7806657')
-  const b = normalizeUrl('https://n26.com/careers/positions/7806657?gh_jid=7806657&utm=x')
+  const a = normalizeUrl('https://jobs.example.test/positions/7806657?gh_jid=7806657')
+  const b = normalizeUrl('https://jobs.example.test/positions/7806657?gh_jid=7806657&utm=x')
   assert.equal(a, b)
   assert.match(a, /id=7806657$/)
 })
@@ -136,75 +133,142 @@ test('resolveCutoff single-run cutoff = the only run date', () => {
 
 /* ───── indexScoresByUrl ─────────────────────────────────────────── */
 
-test('indexScoresByUrl keeps the most recent eval per url', () => {
-  const idx = indexScoresByUrl([
-    ...parseScores(scoreTsv(
-      scoreRow({ date: '2026-06-01', overall: '6.0' }),
-      scoreRow({ date: '2026-06-20', overall: '8.0' }),
-    )),
-  ])
-  assert.equal(idx.size, 1)
-  const [row] = [...idx.values()]
-  assert.equal(row.overall, 8.0)
+test('fixture presets land in the intended verdict cells', () => {
+  const rows = scores(
+    { ...GO, url: 'https://x.test/go' },
+    { ...STRETCH, url: 'https://x.test/stretch' },
+    { ...SOLID, url: 'https://x.test/solid' },
+    { ...THIN, url: 'https://x.test/thin' },
+    { ...SKIP, url: 'https://x.test/skip' },
+  )
+  assert.deepEqual(rows.map((r) => r.verdict), ['go', 'stretch', 'solid', 'thin', 'skip'])
 })
 
-// tiny local score parser mirroring targeting-core's (kept local to avoid
-// coupling the test to that module's internals beyond what core re-exports).
-function parseScores(tsv) {
-  const lines = tsv.split('\n').filter((l) => l.trim())
-  const header = lines[0].split('\t')
-  return lines.slice(1).map((l) => {
-    const c = l.split('\t')
-    const o = {}
-    header.forEach((k, i) => { o[k] = c[i] })
-    o.overall = Number(o.overall)
-    return o
-  })
-}
+test('indexScoresByUrl keeps the most recent eval per url', () => {
+  const idx = indexScoresByUrl(scores(
+    { ...SKIP, date: '2026-06-01' },
+    { ...GO, date: '2026-06-20' },
+  ))
+  assert.equal(idx.size, 1)
+  const [row] = [...idx.values()]
+  assert.equal(row.verdict, 'go')
+  assert.equal(row.date, '2026-06-20')
+})
 
-/* ───── priorityOf ───────────────────────────────────────────────── */
+/* ───── verdictOf / blockedReasonOf / bucketOf ───────────────────── */
 
-test('priorityOf buckets by scanner status and score band', () => {
-  assert.equal(priorityOf({ status: 'skipped_expired' }, null), 'noise')
-  assert.equal(priorityOf({ status: 'added' }, null), 'needs-eval')
-  assert.equal(priorityOf({ status: 'added' }, { overall: 8.2 }), 'prioritize')
-  assert.equal(priorityOf({ status: 'added' }, { overall: 7.1 }), 'prioritize')
-  assert.equal(priorityOf({ status: 'added' }, { overall: 6.4 }), 'review')
-  assert.equal(priorityOf({ status: 'added' }, { overall: 5.0 }), 'low')
-  assert.equal(priorityOf({ status: 'added' }, { overall: NaN }), 'needs-eval')
+test('verdictOf reads the stored verdict, derives from Want/Ease, flags red as blocked', () => {
+  assert.equal(verdictOf({ verdict: 'stretch' }), 'stretch')
+  assert.equal(verdictOf({ want: 8.5, ease: 7.5, eligibility: 'green' }), 'go')
+  assert.equal(verdictOf({ want: 9, ease: 9, eligibility: 'red' }), 'blocked')
+  assert.equal(verdictOf({ blocked: true }), 'blocked')
+  assert.equal(verdictOf({ want: NaN, ease: NaN }), '')
+  assert.equal(verdictOf(null), '')
+})
+
+test('blockedReasonOf takes the first red flag reason, from parsed or raw flags', () => {
+  const [row] = scores({ eligibility: 'red', eligibility_flags: 'duration:amber:6 months;language:red:German C1 required' })
+  assert.equal(blockedReasonOf(row), 'German C1 required')
+  assert.equal(blockedReasonOf({ eligibility_flags: 'work_auth:red:no sponsorship' }), 'no sponsorship')
+  assert.equal(blockedReasonOf({ eligibility_flags: 'start_date:red' }), 'start_date')
+  assert.equal(blockedReasonOf({ eligibility: 'red' }), 'eligibility red')
+})
+
+test('bucketOf buckets by scanner status and verdict', () => {
+  const [go, stretch, solid, thin, skip] = scores(GO, STRETCH, SOLID, THIN, SKIP)
+  const [growth] = scores({ ...GO, want: 8.5, ease: 4.0 })
+  const [blocked] = scores({ eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship' })
+  const added = { status: 'added' }
+  assert.equal(bucketOf({ status: 'skipped_expired' }, go), 'noise')
+  assert.equal(bucketOf(added, null), 'needs-eval')
+  assert.equal(bucketOf(added, go), 'go')
+  assert.equal(bucketOf(added, stretch), 'apply')
+  assert.equal(bucketOf(added, solid), 'apply')
+  assert.equal(bucketOf(added, thin), 'consider')
+  assert.equal(bucketOf(added, growth), 'consider')
+  assert.equal(bucketOf(added, skip), 'skip')
+  assert.equal(bucketOf(added, blocked), 'blocked')
+  assert.equal(bucketOf(added, { want: NaN, ease: NaN, verdict: '' }), 'needs-eval')
+  assert.equal(priorityOf, bucketOf) // v1 alias
+})
+
+test('verdictStars: go ★★, stretch/solid ★, everything else none (blocked never)', () => {
+  assert.equal(verdictStars('go'), '★★')
+  assert.equal(verdictStars('stretch'), '★')
+  assert.equal(verdictStars('solid'), '★')
+  for (const v of ['thin', 'growth', 'skip', 'blocked', '', null]) assert.equal(verdictStars(v), '')
 })
 
 /* ───── buildDigest (integration of the pure pieces) ─────────────── */
 
-test('buildDigest surfaces only postings new since the cutoff, ranked', () => {
+test('buildDigest surfaces only postings new since the cutoff, bucketed and ranked', () => {
   const scan = scanTsv(
     // old, before cutoff — excluded
-    scanRow({ url: 'https://x.test/old', first_seen: '2026-06-10', scan_dates: '2026-06-10|2026-06-24', company: 'Old' }),
-    // new + scored strong → prioritize
-    scanRow({ url: 'https://x.test/hi', first_seen: '2026-06-24', scan_dates: '2026-06-24', company: 'HiFit' }),
+    scanRow({ url: 'https://x.test/old', first_seen: '2026-06-10', scan_dates: '2026-06-10|2026-06-24', company: 'Old Co' }),
+    // new + go → go bucket
+    scanRow({ url: 'https://x.test/hi', first_seen: '2026-06-24', scan_dates: '2026-06-24', company: 'Northwind Analytics' }),
+    // new + stretch → apply bucket
+    scanRow({ url: 'https://x.test/st', first_seen: '2026-06-24', scan_dates: '2026-06-24', company: 'Contoso Retail' }),
     // new + unscored → needs-eval
-    scanRow({ url: 'https://x.test/new', first_seen: '2026-06-24', scan_dates: '2026-06-24', company: 'Fresh' }),
+    scanRow({ url: 'https://x.test/new', first_seen: '2026-06-24', scan_dates: '2026-06-24', company: 'Fabrikam Labs' }),
+    // new + blocked → blocked bucket
+    scanRow({ url: 'https://x.test/red', first_seen: '2026-06-24', scan_dates: '2026-06-24', company: 'Tailspin Toys' }),
     // new but filtered by scanner → noise (excluded by default)
-    scanRow({ url: 'https://x.test/skip', first_seen: '2026-06-24', scan_dates: '2026-06-24', status: 'skipped_title', company: 'Skip' }),
+    scanRow({ url: 'https://x.test/skip', first_seen: '2026-06-24', scan_dates: '2026-06-24', status: 'skipped_title', company: 'Skip Co' }),
   )
-  const score = scoreTsv(
-    scoreRow({ url: 'https://x.test/hi', overall: '8.4', company: 'HiFit' }),
-    scoreRow({ url: 'https://x.test/old', overall: '9.0', company: 'Old' }),
+  const score = scores(
+    { ...GO, url: 'https://x.test/hi', company: 'Northwind Analytics' },
+    { ...STRETCH, url: 'https://x.test/st', company: 'Contoso Retail' },
+    { eligibility: 'red', eligibility_flags: 'language:red:German C1 required', url: 'https://x.test/red', company: 'Tailspin Toys' },
+    { ...GO, url: 'https://x.test/old', company: 'Old Co' },
   )
-  const d = buildDigest(parseScanHistory(scan), parseScores(score))
+  const d = buildDigest(parseScanHistory(scan), score)
 
   assert.equal(d.cutoff, '2026-06-24')
   assert.equal(d.latestRun, '2026-06-24')
-  assert.equal(d.totalNew, 2) // old excluded, skip excluded
-  assert.equal(d.items[0].company, 'HiFit')
-  assert.equal(d.items[0].priority, 'prioritize')
-  assert.equal(d.items[0].overall, 8.4)
-  assert.equal(d.items[1].company, 'Fresh')
-  assert.equal(d.items[1].priority, 'needs-eval')
-  assert.equal(d.counts.prioritize, 1)
+  assert.equal(d.totalNew, 4) // old excluded, skip excluded
+  assert.deepEqual(d.items.map((i) => i.bucket), ['go', 'apply', 'needs-eval', 'blocked'])
+
+  const [hi, st, fresh, red] = d.items
+  assert.equal(hi.company, 'Northwind Analytics')
+  assert.equal(hi.verdict, 'go')
+  assert.equal(hi.verdictLabel, 'Go')
+  assert.ok(hi.want >= 8 && hi.ease >= 7)
+  assert.ok(Number.isFinite(hi.priority))
+  assert.equal(st.verdict, 'stretch')
+  assert.equal(fresh.verdict, null)
+  assert.equal(fresh.priority, null)
+  assert.equal(red.verdict, 'blocked')
+  assert.equal(red.want, null)
+  assert.equal(red.ease, null)
+  assert.equal(red.priority, null)
+  assert.equal(red.blockedReason, 'German C1 required')
+  assert.equal(red.verdictLabel, 'blocked: German C1 required')
+
+  assert.equal(d.counts.go, 1)
+  assert.equal(d.counts.apply, 1)
   assert.equal(d.counts['needs-eval'], 1)
-  assert.equal(d.prioritize.length, 1)
+  assert.equal(d.counts.blocked, 1)
+  assert.deepEqual(d.prioritize.map((i) => i.company), ['Northwind Analytics', 'Contoso Retail'])
   assert.equal(d.needsEval.length, 1)
+  assert.equal(d.blocked.length, 1)
+  for (const it of d.items) {
+    assert.ok(!('overall' in it) && !('band' in it) && !('priority' in it && typeof it.priority === 'string'))
+  }
+})
+
+test('buildDigest ranks by Priority within a bucket', () => {
+  const scan = scanTsv(
+    scanRow({ url: 'https://x.test/a', first_seen: '2026-06-24', company: 'Low Stretch' }),
+    scanRow({ url: 'https://x.test/b', first_seen: '2026-06-24', company: 'High Solid' }),
+  )
+  const score = scores(
+    { want: 8.1, ease: 5.2, url: 'https://x.test/a' }, // stretch, priority ≈ 6.49
+    { want: 7.9, ease: 9.0, url: 'https://x.test/b' }, // solid, priority ≈ 8.43
+  )
+  const d = buildDigest(parseScanHistory(scan), score, { since: '2026-06-24' })
+  assert.deepEqual(d.items.map((i) => i.company), ['High Solid', 'Low Stretch'])
+  assert.ok(d.items.every((i) => i.bucket === 'apply'))
 })
 
 test('buildDigest includeNoise keeps scanner-skipped rows last', () => {
@@ -214,7 +278,7 @@ test('buildDigest includeNoise keeps scanner-skipped rows last', () => {
   )
   const d = buildDigest(parseScanHistory(scan), [], { includeNoise: true, since: '2026-06-24' })
   assert.equal(d.totalNew, 2)
-  assert.equal(d.items[d.items.length - 1].priority, 'noise')
+  assert.equal(d.items[d.items.length - 1].bucket, 'noise')
 })
 
 test('buildDigest computes ageDays and timesSeen against asOf', () => {
@@ -228,18 +292,20 @@ test('buildDigest computes ageDays and timesSeen against asOf', () => {
 
 test('buildDigest joins score even when urls differ by trailing slash/params', () => {
   const scan = scanTsv(
-    scanRow({ url: 'https://n26.com/careers/positions/7806657?gh_jid=7806657', first_seen: '2026-06-24', company: 'N26' }),
+    scanRow({ url: 'https://jobs.example.test/positions/7806657?gh_jid=7806657', first_seen: '2026-06-24', company: 'Fabrikam Labs' }),
   )
-  const score = scoreTsv(
-    scoreRow({ url: 'https://n26.com/careers/positions/7806657?gh_jid=7806657&utm=src', overall: '7.8', company: 'N26' }),
+  const score = scores(
+    { ...SOLID, url: 'https://jobs.example.test/positions/7806657?gh_jid=7806657&utm=src', company: 'Fabrikam Labs' },
   )
-  const d = buildDigest(parseScanHistory(scan), parseScores(score), { since: '2026-06-24' })
-  assert.equal(d.items[0].overall, 7.8)
-  assert.equal(d.items[0].priority, 'prioritize')
+  const d = buildDigest(parseScanHistory(scan), score, { since: '2026-06-24' })
+  assert.equal(d.items[0].verdict, 'solid')
+  assert.equal(d.items[0].bucket, 'apply')
 })
 
 /* ───── exported constants ───────────────────────────────────────── */
 
-test('priority labels cover every priority bucket', () => {
-  for (const p of PRIORITY_ORDER) assert.ok(PRIORITY_LABELS[p], `label for ${p}`)
+test('bucket labels cover every bucket; v1 aliases point at the same objects', () => {
+  for (const b of BUCKET_ORDER) assert.ok(BUCKET_LABELS[b], `label for ${b}`)
+  assert.equal(PRIORITY_LABELS, BUCKET_LABELS)
+  assert.equal(PRIORITY_ORDER, BUCKET_ORDER)
 })

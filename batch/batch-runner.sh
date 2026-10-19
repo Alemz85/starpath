@@ -48,7 +48,8 @@ Options:
   --retry-failed       Only retry offers marked as "failed" in state
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
-  --min-score N        Mark offers scoring below N as skipped in state (default: 0 = off)
+  --min-score N        Mark offers whose Priority (sqrt(want*ease)) is below N as skipped in
+                       state; Blocked listings (no Priority) always fail the gate (default: 0 = off)
   --model ID           Claude model for workers (default: opus = latest Opus)
   -h, --help           Show this help
 
@@ -406,31 +407,48 @@ process_offer() {
   local completed_at
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
-  # Parse the worker log once: status heuristic, score, token usage.
-  # Fields: status score input cache_creation cache_read output cost duration turns
+  # Parse the worker log once: status heuristic, score, token usage, verdict.
+  # Fields: status score input cache_creation cache_read output cost duration turns verdict
+  # `score` is the worker's Priority (sqrt(want*ease)); a Blocked listing has no
+  # Priority (score "-", verdict "blocked").
   local parsed
-  parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\n')
-  local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns
-  IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns <<< "$parsed"
+  parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\t-\n')
+  local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict
+  IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict <<< "$parsed"
 
   # Append the accounting row (best-effort — never fails the batch).
   append_usage_row "$id" "$report_num" "$completed_at" \
-    "$p_status" "$p_score" "$p_in" "$p_cc" "$p_cr" "$p_out" "$p_cost" "$p_dur" "$p_turns" || true
+    "$p_status" "$p_score" "$p_verdict" "$p_in" "$p_cc" "$p_cr" "$p_out" "$p_cost" "$p_dur" "$p_turns" || true
 
   if [[ $exit_code -eq 0 ]]; then
     local score="${p_score:--}"
+    local blocked=false
+    [[ "$p_verdict" == "blocked" ]] && blocked=true
+    # State-file score cell: Priority, or the literal "blocked" for a listing
+    # gated out by eligibility (print_summary counts these separately).
+    [[ "$blocked" == "true" ]] && score="blocked"
 
-    # Check min-score gate
-    if [[ "$score" != "-" && -n "$score" ]] && (( $(echo "$MIN_SCORE > 0" | bc -l) )); then
-      if (( $(echo "$score < $MIN_SCORE" | bc -l) )); then
+    # Check min-score gate. Blocked listings never pass it; a missing score
+    # ("-", unparseable log) is left alone as before.
+    if (( $(echo "$MIN_SCORE > 0" | bc -l) )); then
+      if [[ "$blocked" == "true" ]]; then
+        update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "$score" "blocked" "$retries"
+        echo "    ⏭️  Skipped (blocked by eligibility; min-score: $MIN_SCORE)"
+        return 0
+      fi
+      if [[ "$score" != "-" && -n "$score" ]] && (( $(echo "$score < $MIN_SCORE" | bc -l) )); then
         update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "$score" "below-min-score" "$retries"
-        echo "    ⏭️  Skipped (score: $score < min-score: $MIN_SCORE)"
+        echo "    ⏭️  Skipped (priority: $score < min-score: $MIN_SCORE)"
         return 0
       fi
     fi
 
     update_state "$id" "$url" "completed" "$started_at" "$completed_at" "$report_num" "$score" "-" "$retries"
-    echo "    ✅ Completed (score: $score, report: $report_num)"
+    if [[ "$blocked" == "true" ]]; then
+      echo "    ✅ Completed (blocked by eligibility, report: $report_num)"
+    else
+      echo "    ✅ Completed (priority: $score, report: $report_num)"
+    fi
   else
     retries=$((retries + 1))
     local error_msg
@@ -444,13 +462,13 @@ process_offer() {
 # Column order is defined by USAGE_TSV_HEADER in scripts/lib/batch-usage.mjs.
 USAGE_FILE="$LOGS_DIR/usage.tsv"
 append_usage_row() {
-  local id="$1" report_num="$2" ts="$3" status="$4" score="$5"
-  local in_tok="$6" cc_tok="$7" cr_tok="$8" out_tok="$9" cost="${10}" dur="${11}" turns="${12}"
+  local id="$1" report_num="$2" ts="$3" status="$4" score="$5" verdict="$6"
+  local in_tok="$7" cc_tok="$8" cr_tok="$9" out_tok="${10}" cost="${11}" dur="${12}" turns="${13}"
   if [[ ! -f "$USAGE_FILE" ]]; then
-    printf 'timestamp\tbatch_id\treport_num\tstatus\tscore\tinput_tokens\tcache_creation_tokens\tcache_read_tokens\toutput_tokens\tcost_usd\tduration_ms\tnum_turns\n' > "$USAGE_FILE"
+    printf 'timestamp\tbatch_id\treport_num\tstatus\tscore\tverdict\tinput_tokens\tcache_creation_tokens\tcache_read_tokens\toutput_tokens\tcost_usd\tduration_ms\tnum_turns\n' > "$USAGE_FILE"
   fi
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$ts" "$id" "$report_num" "$status" "$score" \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$ts" "$id" "$report_num" "$status" "$score" "$verdict" \
     "$in_tok" "$cc_tok" "$cr_tok" "$out_tok" "$cost" "$dur" "$turns" >> "$USAGE_FILE"
 }
 
@@ -480,14 +498,16 @@ print_summary() {
   fi
 
   local total=0 completed=0 failed=0 pending=0
-  local score_sum=0 score_count=0
+  local score_sum=0 score_count=0 blocked_count=0
 
   while IFS=$'\t' read -r sid _ sstatus _ _ _ sscore _ _; do
     [[ "$sid" == "id" ]] && continue
     total=$((total + 1))
     case "$sstatus" in
       completed) completed=$((completed + 1))
-        if [[ "$sscore" != "-" && -n "$sscore" ]]; then
+        if [[ "$sscore" == "blocked" ]]; then
+          blocked_count=$((blocked_count + 1))
+        elif [[ "$sscore" != "-" && -n "$sscore" ]]; then
           score_sum=$(echo "$score_sum + $sscore" | bc 2>/dev/null || echo "$score_sum")
           score_count=$((score_count + 1))
         fi
@@ -499,10 +519,14 @@ print_summary() {
 
   echo "Total: $total | Completed: $completed | Failed: $failed | Pending: $pending"
 
+  # Priority = sqrt(want*ease). Blocked listings have none, so they are
+  # excluded from the average and reported separately.
   if (( score_count > 0 )); then
     local avg
-    avg=$(echo "scale=1; $score_sum / $score_count" | bc 2>/dev/null || echo "N/A")
-    echo "Average score: $avg/10 ($score_count scored)"
+    avg=$(echo "scale=2; $score_sum / $score_count" | bc 2>/dev/null || echo "N/A")
+    echo "Average priority: $avg/10 ($score_count scored, $blocked_count blocked)"
+  elif (( blocked_count > 0 )); then
+    echo "Average priority: n/a (0 scored, $blocked_count blocked)"
   fi
 }
 

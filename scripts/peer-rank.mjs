@@ -1,130 +1,242 @@
 #!/usr/bin/env node
 
 /**
- * peer-rank.mjs — Comparative Rank Block computation.
+ * peer-rank.mjs — Comparative Rank Block computation (scoring v2).
  *
- * For a given listing's primary archetype + dim scores, find peers in
- * data/score-history.tsv with the same primary archetype, compute:
- *   - rank percentile of this listing's overall score among peers
- *   - dimensional outliers (this listing ±X above/below peer avg, |Δ| ≥ 1.5)
- *   - 3 closest comparables (by overall score delta, excluding self)
+ * For a given listing's primary archetype + Want / Ease (+ dims), find peers
+ * in data/score-history.tsv with the same primary archetype and compute:
+ *   - rank percentile of this listing's Priority among peers (spec
+ *     docs/scoring-v2.md §5: peer percentile is a sanctioned use of Priority;
+ *     Priority itself is never rendered as a headline score)
+ *   - where the listing's Want and its Ease each sit among the same peers —
+ *     two separate claims, never combined
+ *   - dimensional outliers over the ten v2 dims (|Δ| ≥ 1.5 from peer mean)
+ *   - 3 closest comparables (by Priority delta, excluding the same company)
  *
- * Returns null when peers < minPeers (default 5) — per
- * modes/scouting.md, the peer block is OMITTED entirely below the
- * threshold, never rendered with a "not enough data yet" placeholder.
+ * Peers are same-archetype, NON-BLOCKED rows with a finite Priority. Blocked
+ * rows (eligibility red) have empty score cells and never enter a peer pool.
+ *
+ * Returns null when peers < minPeers (default GATES.peerMinPeers = 5) — the
+ * peer block is OMITTED entirely below the threshold, never rendered with a
+ * "not enough data yet" placeholder. A blocked target listing also returns
+ * null (it has no Want / Ease to rank). `peerRankDetailed()` returns the same
+ * block plus the reason it was omitted.
  *
  * Statistical honesty (docs/scoring-statistical-design.md § 3.2): above the
  * gate every rendered claim states its n and carries a confidence tier, so a
- * rank computed from 5 peers can't be read like one computed from 40. The
- * gate itself is unchanged; the tiers are additive.
+ * rank computed from 5 peers can't be read like one computed from 40.
+ *
+ * INPUT (JSON on stdin, or the first argument of peerRank()):
+ *
+ *   {
+ *     "archetype":   "Strategy & Operations",   // required; compound "A + B" ranks on "A"
+ *     "company":     "Fabrikam Labs",            // excluded from comparables
+ *     "want":        8.25,                       // number, or the score-listing.mjs
+ *     "ease":        5.6,                        //   object form { "score": 8.25, ... }
+ *     "priority":    6.8,                        // optional; else √(want·ease)
+ *     "dims":        { "skills_match": 8, ... }, // optional; any of the 10 v2 dims
+ *     "eligibility": "green" | "amber" | "red",  // optional; red → blocked → null
+ *     "verdict":     "stretch"                   // optional; "blocked" → null
+ *   }
+ *
+ *   `this_dims` is accepted as an alias of `dims`. When `want` / `ease` are
+ *   missing but `dims` holds every Want / Ease dimension, they are derived
+ *   with the engine's rollupWant / rollupEase at default weights (no dream
+ *   floor, no amber penalty unless `amber_count` is given) — pass the stored
+ *   numbers whenever you have them; `score_source` says which was used.
  *
  * Usage as script:
  *
- *   echo '{ "archetype": "Strategy & Operations", "company": "Microsoft",
- *           "this_overall": 7.8, "this_dims": {...} }' | node scripts/peer-rank.mjs
+ *   echo '{ "archetype": "Strategy & Operations", "company": "Fabrikam Labs",
+ *           "want": 8.25, "ease": 5.6, "dims": {...} }' | node scripts/peer-rank.mjs
+ *
+ *   Prints the block as JSON, or `null` (with the reason on stderr).
  *
  * Usage as library:
  *
  *   import { peerRank } from './peer-rank.mjs'
- *   const block = await peerRank({ archetype, company, this_overall, this_dims })
+ *   const block = await peerRank({ archetype, company, want, ease, dims })
+ *
+ *   Options: { minPeers, rows (pre-parsed score-history rows), historyPath }.
+ *   By default the history is read from data/score-history.tsv relative to
+ *   the current working directory, at call time.
  */
 
-import { readTsv } from './lib/cache-tsv.mjs'
+import { readFile } from 'fs/promises'
+import { existsSync } from 'fs'
+import { resolve } from 'path'
 import { GATES, confidenceTier } from './lib/scoring-stats.mjs'
+import {
+  parseScoreHistory, isScored, normalizeArchetype, DIMENSIONS,
+} from './lib/targeting-core.mjs'
+import {
+  computePriority, rollupWant, rollupEase, WANT_DIMS, EASE_DIMS,
+} from './lib/score-bands.mjs'
 
 const SCORE_HISTORY_PATH = 'data/score-history.tsv'
-const DIM_KEYS = [
-  'skills_match', 'ease_of_entry', 'strategic_fit',
-  'growth_mobility', 'optionality_exit', 'brand_value',
-]
-const DIM_LABELS = {
-  skills_match:     'Skills Match',
-  ease_of_entry:    'Ease of Entry',
-  strategic_fit:    'Strategic Fit',
-  growth_mobility:  'Growth/Mobility',
-  optionality_exit: 'Optionality/Exit',
-  brand_value:      'Brand Value',
-}
 const OUTLIER_THRESHOLD = 1.5
 
+const round2 = (n) => Math.round(n * 100) / 100
+const fmt = (n) => Number(n).toFixed(2)
+
+/** A number from a plain value or a rollup object ({ score }); null otherwise. */
+function scoreOf(v) {
+  const x = v != null && typeof v === 'object' ? v.score : v
+  if (x == null || x === '') return null
+  const n = Number(x)
+  return Number.isFinite(n) ? n : null
+}
+
+function primarySegment(archetype) {
+  return normalizeArchetype(archetype ?? '').split(' + ')[0].trim()
+}
+
+/** Normalize the v2 input. @returns {{ want, ease, priority, dims, blocked, scoreSource }} */
+export function normalizeTarget(input = {}) {
+  const dims = {}
+  const rawDims = input.dims ?? input.this_dims ?? {}
+  for (const { key } of DIMENSIONS) {
+    const n = scoreOf(rawDims[key])
+    if (n != null) dims[key] = n
+  }
+  const blocked = String(input.eligibility ?? '').toLowerCase() === 'red'
+    || String(input.verdict ?? '').toLowerCase() === 'blocked'
+  let want = scoreOf(input.want)
+  let ease = scoreOf(input.ease)
+  let scoreSource = 'input'
+  if (!blocked && (want == null || ease == null)) {
+    const haveWant = WANT_DIMS.every(k => dims[k] != null)
+    const haveEase = EASE_DIMS.every(k => dims[k] != null)
+    if (want == null && haveWant) { want = rollupWant(dims).score; scoreSource = 'dims' }
+    if (ease == null && haveEase) {
+      ease = rollupEase(dims, { amber_count: Number(input.amber_count) || 0 }).score
+      scoreSource = 'dims'
+    }
+  }
+  let priority = scoreOf(input.priority)
+  if (priority == null) priority = computePriority(want, ease)
+  return { want, ease, priority, dims, blocked, scoreSource }
+}
+
+/** Percentile + bucket of `value` among `values` (share of peers it beats). */
+function placement(value, values, minPeers) {
+  const n = values.length
+  const beats = values.filter(s => s < value).length
+  const percentile = Math.round((beats / n) * 100)
+  const rank_position = n - beats // 1 = top
+  return {
+    percentile,
+    rank_position,
+    rank: rankLabel(percentile, rank_position, n),
+    peer_n: n,
+    confidence: confidenceTier(n, minPeers),
+  }
+}
+
 /**
- * @returns {Promise<null | {
- *   archetype, n_peers, rank, rank_position, percentile,
- *   confidence,                                  // ADDED — tier from n_peers
- *   outliers: Array<{ dim, label, peer_avg, delta, peer_n, confidence }>,
- *   comparables: Array<{ company, role, overall, delta }>,
- *   formatted: string  // ready-to-paste 3-line markdown
- * }>}
+ * The full computation, with the reason when the block is omitted.
  *
- * `n_peers` IS the n of the block (it predates this contract and keeps its
- * name and meaning). `confidence` is the § 3.1 tier over it with gate 5:
- * 5–9 peers `low`, 10–19 `moderate`, 20+ `high`.
+ * @returns {Promise<{ block: null | PeerBlock, reason: null | 'no-archetype' | 'blocked' | 'no-score' | 'below-gate', message: string | null }>}
+ *
+ * PeerBlock = {
+ *   archetype, n_peers, min_peers, confidence,          // n + tier (g = minPeers)
+ *   priority, rank, rank_position, percentile,           // Priority placement (sort key only)
+ *   want: { value, peer_avg, percentile, rank, rank_position, peer_n, confidence } | null,
+ *   ease: { value, peer_avg, percentile, rank, rank_position, peer_n, confidence } | null,
+ *   score_source: 'input' | 'dims',
+ *   outliers: Array<{ dim, label, group, rollup, peer_avg, delta, peer_n, confidence }>,
+ *   comparables: Array<{ company, role, want, ease, verdict, priority, delta }>,
+ *   formatted: string  // ready-to-paste 3-line markdown
+ * }
  */
-export async function peerRank(
-  { archetype, company, this_overall, this_dims },
-  { minPeers = GATES.peerMinPeers } = {},
-) {
-  const { rows } = await readTsv(SCORE_HISTORY_PATH)
-  const primarySeg = (archetype ?? '').split(' + ')[0].trim()
-  if (!primarySeg) return null
+export async function peerRankDetailed(input = {}, {
+  minPeers = GATES.peerMinPeers,
+  rows,
+  historyPath = SCORE_HISTORY_PATH,
+} = {}) {
+  const omit = (reason, message) => ({ block: null, reason, message })
+  const { archetype, company } = input
+  const primarySeg = primarySegment(archetype)
+  if (!primarySeg || primarySeg === 'Unknown') return omit('no-archetype', 'No archetype given.')
 
-  const peers = rows.filter(r => {
-    const peerSeg = (r.archetype ?? '').split(' + ')[0].trim()
-    return peerSeg.toLowerCase() === primarySeg.toLowerCase()
-      && Number.isFinite(Number(r.overall))
-  })
+  const target = normalizeTarget(input)
+  if (target.blocked) {
+    return omit('blocked', 'The listing is Blocked (eligibility red): it has no Want / Ease to rank against peers.')
+  }
+  if (target.priority == null) {
+    return omit('no-score', 'Need want + ease (or priority, or every Want / Ease dimension) to rank the listing.')
+  }
 
-  if (peers.length < minPeers) return null
+  const history = rows ?? await loadHistory(historyPath)
+  const peers = history.filter(r =>
+    isScored(r)
+    && Number.isFinite(r.priority)
+    && primarySegment(r.archetype).toLowerCase() === primarySeg.toLowerCase(),
+  )
 
-  // Rank: how many peers' overall scores does this listing beat or tie?
-  const peerOveralls = peers.map(r => Number(r.overall))
-  const beats = peerOveralls.filter(s => s < this_overall).length
-  const percentile = Math.round((beats / peers.length) * 100)
-  const rank_position = peers.length - beats   // 1 = top
-  const rank = rankLabel(percentile, rank_position, peers.length)
+  if (peers.length < minPeers) {
+    return omit('below-gate', `${peers.length} scored ${primarySeg} peer(s); the block needs ${minPeers}.`)
+  }
+
+  // Priority rank: how many peers' Priority does this listing beat?
+  const prio = placement(target.priority, peers.map(r => r.priority), minPeers)
 
   // Confidence tier over the peer count (docs § 3.1, gate = minPeers). At the
   // gate one peer is 20 percentile points, so only the top-half / bottom-half
-  // split is meaningful; at 4× the gate one peer is ≤5 points, which is the
-  // resolution the rendered percentile already rounds to.
+  // split is meaningful; at 4× the gate one peer is ≤5 points.
   const confidence = confidenceTier(peers.length, minPeers)
 
-  // Outliers — dim-by-dim Δ from peer mean, ≥ OUTLIER_THRESHOLD.
-  // Each outlier carries its OWN n (peers that scored that dimension) because
-  // a dimension can be sparser than the block: an outlier computed against
-  // fewer peers is weaker than the block itself and has to say so.
+  // Want and Ease, each placed among the same peers — separate claims.
+  const metricPlacement = (metric) => {
+    const value = target[metric]
+    if (value == null) return null
+    const vals = peers.map(r => r[metric]).filter(Number.isFinite)
+    if (vals.length === 0) return null
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+    return { value: round2(value), peer_avg: round2(avg), ...placement(value, vals, minPeers) }
+  }
+  const want = metricPlacement('want')
+  const ease = metricPlacement('ease')
+
+  // Outliers — dim-by-dim Δ from peer mean over the ten v2 dims, ≥ threshold.
+  // Each outlier carries its OWN n (peers that scored that dimension).
   const outliers = []
-  for (const dim of DIM_KEYS) {
-    if (this_dims[dim] == null) continue
-    const peerVals = peers.map(r => Number(r[dim])).filter(Number.isFinite)
+  for (const { key, label, group, rollup } of DIMENSIONS) {
+    const own = target.dims[key]
+    if (own == null) continue
+    const peerVals = peers.map(r => r[key]).filter(Number.isFinite)
     if (peerVals.length === 0) continue
     const peerAvg = peerVals.reduce((a, b) => a + b, 0) / peerVals.length
-    const delta = this_dims[dim] - peerAvg
+    const delta = own - peerAvg
     if (Math.abs(delta) >= OUTLIER_THRESHOLD) {
       outliers.push({
-        dim,
-        label:    DIM_LABELS[dim] ?? dim,
+        dim: key,
+        label,
+        group,
+        rollup,
         peer_avg: Number(peerAvg.toFixed(2)),
-        delta:    Number(delta.toFixed(1)),
-        peer_n:      peerVals.length,
-        confidence:  confidenceTier(peerVals.length, minPeers),
+        delta: Number(delta.toFixed(1)),
+        peer_n: peerVals.length,
+        confidence: confidenceTier(peerVals.length, minPeers),
       })
     }
   }
   outliers.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
 
-  // 3 closest comparables by overall, excluding self
+  // 3 closest comparables by Priority, excluding the listing's own company.
   const comparables = peers
     .filter(r => !sameCompany(r.company, company))
     .map(r => ({
       company: r.company,
-      role:    r.role,
-      overall: Number(r.overall),
-      delta:   Math.abs(Number(r.overall) - this_overall),
+      role: r.role,
+      want: round2(r.want),
+      ease: round2(r.ease),
+      verdict: r.verdict,
+      priority: round2(r.priority),
+      delta: round2(Math.abs(r.priority - target.priority)),
     }))
     .sort((a, b) => a.delta - b.delta)
     .slice(0, 3)
-    .map(c => ({ ...c, overall: Number(c.overall.toFixed(2)) }))
 
   // Pre-formatted markdown block — paste verbatim into reports.
   //
@@ -134,8 +246,15 @@ export async function peerRank(
   const lowNote = confidence === 'low'
     ? ' — at this sample read the half, not the quartile'
     : ''
+  const scorePart = want && ease
+    ? `Want ${fmt(want.value)} · Ease ${fmt(ease.value)} — `
+    : ''
+  const placements = [
+    want ? `Want ${want.rank}` : null,
+    ease ? `Ease ${ease.rank}` : null,
+  ].filter(Boolean)
   const formatted = [
-    `**Rank vs ${primarySeg} peers:** ${this_overall.toFixed(1)}/10 — ${rank} of ${peers.length} peers evaluated · ${confidence} confidence (n=${peers.length})${lowNote}`,
+    `**Rank vs ${primarySeg} peers:** ${scorePart}${prio.rank} of ${peers.length} peers evaluated by priority${placements.length ? ` (${placements.join(', ')})` : ''} · ${confidence} confidence (n=${peers.length})${lowNote}`,
     `**Dimension outliers:** ${
       outliers.length === 0
         ? 'none ≥ ±1.5 from peer average'
@@ -144,23 +263,41 @@ export async function peerRank(
     `**Closest comparables:** ${
       comparables.length === 0
         ? 'none in archetype'
-        : comparables.map(c => `${c.company} (${c.overall.toFixed(2)})`).join(' · ')
+        : comparables.map(c => `${c.company} (W${fmt(c.want)} · E${fmt(c.ease)})`).join(' · ')
     }`,
   ].join('\n')
 
   return {
-    archetype: primarySeg,
-    n_peers:   peers.length,
-    rank,
-    rank_position,
-    percentile,
-    // ADDED (docs § 3.2) — the tier every rendered claim must carry.
-    confidence,
-    min_peers: minPeers,
-    outliers,
-    comparables,
-    formatted,
+    block: {
+      archetype: primarySeg,
+      n_peers: peers.length,
+      min_peers: minPeers,
+      confidence,
+      priority: round2(target.priority),
+      rank: prio.rank,
+      rank_position: prio.rank_position,
+      percentile: prio.percentile,
+      want,
+      ease,
+      score_source: target.scoreSource,
+      outliers,
+      comparables,
+      formatted,
+    },
+    reason: null,
+    message: null,
   }
+}
+
+/** The peer block, or null when omitted (below the gate, blocked, no score). */
+export async function peerRank(input, opts) {
+  return (await peerRankDetailed(input, opts)).block
+}
+
+async function loadHistory(relativePath) {
+  const path = resolve(process.cwd(), relativePath)
+  if (!existsSync(path)) return []
+  return parseScoreHistory(await readFile(path, 'utf8'))
 }
 
 function rankLabel(percentile, position, total) {
@@ -184,15 +321,30 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8')
 }
 
+const HELP = `Usage: echo '<json>' | node scripts/peer-rank.mjs
+
+Comparative Rank Block for one listing against same-archetype, non-blocked
+peers in data/score-history.tsv (read from the current directory).
+
+Input JSON: { "archetype", "company", "want", "ease", "priority"?, "dims"?,
+              "eligibility"?, "verdict"? }
+Prints the block as JSON, or null (reason on stderr) below ${GATES.peerMinPeers} peers or
+for a blocked listing.`
+
 async function main() {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    process.stdout.write(HELP + '\n')
+    return
+  }
   const raw = await readStdin()
   if (!raw.trim()) {
-    process.stderr.write('peer-rank: empty stdin — pipe a JSON input\n')
+    process.stderr.write('peer-rank: empty stdin — pipe a JSON input (see --help)\n')
     process.exit(1)
   }
   const input = JSON.parse(raw)
-  const result = await peerRank(input)
-  process.stdout.write((result == null ? 'null\n' : JSON.stringify(result, null, 2) + '\n'))
+  const { block, message } = await peerRankDetailed(input)
+  if (block == null && message) process.stderr.write(`peer-rank: block omitted — ${message}\n`)
+  process.stdout.write(block == null ? 'null\n' : JSON.stringify(block, null, 2) + '\n')
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -1,5 +1,5 @@
 # System Context -- career-ops
-<!-- scoring-version: 2026-04-26 -->
+<!-- scoring-version: 2026-10-20 -->
 
 <!-- ============================================================
      THIS FILE IS AUTO-UPDATABLE. Don't put personal data here.
@@ -26,396 +26,340 @@
 
 ## Report Voice
 
-**Reports are written FOR the candidate, not ABOUT them.** Every prose section (Reasoning cells, Gaps, Recommendation, Career Path Impact, TL;DR) addresses the candidate directly in **second person** — *"your CV covers your core stack"*, *"you finish your master's before this role's start window"*, *"this role accelerates you toward your target-tier companies"*. Treat the report as a memo the candidate is reading about a role being evaluated for them — not a referral profile being written for a third-party recruiter.
+**A report is a sharp advisor talking to the candidate about one listing — not an audit of the rubric.** Every prose section and every reasoning cell addresses the candidate in **second person** (*"you"*, *"your"*; imperatives are fine).
 
-**Hard bans in report prose:**
-- *"the user"* / *"the candidate"* / *"the candidate's profile"* / *"applicants like this one"*
-- Third-person possessive about the candidate: *"his/her CV"*, *"their MSc"*, *"the candidate's CEMS dual degree"*
-- Recruiter-memo register: *"the applicant would benefit from…"*, *"this profile demonstrates…"*
+**Lead with what decides this listing.** Most listings are settled by one or two things: a start date that clashes with a study term, a fluency bar, a cap on how many applications the candidate can send to one company (a live constraint in `user/_profile.md`), a quota-heavy day-to-day, a brand that opens exactly the door they want. Find those first — the script's `explanation` (binding constraint, closest lever) plus any constraint in `user/_profile.md` that applies to this company — put them first, and give them the space. Leave out what doesn't move the decision: a 7 on work-life balance does not get a paragraph, and no section sweeps every dimension below 8.
 
-**Use instead:** *"you"*, *"your"*, *"yours"*. Imperative voice is fine — *"lead with your strongest proof point"*, *"push for an alumni referral before submitting"*.
+**Opinion with its reason, in one sentence.** Tone reference (fictional CV advice): *"'Vibecoder' is the one I'd change. Right above it there's a serious section on AI-built projects, and a consulting recruiter may read 'vibecoder' as 'can't really code,' which undercuts that section."* A view, the reason, tied to the candidate's situation — no hedging, no checklist.
 
-**Where third person is still correct:**
-- Internal system docs and mode files (this file, scouting.md, etc.) — these are written for the AI agent and human maintainers, not for the candidate.
-- TSV / cache rows / log entries — they're machine-readable metadata, not prose.
-- References to other people: hiring managers, recruiters, peer applicants, alumni.
+**Objective, not flattering.** Knowing the candidate changes what gets emphasised, never the score. Name the weakest requirement plainly and give honest odds.
 
-This rule is universal across modes (`scouting`, `interview-prep`, `apply`, `pdf`, `positioning`, `ofertas`, `contacto`, `deep`, `training`, `project`, `tracker`, `patterns`, `followup`, `deadlines`). When updating older reports, rewrite to second person; do not preserve historical third-person phrasing.
+**Evidence is a judgment call, not a quota.** Quote the posting in plain prose when it carries the point (*"they want advanced Excel, including macros"*). Mention a CV item only when it changes the judgment. Never walk the CV to prove coverage, and never tick through the requirements one by one.
+
+**Numbers stay in the tables.** Prose says what they mean for the candidate.
+
+**Banned in report prose and reasoning cells:**
+- *"the user"*, *"the candidate"*, third-person possessives about the candidate, recruiter-memo register (*"this profile demonstrates…"*)
+- file paths and section references (*"cv.md § Technical Skills shows…"*)
+- bracketed tokens (*"[undisclosed]"*, *"[no gate stated]"*) and backticks — cells are plain prose with at most an occasional bold
+- rubric vocabulary: anchor, calibration, adjuster, rollup, hygiene term, binding constraint, lever, tier, band
+- score-fragility talk (*"a −1 here would drop this to T2"*)
+- *"the JD"* on repeat — say *"they"*, *"the posting"*, *"the role"*
+- **metawriting** — narrating the process instead of stating the finding: *"I checked the comp cache like you asked and here is the salary I found"*, *"as instructed, I looked up…"*, *"after reviewing your CV…"*, *"based on my research"*, *"note: this score was calculated using…"*. Nobody asked how the report was made; say what is true (*"Pay is about €2,000 a month gross, from Glassdoor reports"*). The same holds for the end-of-run summary a worker prints: results, not a diary of steps.
+
+**Where third person is still correct:** internal system docs and mode files (written for the agent and maintainers), TSV / cache / log rows, and references to other people (recruiters, hiring managers, alumni).
+
+This rule is universal across modes (`scouting`, `interview-prep`, `apply`, `pdf`, `positioning`, `ofertas`, `contacto`, `deep`, `training`, `project`, `tracker`, `patterns`, `followup`, `deadlines`).
 
 ---
 
 ## Scoring System
 
-There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). It uses the **Dimensional Scoring Framework** below and produces an **Overall** score on a 1-10 scale by rolling up Current Fit and Aspirational Fit with fixed weights (CF×0.70 + AF×0.30).
+There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). Every listing gets three things, **in this order**:
 
-**Score interpretation & Score Bands:**
+1. **Eligibility** — a gate, not a score: `green` / `amber` / `red`, from JD facts vs. the candidate's `eligibility:` block in `user/profile.yml`.
+2. **Want** (1–10) — how much the candidate wants this role.
+3. **Ease** (1–10) — how realistic it is to get in.
 
-Band assignment is **computed** — `scripts/score-listing.mjs` (`assignTier` in `scripts/lib/score-bands.mjs`) returns the tier from Current Fit, Aspirational Fit, and the dimensional fingerprint. Never re-derive it by hand. The authoritative rules, in evaluation order:
+The **verdict** comes from the Want × Ease grid (§ Verdict grid). A `red` listing is **Blocked**: no Want, no Ease, its reason is shown instead of a score. There is **no Overall** — surfaces that need one sortable number use **Priority**, which is never shown as a headline score.
 
-- **Stellar (CF ≥ 9.0, or Uniform Fingerprint: all 6 dims ≥ 8 AND CF ≥ 8.0 AND AF ≥ 8.0)** → Strongest match, recommend applying immediately (*maps under the hood to Tier 1 / `reports/tier-1/`*).
-- **Ease of Entry ≤ 4 (and not Stellar)** → the experience-wall gate fires: **Pass / Growth Target** when AF ≥ 7.0, **Skip** otherwise — regardless of CF.
-- **Strong (CF 8.0–8.9, EoE > 4)** → Good match, worth applying with prep (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply with prep" verdict*).
-- **Decent (CF 7.0–7.9, EoE > 4)** → Decent match, apply only if pipeline thin (*maps under the hood to Tier 2 / `reports/tier-2/` with "Apply if pipeline thin" verdict*).
-- **Pass / Growth Target (CF < 7.0 with AF ≥ 7.0)** → Recommend against immediate application; target for skill acquisition and roadmaps (*maps under the hood to Tier 3 / `reports/tier-3/`*).
-- **Skip (CF < 7.0 AND AF < 7.0, or language-wall exception, or status SKIP)** → Low fit or mismatch; filtered out (*maps under the hood to Tier 4 / `reports/tier-4/`*).
-
-**Overall** (CF × 0.70 + AF × 0.30 + context modifiers) is the headline number reports and trackers display, and the Ethical-Use verdict threshold (recommend against applying below 7.0) reads it — but the band boundaries above are CF/AF-based, matching the engine.
+**The contract is `docs/scoring-v2.md`; the executable source of truth is `scripts/score-listing.mjs`** (`scripts/lib/eligibility.mjs` + `scripts/lib/score-bands.mjs`). The agent extracts facts and assigns integer judgment scores with evidence; the script computes eligibility, Want, Ease, Priority, verdict and tier. **Never re-derive any of them by hand.** If this file and the script disagree, the script wins and this file has a bug.
 
 > [!NOTE]
-> **Under-the-Hood Compatibility Mapping:**
-> To ensure the stable operation of the Electron desktop app, SQLite database scanner, and file-based pipelines, legacy symbols (`T1`, `T2`, `T3`, `T4`) and file paths (e.g. `reports/tier-N/`) remain fully active as the serialization layer. The system maps the conceptual Score Bands to physical storage keys transparently. Always write physical records using the correct underlying keys while keeping all candidate-facing prose and scoring descriptions focused on the 5 Score Bands.
+> **Storage tiers.** `T1`–`T4` and the `reports/tier-{N}/` folders stay the serialization layer (Electron app, SQLite cache, TSV pipelines). The verdict maps to a tier; candidate-facing prose talks in verdicts.
+>
+> Tier folders: `T1` → `reports/tier-1/` · `T2` → `reports/tier-2/` · `T3` → `reports/tier-3/` · `T4` → no report file.
 
 ## Dimensional Scoring Framework
 
-The framework defines 6 numeric scoring dimensions, Sales-Trap Risk (decision-support, not in rollup), and 4 context dimensions. It's the single rubric the system uses end-to-end — `data/score-history.tsv` is unified across all evaluations and `positioning` mode reads it directly.
+**Scale:** every judgment dimension is an **integer 1–10, high = better** (for Ease dimensions, high = easier). Half-steps are not allowed — the script's levers and noise floors assume integer steps.
 
-There are **6 numeric scoring dimensions** that roll up into two summary scores (Current Fit, Aspirational Fit), plus **Sales-Trap Risk** (scored but not in the rollups — a decision-support signal) and **4 context dimensions** that inform the report but do NOT roll up into the summaries.
+### Step 1 — Eligibility gate
 
-**Scale:** All numeric dimensions use **integers 1–10**. Half-steps (e.g. 7.5) are permitted only when the reasoning explicitly justifies a half-step distinction that cannot be captured by the nearest integer. Rollups always use decimals from averaging.
+#### Extracting `eligibility_facts` from the JD
 
-### Current Fit dimensions (roll up into Current Fit, 1-10)
+Fill one object per listing. `null` means **the JD doesn't say** — never guess a value to make a check pass.
 
-These answer: *Could I get this job today?*
+| Field | How to fill it |
+|-------|----------------|
+| `employment` | `internship` · `graduate_programme` · `fixed_term` · `permanent`. A working-student contract is `fixed_term`. |
+| `start` | `{ earliest, latest, flexible, text }`. ISO dates. "Starting September 2028" → `earliest: "2028-09-01"`, `latest: "2028-09-30"`. "Start date flexible" / "rolling start" → `flexible: true`. `text` = the verbatim JD line, or `null`. |
+| `duration_months` | Internship / fixed-term length as an integer. "6-month internship" → `6`. `null` if not stated. |
+| `graduation` | `{ from, to, soft, text }` (`YYYY-MM`). Set `soft: false` **only** when the JD words the window as mandatory ("must", "only", "required"). "Penultimate year", "graduating in 2028", "ideally", "preferably" → `soft: true` (amber, flagged, never an auto-reject). |
+| `languages[]` | `{ language, level, required, text }`. `level` = A1–C2 or `native` / `fluent` / `professional` / `business` / `conversational` / `basic`. `required: false` for "a plus", "nice to have", "is an advantage". |
+| `country` | ISO-3166 alpha-2 of the work location (`DE`, `GB`). Remote within the EU → `REMOTE-EU`. |
+| `work_auth` | `requires_existing_right` — the JD says "must already have the right to work in X". `sponsorship` — `offered` / `not_offered` / `unknown`. `below_sponsorship_salary_floor` — see § Filling `work_auth` below. |
+| `other[]` | Agent-judged requirements the five structured checks don't model: degree field ("STEM degree required"), enrolment status ("at least one term remaining after the internship"), citizenship-grade clearances. Each `{ status, reason, question, text }`. `status: red` **only** when the JD states the requirement as mandatory AND the CV clearly fails it; otherwise `amber`. Every amber needs a recruiter `question`. |
+
+**Worked extraction** (fictional JD, fictional candidate):
+
+> *"6-month internship in our Lyon office, starting March 2027. You are enrolled in a Master's programme with at least one semester remaining after the internship. Fluent French required; German is a plus. Applicants must already hold the right to work in France."*
+
+```jsonc
+"eligibility_facts": {
+  "employment": "internship",
+  "start": { "earliest": "2027-03-01", "latest": "2027-03-31", "flexible": false, "text": "starting March 2027" },
+  "duration_months": 6,
+  "graduation": null,
+  "languages": [
+    { "language": "French", "level": "fluent", "required": true, "text": "Fluent French required" },
+    { "language": "German", "level": "basic", "required": false, "text": "German is a plus" }
+  ],
+  "country": "FR",
+  "work_auth": { "requires_existing_right": true, "sponsorship": "unknown", "below_sponsorship_salary_floor": false },
+  "other": [
+    { "status": "amber", "reason": "must have a semester remaining after the internship",
+      "question": "Does a thesis-only final term count as a remaining semester?",
+      "text": "at least one semester remaining after the internship" }
+  ]
+}
+```
+
+A candidate at French B2 is **red** on `language` here (C1+ bar, any gap blocks); German never blocks because it is `required: false` — at most it raises Competition.
+
+#### The six checks
+
+The script runs `start_date`, `duration`, `graduation`, `language`, `work_auth` and `other`. Each returns `{ check, status, reason, question? }`; every amber carries the one `question` to ask the recruiter.
+
+| Check | Red | Amber | Green |
+|-------|-----|-------|-------|
+| `start_date` | The role's period overlaps a `blocked_windows` entry and `start.flexible` is false (permanent roles run open-ended unless `permanent_start_ok_before_block`); or `start.latest` is before `available_from`. | Start not stated for an internship / fixed-term / graduate programme; an overlap exists but the start is flexible; or the earliest start is before `available_from` but the latest isn't. Permanent role, no stated start → amber only if a blocked window lies in the next 9 months. | Known start, no overlap, on/after `available_from`. |
+| `duration` | — | `duration_months` outside the candidate's `[min, max]`, or null for an internship. | In range, or not applicable. |
+| `graduation` | Hard window (`soft: false`) and no candidate graduation date inside it. | Same, but `soft: true`. | No requirement, or a candidate date falls inside. |
+| `language` | A required language the candidate lacks; ≥2 CEFR steps below; or **any** gap when the required level is C1+ (fluent / C2 / native — a fluency bar is tested in interviews). | 1 step below a required level of B2 or lower. | All required languages met. `required: false` never blocks. |
+| `work_auth` | Country not covered by `work_authorisation` AND (`requires_existing_right` OR `sponsorship: not_offered` OR `below_sponsorship_salary_floor`). | Country not covered and sponsorship `offered` / `unknown`; or CH for an "EU" candidate. | Country covered (or `REMOTE-EU` with EU authorisation). |
+| `other` | Any `other` entry with `status: red`. | Any `other` entry with `status: amber`. | No entries. |
+
+CEFR ladder: A1=1 · A2/`basic`=2 · B1/`conversational`=3 · B2/`professional`/`business`=4 · C1/`fluent`=5 · C2=6 · `native`=7. A candidate's `native` meets anything.
+
+**Unknown is not green.** A JD silent on an internship's start date is amber — that is where most hand-caught misses came from. The listing's eligibility is the worst of its checks.
+
+#### Run it first
+
+```bash
+echo '{ "eligibility_facts": { ... } }' | node scripts/score-listing.mjs --eligibility-only
+```
+
+It reads the candidate's `eligibility:` block from `user/profile.yml` and returns only `{ eligibility }`. **If it says `red`, stop scoring** — no judgment dimensions are needed.
+
+- **red → Blocked.** Verdict `blocked`, tier `T4`, no Want / Ease / Priority, **no report file**. The listing is still logged — a `data/score-history.tsv` row (dimension and score columns empty) and a scouting TSV row whose Eligibility cell carries the reason — so it shows in the app with its reason instead of silently vanishing. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
+- **amber → scored normally**, Ease −0.5 per amber check (max −1.0, applied by the script). Every amber `question` goes into the report's `## Eligibility` block.
+- **green → no effect.**
+
+#### Filling `work_auth` — sponsorship reference
+
+Read the candidate's `work_authorisation` from `user/profile.yml` → `eligibility:`. When the role's country isn't covered, this table decides `sponsorship` and the salary-floor flag. It is guidance for filling facts, not a score penalty.
+
+| Role's country (candidate not authorised there) | Typical `sponsorship` | Salary floor to check |
+|-------|-----------------------|-----------------------|
+| EU / EEA member state, candidate has non-EU status | `unknown` unless the JD says otherwise; entry-level sponsorship varies by employer | National highly-skilled / Blue Card thresholds where the JD's comp is disclosed |
+| Switzerland, EU candidate | — (the script makes CH amber for an "EU" candidate) | — |
+| UK, candidate without UK status | `offered` only for structured graduate cohorts at established sponsors or when the JD says so; `unknown` for ad-hoc entry-level hires; `not_offered` when the JD says "no sponsorship" | Skilled Worker: **£38,700/year** (or the SOC going rate, if higher); new-entrant rate ~£30,960 only when the JD signals it |
+| US / Canada | `not_offered` unless the JD opens the door (entry-level H-1B / TN sponsorship is rare) | — |
+| Other (Singapore, UAE, …) | `unknown` unless stated | Local employment-pass salary floors |
+
+- **`below_sponsorship_salary_floor: true`** when a sponsored route has a statutory floor the role's disclosed comp misses (e.g. UK full-time below £38,700 with no new-entrant or graduate-route mention). If comp is undisclosed but peer data (Glassdoor / Levels.fyi) lands it below the floor, leave the flag false, set `sponsorship: "unknown"`, and name the ambiguity in the report.
+- "We sponsor visas for graduate roles" → `offered`. "Must have unrestricted right to work in X" → `requires_existing_right: true`. Passport / citizenship-grade requirements ("EU citizenship required", security clearance) go in `other[]`.
+- UK internships at established sponsors usually run on the Temporary Worker (Government Authorised Exchange) route → `offered`; at smaller or unclear employers → `unknown`.
+
+### Step 2 — Want
+
+#### Motivators (averaged — what makes a role worth wanting)
 
 | Dimension | What it measures | 10 = | 1 = |
 |-----------|------------------|------|-----|
-| **Skills Match** | Do my current skills match what the JD asks for? | Every required + all preferred skills covered; domain knowledge is a perfect match | Wrong stack entirely; no meaningful skill overlap |
-| **Ease of Entry** | How realistic is it for someone at my level to actually land this role? | Perfectly designed for this profile; exact persona, no competition | Out of range; senior role requiring multi-year credentials |
-| **Strategic/Analytical Fit** | Is the actual day-to-day work analytical/strategic, or would I end up doing something different from what the title suggests? | Pure analytical work; every day is data analysis, modeling, insights delivery | No meaningful analytical work; pure ops/sales/support role |
+| **Growth / Mobility** | Does this role lead somewhere? | Documented multi-level track, mobility across functions, structured mentorship / LDP | Explicitly capped; no promotion, no mobility |
+| **Optionality / Exit** | How good a stepping stone is it? | Skills + brand transfer to top destinations immediately | Locks you into one company's processes |
+| **Brand Value** | Does the name carry weight on a CV? | Global top-tier brand, recognized everywhere | No recognition outside one local market |
+| **Role content** | Is the day-to-day work the kind the candidate wants (per the archetypes in `user/_profile.md`)? Absorbs the old sales-pigeonholing signal. | Every day is the target work | None of the target work; the title is misleading |
 
-**Per-step anchors — Skills Match:**
-- **10:** Every required + all preferred skills covered; domain knowledge is a perfect match
-- **9:** Every required covered; 1 preferred skill gap (minor, non-central)
-- **8:** All required covered; 2+ preferred skill gaps (still strong coverage)
-- **7:** Strong foundational coverage; 1 domain-specific required skill missing (closeable gap, strong adjacent)
-- **6:** Required skills mostly covered; 1-2 meaningful gaps in central tools or domain knowledge
-- **5:** Foundational overlap; 2-3 significant skill gaps in tools/domain
-- **4:** Adjacent stack; can demonstrate transferable skills but core tools missing
-- **3:** Weak overlap; foundational skills present but most domain skills absent
-- **2:** Minimal overlap; only generic skills match; would need retraining
-- **1:** Wrong stack entirely; no meaningful skill overlap
+**Per-step anchors — Growth / Mobility:**
+- **10:** Explicit multi-level promotion track; internal mobility to multiple functions; structured mentorship; LDP / rotational
+- **9:** Clear ladder with named next roles; strong mobility across teams / geos
+- **8:** Good growth signals; mentor assigned; structured programme (grad scheme, rotation)
+- **7:** Growth possible, less structured; company growing; scope expands with performance
+- **6:** Depends on individual performance + team fit; no formal path
+- **5:** Some growth, narrow scope; limited functional mobility
+- **4:** Capped function; years in the same role-type
+- **3:** Dead-end role type; doesn't grow beyond ~2 years
+- **2:** No growth indicators; execution-only; no ladder visible
+- **1:** Explicitly capped; no promotion, mobility or scope expansion
 
-**Per-step anchors — Ease of Entry:**
-- **10:** Perfectly designed for this profile; exact persona, no meaningful competition
-- **9:** Strong persona match; minimal competition (niche role or language filter narrows pool)
-- **8:** Good persona match; moderate competition; standard entry-level at mid-tier brand
-- **7:** Persona match with 1 minor gap (e.g. 1 preferred year); some brand competition
-- **6:** Reasonable fit; some preferred-background signaling; moderate competition at top brand
-- **5:** Borderline; 1 year experience preferred; top-brand competition pool applies
-- **4:** Stretch; 1-2 years experience required; top-brand OR preferred-background wall
-- **3:** Hard stretch; 2-3 years required; multiple background requirements; hyper-competitive brand
-- **2:** Experience wall (3+ years); hyper-competitive brand + preferred-background wall; near-impossible today
-- **1:** Out of range; senior/specialist role; multiple years + credentials; not realistic for this profile
-
-**Per-step anchors — Strategic/Analytical Fit:**
-- **10:** Pure analytical work; every day is data analysis, modeling, insights delivery
-- **9:** Predominantly analytical; minor coordination/stakeholder mgmt (≤10% of time)
-- **8:** Clearly analytical; some project mgmt or client-facing (~20%)
-- **7:** Analytical core with meaningful operational component (~30%)
-- **6:** Equal analytical and operational work; title says analyst, reality is mixed
-- **5:** More operational than analytical; analytics is a support function, not the core
-- **4:** Mostly execution/coordination with some data work
-- **3:** Mostly operational; data work is incidental or reporting-only
-- **2:** Execution-only with analytical framing in the title; analytics is cosmetic
-- **1:** No meaningful analytical work; pure ops/sales/support; analytical title is misleading
-
-**Rollup:**
-```
-Current Fit = (Skills Match + Ease of Entry + Strategic/Analytical Fit) / 3
-```
-
-### Aspirational Fit dimensions (roll up into Aspirational Fit, 1-10)
-
-These answer: *Is this the type of role I want to grow into?*
-
-| Dimension | What it measures | 10 = | 1 = |
-|-----------|------------------|------|-----|
-| **Growth/Mobility** | Does this role lead somewhere, or is it a dead end? | Explicit multi-level promotion track; internal mobility to multiple functions; mentorship program; LDP | Explicitly capped; no promotion, no mobility, no scope expansion |
-| **Optionality/Exit** | How good is this as a stepping stone for future moves? | Skills + brand transfer to top destinations immediately; opens FAANG, MBB, top unicorns | Role locks you into one company's processes; actively harms future options |
-| **Brand Value** | Does this company / role carry weight on a CV? | Global top-tier brand (Google, McKinsey, Goldman); instantly recognized everywhere | No brand recognition outside one local market |
-| **Sales-Trap Risk** | Risk of getting pigeonholed into pure sales / account management rather than strategy/analytics work. **Higher score = LOWER risk** (good). | Clearly strategic / analytical role; no quota, no cold-calling | Title is analyst but JD is 80%+ pipeline generation and quota carrying |
-
-**Per-step anchors — Growth/Mobility:**
-- **10:** Explicit multi-level promotion track documented; internal mobility to multiple functions; structured mentorship; LDP/rotational
-- **9:** Clear promotion ladder with named next roles; strong internal mobility across teams/geos
-- **8:** Good growth signals; mentor assigned; structured program (grad scheme, rotational)
-- **7:** Growth possible but less structured; company growing; scope can expand with performance
-- **6:** Growth possible but depends on individual performance + team fit; no formal path
-- **5:** Some growth but narrow scope; functional mobility limited; role-type stays the same
-- **4:** Capped function; growth means staying in same role-type for years
-- **3:** Dead-end role type; function doesn't grow beyond 2 years
-- **2:** No growth indicators; role is execution-only; no ladder visible
-- **1:** Explicitly capped; no promotion, no mobility, no scope expansion stated or implied
-
-**Per-step anchors — Optionality/Exit:**
-- **10:** Skills + brand transfer to top destinations immediately; opens FAANG, MBB, top unicorns on day one
-- **9:** Very transferable skills; brand recognized globally; opens top-tier next moves in 2-3 years
-- **8:** Good exit options; skills portable to multiple sectors; recognized brand in target markets
-- **7:** Portable skills with some niche exposure; opens good roles in adjacent sectors
-- **6:** Moderately transferable; well-known in one region or sector but not globally
-- **5:** Useful stepping stone but limited portability; skills somewhat niche
-- **4:** Skills mostly company-specific; exit options narrow without retraining
-- **3:** Very niche skill set; limited portability outside one company or sector
-- **2:** Role locks you into one company's processes; little market value externally
-- **1:** Dead-end exit; skills not transferable; role actively harms future options
+**Per-step anchors — Optionality / Exit:**
+- **10:** Transfers to top destinations (big tech, top consulting, top unicorns) on day one
+- **9:** Very transferable skills; globally recognized brand; top-tier next moves in 2–3 years
+- **8:** Portable to multiple sectors; recognized brand in target markets
+- **7:** Portable skills with some niche exposure; good roles in adjacent sectors
+- **6:** Moderately transferable; known in one region or sector
+- **5:** Useful stepping stone, limited portability
+- **4:** Mostly company-specific skills; narrow exits without retraining
+- **3:** Very niche; limited portability outside one company or sector
+- **2:** Locks you into one company's processes
+- **1:** Dead-end exit; actively harms future options
 
 **Per-step anchors — Brand Value:**
-- **10:** Global top-tier (Google, McKinsey, Goldman Sachs); instantly recognized everywhere, every sector
-- **9:** Near-global tier (Amazon, Meta, Stripe, Salesforce, BCG, Bain); top-tier in most markets
-- **8:** Strong European/global tech brand (Celonis, Datadog, Revolut, Spotify, EY, Booking.com); recognized by most tech recruiters
-- **7:** Known tech company or regional leader (SumUp, Glovo, Qonto, PwC national office); solid signal in target markets
-- **6:** Solid mid-market brand; known in sector but not immediately signaling prestige
-- **5:** Smaller/regional company; known within specific market or vertical
-- **4:** Startup or early-stage company; brand value depends on future outcomes
-- **3:** Unknown outside immediate market; minimal brand signal to external recruiters
-- **2:** No meaningful brand recognition; name means nothing without context
-- **1:** Brand recognition is zero or actively negative
+- **10:** Global top-tier (Google, McKinsey, Goldman Sachs); instantly recognized everywhere
+- **9:** Near-global tier (Amazon, Meta, Stripe, BCG, Bain); top-tier in most markets
+- **8:** Strong European / global tech or professional-services brand (Datadog, Revolut, Spotify, Big-4); recognized by most tech recruiters
+- **7:** Known tech company or regional leader; solid signal in target markets
+- **6:** Solid mid-market brand; known in sector, not prestige-signalling
+- **5:** Smaller / regional company; known within a market or vertical
+- **4:** Startup or early-stage; brand depends on future outcomes
+- **3:** Unknown outside its immediate market
+- **2:** No meaningful recognition
+- **1:** Zero or actively negative recognition
 
-**Per-step anchors — Sales-Trap Risk (higher = lower risk = better):**
-- **10:** Zero sales exposure; pure analytical/strategy/engineering role; no quota, no pipeline targets
-- **9:** Predominantly analytical; minor commercial awareness required but no quota
-- **8:** Client-facing but consultative/advisory; no quota; analytical work clearly dominates
-- **7:** Some account management or client coordination; secondary to analytical work; no quota
-- **6:** Mixed role; some commercial exposure but analytical work still primary
-- **5:** Equal sales and analytical elements; risk of drifting toward quota-carrying exists
-- **4:** Sales-adjacent; analytical framing but significant commercial pressure likely
-- **3:** Pre-sales or SDR-adjacent; quota light but pipeline-building expected
-- **2:** BDR/SDR with analytical branding; cold outreach is real and significant part of the job
-- **1:** Pure sales/BDR role; outbound, quota, pipeline generation; analytical title is misleading
+**Per-step anchors — Role content** (read "target work" as the work the candidate's archetypes describe; the shares below are time spent on it):
+- **10:** Pure target work; every day is what the archetype describes
+- **9:** Predominantly target work; minor coordination (≤10%)
+- **8:** Clearly target work; some project management or client-facing (~20%)
+- **7:** Target-work core with a meaningful operational component (~30%)
+- **6:** Half target work, half something else; the title says one thing, the reality is mixed
+- **5:** More operational than target work; the target work is a support function
+- **4:** Mostly execution / coordination with some target work
+- **3:** Target work is incidental or reporting-only
+- **2:** Execution-only with target-work framing in the title
+- **1:** No target work at all; the title is misleading
 
-**Note on Sales-Trap Risk:** This dimension is inverted from intuition — *high score means low risk*. A "10" means the role is well-protected from sales-pigeonholing. A "1" means high risk of becoming a pure salesperson. This keeps all dimensions in the same "high = good" direction.
+**Sales cap (absorbs the retired sales-pigeonholing signal).** When the JD is **≥50% quota-carrying or outbound sales** (pipeline targets, cold outreach, BDR/SDR work), cap Role content at **3**; a BDR/SDR seat with analytical branding is a 2; pure quota-carrying sales is a 1. Consultative client-facing work with no quota is not capped. Say in the reasoning cell what the quota or outbound work is, quoting the posting when that makes the point. The cap does not apply when the candidate's own archetypes in `user/_profile.md` are sales roles — then sales work *is* the target work.
 
-**Sales-Trap Risk is NOT included in the Aspirational Fit rollup.** It is always scored and displayed in the dimensional table as a decision-support signal, but it does not enter the AF average. This prevents it from inflating AF on non-sales roles (where it's always 8-10) or masking structural issues on sales roles (where a low score should be a red flag the user sees, not something diluted into an average).
+#### Hygiene factors (they hurt when bad, add little when good)
 
-**Rollup:**
+| Dimension | What it measures |
+|-----------|------------------|
+| **City** (`best_cities`) | Position in the candidate's preferred-cities list (`user/_profile.md` → Location Policy). Top preferred city floors at 9; a non-preferred city inside the candidate's reachable region floors at 6; outside it, 2–3. |
+| **Salary Adj for City** (`salary_adj_city`) | Savings power after cost of living — computed by the script (rubric below). |
+| **Work-Life Balance** (`work_life_balance`) | Reputation for WLB (Glassdoor / Blind / known culture). 10 = healthy ~40h; 1 = known burnout culture. |
+
+**Best-fit Early-career Roles** (context, text): 1–4 roles at this company that would suit the candidate better than the one evaluated, free text. Not scored.
+
+#### Calibration (applied by the script — pass the `calibration:` block, don't hand-apply)
+
+- **Brand:** `dream_companies` → Brand 10; `brand_affinity_companies` → +0.6; `lower_tier_dream_companies` → +1.0; `extra_brand_bonuses` entries → their stated bonus.
+- **Growth:** structured onboarding / learning path → +1; sink-or-swim → −1.
+- **Dream floor:** `dream_companies` → Want ≥ 8.0 (the vetoes below still win).
+
+#### Want formula (summary — the script is the source of the math)
+
 ```
-Aspirational Fit = (Growth/Mobility + Optionality/Exit + Brand Value) / 3
+M         = weighted mean of the 4 motivators (user/profile.yml → scoring.want_weights; default equal)
+penalty   = −0.30 per motivator scoring ≤ 2
+H         = h(City) + h(Salary Adj)* + h(WLB)      * salary term is 0 for interns
+h(x)      = +0.25 (x ≥ 8) · 0 (5–7) · −0.40 (4) · −0.80 (3) · −1.20 (< 3)
+Want      = clamp(M − penalty + H, 1, 10); dream floor 8.0
+vetoes    : any hygiene factor < 3 (salary ignored for interns) → Want ≤ 5.0
+            Role content ≤ 3                                     → Want ≤ 6.0
 ```
-
-### Overall
-
-`Overall = Current Fit × 0.70 + Aspirational Fit × 0.30 + context modifiers`
-
-Fixed weighting (CF dominates — reachability is the primary question for an entry-level user). The math, including the bottom-range penalty on rollups and the context modifiers below, is computed by `scripts/score-listing.mjs` — the agent passes judgment dim scores in, the script returns CF / AF / Overall / tier / modifiers-applied with full math.
-
-**Context modifiers** (applied after the weighted rollup):
-- Salary Adj for City ≤ 4 → **−0.4** (poverty-wage or well below market) — **skipped for interns**
-- Salary Adj for City ≥ 9 → **+0.2** (notably above market) — **skipped for interns**
-- Work-Life Balance ≤ 4 → **−0.2** (poor WLB reputation) — applies to interns too
-
-**Intern carve-out:** when `is_intern: true`, the Salary Adj modifiers do NOT fire. Stipends aren't salaries — they're by design close to break-even after rent, so penalizing Overall by −0.4 on nearly every intern role would be near-universal noise that doesn't differentiate good intern roles from bad ones. The Salary Adj score is still surfaced in the report (the user can still see how much the stipend covers); only its effect on Overall is suppressed for interns. WLB modifier still applies — sweatshop signals matter regardless of role type.
-
-Modifiers stack. When any fire, show them explicitly in the Overall line of the report (the script returns them in `overall_modifiers`, including a `Salary Adj modifier skipped (intern role)` entry when the intern carve-out suppresses one):
-```
-**Overall** | **X.X/10** | CF × 0.70 + AF × 0.30 − 0.4 (Salary Adj=3) − 0.2 (WLB=4) |
-```
-
-### Context dimensions (do NOT roll up — except via modifiers above)
-
-These appear in every report for situational awareness. The Salary and WLB dimensions can apply small modifiers to Overall (see above). Best Cities and Best-fit Roles remain purely informational.
-
-| Dimension | Type | What it measures |
-|-----------|------|------------------|
-| **Best Cities** | 1-10 numeric | Does the role's location match the user's preferred-cities list from `_profile.md`? 10 = top preferred, 1 = unworkable / requires relocation outside acceptable EU set |
-| **Salary Adj for City** | 1-10 numeric | **Savings power after cost of living.** Not "is the salary competitive for this city's labor market" — that conflates a low-COL city paying market-rate-low with a high-COL city paying market-rate-high. The rubric below converts gross salary to monthly net (country-specific tax), subtracts a city comfortable-life baseline, and scores the resulting monthly savings on an absolute band. A €30K Barcelona role and a €60K Dublin role can both be "competitive for their city" yet save very different amounts — this dimension scores the latter, not the former. |
-| **Work-Life Balance** | 1-10 numeric | Company reputation for WLB (Glassdoor / Blind / known culture). 10 = healthy ~40h, 1 = sweatshop / known burnout culture |
-| **Best-fit Early-career Roles** | text (list) | What specific roles at this company would actually suit the user best — even if they differ from the role being evaluated. Free-form list of 1-4 alternatives. |
 
 #### Salary Adj for City — savings-power rubric
 
-**Score what the salary actually saves**, not how it compares to the local labor market. Two cities at "competitive" pay can save very different amounts; that's what this dimension captures.
+**Score what the salary actually saves**, not how it compares to the local labour market. A modest salary in a cheap city and a high one in an expensive city can both be "competitive for their city" yet save very different amounts; this dimension scores the savings.
 
-The math is encoded in `scripts/score-listing.mjs` (and `scripts/lib/score-bands.mjs`). The agent's job here is to:
+The math is encoded in `scripts/score-listing.mjs` (and `scripts/lib/score-bands.mjs`). The agent's job is to:
 
-1. **Build total comp inputs** by reading the JD:
-   - Base salary, bonus % (or industry-typical estimate when undisclosed: big tech ≈ 15%, MBB ≈ 20%, banking ≈ 30%+, most other ≈ 0–10%), 13th/14th month months, monthly cash benefits (transit / meals / gym / housing), one-off sign-on amount.
-   - **Equity:** prefer Levels.fyi (`company × role × level × city` already encodes role-dependent grants). If Levels.fyi has nothing AND the JD discloses an equity number, annualize over vest — public RSU at face value, private RSU/options at 50% haircut (tag `[equity speculative]`). If neither source resolves it, set to zero and tag `[equity unknown — base only]`. Don't speculate.
-   - Statutory benefits the country requires anyway (basic EU healthcare, statutory PTO minimum, statutory parental leave) DO NOT count.
-2. **Resolve the tax rate** for `(country, gross-rounded-to-€5K)`: check `data/tax-cache.tsv` for a row within 90 days. On miss, WebSearch a tax calculator (talent.com / gov.ie / hmrc / etc.) at this exact gross, then pass to the script as `tax_override` and run with `--write-cache` to persist.
-3. **Resolve the city baseline:** check `data/col-cache.tsv` within 60 days. On miss, WebSearch `numbeo.com/cost-of-living/in/{city}` and parse `Single person estimated monthly costs without rent + Apartment 1BR City Centre`. Pass as `col_override`, run with `--write-cache`.
-4. **Decide the soft-benefits modifier** (judgment call, ±1.0 max — see table below) and pass as `soft_benefits_modifier`.
-5. **Run the script.** It computes total comp → net → minus baseline → savings band → applies modifier → returns the score with full math provenance, ready to drop into the reasoning cell verbatim.
+1. **Build total comp inputs** from the JD:
+   - Base salary, bonus % (industry-typical estimate when undisclosed: big tech ≈ 15%, top consulting ≈ 20%, banking ≈ 30%+, most other ≈ 0–10%), 13th/14th month, monthly cash benefits (transit / meals / gym / housing), one-off sign-on.
+   - **Equity:** prefer Levels.fyi (`company × role × level × city`). If Levels.fyi has nothing AND the JD discloses an equity number, annualize over vest — public RSU at face value, private RSU/options at 50% haircut (say in the Comp section that the equity value is speculative). If neither resolves it, set it to zero and say the figure is base pay only. Don't speculate.
+   - Statutory benefits the country requires anyway (basic healthcare, statutory PTO, statutory parental leave) DO NOT count.
+2. **Resolve the tax rate** for `(country, gross-rounded-to-€5K)`: check `data/tax-cache.tsv` for a row within 90 days. On a miss, WebSearch a tax calculator at this exact gross, pass it as `tax_override` and run with `--write-cache`.
+3. **Resolve the city baseline:** check `data/col-cache.tsv` within 60 days. On a miss, WebSearch `numbeo.com/cost-of-living/in/{city}` and parse `Single person estimated monthly costs without rent + Apartment 1BR City Centre`. Pass as `col_override`, run with `--write-cache`.
+4. **Decide the soft-benefits modifier** (judgment call, ±1.0 max — table below) and pass it as `soft_benefits_modifier`.
+5. **Run the script.** It computes total comp → net → minus baseline → savings band → applies the modifier → returns the score with full math provenance.
 
-**Soft-benefits modifier** — applied to the score by the script, but the agent picks the value:
+**Soft-benefits modifier** — applied by the script, value picked by the agent:
 
 | Signal | Modifier |
 |--------|----------|
-| Any 2 of: PTO ≥30 days, fully flex / fully remote / hybrid 2-3d max, exceptional perks (sabbatical / housing / parental leave > statutory / learning stipend ≥€2K), Glassdoor benefits ≥4.0/5 | **+0.5 to +1.0** |
+| Any 2 of: PTO ≥30 days, fully flexible / remote / hybrid 2–3d max, exceptional perks (sabbatical / housing / parental leave > statutory / learning stipend ≥€2K), Glassdoor benefits ≥4.0/5 | **+0.5 to +1.0** |
 | 1 of the above OR explicitly-named meaningful perks | **+0.3** |
 | Statutory minimums only | **0** |
 | PTO ≤22 days, on-site mandatory in a high-COL city, Glassdoor benefits ≤2.5/5 | **−0.3 to −0.5** |
 
-WebSearch `{company} benefits {city} site:glassdoor.com OR site:levels.fyi` if the JD doesn't surface enough to judge. Apply in 0.1 steps mid-bucket.
+WebSearch `{company} benefits {city} site:glassdoor.com OR site:levels.fyi` if the posting doesn't surface enough to judge. Apply in 0.1 steps mid-bucket; when it moves the score, say why in plain words in the Comp section (*"generous leave and two office days a week"*).
 
-**Reasoning cell** — paste the script's `salary_adj_for_city.math` field verbatim. It contains every number with its source. Generic "competitive for the city" or "mid-range" without provenance is not allowed.
+**Internships** — pass `is_intern: true`; the script halves the city baseline (shared housing assumed) unless the JD states company-provided housing, and the salary hygiene term drops out of Want (stipends are not salaries).
 
-**Internships** — pass `is_intern: true` in the script input; the script halves the city baseline (shared housing assumed) unless the JD explicitly states company-provided housing.
-
-**Poverty-wage discard:** if the script returns `score: 1` (savings < −€400/mo), `modes/pipeline.md` § Step 2c discards the listing.
+**Poverty-wage discard:** if the script returns `score: 1` (savings < −€400/mo), `modes/pipeline.md` § Step 2c discards the listing before scoring.
 
 #### Comp cache (`data/comp-cache.tsv`)
 
-When a JD doesn't disclose salary, look up `(company, role_archetype, city)` in `data/comp-cache.tsv`. The cache is the system's persistent memory of comp data — populated at evaluation time, reused for ~60 days, then refreshed.
+When a JD doesn't disclose salary, look up `(company, role_archetype, city)` in `data/comp-cache.tsv` — the system's persistent memory of comp data, populated at evaluation time, reused for ~60 days, then refreshed.
 
-**Schema (TSV with header row):**
+**Schema (TSV with header row; rows are fictional examples):**
 
 ```
 company	role_archetype	city	currency	min	max	source	confidence	last_updated
-Datadog	Strategy & Ops Analyst	Dublin	EUR	45000	58000	glassdoor	high	2026-04-28
-Stripe	Solutions Engineer	Dublin	EUR	68000	85000	levels.fyi	high	2026-04-28
-SumUp	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
+Acme Analytics	Strategy & Ops Analyst	Dublin	EUR	45000	58000	glassdoor	high	2026-04-28
+Northwind	Solutions Engineer	Dublin	EUR	68000	85000	levels.fyi	high	2026-04-28
+Globex	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 ```
 
-- `role_archetype` = canonical archetype string (Strategy & Ops, Data Analyst, Solutions Engineer, etc.) — not the verbose JD title. Roles within the same archetype share a band.
-- `currency` = ISO 4217 code (EUR, GBP, USD, DKK, …). Internships use the same field; values are €/mo for interns and €/yr for full-time. Distinguish by context (intern roles have small numbers; full-time has 5-figure+).
-- `source` = `glassdoor` | `levels.fyi` | `blind` | `payscale` | `jd` (when the JD itself disclosed it and we're caching for next time) | `manual` (user-edited).
-- `confidence` = `high` (multiple data points agree, ≥10 reports on source) | `medium` (single source, fewer reports) | `low` (extrapolated from adjacent role / city).
+- `role_archetype` = canonical archetype string, not the verbose JD title. Roles in the same archetype share a band.
+- `currency` = ISO 4217. Values are /mo for interns and /yr for full-time.
+- `source` = `glassdoor` | `levels.fyi` | `blind` | `payscale` | `jd` | `manual` (user-edited).
+- `confidence` = `high` (multiple sources agree) | `medium` (single source) | `low` (extrapolated from an adjacent role / city).
 - `last_updated` = ISO date the row was written.
 
-**Lookup flow (do this in order, stop at first hit):**
+**Lookup flow (stop at the first hit):**
 
-1. **Exact match:** `company` + `role_archetype` + `city` AND `last_updated` is within 60 days. Use these min/max as if disclosed.
-2. **Cross-city same role:** `company` + `role_archetype` in a peer city (Berlin↔Munich, Dublin↔Amsterdam) within 60 days. Adjust the cached gross by the ratio of the two cities' baselines from the cost-of-living table above (e.g. Munich/Berlin ≈ 2,600/2,200 = 1.18 → multiply Berlin gross by 1.18 to estimate Munich). Mark reasoning *(cached, cross-city adjusted)*.
-3. **Same company, peer archetype:** `company` + adjacent role_archetype (e.g. "Data Analyst" → "Business Analyst") in same city within 60 days. Mark reasoning *(cached, peer-archetype proxy)*.
-4. **Cache miss or stale (> 60 days):** run a **WebSearch** in this priority order — **Levels.fyi → Glassdoor → LinkedIn Salary → Payscale → Blind**. Aim for 2 sources to cross-check. Take the median of the entry-level / target-level band. Score it through the savings-power rubric above (gross → net → minus baseline → score). Prepend `[estimated from {source}]` to the reasoning so provenance is visible. Then **append a row to `data/comp-cache.tsv`** with `source` = whichever site won, `confidence` = `high` (multiple sources agree) / `medium` (single source) / `low` (extrapolated). A defended estimate beats a blind 5; the cache grows organically from every evaluation.
-5. **WebSearch returned nothing useful** (rare — small private startups, very niche roles, jurisdictions with no salary-data culture): score **5** with `[undisclosed — no public data]` reasoning. Do NOT fabricate a band. This is the only path to a default-5 score.
+1. **Exact match** within 60 days → use min/max as if disclosed.
+2. **Cross-city same role** in a peer city within 60 days → adjust by the ratio of the two cities' baselines; note it as a cross-city estimate.
+3. **Same company, peer archetype** in the same city within 60 days → note it as a proxy from a similar role.
+4. **Miss or stale** → WebSearch **Levels.fyi → Glassdoor → LinkedIn Salary → Payscale → Blind**, aim for 2 sources, take the median of the entry / target-level band, say where the estimate came from in plain words in the Comp section (*"estimated from Glassdoor"*), and **append a row to the cache**.
+5. **Nothing useful found** → score **5** and say plainly that pay is undisclosed and nothing public turned up. Never fabricate a band. This is the only path to a default 5.
 
-**Refresh rules:**
+**Refresh:** a stale row consulted → WebSearch and **overwrite** it (no duplicate), update `last_updated`. `source = manual` pins a row until the user touches it again.
 
-- Rows older than 60 days are stale. When a stale row is consulted, run WebSearch as in step 4 and **overwrite** the row (don't append a duplicate). Update `last_updated` to today.
-- The user can manually edit a row at any time and set `source = manual` — that pins the row and bypasses the 60-day refresh until the user touches it again.
-- The cache is gitignored-or-not at the user's discretion. The TSV format is robust to manual editing.
+### Step 3 — Ease
 
-**Tier-1 only?** No. Even mid-tier brands accumulate Glassdoor / Blind data over time. Cache populates organically — start by lookup-on-evaluation; over a few weeks the file grows to cover the user's actual target list.
+| Dimension | What it measures |
+|-----------|------------------|
+| **Skills Match** | Listed skills vs. the CV — skills only. |
+| **Experience bar** | YoE and prior-background demands vs. the CV. |
+| **Competition** | How selective the brand is and how big the applicant pool is. |
 
-### Reasoning column quality bar
+**Per-step anchors — Skills Match:**
+- **10:** Every required + all preferred skills covered; domain knowledge a perfect match
+- **9:** Every required covered; 1 minor preferred gap
+- **8:** All required covered; 2+ preferred gaps
+- **7:** Strong foundational coverage; 1 domain-specific required skill missing
+- **6:** Required mostly covered; 1–2 meaningful gaps in central tools or domain
+- **5:** Foundational overlap; 2–3 significant gaps
+- **4:** Adjacent stack; transferable skills but core tools missing
+- **3:** Weak overlap; most domain skills absent
+- **2:** Only generic skills match
+- **1:** Wrong stack entirely
 
-The Reasoning column in the dimensional table is the load-bearing artifact for trust. A row that says `Ease of Entry | 7/10 | competitive but designed for new grads` doesn't tell the user *why* — and on the next evaluation the same generic phrase will reappear with a different score, so the user has no way to tell whether the rubric was applied at all.
+**Skills only, not experience.** Walk the JD's required + preferred skills line by line against `user/cv.md` (Skills, Education, Projects). "3+ years in X" or "prior consulting background" are not skills — they belong to **Experience bar**. Domain-specific skills (a named ads ecosystem, an LLM stack, a CRM-admin skill) ARE skills: strong analytical foundations without the domain skill the role runs on is a 7, not an 8. The split is the point: "Skills 9, Experience bar 3" tells the candidate "you have the skills, not the experience" — the actionable read.
 
-**This is a depth requirement, NOT a direction requirement.** The fix is *not* to push scores down; the fix is to make whatever score the agent lands on traceable to specific JD signals the user can verify. Two agents reading the same JD might land at 5 or 7 depending on how they weigh the audit signals — that range of judgment is fine. What's not fine is a score that arrives without showing its work.
+**Per-step anchors — Experience bar:**
+- **10:** No experience asked, or the exact persona the JD describes
+- **7:** 1 preferred year, or a prior internship preferred, which the candidate roughly has
+- **5:** 1 year required, or a "top-tier prior internship" preference the candidate partly meets
+- **4:** 1–2 years required
+- **3:** 2–3 years required — **the experience wall** (Ease capped at 4.5 by the script)
+- **2:** 3+ years required
+- **1:** Senior / specialist
 
-**Each reasoning cell MUST cite at least one of:**
-1. **A JD-quoted requirement** verbatim or near-verbatim — e.g., `JD lists: "previous internship at top-tier IB/PE/strategy consulting/fast-growing tech"`.
-2. **A named adjustment from the calibration tables** — e.g., `Brand-competition tier: recognized European unicorn (-2)` or `Graduate-cohort bonus (+1)`. The calibration adjustments are tools, not mandates — apply only when the JD evidence supports them.
-3. **A specific number** — disclosed comp figure, stated YoE bar, named language requirement.
-4. An explicit `[no gate stated]` or `[undisclosed]` token when none of the above applies. This is fine — many JDs really are silent on hard gates.
+(8–9 and 6 interpolate between the named anchors.)
 
-Generic platitudes — "competitive but reachable", "good growth trajectory", "strong brand", "structured onboarding" — are NOT sufficient on their own. They may *follow* the evidence, but they cannot *replace* it.
-
-**Per-dimension floors:**
-
-| Dimension | Required evidence in reasoning |
-|-----------|-------------------------------|
-| Skills Match | Walk the JD's required-skills list. Name 1-2 you have (cite CV section) + 1 you lack, OR explicitly say "all listed skills covered". |
-| Ease of Entry | Quote the JD's hardest gate (YoE, prior background, language, citizenship) OR `[no explicit gate stated]`. If a brand-tier or cohort adjustment from the calibration table applies, name it; if none applies, that's fine. |
-| Strategic/Analytical Fit | Name 1-2 specific responsibilities from the JD that map to your archetype. |
-| Growth/Mobility | Cite the structural growth signal (graduate scheme size, rotation length, named promotion path). Generic "team is growing" is insufficient. |
-| Optionality/Exit | Name 2 concrete next-move destinations the brand + skill set unlocks. |
-| Brand Value | Use the brand-tier table directly (10/9/8/7/6/...). Reasoning = which named tier the company sits in. |
-| Sales-Trap Risk | Cite the JD's quota/pipeline/outbound language verbatim if any. If the JD is silent, say so. |
-| Best Cities | Name the city + its position in `_profile.md`'s preferred-cities list. |
-| Salary Adj for City | Paste `scripts/score-listing.mjs`'s `salary_adj_for_city.math` field verbatim — it contains every number with provenance. When the comp came from an estimate (Glassdoor / Levels.fyi / comp-cache lookup, not disclosed in the JD), pass `comp_source: "estimate"` so the script tags the gross with `**` and appends `(** = estimated)` to the chain. Don't paraphrase the math. Agent's only judgment input is the soft-benefits modifier value, which must be justified separately (e.g. `[modifier +0.5: PTO 32d, hybrid 2d, Glassdoor benefits 4.2]`). Generic "competitive for the city" without the script-generated math is not allowed. |
-| Work-Life Balance | Cite Glassdoor / Blind / known reputation signal. Generic "structured onboarding" is insufficient. |
-
-**Worked example — Ease of Entry, top-tier graduate programme with a prior-background preference clause:**
-
-The same JD can defensibly land at different scores depending on how the agent weighs the audit signals. Both of these cells meet the depth bar (substitute the candidate's actual schools and proof points from `user/cv.md` when applying this pattern):
-
-```
-| Ease of Entry | 5/10 | JD lists prior-background preference: "previous working experience
-  or internship at top-tier IB/PE/strategy consultancy/fast-growing tech." Your prior
-  experience (small boutique advisory, ~2mo) falls short of the "top-tier" bar; your top-
-  school MSc partly substitutes. Graduate-cohort bonus (+1, ~15-20 spots). Net 5. |
-```
-
-```
-| Ease of Entry | 7/10 | JD lists prior-background preference (same quote). Your top-school
-  MSc + capstone project read as "top-tier academic equivalent" the JD intends. Graduate-
-  cohort bonus (+1, ~15-20 spots). Net 7. |
-```
-
-Both cells trace the score back to a verbatim JD quote and a named calibration adjustment. The score difference is a real judgment call about whether the candidate's academic track substitutes for prior-IB/PE — neither is "wrong". A cell saying *"competitive but designed for new grads"* without quoting the JD or naming a calibration term is missing the audit work that justifies *any* number in this column.
-
-**For agents running in parallel:** the JD audit (see scouting.md § Pre-scoring JD audit) feeds these reasoning cells. Run the audit first; the cells write themselves from its output.
-
-#### Anti-fingerprint-reuse
-
-A specific failure mode to watch for: when an agent processes a batch of listings from the same company (e.g., 15 PwC Milano DIG variants in one parallel sub-batch), the temptation is to score the first one carefully and apply the same dimensional fingerprint to all subsequent siblings. Don't. **Identical 12-dim fingerprints across two distinct roles is the clearest possible signal that the scoring is copy-paste, not JD-grounded.**
-
-The dimensional table is meant to fingerprint the *role*, not the *company*. Two PwC Milano DIG roles in the same intake are still distinct on:
-
-- **Skills Match** — different required stacks (Customer Data Analyst leans Python+SQL+BI; AI Developer leans LLM/transformer; Hyperautomation leans Low-Code platforms; Strategy & Transformation leans process modelling). Different roles ⇒ different Skills Match coverage against `user/cv.md`.
-- **Strategic/Analytical Fit** — different responsibilities even within the same rotation. Strategy roles score this higher than dev roles.
-- **Sales-Trap Risk** — varies even within consulting. Pure delivery + utilization pressure ≠ pure analytical advisory ≠ client-facing pre-sales.
-
-If you find yourself about to write the same dim numbers for two roles, stop and re-read both JDs. They WILL differ on at least Skills Match. If after re-reading you're certain the dimensional fingerprint really is identical (e.g., two truly indistinguishable rotation-program seats), use the multi-variant collapse rule in `modes/pipeline.md` Step 2c.1 — score one master, list the rest as variants. Don't write 15 identical rows.
-
-The Notes column in `data/scouting.md` is **not optional** for these rows. Each row gets a one-line tier summary referencing this specific role's strongest signal — *"Strong Big-4 FS strategy match, candidate's main capstone is a direct STAR-R fit"* beats an empty cell every time. An empty Notes column on a clustered company is the surest tell that copy-paste happened.
-
-### Calibration & special rules
-
-These rules tighten the rubric and the rollup math.
-
-#### Skills Match sharpening — skills only, not experience
-
-Skills Match measures **"does the candidate's skill list cover the JD's listed skills"** — and ONLY that. Experience requirements ("3+ years in X", "prior consulting background", "1-2 years in Sales Ops") are NOT skills; they belong to **Ease of Entry**.
-
-The two questions to ask:
-1. **For Skills Match:** Walk the JD's listed required + preferred skills line by line. Tick each one against `user/cv.md` Technical Skills + Education + Projects. The score reflects coverage, not the candidate's overall readiness.
-2. **For Ease of Entry:** Look at YoE bars, prior-role expectations, preferred backgrounds, and competition (see calibration below).
-
-**Why this matters:** without the split, a JD that lists "Python, SQL, Excel" as required (which the candidate has) but expects "3 years prior in fintech analytics" gets conflated into one mediocre score. With the split, Skills Match = 9 (all listed skills met) and Ease of Entry = 4 (YoE wall + prior-role expectation). The dimensional fingerprint then *clearly* tells the user "you have the skills, you don't have the experience" — which is the actionable read.
-
-**Domain-specific skills count as skills, not experience.** A JD that requires "Google Ads ecosystem (Search, Display, YouTube, Performance Max)" or "NLP/LLM models" or "Salesforce administration" is listing *skills the candidate either has or doesn't* — these are not YoE requirements. When the candidate has a strong analytical foundation (Python, R, SQL, statistical modeling) but lacks the domain-specific skills that define the role's day-to-day work, Skills Match should reflect the gap honestly. Use the per-step anchors above — "strong foundational coverage, 1 domain-specific required skill missing" = 7, not 8.
-
-#### Ease of Entry calibration
-
-Ease of Entry asks "how realistically can someone at *my level* land this role *today*?" — competition and preferred-background signaling matter as much as the persona description.
-
-Adjust the score from a "matches the persona" baseline using these factors:
+**Competition** — start at **7** and adjust; clamp 1–10. Apply an adjuster only when JD or company evidence supports it, and name it in the reasoning cell:
 
 | Factor | Adjustment | Why |
 |--------|------------|-----|
-| **Brand competition tier:** top-100 SaaS, top consulting, NASDAQ-listed tech, recognized European unicorns (Datadog, Celonis, Stripe, Revolut, etc.) | −2 to −4 | These brands draw thousands of applicants for 1-3 spots even at the entry level |
-| **Preferred-background signaling:** the JD's preferred experience names MBB / IB / PE / top enterprise sales / Big Tech alums and the candidate has none | −2 | Other applicants WILL have these; the cut goes to them at competitive brands |
-| **Internship vs full-time:** structured internship at the same brand | +1 | Internships have larger cohorts (5-20 spots) and lower stakes than full-time hires |
-| **Class size signal:** rotational programs, graduate schemes, LDPs (10-20+ spots/year) | +1 | More spots = lower per-applicant odds matter less than per-cohort selection |
-| **Language-restricted role:** the JD requires a language the candidate has natively that filters most applicants out | +1 to +2 | Italian-only or Portuguese-only filters remove ~60-80% of the EU applicant pool |
-| **Local target-school match:** role's country/region aligns with a country where the candidate's institution is a recognized top recruiting target (see school-region map below) | **+1** | Local alumni networks materially boost screening pass-rates; recruiters in the school's home market pre-filter for known-school graduates and have warm referral lines |
-| **CEMS double-match:** role is at a CEMS Corporate Partner AND the candidate is in/from a CEMS school AND the role is in a country where that CEMS school is locally strong | **+2** (replaces local-school +1; does not stack with it) | CEMS Corporate Partners actively recruit from CEMS schools through dedicated channels (CEMS Career Forum, partner-only postings); when both signals fire, the local-network strength compounds with the CEMS-channel strength |
-| **Visa friction:** role's country requires a work permit the candidate doesn't have (per `_profile.md` → location.visa_status) | −1 to −3 | Adds an extra hiring step; some employers won't sponsor at the intern/grad level. See sub-table below. |
+| **Brand competition tier:** top-100 SaaS, top consulting, NASDAQ-listed tech, recognized European unicorns | −1 to −4 | These brands draw thousands of applicants for a handful of entry-level seats |
+| **Preferred-background signalling:** the JD prefers alumni of top consulting / IB / PE / top enterprise sales / big tech and the candidate has none | −2 | Other applicants will have it; at competitive brands the cut goes to them |
+| **Internship at the same brand** (structured programme) | +1 | Larger cohorts, lower stakes than a full-time hire |
+| **Cohort ≥10 seats** (rotational programme, graduate scheme, LDP) | +1 | Per-cohort selection, not one seat |
+| **Language filter:** the JD requires a language the candidate has that filters most of the pool out (a "plus" language the candidate has also counts here) | +1 to +2 | A single-language requirement can remove most of the cross-border pool |
+| **Local target-school match:** role's country is a primary recruiting market of one of the candidate's schools (table below) | +1 | Local alumni networks and recruiter familiarity raise screening pass-rates |
+| **CEMS double-match:** company is a CEMS Corporate Partner AND the candidate has a CEMS school AND the role is in that school's primary market | **+2** (replaces the local-school +1; does not stack) | Partner-only channels compound with local network strength |
 
-**Visa-friction sub-table.** Read the candidate's `visa_status` from `user/_profile.md` § Your Location Policy or `user/profile.yml` → `candidate.work_permit`. Match the role's country against what that visa actually unlocks.
+**Referral modifier** (applied by the script to Competition before the rollup): pass `referral: "warm-direct"` → +1.0, `"warm-intro"` → +0.5. Set it from `data/network.md` (`npm run outreach-plan -- "Company" --summary`). Batch workers leave it `null`.
 
-| Role's country | Candidate has EU permit only | Candidate has US work auth only | Candidate has both EU + UK |
-|----------------|------------------------------|----------------------------------|----------------------------|
-| **EU member states** (Ireland, Spain, Germany, France, Italy, Netherlands, Portugal, Austria, Belgium, etc.) | 0 | −3 (visa wall) | 0 |
-| **UK** (post-Brexit) | See UK calibration below — default **−2**, drops to **−1** only for explicit grad-program at known-sponsor brands clearing the £38,700 Skilled Worker floor | −3 | 0 |
-| **Switzerland / Norway / Iceland** (EFTA, not EU) | **−1** — most employers handle the work permit but it's an extra step | −3 | −1 |
-| **US / Canada** | −3 (H1B / L-1 / TN — entry-level sponsorship is rare) | 0 / +0 | −3 |
-| **Singapore / UAE / other non-Western** | −2 to −3 | −2 | −2 |
-| **Country requires a passport the candidate doesn't have** (e.g., German civil-service-grade roles requiring DE citizenship) | hard discard via Step 2c gate, not a soft penalty | same | same |
+A top-tier-brand internship the candidate is an exact persona match for typically lands Competition at 4–6, not 10 — the persona match lives in Experience bar, the crowd lives here.
 
-**UK calibration (post-Brexit, EU-only candidates).** The Skilled Worker visa is now the only realistic FT route for EU candidates without UK status. It has two binding constraints: (a) employer must hold a sponsorship licence AND issue a Certificate of Sponsorship (CoS — quota-controlled), and (b) the role must pay **≥ £38,700/year** (April 2024+ minimum, or the going-rate for the SOC code, whichever is higher). New-entrant rates can drop to ~£30,960 for under-26 / first-time visa holders — but that's a discount, not the default. Sponsorship licence ≠ willingness to sponsor at entry level.
-
-| Scenario | Penalty | Rationale |
-|----------|---------|-----------|
-| **UK FT < £38,700 base, EU-only candidate, no graduate-visa route mentioned** | **HARD DISCARD via Step 2c** (not a soft penalty) | The salary floor is mechanical — sponsorship is denied at the Home Office stage regardless of employer willingness |
-| **UK FT ≥ £38,700, structured graduate program at established sponsor** (Revolut, Stripe UK, Big-4 grad scheme, Mastercard, Microsoft UK, Google UK, Bloomberg, JPM, etc.) | **−1** | Sponsorship runs on rails for grad cohorts; CoS is pre-allocated; still real friction (timing, paperwork, employer choice between equally-qualified UK and non-UK candidates) |
-| **UK FT ≥ £38,700, ad-hoc full-time entry-level at known sponsor** (non-cohort hire) | **−2** | One-off CoS issuance is materially harder than cohort sponsorship; recruiter often defaults to UK-status candidates to avoid the process |
-| **UK FT ≥ £38,700, employer with no clear sponsorship signal** (smaller scaleups, mid-tier consultancies, US firms with London offices but unclear UK sponsorship policy) | **−3** | Sponsorship may not even be available; default assumption is no, until JD or employer history proves otherwise |
-| **UK internship at established sponsor** (Revolut, Stripe, Big-4, banks) | **−1** | Interns typically use the Temporary Worker (Government Authorised Exchange / Tier 5) or Student visa routes; experienced sponsors run this regularly |
-| **UK internship at smaller / unclear-sponsor employer** | **−2** | Same uncertainty as ad-hoc FT — assume no until proven otherwise |
-
-**Sponsorship-language signal.** If the JD explicitly says "we sponsor visas for graduate roles" / "open to candidates requiring sponsorship", drop the friction penalty by 1 (e.g., default UK FT −2 → −1; UK grad −1 → 0). If the JD explicitly says "must have unrestricted right to work in {country}" and the candidate doesn't, that's a hard discard via Step 2c, not a soft penalty here.
-
-**Salary floor is a gate, not a modifier.** When evaluating a UK role for an EU-only candidate, the FIRST check is the £38,700 floor (or going-rate equivalent if listed). If the JD discloses comp below that and doesn't mention the new-entrant rate or sponsorship explicitly, route the listing through Step 2c hard-discard logic — do NOT apply a soft EoE penalty and let it surface as Tier 2 / Tier 3. If comp is undisclosed but Glassdoor/Levels.fyi peer data lands the role below £38,700, treat it as a likely hard discard and explicitly flag the ambiguity in the report.
-
-**For the user's current profile** (`visa_status: "EU citizen — no sponsorship needed"`): EU-located roles score Ease of Entry without any visa friction. UK roles use the calibration above — most ad-hoc FT London listings at non-grad-program scale are −2 or −3, not −1. Swiss / Norwegian roles eat a −1. US roles eat a −3 unless the JD explicitly opens the door. **A London role at Revolut / Stripe / Big-4 grad scheme is still highly applicable; an ad-hoc FT London role at a mid-tier scaleup or a London consultancy without grad-program sponsorship infrastructure is materially harder and should score that way.**
-
-The "10 = perfectly designed for this profile" bar is reserved for roles where the persona description matches AND the brand isn't drawing thousands of applicants. **A top-tier brand internship that the user is an exact persona match for typically lands at 7-8, not 10.**
-
-**Local target-school sub-table.** Read the candidate's institutions from `user/cv.md` § Education. Match each school against this map; apply the **+1** bonus when the role's country appears in the school's "primary" column, or the **+2** CEMS-double-match bonus when the company is a CEMS Corporate Partner AND the school's CEMS-strength country matches the role's country. The user can extend this table in `user/_profile.md` for school-specific calibration overrides.
+**Local target-school sub-table.** Read the candidate's institutions from `user/cv.md` § Education. Apply **+1** when the role's country appears in a school's primary column; **+2** (instead) for the CEMS double-match. The user can extend or override this table in `user/_profile.md`.
 
 | School | Primary recruiting market | Secondary markets | CEMS member? |
 |--------|---------------------------|-------------------|--------------|
@@ -439,227 +383,208 @@ The "10 = perfectly designed for this profile" bar is reserved for roles where t
 | **Católica Lisbon** | Portugal | Spain, Brazil, Angola | Yes |
 | **Warsaw School of Economics (SGH)** | Poland | CEE | Yes |
 
-**How to apply:**
-1. List the candidate's schools (from `cv.md` § Education).
-2. For each school, identify primary + secondary markets from the table above.
-3. If the role's country appears in any school's **primary** column → **+1** EoE.
-4. If the company is a CEMS Corporate Partner (per `https://cems.org/corporate-partners` — list includes McKinsey, BCG, L'Oréal, Mastercard, Accenture, Allianz, AXA, Danone, Henkel, ING, LVMH, Procter & Gamble, Roland Berger, Telefónica, Generali, Hermès, Microsoft (selected geographies), Schroders, Swiss Re, etc.) AND the candidate has a CEMS school AND the role is in that CEMS school's **primary** market → **+2** (replaces the +1; does not stack).
-5. **Secondary** markets do NOT trigger a bonus by default — they're documented as context, but the boost is reserved for primary markets where alumni density and recruiter familiarity are highest. The user can override per-region in `_profile.md`.
-6. **Cap:** the local-school bonus does NOT bypass the EoE ≤ 4 hard-experience-wall gate. If a role's binding constraint is a multi-year YoE wall, the school boost can move EoE from 3 → 4 but not push it above the gate.
+**How to apply:** list the candidate's schools; if the role's country is in any school's **primary** column → +1; if the company is a CEMS Corporate Partner (per `https://cems.org/corporate-partners` — e.g. McKinsey, BCG, L'Oréal, Mastercard, Accenture, Allianz, AXA, Danone, Henkel, ING, LVMH, Procter & Gamble, Roland Berger, Telefónica, Generali, Hermès, Schroders, Swiss Re) AND the candidate has a CEMS school AND the role is in that school's primary market → +2 instead. Secondary markets give no bonus by default. The school boost lifts Competition only; it never moves Experience bar, so it cannot break the experience wall.
 
-The school boost is the cleanest possible counterweight to brand-competition penalties: a candidate with a school in the role's primary recruiting market is genuinely more reachable than an equally-qualified applicant from outside that regional alumni network, even at the same brand tier.
-
-#### Ease of Entry is point-in-time
-
-Unlike Skills Match (which moves only when the candidate gains new skills) or Brand Value (which is a property of the company), **Ease of Entry shifts as the candidate's overall profile grows**. The same role evaluated 6 months apart may have very different Ease of Entry scores: as the candidate finishes their degree, completes capstone projects, gains internship experience, builds portfolio pieces, etc., what was a "stretch" becomes "standard early-career".
-
-This is why every evaluation logs Ease of Entry to `data/score-history.tsv` with a date and archetype. The `positioning` mode reads per-dimension trajectories and can surface: *"Ease of Entry for Value Engineering archetype: April 2026 = 6.0 → August 2026 = 8.0 — you became more competitive for these roles, here's what changed."*
-
-**Ease of Entry is the most important trajectory canary** — when it trends upward across an archetype, the candidate is closing the gap to "applyable today". When it stays flat despite effort, the gap-closing strategy isn't working.
-
-#### Bottom-range penalty (for both rollups)
-
-A score of **1–2** on any dimension is the strongest possible negative signal — it means "this dimension is fundamentally broken for this role". Averaging dilutes that signal across the 6-7 other dimensions, which can let a structurally bad role coast into Tier 2.
-
-**Rule:** For each dimension scored **1 or 2** in a rollup, subtract **0.30** from that rollup's average. The penalty compounds: two bottom-range scores in the same rollup → −0.60, three → −0.90.
+#### Ease formula (summary — the script is the source of the math)
 
 ```
-Current Fit       = (Skills Match + Ease of Entry + Strategic/Analytical Fit) / 3 − 0.30 × (count of 1-2 scores in CF dims)
-Aspirational Fit  = (Growth/Mobility + Optionality/Exit + Brand Value) / 3 − 0.30 × (count of 1-2 scores in those 3 AF dims)
-Overall           = Current Fit × {CF_weight} + Aspirational Fit × {AF_weight} + context modifiers
+Ease_geo  = weighted geometric mean of Skills Match, Experience bar, Competition
+            (user/profile.yml → scoring.ease_weights; default 0.35 / 0.35 / 0.30)
+wall      : Experience bar ≤ 3 → Ease_geo ≤ 4.5
+amber     : Ease = Ease_geo − min(0.5 × amber checks, 1.0)
+Ease      = clamp(Ease, 1, 10)
 ```
 
-Note: Sales-Trap Risk bottom-range scores do NOT trigger the penalty since Sales-Trap Risk is excluded from the AF rollup. However, a Sales-Trap Risk of 1-2 should still be flagged prominently in the report as a red flag for the user's attention.
+Getting hired is a funnel — each stage multiplies the odds — so one weak dimension drags Ease more than a strong one lifts it.
 
-The penalty is intentionally modest — about half a tier boundary — so it nudges borderline cases without auto-skipping a role. The user still sees the dimensional table and decides themselves whether the bottom-range score is a deal-breaker.
+**Ease is point-in-time.** Skills Match moves when the candidate gains skills; Experience bar and Competition move as the profile grows (degree finished, internship done, referral built). The same role evaluated six months apart can score very differently. The **Ease trajectory per archetype is the key positioning signal** — when it trends up, the candidate is closing the gap to "applyable today"; when it stays flat despite effort, the gap-closing strategy isn't working. `positioning` reads it from `data/score-history.tsv`.
 
-**Display rule:** when a penalty is applied, show rollups to 2 decimals so the user can see exactly what happened (e.g., `Current Fit: 7.03/10 (raw 7.33 − 0.30 penalty for Strategic/Analytical Fit = 2)`). Otherwise, 1 decimal is enough.
+### Verdict grid
 
-#### Ease of Entry hard gate (experience wall)
+| | Ease ≥ 7.0 | 5.0 ≤ Ease < 7.0 | Ease < 5.0 |
+|---|---|---|---|
+| **Want ≥ 8.0** | `go` — Go: apply now (T1) | `stretch` — Stretch: apply with prep (T2) | `growth` — Growth target: close the gap first (T3) |
+| **6.5 ≤ Want < 8.0** | `solid` — Solid: apply (T2) | `thin` — Only if your pipeline is thin (T2) | `skip` (T4) |
+| **Want < 6.5** | `skip` — easy, but you wouldn't want it (T4) | `skip` (T4) | `skip` (T4) |
+| **Eligibility red** | `blocked` (T4) | | |
 
-Ease of Entry ≤ 4 means the candidate faces a hard experience wall — multi-year YoE requirements, hyper-competitive pipelines, or credentials they don't have. This gate **fires for all score bands** — it can demote Stellar or Strong or Decent matches into the **Pass / Growth Target** band.
+Verdict labels: `go` "Go" · `stretch` "Stretch" · `growth` "Growth target" · `solid` "Solid" · `thin` "If pipeline thin" · `skip` "Skip" · `blocked` "Blocked". The script returns `verdict`, `verdict_label`, `tier` and `tier_reason` — use them verbatim.
 
-**Rule:** If Ease of Entry ≤ 4, the role's score band is **capped at Pass / Growth Target** (which maps to legacy Tier 3 under the hood) regardless of the CF rollup. The CF/AF/Overall scores are still computed normally — the gate only affects score band / tier classification. This ensures that roles with hard experience walls are surfaced as growth targets with gap-closing roadmaps, not as active matches that imply near-term actionability.
+**Report depth by tier:** T1 full report · T2 short report (Fit/gaps + Verdict + Path forward) · T3 Gap & Growth roadmap · T4 no file (skip and blocked are still logged).
 
-**Why this fires for Decent/Strong as well:** A role where the user has good skills (Skills Match 8) and the work is analytical (Strategic Fit 8) but faces a 2-year experience wall (EoE 4) would naturally land as Decent or Strong — yet that implies the user should apply now. Surfacing it as a **Pass / Growth Target** with a concrete "revisit when" roadmap is more honest and useful.
+**Promotion hint:** `READY` for `go`; `MONITOR` for `stretch` and `solid`; blank otherwise.
 
-**Display rule:** When the gate fires, note it in the tier/band line: `**Tier:** T3 (EoE gate — CF/Overall would place Decent/Strong but Ease of Entry ≤ 4)`.
+**Ethical-use rule:** recommend against applying when the verdict is `skip` or `blocked`. `thin` is allowed only with an explicit "only if your pipeline is thin" caveat. The verdict is downstream of the scores — if it feels wrong, fix the scores and their evidence, never the prose.
 
-#### Language-barrier exception: force Skip band
+### Priority (sort key only)
 
-When the binding gap on a role is a **foreign-language requirement** (the JD asks for fluency in language X, the candidate doesn't have X on their CV and isn't learning it), **force the Skip band** (which maps to legacy Tier 4 under the hood) regardless of other dimensions. Do NOT produce a Gap & Growth Report for the role. Do NOT write a stepping-stone roadmap.
+`priority = √(Want × Ease)`, rounded to 2 decimals; `null` when blocked. It exists for sort orders, the batch runner's `--min-score` gate, dedup "higher wins" in the merge scripts, and peer percentiles. **Never render it as the headline score** — reports and UIs show **Want · Ease** plus the eligibility chip.
 
-**Why:** Gap & Growth reports assume the gap closes on a 6-12 month horizon. Foreign-language acquisition to JD-fluency level is a 2-5 year relocation/lifestyle decision, not a job-specific skill build. Producing a detailed "here's how to close this gap" report for a language wall wastes tokens and gives misleading "here's the plan" framing to a gap that is structurally unbridgeable in the relevant timeframe.
+### Running `score-listing.mjs`
 
-**How to apply:**
-1. Detect the language requirement: JD says "fluent German", "native French", "C1 Spanish", "business-level Japanese", etc., AND `user/cv.md` / `user/profile.yml` show the candidate does NOT have that language at that level.
-2. Skip the Gap & Growth template. Do NOT write a `reports/tier-3/scout-...md` file for the role.
-3. Log the row to `data/score-history.tsv` with `tier=skip`.
-4. Write the scouting tracker TSV with `tier=T4`, `report=—`, and a note starting with `T4 skip (language wall): requires {X}, not on CV`.
+```bash
+echo '{
+  "company": "...", "role_archetype": "...", "city": "...", "country": "..",
+  "comp": { "base": 0 }, "comp_source": "disclosed|estimate",
+  "is_intern": false, "soft_benefits_modifier": 0,
+  "calibration": { ...from user/profile.yml calibration block... },
+  "eligibility_facts": { ...Step 1... },
+  "referral": null,
+  "judgment_scores": {
+    "growth_mobility": 0, "optionality_exit": 0, "brand_value": 0, "role_content": 0,
+    "best_cities": 0, "work_life_balance": 0,
+    "skills_match": 0, "experience_bar": 0, "competition": 0
+  }
+}' | node scripts/score-listing.mjs
+```
 
-**Scope:** this only applies when the ONLY significant blocker is language. If the role also has a YoE wall, stack mismatch, etc., those are normal Gap & Growth gaps and standard rules apply — language is just one of the gaps in that case. But when the dimensional fingerprint would otherwise produce a Pass / Growth Target (AF ≥ 8.0) purely because of an unreachable language requirement, force a Skip instead.
+Optional `scoring_weights: { want: {...}, ease: {...} }` overrides `user/profile.yml` → `scoring:`. The output carries `eligibility`, `salary_adj_for_city` (`.summary` is the one-line Salary cell; `.math` is the report's footer line), `calibrated_dims`, `want` / `ease` objects (their `.score` is the number you write everywhere else), `priority`, `verdict`, `verdict_label`, `tier`, `tier_reason` and `explanation`.
 
-#### Stellar band override: uniformly strong fingerprint
+### Reasoning cells
 
-A role qualifies for the **Stellar** score band (full report; maps to legacy Tier 1 under the hood) under either of two conditions:
+**One hard rule: no score without a reason a person can check.** *"Competitive but designed for new grads"* is not a reason; *"a big-name brand with one intern seat — expect hundreds of applicants"* is. This is about depth, not direction: two agents may land at 5 or 7 on the same posting, and that range of judgment is fine. A number with no checkable reason is not.
 
-1. **Standard:** `Current Fit ≥ 9.0`
-2. **Override:** all **6 rollup scoring dimensions** score ≥ 8 **AND** both rollups (CF and AF) ≥ 8.0 (Sales-Trap Risk is not considered for this override since it's not in the rollups)
+Everything else is judgment (see § Report Voice): one or two plain sentences per cell, quote the posting when the quote carries the point, mention a CV item only when it changes the score, no backticks, no bracketed tokens, at most an occasional bold. When the posting is silent, say so in words (*"they don't say how big the intake is"*).
 
-**Reasoning:** a role with a uniformly strong fingerprint (no dimension below 8) is substantively as strong as a CF=9.0+ role even if the rollup average doesn't quite cross the threshold. The override catches borderline-strong matches that miss the Stellar band by a rounding margin but are clearly worth the full analytical write-up.
+- **Eligibility rows** (each non-green check): name the posting line behind it in plain words (*"they ask for a June start; your term runs to July"*), or say it's not stated. Every amber carries its recruiter question.
+- **Salary Adj for City:** paste the script's `salary_adj_for_city.summary` (e.g. *"About €150 a month left after living costs in Lyon (estimated pay)"*). The full `salary_adj_for_city.math` chain goes in the report's footer line, never in the cell. When the comp is an estimate, pass `comp_source: "estimate"` so both say so.
+- **Rollup rows** (`**Want (rollup)**`, `**Ease (rollup)**`): the number plus a few plain words (*"carried by brand and the work itself"*, *"held down by the experience ask"*) — never the formula.
 
-The override is harder to game than just lowering the cutoff — it rewards consistency across the dimensional fingerprint, not a high average that hides a bad dimension.
+**Worked example — Experience bar, a graduate programme that prefers a top-tier prior internship.** Old voice (don't): *"JD lists prior-background preference: 'previous internship at a top-tier…'. Your cv.md § Experience shows a boutique internship (~2mo); no calibration adjustment applies. Net 5."* Advisor voice (do), two defensible readings of the same posting:
 
-**Important:** Stellar band means a **full markdown report only** — evaluation never auto-generates PDFs at any band. CV / PDF generation is a separate, manual operation via `/career-ops pdf` (or the Database popover's "Tailor CV" button).
+```
+| Experience bar (ease) | 5/10 | They want a previous internship at a top-tier firm. Your one internship
+  was short and at a small boutique, and your degree only partly makes up for that. |
+```
 
-#### Strong and Decent verdict scaling
+```
+| Experience bar (ease) | 7/10 | They prefer a top-tier internship, but your degree and main capstone
+  are the academic equivalent they say they'll accept. |
+```
 
-The Strong and Decent bands span CF=7.0–8.9 (which maps to legacy Tier 2 under the hood). The under-the-hood tier directory remains `T2`, but the verdict in the report scales based on the score band:
+The difference is a real judgment call; both give a reason the candidate can check.
 
-- **Strong (CF 8.0–8.9) — "Apply with prep":** good match; promotion hint `MONITOR` in the tracker.
-- **Decent (CF 7.0–7.9) — "Apply if pipeline thin":** decent match; revisit post-graduation. No promotion hint.
+**For agents running in parallel:** the JD audit (see `modes/scouting.md` § Pre-scoring JD audit) is scratch work that feeds these cells. Run it first; don't paste it into the report.
 
-Both render the same dimensional table; only the verdict phrasing differs. There is **no T2-high sub-tier** — never write `T2-high` to the tier column of `scouting.md` or `score-history.tsv`. See `modes/scouting.md` for the templates.
+#### Anti-fingerprint-reuse
+
+When an agent processes many listings from the same company (e.g. 15 variants of one consulting firm's rotation in one sub-batch), the temptation is to score the first carefully and copy the fingerprint to the siblings. Don't. **Identical 9-dimension fingerprints across two distinct roles is the clearest signal that scoring is copy-paste, not grounded in the posting.**
+
+Sibling roles still differ on **Skills Match** (different stacks), **Role content** (delivery ≠ advisory ≠ client-facing pre-sales) and **Experience bar** (one variant may want a prior internship). If they really are indistinguishable seats, use the multi-variant collapse rule in `modes/pipeline.md` Step 2c.1 — score one master, list the rest as variants. The Notes column in `data/scouting.md` is **not optional** for these rows: one line naming this role's strongest signal.
 
 ### Standard report block format
 
-Reports render the dimensions as a single table:
+**Header** (after the `# Scouting:` / `# Gap & Growth:` title and the Date / Location / Archetype lines), exactly these five lines in this order:
 
 ```markdown
+**Want:** 8.25/10 · **Ease:** 5.6/10
+**Eligibility:** amber — start date not stated
+**Verdict:** Stretch — apply with prep
+**Tier:** T2
+**URL:** {listing-specific url or "—"}
+```
+
+- `**Eligibility:**` is `green`, or `amber — {reasons, ;-joined}`. (Red listings write no report.)
+- `**Verdict:**` is `{verdict_label} — {action}`: `Go — apply now` · `Stretch — apply with prep` · `Growth target — close the gap first` · `Solid — apply` · `If pipeline thin — apply only if your pipeline is thin`.
+
+**Body**, in order:
+
+```markdown
+## Eligibility
+| Check | Status | Reason |
+|-------|--------|--------|
+| start_date | amber | They don't say when the internship starts |
+| duration | green | Six months, inside the length you can take |
+| graduation | green | No graduation window |
+| language | green | They want fluent English; you're beyond that |
+| work_auth | green | Germany is covered by your EU work rights |
+| other | green | Nothing else they require |
+
+**Ask the recruiter:**
+- When does the internship start, and is the start date flexible?
+
+## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Skills Match | X/10 | One sentence anchored in CV evidence or JD requirement |
-| Ease of Entry | X/10 | One sentence on YoE / level / credentials gap |
-| Strategic/Analytical Fit | X/10 | One sentence on whether the work is actually analytical |
-| **Current Fit (rollup)** | **X.X/10** | Average of the three above [− penalty if any bottom-range scores] |
-| Growth/Mobility | X/10 | One sentence on ladder / scope expansion |
-| Optionality/Exit | X/10 | One sentence on transferability of skills + brand |
-| Brand Value | X/10 | One sentence on company name recognition |
-| Sales-Trap Risk (signal) | X/10 | One sentence on how protected the role is from pure sales (10 = well protected). *Not in AF rollup — displayed for decision-support only.* |
-| **Aspirational Fit (rollup)** | **X.X/10** | Average of the three above (Growth + Optionality + Brand) [− penalty if any bottom-range scores] |
-| **Overall** | **X.X/10** | CF × 0.70 + AF × 0.30 [+ context modifiers if any] |
-| Best Cities (context) | X/10 | One sentence on location vs preferred cities |
-| Salary Adj for City (context) | X/10 | One sentence on comp vs local cost-of-living band |
-| Work-Life Balance (context) | X/10 | One sentence on company WLB reputation |
-| Best-fit Early-career Roles (context) | — | Comma-separated list of 1-4 alternative roles at this company |
+| Growth / Mobility (want) | 8/10 | ... |
+| Optionality / Exit (want) | X/10 | ... |
+| Brand Value (want) | X/10 | ... |
+| Role content (want) | X/10 | ... |
+| City (hygiene) | X/10 | ... |
+| Salary Adj for City (hygiene) | X/10 | {salary_adj_for_city.summary} |
+| Work-Life Balance (hygiene) | X/10 | ... |
+| **Want (rollup)** | **8.25/10** | Carried by brand and the work itself |
+| Skills Match (ease) | X/10 | ... |
+| Experience bar (ease) | X/10 | ... |
+| Competition (ease) | X/10 | ... |
+| **Ease (rollup)** | **5.6/10** | Held down by the open start date |
+| Best-fit Early-career Roles (context) | text | 1–4 alternative roles at this company |
+
+{the tier's prose sections — modes/scouting.md § Output Behavior}
+
+Salary math: {salary_adj_for_city.math}
 ```
 
-### Why-this-score block (explainability)
+Row order and the `(want)` / `(hygiene)` / `(ease)` / `(context)` tags are fixed — the frontend parser splits the groups on them. Omit the "Ask the recruiter" list when nothing is amber. The `Salary math:` line is the **last line of every report**, plain text, exactly once.
 
-**Immediately after the dimensional table** (and before the Comparative Rank Block), render a short `## Why this score` block. Its purpose is to answer the two questions a number alone can't: *what is holding this role back* and *what single change would move it up a band*.
+### Using the `explanation` object
 
-**Do NOT hand-derive this — it is computed.** `scripts/score-listing.mjs` returns an `explanation` object alongside the scores. It is pure and replays the same rollup/tier engine, so it can never disagree with the dimensional table. Render its fields verbatim:
-
-- `explanation.headline` — one sentence; use it as the lede.
-- `explanation.bindingConstraints[]` — the dimension(s) actually gating the tier. Render each `.message`. The `kind` tells you what fired: `eoe_gate` (Ease-of-Entry experience-wall cap), `bottom_range` (a 1–2 dim and its −0.30 penalty), or `low_rollup` (the weaker rollup's lowest dim).
-- `explanation.levers[]` — single-dimension raises that cross into a better band, smallest lift first. Render the top 1–2 `.message` strings. If the array is empty, the role is already top-band or no single dim can cross alone — say so in one line rather than inventing a lever.
-- `explanation.drivers` — optional supporting detail (`currentFit.topLift` / `biggestDrag`, same for `aspirationalFit`). Use it only if it adds something the constraint/lever lines didn't.
-
-Render format (keep it tight — 2–5 lines, no multi-step plans):
-
-```markdown
-## Why this score
-{explanation.headline}
-
-- **Holding it back:** {bindingConstraints[0].message}
-- **Closest lever:** {levers[0].message}   ← omit this bullet entirely when levers is empty
-```
-
-This block is **deterministic** — the same dimensional fingerprint always produces the same constraint and lever, so a reader can trust it the way they trust the table. Never write a generic "could improve with experience" line here; if the script returned no lever, the honest statement is that no single dimension crosses a band.
+`scripts/score-listing.mjs` returns `explanation` — `bindingConstraints[]` (kinds `eligibility_red`, `experience_wall`, `hygiene_veto`, `role_content_veto`, `amber`, `low_want`, `low_ease`) and `levers[]` (the smallest single change that moves the verdict to a better cell). **It is not rendered as a section.** Use it to decide what the report leads with: `bindingConstraints[0]` is usually the deciding factor the Recommendation opens with and the first gap, and `levers[0]` is usually the move you recommend (an `amber` lever is a question to ask the recruiter). Translate it into plain words — never write "binding constraint" or "lever" in the report — and never contradict it: if your read differs, the scores are wrong, fix them. When there is no lever, don't invent one.
 
 ### Comparative Rank Block
 
-**Immediately after the dimensional table**, append a rank block comparing this role against same-archetype peers already in `data/score-history.tsv`.
+Same-archetype peer comparison from `data/score-history.tsv`, computed by `scripts/peer-rank.mjs` (gates and confidence tiers per `docs/scoring-statistical-design.md`). **Primary archetype segment** = the archetype string before the first ` + ` (hybrids are `Primary + Secondary`; `/` stays inside compound names). Peers = rows whose primary segment matches, excluding Blocked rows (empty `want` / `ease`), which are not peers.
 
-**Step 1 — Compute primary archetype segment.**
-Split the detected archetype string on the first ` + ` (space-plus-space). The part before ` + ` is the **primary segment**; if no ` + ` is present, the whole string is the primary segment. Convention: `+` separates hybrid archetypes; `/` stays inside compound names.
+**Drift gate:** if the same hybrid is written both as `X + Y` and `X / Y` in the history (`cut -f2 data/score-history.tsv | tail -n +2 | sort -u`) and the drift touches this primary segment, skip the block and say so in a `## Notes` line naming the variants; if it touches other archetypes only, note it and proceed.
 
-Examples:
-- `Technology Consulting + AI Transformation` → primary `Technology Consulting`
-- `Value Engineering / AI Solutions Architect` → primary is the whole string (no `+`; `/` stays inside the compound name)
-- `Strategy & Operations` → primary is the whole string
-
-**Step 2 — Pre-flight drift gate.**
-Drift = the same hybrid written both ways in `data/score-history.tsv` (e.g., `X + Y` and `X / Y` both appear). List distinct archetype strings:
-```
-cut -f2 data/score-history.tsv | tail -n +2 | sort -u
-```
-For each pair of distinct archetype strings, check whether one becomes the other by substituting ` + ` ↔ ` / `. If such a pair exists:
-- **If either string in the pair would be matched by the awk filter in Step 3 for the current primary** (i.e., the drift affects this rank block's pool), **halt the rank block** and emit this note instead (verbatim):
-  > *(Rank block skipped — archetype string drift involving primary segment `{PRIMARY}` in `data/score-history.tsv`. Variants: `{X + Y}` and `{X / Y}`. Normalize affected rows to a single canonical form before re-running.)*
-- **Otherwise** (drift is in unrelated archetypes), log a warning at the end of the report under a `## Notes` section (create if absent) and **proceed** with the rank block:
-  > *Note: archetype string drift detected elsewhere in `data/score-history.tsv` (variants: `{X + Y}` and `{X / Y}`). Does not affect this rank block but should be cleaned up.*
-
-**Step 3 — Read pre-step (filtered slice).**
-Pre-filter `data/score-history.tsv` to same-primary rows before reading. Run:
-```
-awk -F'\t' -v p="$PRIMARY" 'NR==1 || $2 ~ "^"p"($| |\\+)"' data/score-history.tsv > /tmp/rank-slice.tsv
-```
-where `$PRIMARY` is the primary segment from Step 1. The boundary `($| |\\+)` matches end-of-field, space, or `+` after the primary — so a row archetyped exactly `X` matches when current primary is `X`, a row `X + Y` matches, a row `X / Y` (compound-name extension) matches, but a row `Z + X` does NOT match. The `$` end-of-string anchor is required because `awk -F'\t'` strips the tab from `$2`, so solo-archetype rows have no trailing char to match against.
-
-Then read `/tmp/rank-slice.tsv` (header + primary-archetype rows) instead of the full `score-history.tsv`.
-
-**Step 4 — Conditions:**
-- The slice is already pre-filtered by primary archetype. Apply the remaining filter: exclude rows where `overall` is `0`, blank, or `—`.
-- **Only produce this block if ≥ 5 qualifying rows exist.** If fewer, append a single line: *"(Not enough archetype peers yet — rank block available after 5+ evaluations)"* and stop.
-
-**Compute:**
-1. `overall_pct` — what percentile this role's Overall score falls at among the peer pool (e.g., 80th percentile = better than 80% of peers). Round to nearest 5%.
-2. Per-dimension delta vs peer average — compute avg for each of the 6 rollup dimensions. Show only **outlier dimensions** (≥ 1.5 points above or below the peer avg). Positive outliers first, then negative.
-3. Closest comparables — the 3 roles in the peer pool with Overall score closest to this role's Overall. Show company name + Overall score.
-
-**Render format** (append directly below the dimensional table, no header):
+**Only render the block with ≥ 5 peers.** Below that, omit it entirely (no placeholder line). Render, directly below the dimensional table:
 
 ```
 ---
-**Rank vs [Archetype] peers:** X.X/10 — top N% of M roles evaluated
-**Dimension outliers:** Skills Match +X.X above avg · Ease of Entry −X.X below avg
-**Closest comparables:** [Company A] (X.X) · [Company B] (X.X) · [Company C] (X.X)
+**Rank vs [Archetype] peers:** Want X.X · Ease X.X — Priority top N% of M roles evaluated
+**Dimension outliers:** Skills Match +X.X above avg · Experience bar −X.X below avg
+**Closest comparables:** [Company A] (W X.X · E X.X) · [Company B] (W X.X · E X.X) · [Company C] (W X.X · E X.X)
 ```
 
-If no outlier dimensions (all within ±1.5 of avg): write `**Dimension outliers:** profile close to archetype average` instead.
-
-This block appears in every Tier 1 report. It is purely informational — it does not affect tier assignment or the Overall score.
+Outliers are dimensions ≥ 1.5 points from the peer average (positive first); with none, write `**Dimension outliers:** profile close to archetype average`. Comparables are the 3 peers with the closest Priority. The block is informational — it never changes the verdict.
 
 ### Per-entry trackers are split by workflow stage
 
-The system uses two per-entry trackers — they capture different stages of the user's workflow, NOT different evaluation modes:
-
 | File | Holds | Merge script | TSV drop folder | Columns |
 |------|-------|--------------|-----------------|---------|
-| `data/scouting.md` | Landscape-mapping inventory — every evaluation lands here by default | `scripts/merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Score \| Tier \| CF/AF \| Report \| Deadline \| Promotion Hint \| Notes` |
-| `data/applications.md` | Active applications — entries promoted from scouting when the user decides to apply | `scripts/merge-tracker.mjs` | `batch/tracker-additions/` | `# \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes` |
+| `data/scouting.md` | Landscape inventory — every evaluation (including Blocked) lands here | `scripts/merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Want \| Ease \| Tier \| Eligibility \| Report \| Deadline \| Promotion Hint \| Notes` |
+| `data/applications.md` | Active applications — entries promoted from scouting | `scripts/merge-tracker.mjs` | `batch/tracker-additions/` | `# \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes` |
 
-Tier 1 hits in scouting flagged `READY` can be promoted to `data/applications.md` via `node scripts/promote-to-applications.mjs <num>` (or by clicking Apply in the Database UI), at which point they enter the active flow with status `Evaluated`.
+In `data/applications.md` the Score cell for new rows is `W8.3 E5.6` (legacy `X.X/10` cells stay valid). `go` rows flagged `READY` are promoted via `node scripts/promote-to-applications.mjs <num>` (or Apply in the Database UI) with status `Evaluated`. Blocked listings are never promoted.
 
-`data/score-history.tsv` (below) stays **unified** — it's the trajectory log, not a per-entry tracker.
+`data/score-history.tsv` stays **unified** — it's the trajectory log, not a per-entry tracker.
 
 ### Logging to `data/score-history.tsv`
 
-Every evaluation appends a row to `data/score-history.tsv`. The TSV columns are (in order):
+Every evaluation — including skips and Blocked listings — appends one row. Columns, in order:
 
 ```
-date	archetype	skills_match	ease_of_entry	strategic_fit	current_fit	growth_mobility	optionality_exit	brand_value	sales_trap_risk	aspirational_fit	overall	best_cities	salary_adj_city	work_life_balance	best_fit_roles	mode	company	role	tier	source	location	employment_type	duration	salary_raw	url
+date	archetype	skills_match	experience_bar	competition	ease	growth_mobility	optionality_exit	brand_value	role_content	best_cities	salary_adj_city	work_life_balance	want	priority	eligibility	eligibility_flags	verdict	best_fit_roles	mode	company	role	tier	source	location	employment_type	duration	salary_raw	url
 ```
 
 **Column definitions:**
-- All numeric dimensions are decimals on the 1-10 scale (e.g., `8.0`, `7.33`).
-- `current_fit`, `aspirational_fit`, `overall` are the computed rollups (bake them in at write time — do not let the reader recompute later).
-- `best_fit_roles` is a free-text field; separate multiple roles with `; ` (semicolons). Never use literal tabs inside this field.
-- `mode` is always `scouting` for new rows (legacy `oferta` rows from before the mode consolidation may exist; treat them the same).
-- `tier` is `full` | `short` | `growth` | `skip`.
-- `source` is `url` | `paste` | `scan` | `pipeline` | `batch`. (This is the workflow source — where the listing entered the system from. NOT the listing URL itself.)
-- `location` — city name as stated in the JD (e.g., `Madrid`, `Amsterdam`, `Remote-EU`, `Barcelona (hybrid)`). Use `n/d` if not stated.
-- `employment_type` — `internship` | `full-time` | `working-student` | `graduate-program` | `contract` | `n/d`.
-- `duration` — free text from the JD (e.g., `6mo`, `12mo`, `permanent`, `n/d`). Use `permanent` for standard full-time with no stated end date.
-- `salary_raw` — exact figure or range as stated in the JD (e.g., `€1,500/mo`, `€35–45K`, `competitive`). Use `n/d` if not disclosed.
-- `url` — the **listing-specific** URL from the JD page (`https://...`). This is the **stable join key** used by the frontend cache to bind a score-history row to its `reports/...md` file. Always write it. **NEVER write a bare portal/careers-homepage URL** (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`, etc.) — those URLs are shared across every listing at the company and would collide on join. A listing URL must contain a job identifier: `/jobs/{id}`, a job-token slug, a UUID, or `?gh_jid=...`. Use `n/d` when (a) the source is a paste with no URL, OR (b) the only URL you have is a portal homepage.
+- Dimension columns: the values the script actually used — `calibrated_dims[dim].final` where calibration applied (Brand bonuses can make it non-integer), else your judgment integer; `salary_adj_city` as the script returned it.
+- `ease`, `want`, `priority`: the script's numbers (`ease.score`, `want.score`, `priority`), baked in at write time — readers never recompute.
+- **Blocked rows:** every dimension column plus `want`, `ease`, `priority` are **empty** (not 0). Readers treat empty as missing, never as 0.
+- `eligibility`: `green` | `amber` | `red`.
+- `eligibility_flags`: `;`-joined `check:status:reason` for every non-green check (empty when green). Keep `;`, `:` and tabs out of the reason text.
+- `verdict`: the verdict key (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`).
+- `best_fit_roles`: free text, multiple roles separated by `; `. Never a literal tab.
+- `mode`: always `scouting`.
+- `tier`: `T1` | `T2` | `T3` | `T4`.
+- `source`: `url` | `paste` | `scan` | `pipeline` | `batch` — where the listing entered the system, not its URL.
+- `location`: city as stated in the JD (`Remote-EU`, `Lyon (hybrid)`); `n/d` if not stated.
+- `employment_type`: `internship` | `full-time` | `working-student` | `graduate-program` | `contract` | `n/d`.
+- `duration`: free text (`6mo`, `12mo`, `permanent`, `n/d`).
+- `salary_raw`: the figure as stated (`€1,500/mo`, `€35–45K`, `competitive`); `n/d` if undisclosed.
+- `url`: the **listing-specific** URL — the stable join key the frontend uses to bind a row to its report. **NEVER a bare portal / careers-homepage URL** (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`) — those collide across every listing at the company. A listing URL carries a job identifier (`/jobs/{id}`, a job-token slug, a UUID, `?gh_jid=...`). Use `n/d` for a paste with no URL or when only a portal homepage is known.
 
-**Rows written before 2026-04-26** have 21 columns (no metadata columns). Readers must handle variable column counts — pad short rows with empty strings rather than skipping them.
-
-**Rows written between 2026-04-26 and 2026-04-29** have 25 columns (no `url`). The frontend cache backfills `url` for these rows by reading the matching report's `**URL:**` header.
-
-If the file does not exist, create it with the 26-column header row exactly as above. Append-only; never rewrite.
+If the file does not exist, create it with the 29-column header exactly as above. Readers parse by header name. Append-only; never rewrite. (v1 history was archived to `data/archive/scoring-v1/` on the switch.)
 
 ## Archetype Detection
 
@@ -695,7 +620,7 @@ After detecting the archetype, read `user/_profile.md` for the user's specific f
 1. Read cv.md, _profile.md, and user/article-digest.md (if exists) before evaluating
 1b. **First evaluation of each session:** Run `node scripts/cv-sync-check.mjs`. If warnings, notify user.
 2. Detect the role archetype and adapt framing per _profile.md
-3. Cite exact lines from CV when matching
+3. Point at a CV item only when it changes the judgment — never walk the CV to prove coverage
 4. **Before WebSearch for comp/company intel:** check `data/comp-cache.tsv` (60-day TTL) and `data/companies/{slug}.md` (30-day TTL). Use cached data if fresh; run WebSearch and save if stale or missing.
 5. Register in tracker after evaluating
 6. Generate content in the language of the JD (EN default)

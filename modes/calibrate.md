@@ -8,8 +8,8 @@ growth signals. The scorer applies those rules deterministically
 (`scripts/lib/calibration.mjs`), but nothing ever tells the user whether that
 calibration still **matches reality**. This mode closes that feedback loop.
 
-It mines `data/score-history.tsv` (every evaluation's archetype + 6-dimension
-fingerprint + Overall) and, when available, the outcome funnel in
+It mines `data/score-history.tsv` (every evaluation's archetype + dimension
+fingerprint + Want / Ease / verdict) and, when available, the outcome funnel in
 `data/applications.md`, and surfaces where the calibration looks off — then
 **suggests concrete edits to `user/*`**. It NEVER writes those files itself: the
 user reviews each suggestion and applies the ones they agree with. That keeps
@@ -29,21 +29,22 @@ keep getting rejected?", "are my comp targets realistic for this market?".
 
 | Check | Signal | Suggested fix lands in |
 |-------|--------|------------------------|
-| **Brand-bonus drift — inert** | A bonused company already scores `strong` (≥7.5) unaided → the bonus is cosmetic | `user/profile.yml` |
-| **Brand-bonus drift — misdirected** | A bonused company scores `weak` (<6.0) even *with* the bonus → it never clears the apply bar | `user/profile.yml` |
-| **Un-credited strong company** | A company with *no* bonus consistently scores strong across ≥3 evals → candidate to add | `user/profile.yml` |
-| **Rubric signal health** | A dimension is pinned at the ceiling/floor with tiny spread → it can't discriminate; its weight is wasted | `user/_profile.md` |
+| **Brand-bonus drift — inert** | A bonused company already reaches Want ≥ 8.0 unaided → the bonus is cosmetic | `user/profile.yml` |
+| **Brand-bonus drift — misdirected** | A bonused company still lands `skip` even *with* the bonus → it never reaches an actionable verdict | `user/profile.yml` |
+| **Un-credited strong company** | A company with *no* bonus consistently reaches Want ≥ 8.0 across ≥3 evals → candidate to add | `user/profile.yml` |
+| **Rubric signal health** | A dimension is pinned at the ceiling/floor with tiny spread → it can't discriminate; its weight is wasted (consider `scoring.want_weights` / `ease_weights`) | `user/profile.yml` / `user/_profile.md` |
 | **Comp-target reality** | `salary_adj_city` chronically low → comp targets above market; chronically maxed → comp floor never bites | `user/profile.yml` |
-| **Score → outcome mismatch** | An archetype scores high but never converts (over-credited), or scores low but converts well (under-credited) | `user/_profile.md` |
+| **Score → outcome mismatch** | An archetype scores high Want / Ease but never converts (over-credited), or scores low but converts well (under-credited) — stated on Want and Ease separately | `user/_profile.md` |
 
 The score→outcome check only runs once `applications.md` has applications that
 reached the market (Applied / Responded / Interview / Offer / Rejected /
 Discarded). The other checks work from day one off `score-history.tsv` alone.
+Blocked rows (empty scores) are excluded from every score check.
 
 ## Inputs
 
 - `data/score-history.tsv` — per-evaluation score log (required)
-- `user/profile.yml` — `calibration:` block + `target_roles.dream_companies` (calibration source)
+- `user/profile.yml` — `calibration:` block, optional `scoring:` weights + `target_roles.dream_companies` (calibration source)
 - `data/applications.md` — outcome funnel (optional; unlocks the score→outcome check)
 
 ## Step 1 — Run the advisor
@@ -61,11 +62,11 @@ The JSON shape:
 | Key | Contents |
 |-----|----------|
 | `metadata` | `evaluated`, `dateRange`, `calibrationConfigured`, `outcomesAvailable` |
-| `diagnostics.brandBonusDrift` | `[{ company, source, kind, roles, avgOverall, band, verdict }]` |
-| `diagnostics.brandBonusCandidates` | `[{ company, roles, avgOverall }]` |
+| `diagnostics.brandBonusDrift` | `[{ company, source, kind, roles, avgWant, avgEase, verdict }]` |
+| `diagnostics.brandBonusCandidates` | `[{ company, roles, avgWant }]` |
 | `diagnostics.dimensionSignal` | per-dimension `{ mean, stdev, ceilShare, floorShare, status }` |
 | `diagnostics.compReality` | `{ mean, median, lowShare, highShare, status }` |
-| `diagnostics.scoreOutcome` | `{ available, archetypes: [{ applied, positive, convertRate, avgScore, flag }] }` |
+| `diagnostics.scoreOutcome` | `{ available, archetypes: [{ applied, positive, convertRate, avgWant, avgEase, flag }] }` |
 | `suggestions` | `[{ target, action, reasoning, severity, edit }]` sorted high→low severity |
 
 If the script returns `error` (no score history yet), display the message and

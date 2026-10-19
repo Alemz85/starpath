@@ -31,6 +31,15 @@
 // Everything here is a pure function of its inputs — no filesystem, no clock,
 // no globals, no mutation. That keeps it exhaustively unit-testable, and keeps
 // the imported cores untouched (this is a composition layer, not a fork).
+//
+// Scoring v2 (docs/scoring-v2.md): scores render as "Want · Ease" (never a
+// headline number), star markers come from the verdict (go ★★, stretch /
+// solid ★, everything else — blocked included — none), and Priority
+// (√(Want·Ease)) is only ever a sort key.
+
+import { parseScoreCell, displayScoreCell, scoreCellPriority } from './tracker-core.mjs'
+import { verdictFromCells } from './scouting-core.mjs'
+import { computePriority } from './score-bands.mjs'
 
 /* ───── Section model ───────────────────────────────────────────────────────
  *
@@ -93,6 +102,54 @@ function daysBetween(a, b) {
  *   meta     — passthrough for the renderer (score, date, url, …).
  */
 
+/* ───── Verdict markers ─────────────────────────────────────────────────────*/
+
+/** Star marker for a verdict: go ★★, stretch / solid ★, anything else (incl. blocked) none. */
+export function verdictStars(verdict) {
+  if (verdict === 'go') return '★★'
+  if (verdict === 'stretch' || verdict === 'solid') return '★'
+  return ''
+}
+
+/**
+ * Want/Ease info for an applications.md Score cell (spec §8.3):
+ *   { scoreLabel, priority, want, ease, verdict }
+ *   v2 "W8.3 E5.6" → label "W8.3 · E5.6", priority √(w·e), verdict from the
+ *                    grid with eligibility green (blocked listings are never
+ *                    promoted to applications.md)
+ *   legacy "7.4/10" → label "7.4/10", priority 7.4, want/ease/verdict null
+ *   unparseable     → all null
+ */
+export function scoreCellInfo(cell) {
+  const p = parseScoreCell(cell)
+  if (!p) return { scoreLabel: null, priority: null, want: null, ease: null, verdict: null }
+  if ('legacy' in p) {
+    return { scoreLabel: displayScoreCell(cell), priority: scoreCellPriority(cell), want: null, ease: null, verdict: null }
+  }
+  return {
+    scoreLabel: displayScoreCell(cell),
+    priority: scoreCellPriority(cell),
+    want: p.want,
+    ease: p.ease,
+    verdict: verdictFromCells({ want: p.want, ease: p.ease, eligibility: 'green' }).verdict,
+  }
+}
+
+/** Verdict for a scored (non-blocked) Want/Ease pair; null when either is missing. */
+function verdictForPair(want, ease) {
+  if (!Number.isFinite(want) || !Number.isFinite(ease)) return null
+  return verdictFromCells({ want, ease, eligibility: 'green' }).verdict
+}
+
+/** " · W8.3 · E5.6 ★★" — the score suffix used in item subs ('' when unscored). */
+function scoreSuffix(label, verdict) {
+  if (!label) return ''
+  const stars = verdictStars(verdict)
+  return ` · ${label}${stars ? ` ${stars}` : ''}`
+}
+
+const prio = (n) => (Number.isFinite(n) ? n : -1) // unscored sorts last
+
 /**
  * Follow-up items from followup-cadence analysis output.
  * We surface only the genuinely-actionable ones: `overdue` and `urgent`.
@@ -111,9 +168,11 @@ export function followupItems(followupResult) {
     const days = Number.isFinite(e.daysSinceApplication) ? e.daysSinceApplication : 0
     const role = e.role || ''
     const contact = Array.isArray(e.contacts) && e.contacts[0] ? e.contacts[0].email : null
-    const what = e.urgency === 'urgent'
+    const info = scoreCellInfo(e.score)
+    const what = (e.urgency === 'urgent'
       ? `Respond now — ${e.status}, ${days}d since applied`
-      : `Follow up — ${e.status}, ${days}d since applied, ${e.followupCount || 0} sent`
+      : `Follow up — ${e.status}, ${days}d since applied, ${e.followupCount || 0} sent`) +
+      scoreSuffix(info.scoreLabel, info.verdict)
     items.push({
       key: `${(e.company || '').toLowerCase()}|${role.toLowerCase()}`,
       label: role ? `${e.company} — ${role}` : e.company,
@@ -122,7 +181,12 @@ export function followupItems(followupResult) {
       sortKey: days, // more days overdue → surface earlier within same urgency
       meta: {
         status: e.status,
-        score: e.score,
+        score: e.score, // raw applications.md Score cell
+        scoreLabel: info.scoreLabel,
+        priority: info.priority,
+        want: info.want,
+        ease: info.ease,
+        verdict: info.verdict,
         daysSince: days,
         followupCount: e.followupCount || 0,
         nextFollowupDate: e.nextFollowupDate || null,
@@ -130,7 +194,9 @@ export function followupItems(followupResult) {
       },
     })
   }
-  return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey)
+  // Same urgency + same days → the higher-Priority application first.
+  return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey ||
+    prio(b.meta.priority) - prio(a.meta.priority))
 }
 
 /**
@@ -171,8 +237,9 @@ export function outreachItems(outreachResult) {
  * into a pipeline company, pre-filtered by the outreach-plan decision ladder:
  * due nudges live in the `outreach` section, live threads block the company
  * entirely, and exhausted (cold) contacts are never targets. So every item here
- * is safe to act on as-is. Input arrives ranked highest-value first (role score,
- * then warmth) — we keep that order and just cap for scannability.
+ * is safe to act on as-is. Input arrives ranked highest-value first (role
+ * Priority, then warmth) — we keep that order and just cap for scannability.
+ * topRole = { role, score (Priority), want, ease, scoreLabel, source }.
  *
  * @param {Array|null} opportunities  warmOutreachOpportunities() output
  * @param {object} opts               { maxWarmPaths = 3 }
@@ -186,14 +253,17 @@ export function warmPathItems(opportunities, { maxWarmPaths = 3 } = {}) {
     const action = o.play === 'warm-intro'
       ? `Ask ${t.via || 'your mutual contact'} for an intro to ${who}${title} — 2nd-degree bridge`
       : `Message ${who}${title} directly — untouched 1st-degree tie`
-    const roleScore = o.topRole && Number.isFinite(o.topRole.score) ? o.topRole.score : null
-    const scoreSuffix = roleScore && roleScore > 0 ? ` · ${roleScore.toFixed(1)}/10 role` : ''
+    const tr = o.topRole || null
+    const rolePriority = tr && Number.isFinite(tr.score) && tr.score > 0 ? tr.score : null
+    const roleVerdict = tr ? verdictForPair(tr.want, tr.ease) : null
+    const roleScoreLabel = rolePriority != null && tr.scoreLabel ? tr.scoreLabel : null
+    const suffix = roleScoreLabel ? `${scoreSuffix(roleScoreLabel, roleVerdict)} role` : ''
     return {
       key: `warmpath|${(o.company || '').toLowerCase()}|${who.toLowerCase()}`,
-      label: o.topRole && o.topRole.role ? `${o.company} — ${o.topRole.role}` : o.company,
-      sub: `${action}${scoreSuffix}`,
+      label: tr && tr.role ? `${o.company} — ${tr.role}` : o.company,
+      sub: `${action}${suffix}`,
       urgency: 0,
-      sortKey: roleScore ?? 0,
+      sortKey: rolePriority ?? 0,
       meta: {
         kind: o.play, // 'warm-direct' | 'warm-intro'
         company: o.company,
@@ -201,7 +271,9 @@ export function warmPathItems(opportunities, { maxWarmPaths = 3 } = {}) {
         via: t.via || null,
         warmth: t.warmth ?? null,
         leverage: t.leverage || null,
-        roleScore,
+        rolePriority,
+        roleScoreLabel,
+        roleVerdict,
         cautions: o.cautions || [],
       },
     }
@@ -210,8 +282,10 @@ export function warmPathItems(opportunities, { maxWarmPaths = 3 } = {}) {
 
 /**
  * Fresh-hit items from whats-new-core.buildDigest output.
- * We surface the `prioritize` bucket (new AND high-fit) plus the `needs-eval`
- * bucket (new, unscored — go evaluate), capped so the brief stays scannable.
+ * We surface the `prioritize` list (new AND verdict go / stretch / solid) plus
+ * the `needs-eval` bucket (new, unscored — go evaluate), capped so the brief
+ * stays scannable. Order: go before stretch/solid before needs-eval, then
+ * Priority desc. Blocked / skip / thin / growth postings never appear here.
  *
  * @param {object} digest  buildDigest output: { items, prioritize, needsEval, ... }
  * @param {object} opts    { maxPrioritize, maxNeedsEval }
@@ -220,18 +294,23 @@ export function newHitItems(digest, { maxPrioritize = 8, maxNeedsEval = 5 } = {}
   if (!digest || !Array.isArray(digest.items)) return []
   const items = []
 
-  const prioritize = (digest.prioritize || []).slice(0, maxPrioritize)
+  const prioritize = (digest.prioritize || [])
+    .filter((it) => it && it.verdict !== 'blocked')
+    .slice(0, maxPrioritize)
   for (const it of prioritize) {
+    const priority = Number.isFinite(it.priority) ? it.priority : computePriority(it.want, it.ease)
     items.push({
       key: `${(it.company || '').toLowerCase()}|${(it.title || '').toLowerCase()}`,
       label: it.title ? `${it.company} — ${it.title}` : it.company,
       sub: scoreSub(it) + (it.location ? ` · ${it.location}` : '') + ageSuffix(it),
-      urgency: 0,
-      sortKey: Number.isFinite(it.overall) ? it.overall : 0,
+      urgency: it.verdict === 'go' ? 0 : 1, // go before stretch / solid
+      sortKey: Number.isFinite(priority) ? priority : 0,
       meta: {
         kind: 'prioritize',
-        overall: it.overall ?? null,
-        band: it.band || null,
+        want: Number.isFinite(it.want) ? it.want : null,
+        ease: Number.isFinite(it.ease) ? it.ease : null,
+        priority: Number.isFinite(priority) ? priority : null,
+        verdict: it.verdict || null,
         location: it.location || '',
         url: it.url || null,
         ageDays: it.ageDays ?? null,
@@ -246,7 +325,7 @@ export function newHitItems(digest, { maxPrioritize = 8, maxNeedsEval = 5 } = {}
       key: `${(it.company || '').toLowerCase()}|${(it.title || '').toLowerCase()}`,
       label: it.title ? `${it.company} — ${it.title}` : it.company,
       sub: `Unscored — run scouting${it.location ? ` · ${it.location}` : ''}${ageSuffix(it)}`,
-      urgency: 1, // after the already-scored prioritize hits
+      urgency: 2, // after the already-scored prioritize hits
       sortKey: 0,
       meta: {
         kind: 'needs-eval',
@@ -260,10 +339,12 @@ export function newHitItems(digest, { maxPrioritize = 8, maxNeedsEval = 5 } = {}
   return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey)
 }
 
+// "W8.3 · E7.4 ★★ Go" — Want · Ease, the verdict's stars, the verdict label.
 function scoreSub(it) {
-  if (!Number.isFinite(it.overall)) return 'Scored'
-  const star = it.band === 'strong' ? '★★' : it.band === 'solid' ? '★' : ''
-  return `${it.overall.toFixed(1)}/10${star ? ` ${star}` : ''}`
+  if (!Number.isFinite(it.want) || !Number.isFinite(it.ease)) return 'Scored'
+  const stars = verdictStars(it.verdict)
+  const label = it.verdictLabel ? ` ${it.verdictLabel}` : ''
+  return `W${it.want} · E${it.ease}${stars ? ` ${stars}` : ''}${label}`
 }
 
 function ageSuffix(it) {
@@ -293,28 +374,32 @@ export function insightItems(intel) {
     let sub = `"${d.label}" is the binding constraint across ${d.count} archetype(s)` +
       (where ? ` (${where})` : '') + '.'
     if (sys.lever) {
+      const lift = Number.isFinite(sys.lever.avgLift) ? `, avg +${sys.lever.avgLift}` : ''
       sub += ` The highest-leverage move: lift ${sys.lever.label}` +
-        ` (re-bands ${sys.lever.count} archetype(s), avg +${sys.lever.avgLift}).`
+        ` (moves the verdict for ${sys.lever.count} archetype(s)${lift}).`
     }
     return [{
-      key: `insight|${d.dimension}`,
+      // positioning-core keys the tally by dimension, check or rollup kind
+      // (low_want / low_ease have dimension null), so `key` is the stable id.
+      key: `insight|${d.key ?? d.dimension}`,
       label: `Targeting: ${d.label} is your systemic blocker`,
       sub,
       urgency: 0,
       sortKey: 0,
-      meta: { kind: 'systemic-constraint', dimension: d.dimension, archetypes: names },
+      meta: { kind: 'systemic-constraint', constraint: d.key ?? d.dimension, dimension: d.dimension, check: d.check ?? null, archetypes: names },
     }]
   }
 
   // Fallback: no single dimension binds → point at the strongest archetype.
-  // positioning-core sorts `fingerprints` strongest-first (by avgOverall).
+  // positioning-core sorts `fingerprints` strongest-first.
   const top = (Array.isArray(intel.fingerprints) && intel.fingerprints[0]) || null
   if (top && top.archetype) {
+    const hasWE = Number.isFinite(top.avgWant) && Number.isFinite(top.avgEase)
     return [{
       key: `insight|${top.archetype}`,
       label: `Targeting: lean into ${top.archetype}`,
-      sub: `Your strongest-scoring archetype` +
-        (Number.isFinite(top.avgOverall) ? ` (avg ${round1(top.avgOverall)}/10)` : '') +
+      sub: `Your strongest archetype` +
+        (hasWE ? ` (avg Want ${round1(top.avgWant)} · Ease ${round1(top.avgEase)})` : '') +
         ` — concentrate sourcing there.`,
       urgency: 0,
       sortKey: 0,
@@ -338,7 +423,9 @@ function round1(n) {
  *   { asOf, buckets: { urgent: [...], near: [...], ... }, counts: {...} }
  *
  * Each bucket entry has: { source, num, company, role, status/tier, deadline,
- *   parsed, daysLeft }
+ *   parsed, daysLeft } — scouting entries also { want, ease, scoreLabel }
+ *   (blocked scouting rows are already dropped by deadlines-core). Within a
+ *   bucket, fewer days left first, then higher Priority.
  *
  * @param {object|null} classifiedDeadlines   deadlines-core.classifyDeadlines output
  * @param {object}      opts                  { maxUrgent, maxNear }
@@ -351,7 +438,8 @@ export function deadlineItems(classifiedDeadlines, { maxUrgent = 5, maxNear = 5 
   for (const e of urgentEntries) {
     const dayLabel = e.daysLeft === 0 ? 'closes today' : `${e.daysLeft}d left`
     const tierOrStatus = e.source === 'scouting' ? e.tier : (e.status || '')
-    const sub = `${dayLabel}${tierOrStatus ? ` · ${tierOrStatus}` : ''} — decide now`
+    const sc = deadlineScore(e)
+    const sub = `${dayLabel}${tierOrStatus ? ` · ${tierOrStatus}` : ''}${scoreSuffix(sc.scoreLabel, sc.verdict)} — decide now`
     items.push({
       key: `deadline|${(e.company || '').toLowerCase()}|${(e.role || '').toLowerCase()}`,
       label: e.role ? `${e.company} — ${e.role}` : e.company,
@@ -365,6 +453,7 @@ export function deadlineItems(classifiedDeadlines, { maxUrgent = 5, maxNear = 5 
         deadline: e.deadline,
         tierOrStatus,
         num: e.num || null,
+        ...sc,
       },
     })
   }
@@ -372,7 +461,8 @@ export function deadlineItems(classifiedDeadlines, { maxUrgent = 5, maxNear = 5 
   const nearEntries = (classifiedDeadlines.buckets.near || []).slice(0, maxNear)
   for (const e of nearEntries) {
     const tierOrStatus = e.source === 'scouting' ? e.tier : (e.status || '')
-    const sub = `${e.daysLeft}d left (${e.deadline})${tierOrStatus ? ` · ${tierOrStatus}` : ''}`
+    const sc = deadlineScore(e)
+    const sub = `${e.daysLeft}d left (${e.deadline})${tierOrStatus ? ` · ${tierOrStatus}` : ''}${scoreSuffix(sc.scoreLabel, sc.verdict)}`
     items.push({
       key: `deadline|${(e.company || '').toLowerCase()}|${(e.role || '').toLowerCase()}`,
       label: e.role ? `${e.company} — ${e.role}` : e.company,
@@ -386,11 +476,33 @@ export function deadlineItems(classifiedDeadlines, { maxUrgent = 5, maxNear = 5 
         deadline: e.deadline,
         tierOrStatus,
         num: e.num || null,
+        ...sc,
       },
     })
   }
 
-  return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey)
+  return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey ||
+    prio(b.meta.priority) - prio(a.meta.priority))
+}
+
+// Want/Ease/Priority/verdict for a deadline entry. Scouting entries carry
+// want/ease (blocked rows are never passed); application entries may carry a
+// raw Score cell in `score`; anything else is unscored.
+function deadlineScore(e) {
+  if (Number.isFinite(e.want) && Number.isFinite(e.ease)) {
+    return {
+      want: e.want,
+      ease: e.ease,
+      scoreLabel: e.scoreLabel || `W${e.want} · E${e.ease}`,
+      priority: computePriority(e.want, e.ease),
+      verdict: verdictForPair(e.want, e.ease),
+    }
+  }
+  if (e.score != null) {
+    const info = scoreCellInfo(e.score)
+    return { want: info.want, ease: info.ease, scoreLabel: info.scoreLabel, priority: info.priority, verdict: info.verdict }
+  }
+  return { want: null, ease: null, scoreLabel: null, priority: null, verdict: null }
 }
 
 /* ───── Deep-eval next: the inbox triage top slice ───────────────────────────
@@ -489,7 +601,7 @@ export function patternHeadsUp(patterns) {
   return [{
     key: `headsup|${impact}`,
     label: 'Targeting lesson from your outcomes',
-    sub: `${pick.action}.` + (pick.reasoning ? ` ${pick.reasoning}` : ''),
+    sub: `${pick.action}${/[.!?]$/.test(pick.action) ? '' : '.'}` + (pick.reasoning ? ` ${pick.reasoning}` : ''),
     urgency: 0,
     sortKey: 0,
     meta: { kind: 'pattern-recommendation', impact, action: pick.action },
@@ -608,10 +720,10 @@ function num(n) {
  *        company (warm-direct / warm-intro). The highest-ROI *opportunity* —
  *        a referral beats any cold move — but nothing decays if it waits a day,
  *        so every open-thread obligation above still wins. Tier band 400–499,
- *        higher target-role score first.
+ *        higher target-role Priority first.
  *   5xx  Fresh high-fit postings — opportunity, not obligation; never decays as
- *        fast as an open thread. Prioritized hits (scored) before needs-eval.
- *        Tier band 500–599, higher score first.
+ *        fast as an open thread. Verdict go (500–532) before stretch / solid
+ *        (533–565) before needs-eval (566–599); higher Priority first.
  *   6xx  Inbox triage — the deterministic "deep-eval next" ranking. Purely
  *        prospective (nothing is waiting on the user), so it only becomes the
  *        top action when nothing above exists. Tier band 600–699, higher
@@ -655,18 +767,18 @@ export function globalPriority(sectionId, item) {
   }
 
   if (sectionId === 'warmpaths') {
-    // Band 400–499 — higher target-role score → earlier (a referral matters
-    // most where the fit is best). Scores are 0–10; ×10 spreads the band.
-    const score = Number.isFinite(meta.roleScore) ? meta.roleScore : 0
-    return 400 + Math.max(0, 99 - Math.min(Math.round(score * 10), 99))
+    // Band 400–499 — higher target-role Priority → earlier (a referral matters
+    // most where the fit is best). Priority is 1–10; ×10 spreads the band.
+    const p = Number.isFinite(meta.rolePriority) ? meta.rolePriority : 0
+    return 400 + Math.max(0, 99 - Math.min(Math.round(p * 10), 99))
   }
 
   if (sectionId === 'newhits') {
-    // Prioritized (scored) hits before needs-eval; higher score → earlier.
-    // Band 500–549 for scored, 550–599 for needs-eval.
-    const base = meta.kind === 'needs-eval' ? 550 : 500
-    const score = Number.isFinite(meta.overall) ? meta.overall : 0
-    return base + Math.max(0, 49 - Math.min(Math.round(score * 5), 49))
+    // Verdict go before stretch / solid before needs-eval; within each, higher
+    // Priority → earlier. Bands 500–532 / 533–565 / 566–599.
+    const base = meta.kind === 'needs-eval' ? 566 : meta.verdict === 'go' ? 500 : 533
+    const p = Number.isFinite(meta.priority) ? meta.priority : 0
+    return base + Math.max(0, 32 - Math.min(Math.round(p * 3.2), 32))
   }
 
   if (sectionId === 'triage') {
@@ -868,7 +980,7 @@ function renderTopActionLine(topAction) {
 
   if (section === 'deadlines' && it.meta && it.meta.daysLeft !== undefined) {
     const daysLabel = it.meta.daysLeft === 0 ? 'closes TODAY' : `${it.meta.daysLeft}d left`
-    return `**${it.label}** — ${daysLabel} · ${it.meta.tierOrStatus || ''} — decide/apply now`
+    return `**${it.label}** — ${daysLabel} · ${it.meta.tierOrStatus || ''}${scoreSuffix(it.meta.scoreLabel, it.meta.verdict)} — decide/apply now`
   }
 
   if ((section === 'newhits' || section === 'triage') && it.meta && it.meta.url) {

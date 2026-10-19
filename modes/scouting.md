@@ -6,14 +6,14 @@
 
 This mode does NOT do CV tailoring (`modes/pdf.md`), interview prep (`modes/interview-prep.md`), or live application drafting (`modes/apply.md`). Those are separate per-listing skills the user triggers when they want them.
 
-CF/AF rollup weights are fixed at 70/30 (Current Fit dominates — reachability is the primary question for an entry-level user mapping the landscape). Every evaluation produces the same report structure.
+Every listing runs the same model — eligibility gate first, then Want and Ease, then the verdict grid (`modes/_shared.md`; contract `docs/scoring-v2.md`) — and every report that gets written has the same structure.
 
 ## Inputs
 
 - `user/cv.md` (read-only — never tailored during evaluation)
-- `modes/_shared.md` — the **Dimensional Scoring Framework** section is the source of truth for dimensions, rubrics, rollup formulas, and TSV columns. Always read it before scoring.
+- `modes/_shared.md` — the **Dimensional Scoring Framework** section is the source of truth for the eligibility checks, dimensions, rubrics, verdict grid and TSV columns. Always read it before scoring.
 - `user/_profile.md` (archetypes, narrative, location policy, comp targets, dream companies)
-- `user/profile.yml` (candidate identity)
+- `user/profile.yml` (candidate identity, `eligibility:`, `calibration:` and `scoring:` blocks)
 - The listing: JD text, URL, or a row from scan data
 - `data/score-history.tsv` (append-only log; see Data Layer below)
 
@@ -39,283 +39,232 @@ In short: when an entity_id match hits with `last_seen_date < 6 months`, do not 
 
 ## The Scoring Model
 
-Use the **Dimensional Scoring Framework** defined in `modes/_shared.md`. Read that section first — it is the single source of truth. Do not redefine dimensions here.
+Use the **Dimensional Scoring Framework** defined in `modes/_shared.md` (contract: `docs/scoring-v2.md`). Read that section first — it is the single source of truth. Do not redefine dimensions here.
 
-The framework gives you, for every listing:
-- **6 numeric scoring dimensions** (1-10, half-steps allowed), three rolling up into **Current Fit** and three into **Aspirational Fit**
-- **Sales-Trap Risk** (scored 1-10, displayed for decision-support but NOT in the AF rollup)
-- **3 numeric context dimensions** + **1 text context dimension** (Best Cities, Salary Adj for City, Work-Life Balance, Best-fit Early-career Roles)
-- An **Overall** rollup: `Current Fit × 0.70 + Aspirational Fit × 0.30` (fixed weighting; see `_shared.md` § Overall).
+The framework gives you, for every listing, in this order:
+- An **Eligibility gate** — six checks (`start_date`, `duration`, `graduation`, `language`, `work_auth`, `other`) → `green` / `amber` / `red`. Run it first with `node scripts/score-listing.mjs --eligibility-only`; `red` means **Blocked** and you stop before scoring dimensions.
+- **Want** (1–10) — 4 motivators (Growth / Mobility, Optionality / Exit, Brand Value, Role content) plus 3 hygiene factors (City, Salary Adj for City, Work-Life Balance).
+- **Ease** (1–10) — Skills Match, Experience bar, Competition, minus 0.5 per amber eligibility check.
+- A **verdict** from the Want × Ease grid (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`) and its storage tier `T1`–`T4`. There is no Overall.
 
-The dimensional table is the load-bearing artifact. The prose around it is short.
+All of it is computed by `scripts/score-listing.mjs` from the facts and integer judgment scores you pass in. The dimensional table is the load-bearing artifact. The prose around it is short.
 
 ### Required pre-scoring reads
 
 Before assigning any scores, you MUST have read:
-1. `user/cv.md` — for Skills Match anchoring
-2. `user/_profile.md` — for archetype framing, dream-company list, location policy, comp targets, Score Calibration adjustments
-3. `modes/_shared.md` § Dimensional Scoring Framework — the rubric AND the **Reasoning column quality bar** subsection that defines what evidence must appear in each reasoning cell.
+1. `user/cv.md` — for Skills Match and Experience bar anchoring
+2. `user/_profile.md` — for archetype framing (what counts as target work for Role content), dream-company list, location policy, comp targets, Score Calibration adjustments
+3. `user/profile.yml` — the `eligibility:` block the gate checks against, the `calibration:` block and optional `scoring:` weights
+4. `modes/_shared.md` § Report Voice and § Dimensional Scoring Framework — the rubric and the **Reasoning cells** rule (no score without a reason a person can check).
 
 ### Pre-scoring JD audit (run BEFORE filling the dimensional table)
 
-Skim the JD body for ~30 seconds and write down the four signals below in scratch. The reasoning cells in the dimensional table will draw directly from this audit — every cell that doesn't trace back to one of these is an *opinion*, not an evaluation. Skipping the audit is the failure mode that produces "competitive but reachable" cells with no evidence.
+Skim the posting for ~30 seconds and write down the signals below **in scratch** — the audit is never pasted into the report. The reasoning cells draw from it; a cell that doesn't trace back to one of these is an *opinion*, not an evaluation.
 
 | Signal | What to extract | Example |
 |--------|-----------------|---------|
-| **Hard gates** | YoE bars, prior-background requirements, language minimums, citizenship/visa requirements, certifications. Quote the JD verbatim. | *"Previous working experience or internship at top-tier IB/PE/strategy consultancy/fast-growing tech"* |
-| **Brand tier** | Place the company on the Brand Value 1-10 scale (`_shared.md` § per-step anchors). Top-100 / unicorn / Big-4 / regional / unknown. | Revolut → Brand Value 8 → Ease of Entry penalty −3 |
-| **Comp disclosure** | Disclosed figure or range, OR `[undisclosed]`. Salary Adj for City is computed by `scripts/score-listing.mjs` — see `_shared.md` § Salary Adj for City for the inputs to feed in. | `£45-55K + 13th month + £80/mo gym` London → fed to score-listing.mjs → returns score + full math. |
-| **Geo / remote / visa** | Named office cities, remote policy, work-rights gating. | "Remote / multi-hub London-Barcelona-Lisbon" |
+| **Eligibility facts** | Start date / window, duration, graduation window, required languages + levels, work location + work-rights / sponsorship wording, any other hard requirement (degree field, enrolment status, clearance). Quote each line — they become `eligibility_facts` (`_shared.md` § Step 1). | *"6-month internship starting March 2027; fluent French required"* |
+| **Experience gates** | YoE bars, prior-background preferences. | *"Previous internship at a top-tier consultancy, bank or fast-growing tech company"* |
+| **Brand tier** | Where the company sits on the Brand Value scale — it feeds Brand Value and the Competition brand-tier adjuster. | Recognized European unicorn → Brand Value 8 → Competition −3 |
+| **Comp disclosure** | Disclosed figure or range, or undisclosed. Salary Adj for City is computed by `scripts/score-listing.mjs` (inputs: `_shared.md` § Salary Adj for City). | `£45-55K + 13th month + £80/mo gym` London → fed to score-listing.mjs |
+| **Work content** | The 2–3 responsibilities that fill the day; any quota / pipeline / outbound language (feeds Role content and its sales cap). | *"Own a pipeline of 40+ outbound accounts per quarter"* |
+| **Live constraints** | Anything in `user/_profile.md` that applies to *this* company or moment — a cap on applications per company, a role already applied to there, a timing rule. These often decide the listing. | *"Max two applications per company per cycle"* |
 
-If any signal is missing from the JD, write `[not stated]` rather than guessing. The reasoning cells will then say `[no gate stated]` honestly instead of inventing one.
+If a signal is missing, note "not stated" in scratch rather than guessing; the cell then says so in words, and a missing eligibility fact stays `null` (the gate reads it as amber where it matters).
 
-**The audit's job is traceability, not harshness.** Whatever scores the calibration math produces from the audit signals are the right scores — the audit doesn't bias toward lower numbers, it just makes sure each number can be defended by pointing at specific JD lines. A 7/10 Ease of Entry with the audit's hard-gate quote and a named brand-tier adjustment in the reasoning cell is fine. The same 7/10 with reasoning that says "competitive but reachable" is the failure mode, regardless of whether 7 was the right answer or not.
+**The audit's job is traceability, not harshness.** It doesn't bias toward lower numbers; it makes each number defensible by pointing at something in the posting.
 
 ### Salary Adj for City — comp cache check
 
-Follow the lookup flow defined in `modes/_shared.md` § Comp cache. Single rule across both phases: on a cache miss, run the WebSearch (Levels.fyi → Glassdoor → LinkedIn → Payscale → Blind), score against the city-specific bands in `_profile.md`, prepend `[estimated from {source}]` to the reasoning, and append a row to `data/comp-cache.tsv`. Score 5 only when the WebSearch genuinely returns nothing usable (mark `[undisclosed — no public data]`).
+Follow the lookup flow defined in `modes/_shared.md` § Comp cache. On a cache miss, run the WebSearch (Levels.fyi → Glassdoor → LinkedIn → Payscale → Blind), say where the estimate came from in the Comp section, and append a row to `data/comp-cache.tsv`. Score 5 only when the WebSearch genuinely returns nothing usable (and say so plainly).
 
 ### Calibration hooks
 
-- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` and the structured `calibration:` block in `user/profile.yml` (e.g., entry-level comp bands, mentorship bonus, brand-affinity bonuses, per-company `extra_brand_bonuses`).
-- **Location policy:** The Best Cities context dimension reads from `_profile.md` → Your Location Policy. A preferred-cities top hit floors at 9.0; a non-preferred EU city floors at 6.0; outside EU drops to 2.0-3.0.
-- **Dream-company floor:** If the company is in the user's dream list (`user/profile.yml` → `target_roles.dream_companies` or `_profile.md` → Dream Companies), floor **Brand Value at 10** AND **Aspirational Fit at 8.0** regardless of function match. The user wants their foot in the door.
-- **Sales-Trap Risk reminder:** Sales-Trap Risk is scored (10 = well protected, 1 = high risk) and displayed in the table, but is **not included in the Aspirational Fit rollup**. It serves as a decision-support signal — a score of 1-2 should be flagged prominently as a red flag.
+- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` and pass the structured `calibration:` block from `user/profile.yml` to the script (brand-affinity bonuses, per-company `extra_brand_bonuses`, structured-onboarding signal) — the script applies them.
+- **Location policy:** The City hygiene factor reads from `_profile.md` → Your Location Policy. Top preferred city floors at 9; a non-preferred city inside the reachable region floors at 6; outside it drops to 2–3.
+- **Dream-company floor:** a company in `calibration.dream_companies` gets Brand Value 10 and a **Want floor of 8.0** from the script — the hygiene and Role-content vetoes still win over it.
+- **Referral:** if `data/network.md` shows a warm path (`npm run outreach-plan -- "Company" --summary`), pass `referral: "warm-direct"` or `"warm-intro"`; the script adds it to Competition.
 
-### Report consistency gate (run AFTER scoring, BEFORE writing prose)
+### Lead with what decides this listing (run AFTER scoring, BEFORE writing prose)
 
-The most common scouting-quality failure is not a wrong score — it's a report whose **prose contradicts its own table**. The dimensional table and the `## Why this score` block are computed and deterministic; the prose sections (Gaps, Comp, Recommendation, Career-path) are written. When the two disagree, the reader can't trust either. Before writing any prose section, confirm all four:
+Before writing a word of prose, answer in scratch: **what decides this listing?** Usually one or two things — the script's `explanation.bindingConstraints[0]` and `levers[0]`, an eligibility amber, or a live constraint from the audit (an application cap at this company can outweigh everything in the table). That answer opens the Recommendation and the Gaps, and everything that doesn't bear on it gets one line or nothing.
 
-1. **One blocker, named once.** The gap that `explanation.bindingConstraints[0]` names is the *same* gap that leads § B (Gaps), § D (Recommendation), and — for short reports — Fit/gaps. Do not introduce a second, different "biggest blocker" in prose that the table never surfaced.
-2. **Verdict = band.** The Recommendation's action word matches the score band the table produced (Stellar→apply now, Strong→apply with prep, Decent→apply if pipeline thin, Pass/Growth→track, Skip→skip). A verdict that's softer or harder than the band means you disagree with the *scores* — fix the scores and their reasoning cells, don't paper over it in prose.
-3. **One comp figure.** The gross quoted in § C (Comp) is the gross that fed the Salary Adj for City math in the table. Not a rounder number, not a different source.
-4. **No fabricated timelines.** No prose section invents a calendar ("close in 6 weeks", "by Q3", "in 3 months"). Effort *shape* (weekend reframe / short course / from-scratch build) and capability *triggers* (once your CV shows X) are allowed; made-up dates are not.
+Then check the report against itself:
 
-If any check fails, the fix is upstream (the score / reasoning cell), not a prose patch. This gate is what makes the explainability the rest of the mode leans on actually load-bearing.
+1. **One deciding factor, named once.** The same thing opens Gaps (or Fit/gaps) and the Recommendation. Don't introduce a second, different "biggest blocker" the table never surfaced.
+2. **Verdict = grid.** The Recommendation's call is consistent with the verdict the script returned. A sharper call is fine — "Message a recruiter about the start date first, then decide" on a `stretch` with an open start date — but not one the grid contradicts. If you disagree with the grid, fix the scores and their reasons, don't paper over it in prose.
+3. **One comp figure.** The gross quoted in Comp is the gross that fed the Salary Adj math.
+4. **No fabricated timelines.** No calendars ("close in 6 weeks", "by Q3"). Effort *shape* (weekend reframe / short course / from-scratch build) and capability *triggers* (once your CV shows X) are allowed.
 
-## Output Behavior — Framed by Score Bands
+## Output Behavior — by verdict and tier
 
-The report format depends on which **Score Band** the listing falls into based on its Overall and dimensional scores. **Always compute the full dimensional table first**, then determine the score band — the same table appears in every format so positioning can read it.
+The report format depends on the **verdict** the script returns. **Always compute the full dimensional table first** (unless the listing is Blocked), then read the verdict — the same table appears in every report so positioning can read it.
 
-To maintain perfect compatibility with SQLite schemas, TSV parsing scripts, and Electron desktop dashboard components, all physical directory routing and serialization keys use the legacy "Tier" indicators (`T1`–`T4` codes and physical directory routing `reports/tier-{N}/`).
+Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thin` → `T2` · `growth` → `T3` · `skip` / `blocked` → `T4`. Reports live under `reports/tier-{N}/`; T4 writes no file.
 
-### Universal header (every Score Band writes this)
+**Length targets (prose, excluding the tables):** T1 roughly **600–900 words**; T2 roughly **250–400**; T3 roughly **150–300**. Shorter is better when the listing is simple. Every section follows `_shared.md` § Report Voice.
+
+### Universal header (every report writes this)
 
 ```markdown
 # Scouting: {Company} — {Role}
 
 **Date:** {YYYY-MM-DD}
-**URL:** {listing-specific url or "—"}
 **Location:** {city, country} {remote-policy in 2–4 words}
 **Archetype:** {primary, plus secondary if hybrid}
-**Current Fit:** {X.X}/10
-**Aspirational Fit:** {X.X}/10
-**Overall:** {X.X}/10
+**Want:** {want}/10 · **Ease:** {ease}/10
+**Eligibility:** {green | amber — reasons ;-joined}
+**Verdict:** {verdict_label} — {action}
 **Tier:** {T1|T2|T3}
+**URL:** {listing-specific url or "—"}
 ```
 
-**Header discipline.** Each value is a clean short key/value pair — no parentheticals, no run-context annotations, no assumption-justification mid-sentence. The Tier line is mandatory and must match the report's tier directory (`T1` for Stellar, `T2` for Strong or Decent, `T3` for Pass / Growth Target); Skip matches `T4` under the hood but doesn't write a report. If you'd write `(reused from row #...)` or `(assumed — JD city not surfaced; X is Microsoft's EMEA hub...)`, delete it and move the analytical content into the appropriate body section (Role summary's Remote field, or Best Cities reasoning).
+The Verdict line is `{verdict_label} — {action}` exactly as `_shared.md` § Standard report block format lists it (`Go — apply now`, `Stretch — apply with prep`, `Solid — apply`, `If pipeline thin — apply only if your pipeline is thin`, `Growth target — close the gap first`).
 
-**URL discipline (NEVER write a generic portal URL).** The `**URL:**` field MUST be listing-specific — it points to a single job posting, not a company careers page. A listing URL contains a job identifier: `/jobs/{id}` (Greenhouse), a job-token slug (Lever, Ashby), a UUID, or `?gh_jid=...`. If the only URL you have is a portal homepage (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`, etc.) — write `—` instead. Same rule for the `url` column in `data/score-history.tsv` (write `n/d`). Writing the portal URL pollutes the cross-table join key: two unrelated listings at the same company would collide on the same URL and the frontend cache would link them to the wrong report.
+**Header discipline.** Each value is a clean short key/value pair — no parentheticals, no run-context annotations. The Tier line is mandatory and must match the report's tier directory.
 
-The Pass / Growth Target report uses the same header but its title prefix is `# Gap & Growth:` and its Mode is `scouting (growth target)`.
+**URL discipline (NEVER write a generic portal URL).** The `**URL:**` field MUST be listing-specific — a job identifier (`/jobs/{id}`, a job-token slug, a UUID, `?gh_jid=...`). If the only URL you have is a portal homepage (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`) — write `—` instead (`n/d` in the `url` column of `data/score-history.tsv`). A portal URL collides across every listing at the company and the frontend cache would link the wrong report.
 
-### Stellar Band — CF ≥ 9.0 (or uniform fingerprint override: all 6 dims ≥ 8 AND both rollups ≥ 8.0)
+Every report body is `## Eligibility`, `## Dimensional scoring` (see `_shared.md` § Standard report block format), then the tier's prose sections, and it **ends with the footer line** `Salary math: {salary_adj_for_city.math}`. The Growth target report uses the title prefix `# Gap & Growth:` and Mode `scouting (growth target)`.
 
-Generate a **full report** — header above + the body sections defined under "Stellar body" below. Net length ~70–90 lines. Under the hood, this is saved to `reports/tier-1/` and marked as `T1`.
+### `go` — Go: apply now (T1)
 
-Surface to the user with: *"Strong match — full evaluation ready. If you want a tailored CV, run `/career-ops pdf` against the URL. If you're ready to actively apply, click Apply in the Database to move it to your active applications, then click Prep Application for interview intel."*
+Generate a **full report** — header + tables + the sections under "T1 body" below. Saved to `reports/tier-1/`. Promotion hint `READY`.
 
-### Strong / Decent Bands — CF 7.0–8.9 AND Ease of Entry > 4
+Surface to the user with: *"Go — full evaluation ready. If you want a tailored CV, run `/career-ops pdf` against the URL. If you're ready to apply, click Apply in the Database to move it to your active applications, then click Prep Application for interview intel."*
 
-Generate a **short summary report**. Universal header (with `**Tier:** T2` to map to the `reports/tier-2/` directory), same dimensional table, lighter body:
+### `stretch`, `solid`, `thin` (T2)
+
+Generate a **short summary report**. Universal header (`**Tier:** T2`, `reports/tier-2/`), same tables, lighter body:
 
 ```markdown
-## Dimensional scoring
-(Standard report block — see modes/_shared.md § Standard report block format)
-
-## Why this score
-(Why-this-score block — render `explanation.headline` + the binding constraint + closest lever from score-listing.mjs. See modes/_shared.md § Why-this-score block.)
-
 ## Fit / gaps
-- **Strongest match:** {one dimension that carries the score + the JD line or CV proof point behind it — not "strong analytical fit", but *why*.}
-- **Biggest gap:** {the dimension `explanation.bindingConstraints[0]` named + its JD quote. Must be the same blocker the Why-this-score block surfaced, not a different one.}
+- **Strongest match:** {the one thing that makes this worth your time, and why — one sentence.}
+- **Biggest gap:** {the deciding factor, in plain words. Same one the Verdict names.}
 
 ## Verdict
-{One line — the verdict must match the band: "Apply with prep" for Strong (CF 8.0–8.9) | "Apply if pipeline thin" for Decent (CF 7.0–7.9). Use "Track company only" only when a hard constraint (work-rights gate, deadline passed, scheduling conflict) overrides the band — and name that constraint in the same line.}
+{One line, the plain call: "Stretch — apply, but first fix X" | "Solid — apply" | "Only if your pipeline is thin: …". Use "Track company only" only when a constraint the gate couldn't model (deadline passed, an application cap at this company) overrides the grid — and name it in the same line.}
 
 ## Path forward
-{ONE sentence, concrete next step tied to the biggest gap — the one thing to do before submitting (e.g. "Lead with proof point X and secure an alumni referral before applying"). No fabricated timelines, no multi-step plans, no bullets.}
+{ONE sentence: the one thing to do before submitting ("Ask the recruiter about the start date before you spend time on the application"). No timelines, no bullets.}
 ```
 
-Strong (CF 8.0–8.9) → "Apply with prep" verdict. Decent (CF 7.0–7.9) → "Apply if pipeline thin" verdict. Both write `Tier: T2` to scouting.md, report headers, and score-history.tsv (no `T2-high` or other sub-tiers).
+Promotion hint: `MONITOR` for `stretch` and `solid`; blank for `thin`. All three write `T2` to scouting.md, report headers and score-history.tsv.
 
-### Pass / Growth Target Band — CF < 7.0 with AF ≥ 7.0, OR Ease of Entry ≤ 4 gate (with AF ≥ 7.0)
+### `growth` — Growth target: close the gap first (T3)
 
-Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title becomes `# Gap & Growth:`, `**Tier:** T3` to map to `reports/tier-3/` directory). Body is the most compact, ~25–30 lines:
+Want ≥ 8.0 but Ease < 5.0 (often the experience wall). Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title `# Gap & Growth:`, `**Tier:** T3`, `reports/tier-3/`):
 
 ```markdown
-## Dimensional scoring
-(Standard report block)
-
-## Why this score
-(Why-this-score block — render `explanation.headline` + binding constraint + closest lever from score-listing.mjs. On a Growth Target this is the most important section: the lever IS the roadmap. See modes/_shared.md § Why-this-score block.)
-
 ## Gaps and opportunities
-- **Gap:** {the single biggest CF blocker + its dimension — same one `explanation.bindingConstraints[0]` named. Quote the JD requirement; don't paraphrase.}
-- **Revisit when:** {a concrete *capability* trigger, not a calendar date — "once your CV shows a shipped {domain} project" or "after you clear the {N}-year mark this JD gates on". The trigger is the milestone that flips the binding dimension above its gate, phrased so the user knows it's met when they see it.}
+- **Gap:** {the one thing standing between you and this role, in plain words, with the posting's ask quoted if it helps.}
+- **Revisit when:** {a capability trigger, not a date — "once your CV shows a shipped {domain} project" or "after you clear the {N}-year mark they ask for".}
 ```
 
-On a Growth Target the Why-this-score block's lever **is** the roadmap — the Gap bullet should restate that lever's dimension, and the Revisit trigger is the point at which that lever clears. If the script returned no lever (no single dimension crosses a band), say so honestly rather than inventing a revisit trigger.
+If no single change would move the verdict, say so honestly rather than inventing a revisit trigger.
 
-**Exception — language wall:** if the binding gap is a foreign-language requirement the candidate doesn't have (and isn't learning), force the Skip band instead. See `_shared.md` § "Language-barrier exception" — language acquisition is multi-year, so a Gap & Growth roadmap would be misleading.
+### `skip` (T4)
 
-### Skip Band — CF < 7.0 AND AF < 7.0 (or EoE ≤ 4 with AF < 7.0), or status SKIP
+Want < 6.5, or Want 6.5–8.0 with Ease < 5.0. Do NOT write a report file. **Still compute the full dimensional table** for `data/score-history.tsv` (`tier=T4`, `verdict=skip`). Add a one-line scouting entry with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
 
-Both rollups low, an EoE-gated role without the AF ≥ 7.0 growth signal, or the language-wall exception → **skip**. Do NOT write a report file. **Still compute the full dimensional table** for `data/score-history.tsv` (mapped to `tier=skip`). Add a one-line entry to `data/scouting.md` with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
+### `blocked` (T4, eligibility red)
 
-## Stellar body
+The gate returned `red` — a language wall, a start date inside a blocked window, a hard graduation window, missing work rights without sponsorship, or a mandatory `other` requirement the CV fails. Do NOT write a report file and do not score dimensions. Log a score-history row with the dimension, `want`, `ease` and `priority` columns empty (`eligibility=red`, `eligibility_flags` set, `verdict=blocked`, `tier=T4`) and a scouting entry whose Eligibility cell is `red: {reason}` and whose Want / Ease cells are `—`. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
 
-The Stellar report leads with the dimensional table — it's the load-bearing artifact. Everything else is short and grounded in the table.
+## T1 body
+
+After the tables, five short sections. Each says what matters for *this* listing and leaves the rest out.
 
 ```markdown
-## Dimensional scoring
-(Standard report block — see modes/_shared.md § Standard report block format)
-
-## Why this score
-(Why-this-score block — render `explanation.headline` + binding constraint from score-listing.mjs. A Stellar role usually has no lever — say so honestly rather than inventing one. See modes/_shared.md § Why-this-score block.)
-
-## Peer ranking (optional — include only when ≥5 peers exist for the primary archetype in `data/score-history.tsv`)
-
+## Peer ranking (optional — only with ≥5 peers for the primary archetype in `data/score-history.tsv`; otherwise omit, no placeholder)
 ---
-**Rank vs {Archetype} peers:** {X.X}/10 — {percentile or position} of {N} roles evaluated
-**Dimension outliers:** {dim ±X above/below avg} · {dim ±X} · {dim ±X}
-**Closest comparables:** {Company} ({score}) · {Company} ({score}) · {Company} ({score})
-
-(Skip this block entirely when <5 peers exist — never write `*(Not enough archetype peers yet…)*` or any system-state placeholder.)
+**Rank vs {Archetype} peers:** Want {X.X} · Ease {X.X} — Priority {percentile} of {N} roles evaluated
+**Dimension outliers:** {dim ±X above/below avg} · {dim ±X}
+**Closest comparables:** {Company} (W {X.X} · E {X.X}) · {Company} (W {X.X} · E {X.X}) · {Company} (W {X.X} · E {X.X})
 
 ## A) Role summary
 | Field | Value |
 |-------|-------|
-| Archetype | {primary, plus secondary if hybrid} |
-| Domain | {industry / sector / vertical} |
-| Function | {what the role does day-to-day} |
-| Seniority | {IC1 / IC2 / Manager + employment_type} |
-| Remote | {full / hybrid / onsite + city detail} |
-| Team size | {if mentioned in JD; else "—"} |
-| TL;DR | {1 sentence, plain language} |
+| Domain | {industry / sector} |
+| Function | {what the role does day-to-day, in a phrase} |
+| Seniority | {level + employment type} |
+| Remote | {full / hybrid / onsite + city} |
+| TL;DR | {one plain sentence} |
 
 ## B) Gaps and opportunities
-This section is the *actionable* counterpart to the Why-this-score block: that block names the one dimension gating the tier (deterministically); this section enumerates the closeable gaps under it. **The first bullet MUST address the same dimension as `explanation.bindingConstraints[0]`** — if the binding constraint is Ease of Entry but your top gap bullet is a Skills Match nit, the report contradicts itself. Lead with the gap that moves the binding dimension.
-
-Each gap is a **closeable skill / proof-point gap** — something a cert, project, or reframing closes. Max 3 bullets. Each bullet:
-1. **Names the dimension** it sits under (so the reader maps it back to the table).
-2. **Quotes the JD** requirement verbatim or near-verbatim.
-3. **Cites the silent CV section** — name the `user/cv.md` section that should show it but doesn't (Skills / Projects / Experience), so "CV doesn't show it" is verifiable, not asserted.
-4. **States the closing move** — the concrete artifact that closes it (a named cert, a portfolio piece, a reframed bullet) plus its *effort shape*. Describe the move and its size (a weekend reframe vs. a short course vs. a from-scratch build), NOT a fabricated calendar — do not invent "close in 6 weeks / by Q3" horizons. Effort shape is decision-grade; a made-up date is not.
-
-```
-- **Skills Match — {tool/domain}:** JD requires {verbatim quote}; your `cv.md` § {section} shows {closest adjacent skill you DO have} but not this. Closing move: {named cert / portfolio piece / reframe of existing proof point} ({weekend reframe | short course | from-scratch build}).
-```
-
-**Structural gaps are NOT closeable gaps.** A multi-year YoE wall, a foreign-language requirement, or a citizenship gate does not belong here as a "gap to close" — it is a *constraint*, already surfaced by the Why-this-score block (`eoe_gate`) and, when verdict-changing, restated in the Recommendation. Listing "gain 2 years of experience" as a near-term action item is exactly the misleading-roadmap failure mode. If the binding constraint is structural, say so in one line here (*"The binding constraint is structural (multi-year experience wall) — see Why this score; no skill build closes it in the near term"*) and stop.
-
-If there are no meaningful closeable gaps: *"No structural gaps — your profile maps directly onto the JD's stated requirements."*
+{Only the gaps that actually move the decision — often one, sometimes none, never padded to a count and never a sweep of every dimension below 8. Lead with the deciding factor. For each: what they ask for (quoted if it helps), why it matters for you, and the closing move with its effort shape (weekend reframe / short course / from-scratch build). A structural wall (multi-year experience, a language you don't have) is a constraint, not a gap — say so in one line and move on. No real gaps: "Nothing here you need to close first."}
 
 ## C) Comp & demand
-One row. The Note must state the **savings-power read**, not just "competitive" — the Salary Adj for City dimension already scored *what the package saves after cost of living* (see `_shared.md` § savings-power rubric), so the comp row should echo that, not re-answer "is the gross competitive for this city". Provenance and freshness are mandatory.
-
 | Source | Band | Note |
 |--------|------|------|
-| {JD disclosed / Glassdoor estimate / Levels.fyi / comp-cache (cached YYYY-MM-DD)} | {€XX–YYK or €X/mo gross} | {savings read tied to the Salary Adj score (e.g. "≈€{X}/mo saved after {city} baseline → Salary Adj {N}/10") + freshness flag} |
-
-- **Provenance:** if not JD-disclosed, tag the source inline (`[estimated from Levels.fyi]`, `[comp-cache, cached 2026-04-28]`). A bare number with no source is not allowed — it must trace to the same source the Salary Adj cell used.
-- **Staleness:** if the comp came from a comp-cache row older than 60 days, flag it (`[cache stale — refresh on next eval]`) rather than presenting it as current.
-- **Consistency:** the band here must be consistent with the gross that fed the Salary Adj for City math in the dimensional table — don't quote a different figure in prose than the one the score was computed from.
+| {Disclosed / estimated from Glassdoor / Levels.fyi / cached comp data, with the date} | {€XX–YYK or €X/mo gross} | {what it means for you after living costs, in plain words — same gross the Salary Adj score used; flag if the cached figure is over 60 days old} |
 
 ## D) Recommendation
-2–4 lines, in this fixed order — each line earns its place; cut any that would be filler:
-
-1. **Verdict + why, in one sentence.** State the action (**apply now** / **apply with prep** / **apply if pipeline thin** / **track company only** / **skip**) and tie it to the *score band the table produced* — the verdict must match the band, never soften or harden it. ("Apply with prep — Strong band (Overall 8.4); brand + analytical fit carry it.")
-2. **The single binding lever or blocker** — the same one `explanation.bindingConstraints[0]` named. Don't introduce a new blocker the table never surfaced. If applying, name the one thing to do *before submitting* (lead with proof point X; secure an alumni referral). If tracking, name the one dimension that has to move to make it applyable.
-3. **One forward pointer** (optional) — the nearest adjacent role or the growth lever, only if it adds something Gaps/Career-path didn't.
-
-**Decision integrity:** the verdict is downstream of the math, not a separate opinion. If you find yourself wanting to recommend "apply" on a Pass/Growth-band role (or "skip" on a Strong one), the disagreement is with the dimensional scores — go fix the score and its reasoning cell, don't override it in prose. Per the Ethical Use rule, Overall < 7.0 means recommend against applying unless the user has a stated override reason.
-
-**Hard constraints lead.** If a hard constraint exists (scheduling conflict, work-rights gate, language wall, deadline already passed) that materially changes the verdict, it becomes the **first sentence** of the Recommendation — `"Hard constraint: your next degree program starts before this role's start window and isn't deferrable — track only."` It must not be buried in the Gaps section, and it overrides an otherwise-positive verdict.
+{2–4 sentences. Open with the deciding factor and a plain call — "Message a recruiter about the start date first, then decide", "Apply this week; lead with your pricing project", "Apply, but it uses one of your two slots at this company — spend it here only if this beats their other opening". Weigh live constraints from the audit when they apply. Then, if it adds something, the one thing to do before submitting. Honest odds, no softening. The call must be consistent with the verdict grid; `skip` / `blocked` never become "apply".}
 
 ## E) Career path impact
-**Read `user/profile.yml → profile.dream_companies` (and `_profile.md` → Dream Companies / archetypes) at render time** — name the candidate's *actual* targets, not generic "top-tier companies". This section is grounded in the Optionality/Exit and Growth/Mobility cells; it should expand on them, not restate them.
+{One or two real consequences for your path — where this role takes you that you want to go (name your actual targets from your profile), or what it pulls you away from. Grounded in the Optionality and Growth scores; no template bullets, no filler.}
 
-- **Accelerates toward:** {the specific dream targets / archetypes from the user's list this role is a stepping-stone to, and the mechanism — brand signal, skill build, or network. If it doesn't move any named target, say which adjacent capability it does build instead.}
-- **Detours from:** {a named target this role moves *away* from, if any — e.g. "pulls toward ops, away from your analytics archetype". **Omit this bullet entirely if there's no real detour** — never write "none" as filler (no-generic-fallback rule).}
-- **Optionality:** {the concrete exits this opens or forecloses in 2-3 years — name the destinations, consistent with the Optionality/Exit score.}
-- **Key lever to close:** {the single most impactful gap from § B, with the directional action — not a new gap.}
-
-## Calibration note (optional — include only when this evaluation reveals a NEW generalizable pattern)
-
-*If this evaluation surfaces a rule that should bias future scoring (e.g. "rotational programs at the user's base city consistently override to T1", "Sales Ops at top-tier brands de-risks Sales-Trap Risk above the usual baseline", "listings older than 6 months at this company tend to be ghost-posted"), append one bullet here as a copy-pasteable suggestion for the user:*
-
-> **Calibration note for `user/_profile.md`:** *{generalizable rule, written in the same shape as existing entries in user/_profile.md § Score Calibration. The user can copy-paste it.}*
-
-Restraint: only write a note when a pattern actually generalizes — most evaluations only confirm existing rules and don't deserve one. This is the system's self-improvement loop; treat it as costly.
+## Calibration note (optional — only when this evaluation reveals a NEW generalizable pattern)
+> **Calibration note for your profile:** {one copy-pasteable rule, e.g. "rotational programmes in your base city keep landing Go — worth a dedicated scan query"}
 ```
 
 **Do NOT include:**
-- "Match with CV" requirement-by-requirement table — the Skills Match cell + Gaps section cover it
-- "Level and Strategy" prose — the Ease of Entry + Strategic/Analytical Fit cells cover it
-- "Personalization Plan" CV/LinkedIn changes — that's `modes/pdf.md`
-- "Interview Plan" with STAR stories — that's `modes/interview-prep.md`
-- "Posting Legitimacy" assessment — not part of the scoring model
-- "Extracted keywords" list — token waste, not actionable
-- Trailing "## Notes" section — Recommendation already covers what's needed
+- A "## Why this score" section — the explanation drives what leads; it is not rendered
+- A "how to close this gap" note for every dimension below 8, or any per-dimension sweep
+- Requirement-by-requirement tick lists, or a "Match with CV" table
+- "Level and Strategy" prose, "Personalization Plan" (that's `modes/pdf.md`), "Interview Plan" (that's `modes/interview-prep.md`), "Posting Legitimacy", "Extracted keywords"
+- A trailing "## Notes" section
 
-The reader has the dimensional table to anchor everything. Each prose section earns its place by adding something the table doesn't already say.
+The tables anchor the numbers. Each prose section earns its place by saying something the tables don't.
 
 ## Multi-city role deduplication
 
-When the pipeline feeds you **multi-city postings of the same role** (same JD copy, different cities — e.g., Trade Republic Analytics Engineer posted separately for Berlin and Paris), **generate a single "master" report at the highest-priority city and a one-line city-comparison delta for each additional city.** Do NOT produce two separate full reports.
+When the pipeline feeds you **multi-city postings of the same role** (same JD copy, different cities — e.g., a fintech posting one Analytics Engineer role separately for two capitals), **generate a single "master" report at the highest-priority city and a one-line city-comparison delta for each additional city.** Do NOT produce two separate full reports.
 
-**Detection:** same company + same role title + identical responsibilities/requirements section in the JD + different `office` / `location` field. The `Best Cities` and `Salary Adj for City` context dimensions are the only dimensions that vary between the variants; everything else in the fingerprint is the same.
+**Detection:** same company + same role title + identical responsibilities/requirements section in the JD + different `office` / `location` field. City and Salary Adj for City are normally the only dimensions that vary between the variants.
 
 **How to apply:**
 1. Score the role once using the highest-priority city variant (defined by `_profile.md` → location policy, ordered preferred-cities list).
 2. Write ONE report at `reports/tier-{N}/{Company} - {Role}.md` — the master.
 3. For each additional city variant, append a one-line delta to the master report under a `## City variants` section:
    ```
-   - **Paris variant:** Best Cities 6/10 (vs 8/10 Berlin), Salary Adj 6/10 (vs 8/10 Berlin); otherwise identical. Same tier.
+   - **City B variant:** City 6/10 (vs 8/10 City A), Salary Adj 6/10 (vs 8/10 City A); Want 7.9 (vs 8.3); otherwise identical. Verdict solid (vs stretch).
    ```
-4. Write ONE scouting tracker TSV entry referencing the master report; in the Notes column, list the other cities (e.g., `"Multi-city: Berlin (primary), Paris"`).
+4. Write ONE scouting tracker TSV entry referencing the master report; in the Notes column, list the other cities (e.g., `"Multi-city: City A (primary), City B"`).
 5. Log ONE row to `data/score-history.tsv` for the master. If the user wants per-city trajectory later, positioning mode can parse the `## City variants` section.
 
-**Edge case:** if the role variants differ in more than just location (e.g., one has a language requirement the other doesn't, or responsibilities actually differ between offices), treat them as separate roles and score each independently.
+**Edge case:** if the variants differ in more than location (a language requirement one has and the other doesn't, different work-rights wording, different responsibilities), treat them as separate roles and run the gate and scoring on each independently.
 
 ## Data Layer — Score History Logging
 
-**EVERY evaluation must append a row to `data/score-history.tsv`**, regardless of tier (including Tier 4 skips). This is the trajectory log.
+**EVERY evaluation must append a row to `data/score-history.tsv`**, regardless of tier (including Tier 4 skips and Blocked listings). This is the trajectory log.
 
 The TSV format and column order are defined in `modes/_shared.md` § "Logging to data/score-history.tsv". Use exactly that format — do NOT invent columns here.
 
 For evaluation rows:
-- `mode` → `scouting` (kept for backward compatibility with rows written before mode consolidation; new rows always use this value)
-- `tier` → `full` | `short` | `growth` | `skip`
+- `mode` → `scouting`
+- `tier` → `T1` | `T2` | `T3` | `T4`
+- `verdict` → the verdict key; `eligibility` → `green` | `amber` | `red`; `eligibility_flags` → `check:status:reason` for each non-green check, `;`-joined
 - `source` → `url` | `paste` | `scan` | `pipeline`
 
-The numeric dimension columns must be filled even for Tier 4 skips — that's the whole point of logging skipped listings (so positioning can see what the user *isn't* a fit for and why).
+The dimension columns must be filled even for `skip` rows — that's the point of logging them (so positioning can see what the user *isn't* a fit for and why). Blocked rows are the one exception: dimension, `want`, `ease` and `priority` columns stay empty, and the eligibility columns carry the why.
 
-Also fill the 4 metadata columns: `location`, `employment_type`, `duration`, `salary_raw` (see `_shared.md` for definitions). Use `n/d` for any that are unknown.
+Also fill the metadata columns: `location`, `employment_type`, `duration`, `salary_raw`, `url` (see `_shared.md` for definitions). Use `n/d` for any that are unknown.
 
 ## Report Summary Cache
 
-After writing the report (or recording a T4 skip), also append a row to `data/report-summaries.tsv`:
+After writing the report (or recording a T4 skip / Blocked listing), also append a row to `data/report-summaries.tsv` (headerless, 10 columns):
 
 ```
-{date}	{company}	{role}	{archetype}	{tier}	{overall}	{cf}	{af}	{key_gaps}	{verdict_one_line}
+{date}	{company}	{role}	{archetype}	{tier}	{want}	{ease}	{eligibility}	{key_gaps}	{verdict}
 ```
 
 - `tier` — `T1` | `T2` | `T3` | `T4`
-- `key_gaps` — pipe-separated list of dimensions scored ≤ 5/10, max 3 (e.g. `EoE|Skills Match`). Use `—` for T1.
-- `verdict_one_line` — the 1-sentence recommendation from the report (e.g. `Apply with prep — brand + growth strong, EoE gap closeable by graduation`). For T4 skips: `T4 skip — {reason}`.
+- `want` / `ease` — the script's numbers; empty for Blocked rows
+- `eligibility` — `green` | `amber` | `red`
+- `key_gaps` — pipe-separated list of dimensions scored ≤ 5/10, max 3 (e.g. `Experience bar|Skills Match`). Use `—` when none (and for Blocked rows).
+- `verdict` — the verdict key (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`)
 
 This lets `positioning` mode read one lightweight TSV instead of opening 70+ full report files.
 
@@ -323,30 +272,31 @@ This lets `positioning` mode read one lightweight TSV instead of opening 70+ ful
 
 Evaluations are landscape-mapping inventory by default. They live in **`data/scouting.md`** — separate from `data/applications.md` — so the active-application flow stays uncontaminated by exploratory evaluations. The user clicks "Apply" in the Database (or runs `node scripts/promote-to-applications.mjs <num>`) to move an entry into the active flow.
 
-Write a TSV entry to `batch/scouting-additions/{num}-{company-slug}.tsv` (let `scripts/merge-scouting.mjs` handle the merge into `data/scouting.md`). **11 tab-separated columns** (no status field — tier replaces status here):
+Write a TSV entry to `batch/scouting-additions/{num}-{company-slug}.tsv` (let `scripts/merge-scouting.mjs` handle the merge into `data/scouting.md`). **12 tab-separated columns** (no status field — tier and verdict replace status here):
 
 ```
-{num}	{date}	{company}	{role}	{overall}/10	{tier}	{cf}/{af}	[{num}](reports/tier-{N}/{Company} - {Role}.md)	{deadline}	{promotion_hint}	{one-line tier summary}
+{num}	{date}	{company}	{role}	{want}	{ease}	{tier}	{eligibility}	[{num}](reports/tier-{N}/{Company} - {Role}.md)	{deadline}	{promotion_hint}	{one-line summary}
 ```
 
-**Report file path:** reports live in **`reports/tier-{N}/{Company} - {Role}.md`** where `{N}` is the tier digit (1, 2, 3, or 4). Tier 4 skips use `—` for the report column and write nothing to disk.
+**Report file path:** reports live in **`reports/tier-{N}/{Company} - {Role}.md`** where `{N}` is the tier digit (1, 2 or 3). T4 (skip and blocked) uses `—` for the report column and writes nothing to disk.
 
 Column order:
 1. `num` — sequential number (integer)
 2. `date` — YYYY-MM-DD
 3. `company` — short company name
 4. `role` — job title
-5. `score` — overall weighted score, `X.X/10`
-6. `tier` — `T1` | `T2` | `T3` | `T4`
-7. `cf_af` — `{current}/{aspirational}`, e.g. `8.3/7.5`
-8. `report` — markdown link `[num](reports/tier-{N}/{Company} - {Role}.md)` or `—` for T4 skips
-9. `deadline` — application deadline as stated in the JD (e.g. `2026-06-30`, `Rolling`, `n/d`). Use `n/d` if not stated.
-10. `promotion_hint` — `READY` for Tier 1 hits (flags them for the user to promote to active applications), empty otherwise
-11. `notes` — one-line tier summary
+5. `want` — the script's Want, plain number (`8.25`, no `/10`); `—` when blocked
+6. `ease` — the script's Ease, plain number (`5.6`); `—` when blocked
+7. `tier` — `T1` | `T2` | `T3` | `T4`
+8. `eligibility` — `green`, `amber: {reasons ;-joined}`, or `red: {reason}`
+9. `report` — markdown link `[num](reports/tier-{N}/{Company} - {Role}.md)` or `—` for T4
+10. `deadline` — application deadline as stated in the JD (e.g. `2026-06-30`, `Rolling`, `n/d`). Use `n/d` if not stated.
+11. `promotion_hint` — `READY` for `go`, `MONITOR` for `stretch` and `solid`, empty otherwise
+12. `notes` — one-line summary naming this role's strongest signal; for Blocked rows the blocking reason (prefixed `Revisit next cycle:` for dream / affinity companies)
 
 - **PDF:** Evaluation never auto-generates a PDF. CV / PDF generation is a separate, manual operation via `/career-ops pdf` (or the Database popover's "Tailor CV" button).
-- **T4 skips:** still write the TSV with tier `T4`, report `—`, deadline `n/d`, and a short note.
-- **Promotion:** Tier 1 hits get `READY` in column 10. The user runs `node scripts/promote-to-applications.mjs <num>` (or clicks Apply in the Database) to move an entry into `data/applications.md` with status `Evaluated`. The scouting row stays in `data/scouting.md` as a historical record (its Promotion Hint flips to `PROMOTED-{app_num}`).
+- **T4 rows:** still write the TSV with tier `T4`, report `—`, deadline as stated (or `n/d`), and a short note.
+- **Promotion:** `go` rows get `READY`. The user runs `node scripts/promote-to-applications.mjs <num>` (or clicks Apply in the Database) to move an entry into `data/applications.md` with status `Evaluated` and a `W8.3 E5.6` Score cell. Blocked rows are never promoted. The scouting row stays as a historical record (its Promotion Hint flips to `PROMOTED-{app_num}`).
 
 ## File Naming
 
@@ -356,15 +306,15 @@ Report files use a human-readable `{Company} - {Role}.md` naming convention:
 reports/tier-{N}/{Company} - {Role}.md
 ```
 
-Where `{N}` is the tier (1, 2, 3, or 4). Tier 4 skips do NOT write a file — they only get a one-line entry in `data/scouting.md` with `—` in the report column.
+Where `{N}` is the tier (1, 2 or 3). T4 rows do NOT write a file — they only get a one-line entry in `data/scouting.md` with `—` in the report column.
 
-**Examples:**
-- `reports/tier-1/Celonis - Intern Technology Consultant.md`
-- `reports/tier-2/PwC - Customer Data Analyst.md`
-- `reports/tier-3/Datadog - GTM Strategy-Operations Associate.md`
+**Examples (fictional):**
+- `reports/tier-1/Acme Analytics - Intern Technology Consultant.md`
+- `reports/tier-2/Northwind - Customer Data Analyst.md`
+- `reports/tier-3/Globex - GTM Strategy-Operations Associate.md`
 
-The tier subfolder layout makes it trivial to browse just the Tier 1 hits when deciding what to promote to active applications (`reports/tier-1/`), or scan the candidate-pool shape at a glance (`ls reports/tier-*` shows the distribution).
+The tier subfolder layout makes it trivial to browse just the `go` hits when deciding what to promote (`reports/tier-1/`), or scan the candidate-pool shape at a glance (`ls reports/tier-*` shows the distribution).
 
 ## Workflow stage vs scoring
 
-The frontend cockpit's "Scouting" and "Applying" tabs are about *where the entry sits in the user's workflow* (inventory vs active pipeline) — they don't change which evaluation runs or how it scores. Every evaluation uses this same mode and the fixed CF×0.70 + AF×0.30 rollup defined in `_shared.md` § Overall.
+The frontend cockpit's "Scouting" and "Applying" tabs are about *where the entry sits in the user's workflow* (inventory vs active pipeline) — they don't change which evaluation runs or how it scores. Every evaluation uses this same mode and the eligibility → Want → Ease → verdict model defined in `_shared.md`.

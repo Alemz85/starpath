@@ -13,270 +13,280 @@ import assert from 'node:assert/strict'
 import {
   normalizeArchetype,
   parseScoreHistory,
-  overallBand,
+  parseEligibilityFlags,
+  isBlocked,
+  isScored,
+  scoredRows,
+  DIMENSIONS,
   archetypePerformance,
   dimensionDrag,
   landscapeSummary,
+  eligibilityBreakdown,
   cityExposure,
   targetingRecommendations,
   analyzeScouting,
 } from './targeting-core.mjs'
+import { historyTsv, historyRow } from './testing/score-history-fixture.mjs'
 
-const HEADER = [
-  'date', 'archetype', 'skills_match', 'ease_of_entry', 'strategic_fit',
-  'current_fit', 'growth_mobility', 'optionality_exit', 'brand_value',
-  'sales_trap_risk', 'aspirational_fit', 'overall', 'best_cities',
-  'salary_adj_city', 'work_life_balance', 'best_fit_roles', 'mode',
-  'company', 'role', 'tier', 'source', 'location', 'employment_type',
-  'duration', 'salary_raw', 'url',
-].join('\t')
+const tsv = (...rows) => historyTsv(...rows)
 
-// Build one TSV data row from an overrides object so tests stay readable.
-function row(over = {}) {
-  const base = {
-    date: '2026-05-01', archetype: 'Data Analyst',
-    skills_match: 7, ease_of_entry: 6, strategic_fit: 8, current_fit: 7,
-    growth_mobility: 7, optionality_exit: 7, brand_value: 7, sales_trap_risk: 8,
-    aspirational_fit: 7, overall: 7, best_cities: 'Madrid', salary_adj_city: 6,
-    work_life_balance: 7, best_fit_roles: 'Analyst', mode: 'scouting',
-    company: 'Acme', role: 'Analyst', tier: 'T2', source: 'pipeline',
-    location: 'Madrid', employment_type: 'full-time', duration: 'permanent',
-    salary_raw: 'n/d', url: 'https://x',
-  }
-  const merged = { ...base, ...over }
-  return [
-    'date', 'archetype', 'skills_match', 'ease_of_entry', 'strategic_fit',
-    'current_fit', 'growth_mobility', 'optionality_exit', 'brand_value',
-    'sales_trap_risk', 'aspirational_fit', 'overall', 'best_cities',
-    'salary_adj_city', 'work_life_balance', 'best_fit_roles', 'mode',
-    'company', 'role', 'tier', 'source', 'location', 'employment_type',
-    'duration', 'salary_raw', 'url',
-  ].map(k => merged[k]).join('\t')
-}
+// Fixture archetypes for verdict cells (default weights, green):
+//   GO      Want 8.5,  Ease 8.0   → go
+//   SOLID   Want 7.0,  Ease 7.0   → solid
+//   SKIP    Want 4.75…            → skip
+const GO = { growth_mobility: 8, optionality_exit: 8, brand_value: 9, role_content: 8, best_cities: 8, skills_match: 8, experience_bar: 8, competition: 8 }
+const SOLID = { growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7, best_cities: 7, skills_match: 7, experience_bar: 7, competition: 7 }
+const SKIP = { growth_mobility: 5, optionality_exit: 5, brand_value: 5, role_content: 4, skills_match: 7, experience_bar: 7, competition: 7 }
+const RED = { eligibility: 'red', eligibility_flags: 'language:red:German C1 required' }
 
-function tsv(...rows) {
-  return [HEADER, ...rows].join('\n')
-}
+// ─── parseScoreHistory ────────────────────────────────────────────────────────
 
-// ─── normalizeArchetype: spacing/separator drift collapses ────────────────────
-
-test('normalizeArchetype collapses slash + spacing variants to one label', () => {
-  assert.equal(normalizeArchetype('Business/Data Analyst'), 'Business / Data Analyst')
-  assert.equal(normalizeArchetype('Business / Data Analyst'), 'Business / Data Analyst')
-  assert.equal(normalizeArchetype('Business  /  Data Analyst'), 'Business / Data Analyst')
-  assert.equal(normalizeArchetype('  Strategy & Operations  '), 'Strategy & Operations')
-})
-
-test('normalizeArchetype handles empty / missing as Unknown', () => {
-  assert.equal(normalizeArchetype(''), 'Unknown')
-  assert.equal(normalizeArchetype(null), 'Unknown')
-  assert.equal(normalizeArchetype(undefined), 'Unknown')
-  assert.equal(normalizeArchetype('   '), 'Unknown')
-})
-
-// ─── parseScoreHistory: defensive parsing ─────────────────────────────────────
-
-test('parseScoreHistory reads header + numeric coercion', () => {
-  const rows = parseScoreHistory(tsv(row({ overall: 8.1, skills_match: 9 })))
+test('parseScoreHistory reads the v2 header + numeric coercion', () => {
+  const rows = parseScoreHistory(tsv({ ...GO, company: 'Northwind Analytics' }))
   assert.equal(rows.length, 1)
-  assert.equal(rows[0].overall, 8.1)
-  assert.equal(rows[0].skills_match, 9)
-  assert.equal(typeof rows[0].overall, 'number')
-  assert.equal(rows[0].archetype, 'Data Analyst')
+  const r = rows[0]
+  assert.equal(r.skills_match, 8)
+  assert.equal(r.want, 8.5) // M 8.25 + City hygiene +0.25
+  assert.equal(typeof r.ease, 'number')
+  assert.equal(r.verdict, 'go')
+  assert.equal(r.tier, 'T1')
+  assert.equal(r.eligibility, 'green')
+  assert.deepEqual(r.eligibilityFlags, [])
+  assert.equal(r.blocked, false)
+  assert.equal(r.company, 'Northwind Analytics')
+})
+
+test('parseScoreHistory: Blocked rows have NaN scores, never 0', () => {
+  const [r] = parseScoreHistory(tsv(RED))
+  assert.equal(r.blocked, true)
+  assert.equal(r.verdict, 'blocked')
+  assert.ok(Number.isNaN(r.want))
+  assert.ok(Number.isNaN(r.ease))
+  assert.ok(Number.isNaN(r.priority))
+  assert.ok(Number.isNaN(r.skills_match))
+  assert.deepEqual(r.eligibilityFlags, [{ check: 'language', status: 'red', reason: 'German C1 required' }])
+  assert.equal(isBlocked(r), true)
+  assert.equal(isScored(r), false)
+})
+
+test('parseScoreHistory derives a missing verdict/priority from want + ease', () => {
+  const line = historyRow({ ...SOLID }).split('\t')
+  const cols = tsv().split('\n')[0].split('\t')
+  line[cols.indexOf('verdict')] = ''
+  line[cols.indexOf('priority')] = ''
+  line[cols.indexOf('tier')] = ''
+  const [r] = parseScoreHistory(tsv(line.join('\t')))
+  assert.equal(r.verdict, 'solid')
+  assert.equal(r.tier, 'T2')
+  assert.equal(r.priority, 7)
 })
 
 test('parseScoreHistory normalizes archetype on parse', () => {
-  const rows = parseScoreHistory(tsv(row({ archetype: 'Business/Data Analyst' })))
+  const rows = parseScoreHistory(tsv({ archetype: 'Business/Data Analyst' }))
   assert.equal(rows[0].archetype, 'Business / Data Analyst')
 })
 
-test('parseScoreHistory skips blank lines and too-short rows', () => {
-  const text = tsv(row()) + '\n\n' + 'only\ttwo'
-  const rows = parseScoreHistory(text)
-  assert.equal(rows.length, 1)
+test('parseScoreHistory skips blank lines', () => {
+  const text = tsv({}) + '\n\n   \n'
+  assert.equal(parseScoreHistory(text).length, 1)
 })
 
 test('parseScoreHistory coerces garbage numerics to NaN', () => {
-  const rows = parseScoreHistory(tsv(row({ overall: 'oops' })))
-  assert.ok(Number.isNaN(rows[0].overall))
+  const line = historyRow({}).split('\t')
+  line[tsv().split('\n')[0].split('\t').indexOf('want')] = 'abc'
+  const rows = parseScoreHistory(tsv(line.join('\t')))
+  assert.ok(Number.isNaN(rows[0].want))
+  assert.equal(isScored(rows[0]), false)
 })
 
 test('parseScoreHistory returns [] on empty input', () => {
   assert.deepEqual(parseScoreHistory(''), [])
-  assert.deepEqual(parseScoreHistory('   '), [])
+  assert.deepEqual(parseScoreHistory(null), [])
 })
 
-// ─── overallBand: boundaries ──────────────────────────────────────────────────
-
-test('overallBand hits each boundary exactly', () => {
-  assert.equal(overallBand(7.5), 'strong')
-  assert.equal(overallBand(7.49), 'solid')
-  assert.equal(overallBand(7.0), 'solid')
-  assert.equal(overallBand(6.99), 'pass')
-  assert.equal(overallBand(6.0), 'pass')
-  assert.equal(overallBand(5.99), 'weak')
-  assert.equal(overallBand(4.2), 'weak')
-  assert.equal(overallBand(NaN), 'unknown')
+test('parseEligibilityFlags keeps colons inside reasons', () => {
+  assert.deepEqual(parseEligibilityFlags('start_date:amber:start not stated;other:amber:STEM: required'), [
+    { check: 'start_date', status: 'amber', reason: 'start not stated' },
+    { check: 'other', status: 'amber', reason: 'STEM: required' },
+  ])
+  assert.deepEqual(parseEligibilityFlags(''), [])
 })
 
-// ─── archetypePerformance: aggregation + sort + share ─────────────────────────
+test('DIMENSIONS lists the ten v2 dimensions with their rollup group', () => {
+  assert.equal(DIMENSIONS.length, 10)
+  const keys = DIMENSIONS.map(d => d.key)
+  assert.ok(keys.includes('role_content'))
+  assert.ok(keys.includes('experience_bar'))
+  assert.ok(!keys.includes('ease_of_entry'))
+  assert.equal(DIMENSIONS.find(d => d.key === 'competition').rollup, 'ease')
+  assert.equal(DIMENSIONS.find(d => d.key === 'best_cities').group, 'hygiene')
+})
 
-test('archetypePerformance aggregates by archetype, sorts by avg desc', () => {
+// ─── archetypePerformance ─────────────────────────────────────────────────────
+
+test('archetypePerformance aggregates Want/Ease/verdicts, sorts by actionable rate', () => {
   const rows = parseScoreHistory(tsv(
-    row({ archetype: 'Strong One', overall: 8.0 }),
-    row({ archetype: 'Strong One', overall: 8.4 }),
-    row({ archetype: 'Weak One', overall: 5.0 }),
+    { ...GO, archetype: 'Strategy' },
+    { ...SOLID, archetype: 'Strategy' },
+    { ...SKIP, archetype: 'Sales' },
+    { ...SOLID, archetype: 'Sales' },
+    { ...RED, archetype: 'Sales' },
   ))
   const perf = archetypePerformance(rows)
-  assert.equal(perf[0].archetype, 'Strong One')
+  assert.equal(perf[0].archetype, 'Strategy')
   assert.equal(perf[0].count, 2)
-  assert.equal(perf[0].avgOverall, 8.2)
-  assert.equal(perf[0].maxOverall, 8.4)
-  assert.equal(perf[0].strongRate, 100) // both ≥ 7.5
-  assert.equal(perf[1].archetype, 'Weak One')
-  assert.equal(perf[1].strongRate, 0)
-  // shares sum to 100 across the 3 evaluated roles (2 + 1)
-  assert.equal(perf[0].share, 67)
-  assert.equal(perf[1].share, 33)
+  assert.equal(perf[0].actionableRate, 100)
+  assert.equal(perf[0].verdicts.go, 1)
+  assert.equal(perf[0].verdicts.solid, 1)
+  assert.equal(perf[0].avgWant, 7.75)
+  const sales = perf.find(p => p.archetype === 'Sales')
+  assert.equal(sales.count, 2, 'blocked row is not a scored role')
+  assert.equal(sales.blocked, 1)
+  assert.equal(sales.actionableRate, 50)
+  assert.equal(sales.share, 50)
 })
 
 test('archetypePerformance merges spacing variants into one bucket', () => {
   const rows = parseScoreHistory(tsv(
-    row({ archetype: 'Business/Data Analyst', overall: 7.0 }),
-    row({ archetype: 'Business / Data Analyst', overall: 7.2 }),
+    { archetype: 'Business/Data Analyst' },
+    { archetype: 'Business / Data Analyst' },
   ))
   const perf = archetypePerformance(rows)
   assert.equal(perf.length, 1)
   assert.equal(perf[0].count, 2)
 })
 
-// ─── dimensionDrag: weakest-first ordering + lowShare ─────────────────────────
+// ─── dimensionDrag ────────────────────────────────────────────────────────────
 
-test('dimensionDrag surfaces the weakest dimension first', () => {
+test('dimensionDrag surfaces the weakest dimension first and ignores blocked rows', () => {
   const rows = parseScoreHistory(tsv(
-    row({ ease_of_entry: 3, skills_match: 9 }),
-    row({ ease_of_entry: 4, skills_match: 9 }),
+    { experience_bar: 3 }, { experience_bar: 4 }, { experience_bar: 5 }, RED,
   ))
   const drag = dimensionDrag(rows)
-  assert.equal(drag[0].key, 'ease_of_entry')
-  assert.equal(drag[0].avg, 3.5)
-  assert.equal(drag[0].lowShare, 100) // both ≤ 4
-  // skills_match should not be the drag — it's high
-  assert.ok(drag[drag.length - 1].avg >= drag[0].avg)
+  assert.equal(drag[0].key, 'experience_bar')
+  assert.equal(drag[0].count, 3)
+  assert.equal(drag[0].avg, 4)
+  assert.equal(drag[0].rollup, 'ease')
+  assert.equal(drag[0].lowShare, 67)
 })
 
-// ─── landscapeSummary: band mix + wasted-effort share ─────────────────────────
+// ─── landscapeSummary ─────────────────────────────────────────────────────────
 
-test('landscapeSummary computes band mix and wastedShare', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ overall: 8.0 }), // strong
-    row({ overall: 7.2 }), // solid
-    row({ overall: 6.5 }), // pass
-    row({ overall: 5.0 }), // weak
-  ))
+test('landscapeSummary computes verdict mix, actionable and wasted shares', () => {
+  const rows = parseScoreHistory(tsv(GO, SOLID, SKIP, SKIP, RED))
   const land = landscapeSummary(rows)
   assert.equal(land.evaluated, 4)
-  assert.equal(land.bands.strong, 1)
-  assert.equal(land.bands.solid, 1)
-  assert.equal(land.bands.pass, 1)
-  assert.equal(land.bands.weak, 1)
-  assert.equal(land.wastedShare, 25) // 1 of 4 weak
+  assert.equal(land.blocked, 1)
+  assert.equal(land.verdicts.go, 1)
+  assert.equal(land.verdicts.solid, 1)
+  assert.equal(land.verdicts.skip, 2)
+  assert.equal(land.actionableShare, 50)
+  assert.equal(land.wastedShare, 50)
+  assert.equal(land.blockedShare, 20)
+  assert.ok(!('bands' in land))
+  assert.ok(!('avgOverall' in land))
 })
 
-// ─── cityExposure: prefers location, filters noise, strips country code ───────
+// ─── eligibilityBreakdown ─────────────────────────────────────────────────────
 
-test('cityExposure tallies clean cities from solid+ roles only', () => {
+test('eligibilityBreakdown counts blocked rows and shares per check', () => {
   const rows = parseScoreHistory(tsv(
-    row({ overall: 8.0, location: 'Barcelona' }),
-    row({ overall: 7.1, location: 'Barcelona' }),
-    row({ overall: 5.0, location: 'Lisbon' }),      // weak → excluded
-    row({ overall: 7.5, location: 'Madrid ES' }),   // country code stripped
+    GO,
+    { ...SOLID, eligibility: 'amber', eligibility_flags: 'start_date:amber:start not stated' },
+    { ...SOLID, eligibility: 'amber', eligibility_flags: 'start_date:amber:start not stated;duration:amber:not stated' },
+    RED,
+    { ...RED, eligibility_flags: 'work_auth:red:no sponsorship' },
+  ))
+  const e = eligibilityBreakdown(rows)
+  assert.equal(e.total, 5)
+  assert.deepEqual(e.status, { green: 1, amber: 2, red: 2, unknown: 0 })
+  assert.equal(e.redShare, 40)
+  assert.equal(e.amberShare, 40)
+  const start = e.byCheck.find(c => c.check === 'start_date')
+  assert.equal(start.amber, 2)
+  assert.equal(start.amberShare, 40)
+  assert.equal(start.topReasons[0].reason, 'start not stated')
+  assert.equal(e.byCheck.find(c => c.check === 'language').red, 1)
+  assert.equal(e.byCheck.find(c => c.check === 'work_auth').redShare, 20)
+})
+
+// ─── cityExposure ─────────────────────────────────────────────────────────────
+
+test('cityExposure tallies cities from actionable roles only', () => {
+  const rows = parseScoreHistory(tsv(
+    { ...GO, location: 'Lisbon' },
+    { ...SOLID, location: 'Lisbon PT' },
+    { ...SOLID, location: 'Porto' },
+    { ...SKIP, location: 'Faro' },
+    { ...RED, location: 'Faro' },
   ))
   const cities = cityExposure(rows)
-  assert.deepEqual(cities[0], { city: 'Barcelona', count: 2 })
-  assert.ok(cities.some(c => c.city === 'Madrid'))
-  assert.ok(!cities.some(c => c.city === 'Lisbon'))   // weak role excluded
-  assert.ok(!cities.some(c => /ES/.test(c.city)))     // no country code leak
+  assert.deepEqual(cities, [{ city: 'Lisbon', count: 2 }, { city: 'Porto', count: 1 }])
 })
 
-test('cityExposure rejects numeric / n/d / remote noise (column-shift guard)', () => {
+test('cityExposure rejects numeric / n/d / remote noise', () => {
   const rows = parseScoreHistory(tsv(
-    row({ overall: 8.0, location: '10.0', best_cities: '8' }), // both numeric
-    row({ overall: 8.0, location: 'n/d', best_cities: 'n/d' }),
-    row({ overall: 8.0, location: 'Remote-EU' }),
+    { ...GO, location: 'n/d' },
+    { ...GO, location: '10.0' },
+    { ...GO, location: 'Remote' },
   ))
-  const cities = cityExposure(rows)
-  assert.deepEqual(cities, [])
+  assert.deepEqual(cityExposure(rows), [])
 })
 
-test('cityExposure falls back to best_cities when location is unusable', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ overall: 8.0, location: 'n/d', best_cities: 'Dublin' }),
-  ))
-  const cities = cityExposure(rows)
-  assert.deepEqual(cities, [{ city: 'Dublin', count: 1 }])
-})
-
-// ─── targetingRecommendations: gates ──────────────────────────────────────────
+// ─── targetingRecommendations ─────────────────────────────────────────────────
 
 test('targetingRecommendations only fires "lean into" when archetype has enough roles', () => {
-  // 3 strong roles < minRoles(4) → no lean-in rec
-  const few = parseScoreHistory(tsv(
-    row({ archetype: 'Niche', overall: 8.0 }),
-    row({ archetype: 'Niche', overall: 8.1 }),
-    row({ archetype: 'Niche', overall: 8.2 }),
-  ))
-  const recsFew = targetingRecommendations(few)
-  assert.ok(!recsFew.some(r => /Lean into/.test(r.action)))
+  const few = parseScoreHistory(tsv({ ...GO, archetype: 'Strategy' }, { ...GO, archetype: 'Strategy' }))
+  assert.ok(!targetingRecommendations(few).some(r => /Lean into/.test(r.action)))
+  const many = parseScoreHistory(tsv(...Array.from({ length: 4 }, () => ({ ...GO, archetype: 'Strategy' }))))
+  const recs = targetingRecommendations(many)
+  assert.ok(recs.some(r => /Lean into "Strategy"/.test(r.action) && /100% go\/stretch\/solid/.test(r.action)))
+})
 
-  // 4 strong roles ≥ minRoles → lean-in rec fires
-  const enough = parseScoreHistory(tsv(
-    row({ archetype: 'Niche', overall: 8.0 }),
-    row({ archetype: 'Niche', overall: 8.1 }),
-    row({ archetype: 'Niche', overall: 8.2 }),
-    row({ archetype: 'Niche', overall: 8.3 }),
+test('targetingRecommendations pulls back on a skip-heavy archetype', () => {
+  const rows = parseScoreHistory(tsv(
+    ...Array.from({ length: 4 }, () => ({ ...GO, archetype: 'Strategy' })),
+    ...Array.from({ length: 4 }, () => ({ ...SKIP, archetype: 'Sales' })),
   ))
-  const recsEnough = targetingRecommendations(enough)
-  assert.ok(recsEnough.some(r => /Lean into "Niche"/.test(r.action)))
+  assert.ok(targetingRecommendations(rows).some(r => /Pull back on "Sales"/.test(r.action)))
 })
 
 test('targetingRecommendations flags a systemic dimension drag', () => {
-  const rows = parseScoreHistory(tsv(
-    ...Array.from({ length: 5 }, () => row({ ease_of_entry: 3, overall: 6.0 })),
-  ))
-  const recs = targetingRecommendations(rows)
-  assert.ok(recs.some(r => /Ease of Entry/.test(r.action)))
+  const rows = parseScoreHistory(tsv(...Array.from({ length: 5 }, () => ({ experience_bar: 3 }))))
+  const rec = targetingRecommendations(rows).find(r => /Experience bar/.test(r.action))
+  assert.ok(rec)
+  assert.match(rec.reasoning, /Ease/)
 })
 
-test('targetingRecommendations warns when too much effort is wasted', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ overall: 5.0 }), row({ overall: 5.5 }),
-    row({ overall: 7.5 }), row({ overall: 7.6 }),
-  ))
-  const recs = targetingRecommendations(rows)
-  assert.ok(recs.some(r => /weak/.test(r.action)))
+test('targetingRecommendations warns when too much effort lands in Skip', () => {
+  const rows = parseScoreHistory(tsv(SKIP, SKIP, GO, SOLID))
+  assert.ok(targetingRecommendations(rows).some(r => /50% of scored evaluations land in Skip/.test(r.action)))
 })
 
-// ─── analyzeScouting: end-to-end shape + error guards ─────────────────────────
+test('targetingRecommendations flags an eligibility check that blocks many listings', () => {
+  const rows = parseScoreHistory(tsv(GO, SOLID, RED, RED, RED, RED))
+  const rec = targetingRecommendations(rows).find(r => /"language" blocks/.test(r.action))
+  assert.ok(rec)
+  assert.match(rec.action, /67% of listings \(4 of 6\)/)
+})
+
+// ─── analyzeScouting ──────────────────────────────────────────────────────────
 
 test('analyzeScouting returns a structured analysis object', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ archetype: 'A', overall: 8.0, location: 'Madrid' }),
-    row({ archetype: 'A', overall: 7.5, location: 'Madrid' }),
-    row({ archetype: 'B', overall: 5.0, location: 'Rome' }),
-  ))
+  const rows = parseScoreHistory(tsv(GO, SOLID, RED))
   const out = analyzeScouting(rows)
-  assert.equal(out.metadata.evaluated, 3)
-  assert.equal(out.metadata.dateRange.from, '2026-05-01')
-  assert.ok(Array.isArray(out.archetypePerformance))
-  assert.ok(Array.isArray(out.dimensionDrag))
-  assert.ok(Array.isArray(out.cityExposure))
-  assert.ok(Array.isArray(out.recommendations))
-  assert.ok(out.landscape.evaluated === 3)
+  assert.equal(out.metadata.evaluated, 2)
+  assert.equal(out.metadata.blocked, 1)
+  assert.equal(out.metadata.total, 3)
+  for (const k of ['landscape', 'archetypePerformance', 'dimensionDrag', 'eligibility', 'cityExposure', 'recommendations']) {
+    assert.ok(k in out, k)
+  }
 })
 
-test('analyzeScouting errors on empty or score-less input', () => {
+test('analyzeScouting errors on empty or score-less input, keeping eligibility', () => {
   assert.ok(analyzeScouting([]).error)
-  const noScores = parseScoreHistory(tsv(row({ overall: 'x' })))
-  assert.ok(analyzeScouting(noScores).error)
+  const onlyBlocked = analyzeScouting(parseScoreHistory(tsv(RED)))
+  assert.ok(onlyBlocked.error)
+  assert.equal(onlyBlocked.eligibility.status.red, 1)
+  assert.equal(scoredRows(parseScoreHistory(tsv(RED))).length, 0)
 })

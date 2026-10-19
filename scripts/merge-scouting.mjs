@@ -4,19 +4,23 @@
  *
  * Sibling of merge-tracker.mjs. Scouting hits are landscape-mapping inventory,
  * not active applications, so they live in data/scouting.md with a different
- * column shape:
+ * column shape (docs/scoring-v2.md §8.2):
  *
- *   # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes
+ *   # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes
  *
- * TSV input format (11 tab-separated columns, written by modes/scouting.md):
+ * TSV input format (12 tab-separated columns, written by modes/scouting.md):
  *
- *   num\tdate\tcompany\trole\tscore\ttier\tcf_af\treport\tdeadline\tpromotion_hint\tnotes
+ *   num\tdate\tcompany\trole\twant\tease\ttier\teligibility\treport\tdeadline\tpromotion_hint\tnotes
  *
- * Backward-compatible with old 10-column TSVs (no deadline column).
- * Old 10-col TSVs and old scouting.md rows (without Deadline column) are handled gracefully.
+ * Want/Ease are numbers (no "/10"), or "—" for a Blocked (red-eligibility)
+ * listing. The v1 10/11-column forms are retired — v1 data was archived, so
+ * they are rejected with a warning rather than converted.
  *
  * Dedup: company normalized + role fuzzy match + report number match.
- * If duplicate with higher score → update in-place, refresh tier / CF-AF / notes.
+ * Re-evaluation: a newer evaluation of the same listing REPLACES the old row
+ * (the score is point-in-time, not a high-water mark); the note records
+ * "Re-eval (W a→b, E c→d)". An addition dated before the existing row is
+ * skipped as stale. A PROMOTED-n hint is preserved.
  *
  * Parsing/normalization lives in lib/scouting-core.mjs (pure + unit-tested);
  * this script owns the file I/O and merge orchestration.
@@ -33,15 +37,17 @@ import {
   normalizeRoleForIndex,
   roleFuzzyMatch,
   extractReportNum,
-  parseScore,
-  coalesceDeadline,
+  isV2ScoutingHeader,
   parseScoutingRow,
   parseScoutingTsv,
   formatScoutingRow,
+  shouldReplaceScoutingRow,
+  buildReEvalRow,
+  reEvalNote,
 } from './lib/scouting-core.mjs';
 import { SCOUTING_SCAFFOLD } from './lib/profile-core.mjs';
 
-const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
+const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
 const DEDUP_INDEX_FILE = join(CAREER_OPS, 'data/dedup-index.tsv');
 const DEDUP_INDEX_HEADER = 'company_normalized\trole_normalized\tlast_seen_date';
@@ -74,6 +80,14 @@ if (!existsSync(SCOUTING_FILE)) {
 
 const fileContent = readFileSync(SCOUTING_FILE, 'utf-8');
 const fileLines = fileContent.split('\n');
+
+// Fail closed on a v1 table: appending 12-column rows under an 11-column
+// header would corrupt the file. v1 data is archived (data/archive/scoring-v1/).
+const headerLine = fileLines.find(l => /^\|\s*#\s*\|/.test(l));
+if (headerLine && !isV2ScoutingHeader(headerLine)) {
+  console.error('❌ data/scouting.md has a pre-v2 header (Score/Tier/CF-AF). Archive it and recreate it with the v2 12-column header (Want/Ease/Tier/Eligibility) — see docs/scoring-v2.md §8.2.');
+  process.exit(1);
+}
 const existing = [];
 let maxNum = 0;
 
@@ -133,32 +147,18 @@ for (const file of tsvFiles) {
   }
 
   if (dup) {
-    const newScore = parseScore(addition.score);
-    const oldScore = parseScore(dup.score);
-    if (newScore > oldScore) {
-      console.log(`🔄 Update: #${dup.num} ${addition.company} — ${addition.role} (${oldScore}→${newScore})`);
+    if (shouldReplaceScoutingRow(dup, addition)) {
+      console.log(`🔄 Update: #${dup.num} ${addition.company} — ${addition.role} (${reEvalNote(dup, addition).replace(/^Re-eval /, '')})`);
       const idx = fileLines.indexOf(dup.raw);
       if (idx >= 0) {
-        const merged = {
-          num: dup.num,
-          date: addition.date,
-          company: addition.company,
-          role: addition.role,
-          score: addition.score,
-          tier: addition.tier,
-          cfAf: addition.cfAf,
-          report: addition.report,
-          // Preserve the posting's close date if the re-eval didn't restate it.
-          deadline: coalesceDeadline(addition.deadline, dup.deadline),
-          hint: addition.hint,
-          notes: `Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes}`,
-        };
-        fileLines[idx] = formatScoutingRow(merged);
+        const newLine = formatScoutingRow(buildReEvalRow(dup, addition));
+        fileLines[idx] = newLine;
+        Object.assign(dup, parseScoutingRow(newLine)); // keep `existing` in sync for later additions in this batch
         updated++;
         appendDedupIndex(addition.company, addition.role, addition.date);
       }
     } else {
-      console.log(`⏭️  Skip: ${addition.company} — ${addition.role} (existing #${dup.num} ${oldScore} >= new ${newScore})`);
+      console.log(`⏭️  Skip: ${addition.company} — ${addition.role} (existing #${dup.num} dated ${dup.date} is newer than ${addition.date})`);
       skipped++;
     }
   } else {
@@ -166,7 +166,7 @@ for (const file of tsvFiles) {
     if (addition.num > maxNum) maxNum = addition.num;
     newRows.push(formatScoutingRow({ ...addition, num: entryNum }));
     added++;
-    console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score}, ${addition.tier})`);
+    console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (W ${addition.want} · E ${addition.ease}, ${addition.tier}, ${addition.eligibility.split(':')[0]})`);
     appendDedupIndex(addition.company, addition.role, addition.date);
   }
 }
@@ -201,7 +201,7 @@ if (DRY_RUN) console.log('(dry-run — no changes written)');
 if (VERIFY && !DRY_RUN) {
   console.log('\n--- Running verification ---');
   try {
-    execFileSync('node', [join(CAREER_OPS, 'verify-pipeline.mjs')], { stdio: 'inherit' });
+    execFileSync('node', [fileURLToPath(new URL('./verify-pipeline.mjs', import.meta.url))], { stdio: 'inherit' });
   } catch (e) {
     process.exit(1);
   }

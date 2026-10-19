@@ -8,7 +8,11 @@
  *
  *   data/scan-history.tsv   — every posting the scanners surfaced (first_seen,
  *                             status, scan_dates)
- *   data/score-history.tsv  — every scouting evaluation (overall score keyed by url)
+ *   data/score-history.tsv  — every scouting evaluation (Want / Ease / verdict /
+ *                             eligibility, keyed by url)
+ *
+ * New postings are bucketed by verdict (go · stretch+solid · thin+growth ·
+ * needs-eval · skip · blocked) and ranked by Priority inside each bucket.
  *
  * It NEVER mutates any canonical file. All math lives in the pure core
  * scripts/lib/whats-new-core.mjs (unit-tested); this file is only I/O + render.
@@ -29,7 +33,8 @@ import { parseScoreHistory } from './lib/targeting-core.mjs'
 import {
   parseScanHistory,
   buildDigest,
-  PRIORITY_LABELS,
+  BUCKET_LABELS,
+  verdictStars,
 } from './lib/whats-new-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -74,10 +79,13 @@ if (asJson) {
 }
 
 // ── human-readable render ──────────────────────────────────────────────────
-const BANDS = { strong: '★★', solid: '★', pass: '·', weak: '↓' }
 const pad = (s, n) => String(s ?? '').padEnd(n).slice(0, n)
-const fmtScore = (it) =>
-  it.overall != null ? `${it.overall.toFixed(1)} ${BANDS[it.band] || ''}`.trim() : '—'
+// "W8.3 · E5.6 ★★" for scored rows; blocked rows carry no score (spec §1.3).
+const fmtScore = (it) => {
+  if (it.verdict === 'blocked') return '—'
+  if (it.want == null || it.ease == null) return '—'
+  return `W${it.want} · E${it.ease} ${verdictStars(it.verdict)}`.trim()
+}
 
 const windowLabel =
   digest.basis === 'since' ? `since ${digest.cutoff}`
@@ -98,28 +106,30 @@ if (digest.totalNew === 0) {
 // one-line scoreboard
 const c = digest.counts
 const board = [
-  c.prioritize ? `${c.prioritize} prioritize` : null,
-  c.review ? `${c.review} worth-a-look` : null,
+  c.go ? `${c.go} go` : null,
+  c.apply ? `${c.apply} stretch/solid` : null,
+  c.consider ? `${c.consider} thin/growth` : null,
   c['needs-eval'] ? `${c['needs-eval']} needs-eval` : null,
-  c.low ? `${c.low} low-fit` : null,
+  c.skip ? `${c.skip} skip` : null,
+  c.blocked ? `${c.blocked} blocked` : null,
   includeNoise && c.noise ? `${c.noise} filtered` : null,
 ].filter(Boolean).join('  ·  ')
 console.log(`${digest.totalNew} new posting(s):  ${board}`)
 console.log('')
 
 const list = top != null ? digest.items.slice(0, top) : digest.items
-let lastPriority = null
+let lastBucket = null
 for (const it of list) {
-  if (it.priority !== lastPriority) {
-    console.log(`  ${PRIORITY_LABELS[it.priority] || it.priority}`)
-    lastPriority = it.priority
+  if (it.bucket !== lastBucket) {
+    console.log(`  ${BUCKET_LABELS[it.bucket] || it.bucket}`)
+    lastBucket = it.bucket
   }
   const age = it.ageDays != null ? `${it.ageDays}d` : ''
   const seen = it.timesSeen > 1 ? `×${it.timesSeen}` : ''
-  console.log(
-    `    ${pad(fmtScore(it), 7)} ${pad(it.company, 18)} ${pad(it.title, 40)} ` +
-    `${pad(it.location, 14)} ${pad(age, 4)}${seen}`,
-  )
+  const line =
+    `    ${pad(fmtScore(it), 15)} ${pad(it.company, 18)} ${pad(it.title, 40)} ` +
+    `${pad(it.location, 14)} ${pad(age, 4)}${seen}`
+  console.log(it.verdict === 'blocked' ? `${line}  ${it.verdictLabel}` : line)
 }
 if (top != null && digest.items.length > top) {
   console.log(`    … and ${digest.items.length - top} more (drop --top to see all)`)

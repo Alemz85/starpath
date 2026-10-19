@@ -9,8 +9,12 @@
 //   - comp        → savingsToBaseScore() on cost-of-living-adjusted monthly
 //                   savings (the same savings-power band the scouting report
 //                   uses), with the same buildTotalComp() build-up upstream.
-//   - fit         → rollupOverall(CF, AF) on the 6 scouting dimensions, i.e.
-//                   the exact Overall the scouting evaluation produced.
+//   - fit         → the scouting Want (rollupWant on the ten v2 dimensions,
+//                   or the stored want number). At the offer stage the
+//                   candidate already holds the offer, so Ease (how hard it
+//                   is to get in) is moot and never affects the ranking.
+//                   Ease and the verdict are still returned when available,
+//                   for display only.
 //
 // growth / brand / location / risk are 1-10 factor scores the caller supplies
 // (the agent derives them from the scouting report + deep-dive, the same way it
@@ -22,9 +26,12 @@
 
 import {
   savingsToBaseScore,
-  rollupCurrentFit,
-  rollupAspirationalFit,
-  rollupOverall,
+  rollupWant,
+  rollupEase,
+  assignVerdict,
+  VERDICT_LABELS,
+  WANT_DIMS,
+  EASE_DIMS,
 } from './score-bands.mjs'
 
 /* ───── Factors & default weights ───────────────────────────────── */
@@ -35,7 +42,7 @@ export const FACTORS = ['comp', 'fit', 'growth', 'brand', 'location', 'risk']
 
 export const FACTOR_LABELS = {
   comp:     'Compensation (savings-power adj.)',
-  fit:      'Fit (scouting Overall)',
+  fit:      'Fit (Want)',
   growth:   'Growth / Mobility',
   brand:    'Brand Value',
   location: 'Location',
@@ -74,23 +81,90 @@ export function compFactorFromSavings(monthlyNetEur, colBaselineEur) {
 }
 
 /**
- * Derive the `fit` factor (1-10) from the six scouting dimensions, by replaying
- * the canonical CF/AF rollup → Overall. The Overall an offer carried out of the
- * scouting evaluation IS its fit factor — no re-derivation, no drift.
+ * Derive the `fit` factor from a stored Want (score-history, scouting.md, or
+ * the report header). The factor IS Want (1-10): the offer is already in hand,
+ * so Ease plays no part in it. When Ease is also known, the engine's verdict
+ * is attached for display — it never feeds the ranking.
  *
- *   sixDims  { skills_match, ease_of_entry, strategic_fit,
- *              growth_mobility, optionality_exit, brand_value }
- *   context  { salary_adj_for_city, work_life_balance, is_intern } (optional)
+ *   { want, ease?, eligibility = 'green' }
+ *
+ * Returns { score, want, ease, verdict, verdictLabel, tier } with score = want.
+ * ease / verdict / verdictLabel / tier are null when ease is missing. A
+ * Blocked listing (eligibility red) has no Want: score/want/ease are null and
+ * the verdict is 'blocked' — compareOffers then needs an explicit fit.
  */
-export function fitFactorFromDims(sixDims, context = {}) {
-  const cf = rollupCurrentFit(sixDims)
-  const af = rollupAspirationalFit(sixDims)
-  const { overall, modifiersApplied } = rollupOverall(cf, af, {
-    salary_adj_for_city: context.salary_adj_for_city ?? 6,
-    work_life_balance:   context.work_life_balance ?? 6,
-    is_intern:           context.is_intern === true,
+export function fitFactorFromScores({ want, ease, eligibility = 'green' } = {}) {
+  const status = typeof eligibility === 'string' ? eligibility : eligibility?.status
+  if (status === 'red') {
+    const v = assignVerdict({ want: null, ease: null, eligibility })
+    return { score: null, want: null, ease: null, verdict: v.verdict, verdictLabel: VERDICT_LABELS[v.verdict], tier: v.tier }
+  }
+  if (!Number.isFinite(want)) {
+    throw new TypeError('fitFactorFromScores needs a finite want (or eligibility red)')
+  }
+  if (!Number.isFinite(ease)) {
+    return { score: want, want, ease: null, verdict: null, verdictLabel: null, tier: null }
+  }
+  const v = assignVerdict({ want, ease, eligibility: status || 'green' })
+  return {
+    score: want,
+    want,
+    ease,
+    verdict: v.verdict,
+    verdictLabel: VERDICT_LABELS[v.verdict],
+    tier: v.tier,
+  }
+}
+
+/**
+ * Derive the `fit` factor from the ten v2 scouting dimensions by replaying
+ * the engine: rollupWant → fit (score = Want). rollupEase + assignVerdict are
+ * replayed too, for display only. The Want an offer carried out of the
+ * scouting evaluation IS its fit — no re-derivation, no drift.
+ *
+ *   dims     { growth_mobility, optionality_exit, brand_value, role_content,
+ *              best_cities, salary_adj_city, work_life_balance,
+ *              skills_match, experience_bar, competition }
+ *            — calibrated finals (competition already carries any referral).
+ *   context  { is_intern, dream, amber_count, eligibility,
+ *              wantWeights, easeWeights }   (all optional)
+ *
+ * Returns fitFactorFromScores' shape plus { wantDetail, easeDetail } (the
+ * rollup objects, for an auditable trace).
+ */
+export function fitFactorFromDims(dims, context = {}) {
+  for (const k of [...WANT_DIMS, ...EASE_DIMS]) {
+    if (!Number.isFinite(dims?.[k])) {
+      throw new TypeError(`fitFactorFromDims needs all ten v2 dimensions; "${k}" is ${dims?.[k]}`)
+    }
+  }
+  const wantDetail = rollupWant(dims, {
+    weights: context.wantWeights,
+    is_intern: context.is_intern === true,
+    dream: context.dream === true,
   })
-  return { score: overall, cf, af, modifiersApplied }
+  const easeDetail = rollupEase(dims, {
+    weights: context.easeWeights,
+    amber_count: context.amber_count ?? 0,
+  })
+  const eligibility = context.eligibility ?? ((context.amber_count ?? 0) > 0 ? 'amber' : 'green')
+  return {
+    ...fitFactorFromScores({ want: wantDetail.score, ease: easeDetail.score, eligibility }),
+    wantDetail,
+    easeDetail,
+  }
+}
+
+/**
+ * Resolve an offer's fit: from `dims` (engine replay), else from stored
+ * `want`/`ease`, else null (the caller supplied `scores.fit` by hand).
+ */
+export function resolveOfferFit(offer) {
+  if (offer?.dims) return fitFactorFromDims(offer.dims, offer.context || {})
+  if (offer?.want != null || offer?.ease != null || offer?.eligibility === 'red') {
+    return fitFactorFromScores({ want: offer.want, ease: offer.ease, eligibility: offer.eligibility ?? 'green' })
+  }
+  return null
 }
 
 /* ───── Weight normalization ────────────────────────────────────── */
@@ -129,26 +203,52 @@ function validateScores(scores, label) {
 /**
  * Weighted total for one offer's factor scores.
  *
- *   offer.label    human-readable identifier (e.g. "Stripe — Analyst")
- *   offer.scores   { comp, fit, growth, brand, location, risk } each in [1,10]
+ *   offer.label    human-readable identifier (e.g. "Northwind — Analyst")
+ *   offer.scores   { comp, growth, brand, location, risk } each in [1,10],
+ *                  plus `fit` unless the offer carries a Want (below)
+ *   offer.want / offer.ease / offer.eligibility   stored scouting result, or
+ *   offer.dims (+ offer.context)                  the ten v2 dimensions
+ *                  → fit = Want through the engine (Ease is display-only).
+ *                  When both a derived fit and an explicit scores.fit are
+ *                  given they must agree (±0.01), so a hand-typed fit can't
+ *                  drift from the evaluation.
  *
- * Returns { label, total, contributions } where contributions[f] = score*weight,
- * so a caller can show exactly how each factor pushed the total.
+ * Returns { label, total, scores, contributions, want, ease, verdict,
+ * verdictLabel } where contributions[f] = score*weight, so a caller can show
+ * exactly how each factor pushed the total. want/ease/verdict/verdictLabel are
+ * null when the offer only carried a hand-supplied fit.
  */
 export function scoreOffer(offer, normalizedWeights) {
-  validateScores(offer.scores, offer.label)
+  const fit = resolveOfferFit(offer)
+  const scores = { ...offer.scores }
+  if (fit) {
+    if (fit.score == null) {
+      if (!Number.isFinite(scores.fit)) {
+        throw new RangeError(`offer "${offer.label}" is Blocked (eligibility red): no Want, so supply scores.fit explicitly`)
+      }
+    } else if (Number.isFinite(scores.fit) && Math.abs(scores.fit - fit.score) > 0.01) {
+      throw new RangeError(`offer "${offer.label}" scores.fit ${scores.fit} conflicts with its scouting Want ${fit.want}`)
+    } else {
+      scores.fit = fit.score
+    }
+  }
+  validateScores(scores, offer.label)
   const contributions = {}
   let total = 0
   for (const f of FACTORS) {
-    const c = offer.scores[f] * normalizedWeights[f]
+    const c = scores[f] * normalizedWeights[f]
     contributions[f] = Number(c.toFixed(4))
     total += c
   }
   return {
     label: offer.label,
     total: Number(total.toFixed(2)),
-    scores: { ...offer.scores },
+    scores,
     contributions,
+    want: fit?.want ?? null,
+    ease: fit?.ease ?? null,
+    verdict: fit?.verdict ?? null,
+    verdictLabel: fit?.verdictLabel ?? null,
   }
 }
 
@@ -209,11 +309,14 @@ const CLOSE_CALL_THRESHOLD = 0.5
  * Compare 2+ offers and produce a ranking + recommendation with the tradeoffs
  * made explicit.
  *
- *   offers   Array<{ label, scores: {comp,fit,growth,brand,location,risk} }>
+ *   offers   Array<{ label, scores: {comp,fit?,growth,brand,location,risk},
+ *                    want?, ease?, eligibility?, dims?, context? }>
+ *            (see scoreOffer for how fit resolves)
  *   weights  raw weight object (normalized internally); omit for uniform.
  *
  * @returns {
- *   ranking: [{ label, total, scores, contributions, rank }],   // best first
+ *   ranking: [{ label, total, scores, contributions, want, ease,
+ *               verdict, verdictLabel, rank }],                 // best first
  *   weights: normalized weights used,
  *   winner, runnerUp,                                            // convenience refs
  *   margin,                                                      // #1.total − #2.total

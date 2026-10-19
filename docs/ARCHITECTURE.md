@@ -46,8 +46,8 @@
    - D: Comp research (WebSearch)
    - E: CV personalization plan
    - F: Interview prep (STAR stories)
-5. **Score**: Weighted average across 10 dimensions (1-5)
-6. **Report**: Save as `reports/tier-{N}/{num}-{company}-{date}.md` where `{N}` is derived from Score (≥4.5 → tier-1, 3.5-4.5 → tier-2, <3.5 → tier-3, SKIP → tier-4)
+5. **Score**: Eligibility gate (green / amber / red → Blocked), then Want and Ease (1-10) and a verdict from the Want × Ease grid — computed by `scripts/score-listing.mjs`; contract in `docs/scoring-v2.md`
+6. **Report**: Save as `reports/tier-{N}/{Company} - {Role}.md` where `{N}` comes from the verdict (`go` → tier-1, `stretch`/`solid`/`thin` → tier-2, `growth` → tier-3, `skip`/`blocked` → tier-4, no file)
 7. **PDF**: Generate ATS-optimized CV (`scripts/generate-pdf.mjs`)
 8. **Track**: Write TSV to `batch/tracker-additions/`, auto-merged
 

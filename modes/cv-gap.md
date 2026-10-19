@@ -6,7 +6,7 @@ The CV (`user/cv.md`) is the one asset that goes out with every application, yet
 
 1. **Keyword gaps** — in-demand terms that appear across many evaluated roles but never in the CV.
 2. **Weak proof points** — achievement bullets with no quantified outcome (the proof-point weakness recruiters notice first).
-3. **Dimension drag** — the scoring dimensions that systematically hold the user's Overall down, flagged **CV-fixable** (Skills Match) vs. **targeting-only** (everything else).
+3. **Dimension drag** — the scoring dimensions that systematically hold the user's Want or Ease down, flagged **CV-fixable** (Skills Match) vs. **targeting-only** (everything else).
 
 **How this differs from neighboring tools:**
 - `scripts/ats-coverage.mjs` checks the CV against **one** JD. This checks it against the **whole landscape**.
@@ -18,7 +18,7 @@ Use it when the user asks "what's missing from my CV?", "how do I sharpen my CV 
 
 - `user/cv.md` — the canonical CV (the asset under analysis). Also accepts an `.html` CV via `--cv`.
 - `reports/**/*.md` — every evaluation report; each report body is one role's demand document (its archetype/role-summary/gaps vocabulary).
-- `data/score-history.tsv` — per-evaluation 6-dimension fingerprint, for the dimension-drag signal.
+- `data/score-history.tsv` — per-evaluation dimension fingerprint, for the dimension-drag signal (Blocked rows have empty scores and are skipped).
 - Optional `--jd <file>` — extra raw JD text blobs to fold into demand (e.g. a target role not yet evaluated).
 
 If `user/cv.md` is missing, the tool exits asking the user to create it (or pass `--cv`). If there are no reports **and** no score history, it exits — there's no landscape to compare against yet (point the user at `scan` + `scouting` first).
@@ -48,7 +48,7 @@ The whole point is an **honest** report, so frame it that way:
 
 - **Keyword gaps are not a license to keyword-stuff.** A missing term means one of two things: the user *has* the experience but isn't surfacing it in the role's vocabulary (a wording fix — reword a real bullet), or they genuinely *lack* it (a learn-it gap — don't fake it). Decide per term; pull real phrasing from `user/cv.md` and proof points from `user/article-digest.md`. **Never invent a skill the user doesn't have.**
 - **Quantify from real figures only.** When recommending the user add numbers to weak bullets, pull the metrics from `user/article-digest.md` or ask the user — never fabricate a percentage.
-- **Don't rewrite the CV for a targeting problem.** If the dimension drag is Ease of Entry, Brand Value, Strategic Fit, etc., the CV can't fix it — that's a sourcing change (scan keywords / `user/portals.yml`). Only **Skills Match** is a genuine CV lever, and even then only where the skill is real.
+- **Don't rewrite the CV for a targeting problem.** If the dimension drag is Experience bar, Competition, Brand Value, Role content, etc., the CV can't fix it — that's a sourcing change (scan keywords / `user/portals.yml`). Only **Skills Match** is a genuine CV lever, and even then only where the skill is real.
 
 ## Step 3 — Offer to Act
 

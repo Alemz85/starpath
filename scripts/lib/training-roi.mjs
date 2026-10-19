@@ -9,19 +9,34 @@
 //
 //   1. Does it close a gap that's actually dragging my evaluations down?
 //      A cert that lifts a dimension already averaging 8 is a vanity purchase;
-//      one that attacks the dimension most often holding Overall down (the
+//      one that attacks the dimension most often holding Ease down (the
 //      systemic "dimension drag" from targeting-core.mjs) has real leverage.
+//      A training moves the CANDIDATE, so the dimensions it can lift are the
+//      Ease side — skills_match, experience_bar, competition — plus
+//      role_content when it repositions the candidate toward the kind of work
+//      they want (TRAINABLE_DIMS). The role-side Want dimensions (growth,
+//      optionality, brand, city, salary, WLB) belong to the listing, not the
+//      candidate; no course moves them.
 //
 //   2. Does it map to roles I'm actually targeting? A blockchain cert is
-//      useless if every strong match in my corpus is a Strategy & Ops role.
-//      We cross the training's mapped archetypes against where the landscape
-//      is actually giving the user strong matches (archetypePerformance).
+//      useless if every actionable match in my corpus is a Strategy & Ops
+//      role. We cross the training's mapped archetypes against where the
+//      landscape is actually giving the user matches (archetypePerformance).
 //
-//   3. What does it cost vs. what it plausibly returns? Time (weeks × hrs)
-//      and money, weighed against how much of the corpus the targeted gap
-//      touches. A 12-week grind to nudge a dimension that's only low in 8% of
-//      evals is a bad trade; a 2-week course attacking a drag present in 60%
-//      of evals is a great one.
+//   3. What does it plausibly return? We REPLAY the scoring engine
+//      (rollupEase / rollupWant → assignVerdict → computePriority) on the
+//      in-target rows with the targeted dimension(s) lifted by
+//      `expectedLift` integer steps, and report the Ease uplift and the
+//      verdict changes (e.g. thin → solid). Rules are never re-derived here.
+//
+//   4. What does it cost? Time (weeks × hrs) and money, weighed against how
+//      much of the corpus the targeted gap touches. A 12-week grind to nudge
+//      a dimension that's only low in 8% of evals is a bad trade; a 2-week
+//      course attacking a drag present in 60% of evals is a great one.
+//
+// Blocked rows (eligibility red, empty score cells) are excluded from all of
+// the score math above; a course can't fix an eligibility wall it doesn't
+// model.
 //
 // The verdict is DETERMINISTIC: the same offer + same corpus always yields the
 // same WORTH_IT / TIMEBOX / SKIP. The mode prose reads the trace verbatim so
@@ -34,40 +49,61 @@ import {
   dimensionDrag,
   archetypePerformance,
   normalizeArchetype,
+  scoredRows,
+  isActionable,
 } from './targeting-core.mjs'
+import {
+  rollupWant,
+  rollupEase,
+  assignVerdict,
+  computePriority,
+  verdictRank,
+  EASE_DIMS,
+  WANT_DIMS,
+} from './score-bands.mjs'
+import { classifyMovement } from './scoring-stats.mjs'
 
 const round2 = (n) => Math.round(n * 100) / 100
 const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n))
 
-/* ───── Dimension key aliases ───────────────────────────────────────────────
+/* ───── Trainable dimensions + key aliases ──────────────────────────────────
  *
- * A user describing a course will name dimensions loosely ("skills", "ease of
- * entry", "brand"). Map those to the canonical score-history keys so the offer
- * input is forgiving. Returns null for an unrecognized token so the caller can
- * warn rather than silently drop it.
+ * A training can only move what belongs to the candidate: the three Ease
+ * dimensions, plus role_content (positioning toward the work they want).
+ *
+ * A user describing a course will name dimensions loosely ("skills",
+ * "experience", "language"). Map those to the canonical score-history keys so
+ * the offer input is forgiving. Returns null for an unrecognized or
+ * non-trainable token so the caller can warn rather than silently drop it.
  */
+export const TRAINABLE_DIMS = Object.freeze(['skills_match', 'experience_bar', 'competition', 'role_content'])
+
 const DIM_ALIASES = {
-  skills_match: 'skills_match', skills: 'skills_match', skill: 'skills_match',
-  'skills match': 'skills_match', stack: 'skills_match', technical: 'skills_match',
-  ease_of_entry: 'ease_of_entry', ease: 'ease_of_entry', eoe: 'ease_of_entry',
-  'ease of entry': 'ease_of_entry', reachability: 'ease_of_entry',
-  experience: 'ease_of_entry', credential: 'ease_of_entry',
-  strategic_fit: 'strategic_fit', strategic: 'strategic_fit',
-  'strategic fit': 'strategic_fit', analytical: 'strategic_fit',
-  'analytical fit': 'strategic_fit',
-  growth_mobility: 'growth_mobility', growth: 'growth_mobility',
-  mobility: 'growth_mobility', 'growth mobility': 'growth_mobility',
-  optionality_exit: 'optionality_exit', optionality: 'optionality_exit',
-  exit: 'optionality_exit', 'optionality exit': 'optionality_exit',
-  brand_value: 'brand_value', brand: 'brand_value', 'brand value': 'brand_value',
+  'skills match': 'skills_match', skills: 'skills_match', skill: 'skills_match',
+  stack: 'skills_match', technical: 'skills_match', tools: 'skills_match',
+  'experience bar': 'experience_bar', experience: 'experience_bar',
+  seniority: 'experience_bar', yoe: 'experience_bar', 'years of experience': 'experience_bar',
+  competition: 'competition', competitiveness: 'competition', pool: 'competition',
+  credential: 'competition', signalling: 'competition', signaling: 'competition',
+  'role content': 'role_content', role: 'role_content', positioning: 'role_content',
+  'day to day': 'role_content', 'work content': 'role_content',
 }
+
+/** Default integer steps a training is assumed to lift its target dims by. */
+export const DEFAULT_EXPECTED_LIFT = 1
+
+/** Share (%) of replayed in-target rows that must be lifted INTO a better,
+ *  actionable verdict (go / stretch / solid) for the projected uplift to
+ *  count as a positive ROI signal on its own. skip → thin is an upgrade on
+ *  the grid but not one worth paying for. */
+export const VERDICT_UPGRADE_SHARE_MIN = 10
 
 const DIM_LABEL = Object.fromEntries(DIMENSIONS.map((d) => [d.key, d.label]))
 
 export function normalizeDimensionKey(raw) {
   if (!raw) return null
   const s = String(raw).trim().toLowerCase().replace(/[\s/_-]+/g, ' ').trim()
-  return DIM_ALIASES[s] || DIM_ALIASES[s.replace(/ /g, '_')] || null
+  return DIM_ALIASES[s] || null
 }
 
 /* ───── Gap relevance ───────────────────────────────────────────────────────
@@ -105,7 +141,7 @@ export function gapRelevance(rows, targetDims) {
         label: d.label,
         avg: d.avg,
         lowShare: d.lowShare,
-        dragRank: rank.get(d.key), // 1 = weakest dimension overall
+        dragRank: rank.get(d.key), // 1 = weakest of all scored dimensions
         gapScore,
         isSystemicDrag: d.avg < 6.0 || d.lowShare >= 25,
       }
@@ -152,9 +188,10 @@ export function targetingRelevance(rows, mappedArchetypes) {
     else unmatched.push(a)
   }
 
-  // Of the archetypes this training serves, how strong is the best one the
-  // user is actually seeing in the market? (avg Overall of the matched bucket).
-  matched.sort((a, b) => b.avgOverall - a.avgOverall)
+  // Of the archetypes this training serves, which is the strongest the user
+  // is actually seeing in the market? Actionable rate first (share of
+  // go/stretch/solid verdicts), then avg Priority as the sort key.
+  matched.sort((a, b) => b.actionableRate - a.actionableRate || b.avgPriority - a.avgPriority || b.count - a.count)
   const best = matched[0] || null
   return {
     matched,
@@ -162,6 +199,122 @@ export function targetingRelevance(rows, mappedArchetypes) {
     best,
     // Share of the whole evaluated landscape covered by the matched archetypes.
     landscapeShare: matched.reduce((s, m) => s + (m.share || 0), 0),
+  }
+}
+
+/* ───── Projected uplift (engine replay) ───────────────────────────────────
+ *
+ * "If this course lifts Skills Match by one step, what happens to my
+ * landscape?" For every scored (non-blocked) row in scope, replay the engine
+ * twice — as stored, and with each targeted dimension raised by `lift` steps
+ * (capped at 10) — and compare:
+ *
+ *   - Ease (when an Ease dim is targeted) via rollupEase, with the row's
+ *     amber-flag count as `amber_count`;
+ *   - Want (when role_content is targeted) via rollupWant, is_intern from the
+ *     row's employment_type (dream floor unknown at row level → off; both
+ *     sides use the same assumption so the delta isolates the lift);
+ *   - the side not touched keeps the stored value;
+ *   - verdict via assignVerdict, Priority via computePriority.
+ *
+ * Both "before" and "after" are replays (not the stored cells), so the delta
+ * comes purely from the lift even when the stored row was scored with
+ * different weights or a referral bonus already folded into competition.
+ *
+ * Scope: rows whose archetype matched one of the training's mapped
+ * archetypes; the whole scored landscape when none were supplied.
+ *
+ * Returns { scope, lift, dims, rows, avgEaseBefore, avgEaseAfter, easeDelta,
+ *           easeMovement, avgWantDelta, avgPriorityDelta, upgrades,
+ *           downgrades, upgradeShare, actionableUpgrades,
+ *           actionableUpgradeShare, transitions: { 'thin→solid': n, … } }
+ * upgrades = any better grid cell (VERDICT_ORDER); actionableUpgrades = the
+ * subset that lands on go / stretch / solid.
+ * easeMovement is classifyMovement(easeDelta, { metric: 'ease' }) —
+ * 'improving' | 'declining' | 'within-noise' against the Ease noise floor
+ * ('unknown' when no row could be replayed).
+ */
+const round2u = (n) => Math.round(n * 100) / 100
+const meanOf = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0)
+
+function rowDims(row, keys) {
+  const out = {}
+  for (const k of keys) out[k] = row[k]
+  return out
+}
+
+export function projectedUplift(rows, targetDims, opts = {}) {
+  const {
+    lift = DEFAULT_EXPECTED_LIFT,
+    archetypes = null,       // normalized archetype names in scope, or null = all
+    wantWeights,
+    easeWeights,
+  } = opts
+  const step = Math.max(0, Number(lift) || 0)
+  const dims = [...new Set((targetDims || []).filter((k) => TRAINABLE_DIMS.includes(k)))]
+  const touchesEase = dims.some((k) => EASE_DIMS.includes(k))
+  const touchesWant = dims.some((k) => WANT_DIMS.includes(k))
+
+  const inScope = scoredRows(rows).filter((r) => !archetypes || archetypes.includes(r.archetype))
+  // A row can only be replayed when every dimension of each replayed rollup
+  // is present (old/partial rows are skipped, never filled with 0).
+  const replayable = inScope.filter((r) =>
+    (!touchesEase || EASE_DIMS.every((k) => Number.isFinite(r[k]))) &&
+    (!touchesWant || WANT_DIMS.every((k) => Number.isFinite(r[k]))))
+
+  const easeB = [], easeA = [], wantD = [], prioD = []
+  const transitions = {}
+  let upgrades = 0, downgrades = 0, actionableUpgrades = 0
+  for (const r of replayable) {
+    const amber = (r.eligibilityFlags || []).filter((f) => f.status === 'amber').length
+    const isIntern = /intern/i.test(r.employment_type || '')
+    const replay = (bump) => {
+      const lifted = (k) => (bump && dims.includes(k) ? Math.min(10, r[k] + step) : r[k])
+      const ease = touchesEase
+        ? rollupEase(Object.fromEntries(EASE_DIMS.map((k) => [k, lifted(k)])), { weights: easeWeights, amber_count: amber }).score
+        : r.ease
+      const want = touchesWant
+        ? rollupWant(Object.fromEntries(WANT_DIMS.map((k) => [k, lifted(k)])), { weights: wantWeights, is_intern: isIntern }).score
+        : r.want
+      const { verdict } = assignVerdict({ want, ease, eligibility: r.eligibility || 'green' })
+      return { want, ease, verdict, priority: computePriority(want, ease) }
+    }
+    const before = replay(false)
+    const after = replay(true)
+    easeB.push(before.ease)
+    easeA.push(after.ease)
+    wantD.push(after.want - before.want)
+    prioD.push(after.priority - before.priority)
+    const rb = verdictRank(before.verdict), ra = verdictRank(after.verdict)
+    if (ra > rb) {
+      upgrades++
+      if (isActionable(after.verdict)) actionableUpgrades++
+    } else if (ra < rb) downgrades++
+    if (before.verdict !== after.verdict) {
+      const key = `${before.verdict}→${after.verdict}`
+      transitions[key] = (transitions[key] || 0) + 1
+    }
+  }
+
+  const n = replayable.length
+  const easeDelta = round2u(meanOf(easeA) - meanOf(easeB))
+  return {
+    scope: archetypes ? 'mapped-archetypes' : 'landscape',
+    lift: step,
+    dims,
+    rows: n,
+    avgEaseBefore: round2u(meanOf(easeB)),
+    avgEaseAfter: round2u(meanOf(easeA)),
+    easeDelta,
+    easeMovement: n ? classifyMovement(easeDelta, { metric: 'ease' }) : 'unknown',
+    avgWantDelta: round2u(meanOf(wantD)),
+    avgPriorityDelta: round2u(meanOf(prioD)),
+    upgrades,
+    downgrades,
+    upgradeShare: n ? Math.round((upgrades / n) * 100) : 0,
+    actionableUpgrades,
+    actionableUpgradeShare: n ? Math.round((actionableUpgrades / n) * 100) : 0,
+    transitions,
   }
 }
 
@@ -206,10 +359,10 @@ export function effortProfile({ weeks = 0, hoursPerWeek = 0, costEur = 0 } = {})
  *   SKIP     — the gap isn't systemic, the archetypes don't match the corpus,
  *              or the effort dwarfs the payoff. Don't do it; cheaper alt below.
  */
-export function trainingVerdict(rows, offer) {
-  const targetDims = (offer.targetDimensions || [])
+export function trainingVerdict(rows, offer, opts = {}) {
+  const targetDims = [...new Set((offer.targetDimensions || [])
     .map(normalizeDimensionKey)
-    .filter(Boolean)
+    .filter(Boolean))]
   const unknownDims = (offer.targetDimensions || []).filter(
     (d) => normalizeDimensionKey(d) == null,
   )
@@ -217,6 +370,12 @@ export function trainingVerdict(rows, offer) {
   const gap = gapRelevance(rows, targetDims)
   const targeting = targetingRelevance(rows, offer.mappedArchetypes || [])
   const effort = effortProfile(offer)
+  const uplift = projectedUplift(rows, targetDims, {
+    lift: offer.expectedLift ?? DEFAULT_EXPECTED_LIFT,
+    archetypes: targeting.matched.length ? [...new Set(targeting.matched.map((m) => m.archetype))] : null,
+    wantWeights: opts.wantWeights,
+    easeWeights: opts.easeWeights,
+  })
 
   const trace = []
   const bestGap = gap.best
@@ -246,7 +405,7 @@ export function trainingVerdict(rows, offer) {
     trace.push('No mapped archetypes supplied — cannot tie the training to roles you target.')
   } else if (archMatches) {
     trace.push(
-      `Maps to "${bestArch.archetype}" — a real part of your landscape (avg Overall ${bestArch.avgOverall} across ${bestArch.count} roles, ${targeting.landscapeShare}% of all evals).`,
+      `Maps to "${bestArch.archetype}" — a real part of your landscape (avg Want ${bestArch.avgWant} · Ease ${bestArch.avgEase} across ${bestArch.count} scored roles, ${bestArch.actionableRate}% actionable, ${targeting.landscapeShare}% of all scored evals).`,
     )
   } else {
     trace.push(
@@ -254,7 +413,22 @@ export function trainingVerdict(rows, offer) {
     )
   }
 
-  // ── Signal 3: effort proportionality ──
+  // ── Signal 3: projected uplift (engine replay) ──
+  const movesVerdicts = uplift.rows > 0 && uplift.actionableUpgradeShare >= VERDICT_UPGRADE_SHARE_MIN
+  if (uplift.rows > 0) {
+    const where = uplift.scope === 'mapped-archetypes' ? 'in-target' : 'scored'
+    const easePart = uplift.dims.some((k) => EASE_DIMS.includes(k))
+      ? `Ease ${uplift.avgEaseBefore} → ${uplift.avgEaseAfter} (${signed(uplift.easeDelta)}, ${uplift.easeMovement})`
+      : `Want ${signed(uplift.avgWantDelta)} (Ease unchanged)`
+    const moves = Object.entries(uplift.transitions)
+      .filter(([k]) => { const [b, a] = k.split('→'); return verdictRank(a) > verdictRank(b) })
+      .map(([k, c]) => `${k} ×${c}`)
+    trace.push(
+      `Projected: +${uplift.lift} step on ${uplift.dims.map((k) => DIM_LABEL[k] || k).join(' + ')} across ${uplift.rows} ${where} roles → ${easePart}; ${uplift.upgrades} verdict upgrade(s)${moves.length ? ` (${moves.join(', ')})` : ''}, ${uplift.actionableUpgrades} into an actionable verdict (${uplift.actionableUpgradeShare}%).`,
+    )
+  }
+
+  // ── Signal 4: effort proportionality ──
   // A training is "proportionate" when its effort band is justified by the
   // breadth of the gap it closes. Heavy/major effort needs a broad, systemic
   // drag to pay off; micro/light effort is forgiven a smaller gap.
@@ -267,15 +441,15 @@ export function trainingVerdict(rows, offer) {
     } — ${proportionate ? 'proportionate to' : 'heavy relative to'} the gap it closes (gapScore ${gapBreadth}).`,
   )
 
-  // ── Signal 4: secondary quality signals ──
+  // ── Signal 5: secondary quality signals ──
   const hasArtifact = offer.producesArtifact === true
   if (hasArtifact) trace.push('Produces a demonstrable portfolio artifact (lifts Skills Match directly on your CV).')
   const strongBrand = offer.brandStrength != null && Number(offer.brandStrength) >= 7
   if (offer.brandStrength != null) {
     trace.push(
       strongBrand
-        ? `Credential brand is recruiter-recognized (brandStrength ${offer.brandStrength}/10).`
-        : `Credential brand is weak (brandStrength ${offer.brandStrength}/10) — limited recruiter signal.`,
+        ? `Credential brand is recruiter-recognized (brandStrength ${offer.brandStrength} of 10).`
+        : `Credential brand is weak (brandStrength ${offer.brandStrength} of 10) — limited recruiter signal.`,
     )
   }
 
@@ -292,7 +466,7 @@ export function trainingVerdict(rows, offer) {
     } else {
       headline = "Maps to archetypes that don't show up in your evaluated landscape."
     }
-  } else if (proportionate && (hasArtifact || strongBrand || gapBreadth >= 0.5)) {
+  } else if (proportionate && (hasArtifact || strongBrand || gapBreadth >= 0.5 || movesVerdicts)) {
     verdict = 'WORTH_IT'
     headline = `Closes "${bestGap.label}" — your ${ordinal(bestGap.dragRank)}-weakest dimension — for "${bestArch.archetype}" roles you actually target.`
   } else {
@@ -311,6 +485,7 @@ export function trainingVerdict(rows, offer) {
       attacksDrag,
       archMatches,
       proportionate,
+      movesVerdicts,
       hasArtifact,
       strongBrand,
       gapScore: gapBreadth,
@@ -319,15 +494,22 @@ export function trainingVerdict(rows, offer) {
     bestGap,
     bestArchetype: bestArch,
     effort,
+    uplift,
     unknownDimensions: unknownDims,
     // Surface the full drag/perf context so the mode can show "here's the
     // dimension you SHOULD be targeting instead" when the verdict is SKIP.
     context: {
       topDrag: gap.dragTable[0] || null,
+      // The weakest dimension a training can actually move (TRAINABLE_DIMS).
+      topTrainableDrag: gap.dragTable.find((d) => TRAINABLE_DIMS.includes(d.key)) || null,
       dragTable: gap.dragTable,
       topArchetypes: archetypePerformance(rows).slice(0, 5),
     },
   }
+}
+
+function signed(n) {
+  return n > 0 ? `+${n}` : String(n)
 }
 
 function ordinal(n) {

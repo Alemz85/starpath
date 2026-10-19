@@ -29,6 +29,10 @@
  * single-profile / pre-migration repo the footer is absent and the output is
  * byte-identical to before.
  *
+ * Scoring v2: listings render as "Want · Ease" with verdict stars (go ★★,
+ * stretch / solid ★, nothing else — blocked never), ranked by Priority
+ * (√(Want·Ease), a sort key only). See docs/scoring-v2.md.
+ *
  * All ranking/sectioning/rendering lives in the pure, unit-tested
  * scripts/lib/daily-brief-core.mjs; this file is only I/O + invocation.
  *
@@ -199,7 +203,11 @@ function getWarmOutreach() {
 function getPositioningIntel() {
   const scoreRows = parseScoreHistory(read(SCORE_FILE))
   if (scoreRows.length === 0) return null
-  return positioningIntel(scoreRows)
+  try {
+    return positioningIntel(scoreRows)
+  } catch {
+    return null // a standing note is optional; never let it sink the brief
+  }
 }
 
 // 5. Deadline urgency — deadlines-core.classifyDeadlines over applications.md +

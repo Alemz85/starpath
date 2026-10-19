@@ -21,9 +21,9 @@ no fact. Read the files before you make a claim about the search:
 |----------|------|
 | Who they are, their CV, proof points | `user/cv.md`, `user/profile.yml`, `user/_profile.md`, `user/article-digest.md` |
 | What they've decided to apply to, and where each stands | `data/applications.md` (statuses per `templates/states.yml`) |
-| The evaluated landscape (every scored listing + tier) | `data/scouting.md` |
+| The evaluated landscape (every listing: Want, Ease, tier, eligibility) | `data/scouting.md` |
 | What's queued but not yet evaluated | `data/pipeline.md` |
-| Per-dimension scores over time | `data/score-history.tsv` |
+| Per-dimension scores, Want / Ease and verdicts over time | `data/score-history.tsv` |
 | The written argument behind a score | `reports/tier-{1..4}/{Company} - {Role}.md` |
 | Who they know and who they've contacted | `data/network.md`, `data/outreach.md` |
 | What the scanners have seen | `data/scan-history.tsv` |
@@ -124,7 +124,7 @@ tracked one needs a fresher score/deadline:
 
 ````
 ```starpath:apply
-{"company": "Acme", "role": "Data Analyst", "score": "7.8/10", "status": "Evaluated", "deadline": "2026-09-30", "url": "https://…", "notes": "…"}
+{"company": "Acme", "role": "Data Analyst", "score": "W8.3 E5.6", "status": "Evaluated", "deadline": "2026-09-30", "url": "https://…", "notes": "…"}
 ```
 ````
 
@@ -148,7 +148,7 @@ for a listing that isn't tracked yet.
 |-------|------|
 | `company`, `role` | Non-empty. Must match the tracked listing exactly when you mean an existing row — matching is case-insensitive but not fuzzy. |
 | `status` | Canonical only, from `templates/states.yml`: `Evaluated` `Applied` `Responded` `Interview` `Offer` `Rejected` `Discarded` `SKIP`. Defaults to `Evaluated` on `apply`. |
-| `score` | `X.X/10`, 0–10. |
+| `score` | `W{want} E{ease}` with one decimal each (e.g. `W8.3 E5.6`), taken from the scouting report header. Never propose a Blocked listing. (Legacy `X.X/10` cells already in the tracker stay valid.) |
 | `deadline` | `YYYY-MM-DD` (a real date), `Rolling`, or `n/d`. |
 | `url` | `http(s)` only. Shown on the card so the user can check the listing — `applications.md` has no URL column, so it isn't written to the row. |
 | `notes` | Short. Goes in the Notes cell. |

@@ -41,13 +41,13 @@ Rotational / early-careers programs often have **non-obvious titles** where the 
 
 ## Dream Companies — Always Prioritize
 
-These get an automatic brand bonus regardless of archetype match. If a posting from this list shows up, flag it "worth a look" even when fit is only 6.0-7.0.
+These get an automatic brand bonus regardless of archetype match. If a posting from this list shows up, flag it "worth a look" even when Want lands only 6.5–8.0.
 
 | Company | Target functions | Why |
 |---------|------------------|-----|
 | **[Company]** | [Functions you'd take there] | [One sentence — why this company specifically. Network reason, brand reason, mission reason.] |
 
-> Keep this list short — 1 to 3 companies you'd genuinely change cities for. The system gives these +1.0 brand signal in addition to the standard tier bonus.
+> Keep this list short — 1 to 3 companies you'd genuinely change cities for. Mirror them in `user/profile.yml` → `calibration.dream_companies`: the scorer gives them Brand Value 10 and a Want floor of 8.0. A dream company whose listing is Blocked by eligibility comes back flagged `Revisit next cycle:`.
 
 ### Dream Company Report Depth
 
@@ -55,7 +55,7 @@ When evaluating a posting from a dream company, **produce an extended report reg
 
 - **Minimum report length:** T1-equivalent depth for ALL tiers. Use the full template even when the listing would normally get a T2 short summary or T3 compact growth note.
 - **Expanded recommendation:** 5-8 lines covering application strategy, positioning vs. competition, which proof points to lead with, timing.
-- **Gap-closing specifics:** For any dimension below 8, add a "how to close this gap" note with timeline + concrete action.
+- **Gap-closing specifics:** For the gaps that actually decide whether you apply, add the concrete closing move. Skip dimensions that don't move the decision.
 - **Role ecosystem mapping:** 2-3 other roles at the same company that could be fallback applications.
 - **Application channel:** Note whether direct, referral, or recruiter outreach is the best path.
 
@@ -143,7 +143,7 @@ When evaluating a posting from a dream company, **produce an extended report reg
 
 ## Scoring Notes
 
-[1-2 sentences for the AI: any context-specific scoring guidance. e.g., "Weight learning environment and mentorship heavily at entry level (+1.0 for structured onboarding; -1.0 for sink-or-swim). Brand signal matters: [list of firms relevant to your network] get +0.6. Apply threshold is 7.0+. Anything below 6.0 should not be pursued."]
+[1-2 sentences for the AI: any context-specific scoring guidance. e.g., "Weight learning environment and mentorship heavily at entry level (+1.0 for structured onboarding; -1.0 for sink-or-swim). Brand signal matters: [list of firms relevant to your network] get +0.6. Apply on Go / Stretch / Solid; treat 'If pipeline thin' as filler; never pursue Skip."]
 
 ## Score Calibration (Entry-Level Lens)
 
@@ -151,7 +151,7 @@ Adjust the standard rubric for your career stage. **All scores on 1-10 scale.**
 
 - **Growth:** Mentorship, structured onboarding, learning path = **+1.0 bonus**. Sink-or-swim = **-1.0**.
 - **Brand:** Companies in your target network (e.g., your school's alumni heavy hitters) = **+0.6**.
-- **Fit threshold:** Recommend applying at **7.0+**. Flag anything below 6.0 as "not worth it at this stage."
+- **Verdict bar:** Apply on **Go / Stretch / Solid**; "If pipeline thin" only when the pipeline really is thin; Skip and Blocked are "not worth it at this stage."
 - **Red flags for entry roles:** No clear learning path, expected to manage people from day one, salary not disclosed for intern roles, >3 years experience required.
 
 ### Comp Scoring — 1-10 Scale
@@ -190,13 +190,6 @@ Use these bands when a disclosed salary figure is available. Score against the b
 
 If the city is not listed, fall back to the global scale above. If salary is not disclosed, the system scores **5** (neutral) and flags `[undisclosed]`.
 
-## CF/AF Phase Weighting
+## Scoring Weights (optional)
 
-Controls how Current Fit vs. Aspirational Fit are weighted when computing the Overall score. Set `current_mode` in `user/profile.yml` to switch.
-
-| Mode | CF weight | AF weight | Use when |
-|------|-----------|-----------|----------|
-| `scouting` | **70%** | **30%** | Mapping the landscape — reachability matters most |
-| `applying` | **60%** | **40%** | Actively applying — strategic stretch gets more weight |
-
-These weights live in `modes/_shared.md` § Overall — they're system-side. The mode flag in `profile.yml` selects which to use.
+Want averages four motivators (Growth / Mobility, Optionality / Exit, Brand Value, Role content); Ease is a weighted geometric mean of Skills Match, Experience bar and Competition. To weight them differently for your stage, set `scoring.want_weights` / `scoring.ease_weights` in `user/profile.yml` (defaults: equal motivators; Ease 0.35 / 0.35 / 0.30). The math lives in `scripts/score-listing.mjs`; only the weights are yours.

@@ -302,7 +302,9 @@ export function hookSource(research = {}, report = {}) {
  *
  * @param {object} input
  *   - company   {string}
- *   - roles     {Array}   [{ role, score, source }] — pipeline roles at this company
+ *   - roles     {Array}   [{ role, score, want, ease, scoreLabel, source }] — pipeline roles at
+ *                         this company (network-core roleInfo; score = Priority, a sort key;
+ *                         scoreLabel = "W8.3 · E5.6" for display)
  *   - paths     {Array}   ranked referral paths (network-core pathsForCompany().contacts)
  *   - threads   {Array}   classified outreach threads (companyThreads())
  *   - research  {object}  { exists, state?, ageDays?, valid?, path? }
@@ -360,7 +362,7 @@ export function renderPlan(plan) {
   const L = [];
   L.push(`Outreach plan — ${plan.company}${plan.date ? ` (${plan.date})` : ''}`);
   if (plan.inPipeline) {
-    L.push(`Targeting: ${plan.roles.map((r) => `${r.role} (${r.score}/10)`).join(' · ')}`);
+    L.push(`Targeting: ${plan.roles.map((r) => `${r.role} (${r.scoreLabel || 'unscored'})`).join(' · ')}`);
   } else {
     L.push('(not in your pipeline — speculative outreach)');
   }

@@ -1,78 +1,74 @@
 // Unit tests for scripts/lib/score-trend-core.mjs — the re-evaluation /
-// score-trend math. score-trend.mjs only wraps these with file I/O, so this
-// suite is where the logic is pinned: the canonical (company, role) key reuse,
-// the delta dead-band, trajectory grouping (same-date collapse + spelling-drift
-// merge + the top-dimension-mover driver), band-crossing detection, the
-// landscape older-vs-recent split (median date, inclusive-recent, the
-// insufficient-data + concentration guards), and the recommendation gates.
+// score-trend math on scoring v2. score-trend.mjs only wraps these with file
+// I/O, so this suite is where the logic is pinned: the canonical
+// (company, role) key reuse, trajectory grouping (same-date collapse +
+// spelling-drift merge), Want and Ease classified separately against their
+// own floors, the verdict move (including blocked ↔ scored), the landscape
+// earlier-vs-later split with its gate, the actionable-share delta, the
+// verdict upgrade / downgrade roll-up, and the recommendation gates.
 //
-// Plain ESM, zero deps: `node --test scripts/**/*.test.mjs`.
+// Fixtures go through the shared v2 builder (real engine for verdicts);
+// companies are fictional. Plain ESM, zero deps.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   listingKey,
-  classifyDelta,
+  verdictMove,
   listingTrajectories,
   trajectorySummary,
+  verdictMoves,
   landscapeTrend,
   trendRecommendations,
+  describeTrajectory,
   analyzeTrend,
   parseScoreHistory,
-  OVERALL_NOISE_FLOOR,
+  DIMENSIONS,
+  TREND_METRICS,
+  WANT_NOISE_FLOOR,
+  EASE_NOISE_FLOOR,
 } from './score-trend-core.mjs'
+import * as core from './score-trend-core.mjs'
+import { GATES } from './scoring-stats.mjs'
+import { historyTsv } from './testing/score-history-fixture.mjs'
 
-const HEADER = [
-  'date', 'archetype', 'skills_match', 'ease_of_entry', 'strategic_fit',
-  'current_fit', 'growth_mobility', 'optionality_exit', 'brand_value',
-  'sales_trap_risk', 'aspirational_fit', 'overall', 'best_cities',
-  'salary_adj_city', 'work_life_balance', 'best_fit_roles', 'mode',
-  'company', 'role', 'tier', 'source', 'location', 'employment_type',
-  'duration', 'salary_raw', 'url',
-].join('\t')
+const parse = (...rows) => parseScoreHistory(historyTsv(...rows))
 
-const COLS = [
-  'date', 'archetype', 'skills_match', 'ease_of_entry', 'strategic_fit',
-  'current_fit', 'growth_mobility', 'optionality_exit', 'brand_value',
-  'sales_trap_risk', 'aspirational_fit', 'overall', 'best_cities',
-  'salary_adj_city', 'work_life_balance', 'best_fit_roles', 'mode',
-  'company', 'role', 'tier', 'source', 'location', 'employment_type',
-  'duration', 'salary_raw', 'url',
-]
+/** One evaluation of a listing. `want` / `ease` override the engine rollup. */
+const ev = (company, role, date, want, ease, extra = {}) =>
+  ({ company, role, date, want, ease, ...extra })
 
-// Build one TSV data row from an overrides object so tests stay readable.
-function row(over = {}) {
-  const base = {
-    date: '2026-05-01', archetype: 'Data Analyst',
-    skills_match: 7, ease_of_entry: 6, strategic_fit: 8, current_fit: 7,
-    growth_mobility: 7, optionality_exit: 7, brand_value: 7, sales_trap_risk: 8,
-    aspirational_fit: 7, overall: 7, best_cities: 'Madrid', salary_adj_city: 6,
-    work_life_balance: 7, best_fit_roles: 'Analyst', mode: 'scouting',
-    company: 'Acme', role: 'Analyst', tier: 'T2', source: 'pipeline',
-    location: 'Madrid', employment_type: 'full-time', duration: 'permanent',
-    salary_raw: 'n/d', url: 'https://x',
+/** A blocked evaluation (eligibility red: empty score cells). */
+const blockedEv = (company, role, date, extra = {}) =>
+  ({ company, role, date, eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship', ...extra })
+
+/** n single-eval listings on one date with the given Want / Ease. */
+const windowRows = (date, n, want, ease, prefix = date) =>
+  Array.from({ length: n }, (_, i) => ev(`Co ${prefix} ${i}`, 'Analyst', date, want, ease))
+
+const EARLY = '2026-05-01'
+const LATE = '2026-06-01'
+
+// ─── Exports: v1 surface is gone ──────────────────────────────────────────
+
+test('the v1 exports are gone and the v2 ones exist', () => {
+  for (const name of ['classifyDelta', 'overallBand', 'OVERALL_NOISE_FLOOR']) {
+    assert.equal(name in core, false, `${name} should no longer be exported`)
   }
-  const merged = { ...base, ...over }
-  return COLS.map(k => merged[k]).join('\t')
-}
+  assert.equal(WANT_NOISE_FLOOR, 0.30)
+  assert.equal(EASE_NOISE_FLOOR, 0.35)
+  assert.deepEqual([...TREND_METRICS], ['want', 'ease'])
+  assert.equal(DIMENSIONS.length, 10)
+})
 
-function tsv(...rows) {
-  return [HEADER, ...rows].join('\n')
-}
-
-// ─── listingKey: reuses the canonical dedup normalization ─────────────────────
+// ─── listingKey ───────────────────────────────────────────────────────────
 
 test('listingKey collapses company-spelling + role-spacing drift to one key', () => {
-  // dedup-index.normalizeCompany strips non-alphanumerics + lowercases;
-  // normalizeRole lowercases + collapses whitespace.
   assert.equal(
-    listingKey('Celonis', 'Strategy Analyst Internship'),
-    listingKey('celonis ', 'Strategy  Analyst   Internship'),
+    listingKey('Northwind Analytics', 'Strategy Analyst Internship'),
+    listingKey('northwind analytics ', 'Strategy  Analyst   Internship'),
   )
-  assert.equal(
-    listingKey('Trade Republic', 'Data Analyst'),
-    listingKey('traderepublic', 'data analyst'),
-  )
+  assert.equal(listingKey('Contoso Retail', 'Data Analyst'), listingKey('contosoretail', 'data analyst'))
 })
 
 test('listingKey tolerates missing company/role without throwing', () => {
@@ -80,797 +76,515 @@ test('listingKey tolerates missing company/role without throwing', () => {
   assert.equal(listingKey('', ''), '\t')
 })
 
-// ─── classifyDelta: dead-band boundaries ──────────────────────────────────────
+// ─── verdictMove ──────────────────────────────────────────────────────────
 
-test('classifyDelta applies the ±0.25 dead-band by default', () => {
-  assert.equal(classifyDelta(0.26), 'improving')
-  assert.equal(classifyDelta(0.25), 'stable')   // exactly on the band → stable
-  assert.equal(classifyDelta(0.1), 'stable')
-  assert.equal(classifyDelta(0), 'stable')
-  assert.equal(classifyDelta(-0.25), 'stable')
-  assert.equal(classifyDelta(-0.26), 'declining')
-  assert.equal(classifyDelta(NaN), 'unknown')
+test('verdictMove orders verdicts by score-bands.verdictRank', () => {
+  assert.equal(verdictMove('solid', 'go'), 'upgrade')
+  assert.equal(verdictMove('blocked', 'skip'), 'upgrade')
+  assert.equal(verdictMove('stretch', 'thin'), 'downgrade')
+  assert.equal(verdictMove('go', 'blocked'), 'downgrade')
+  assert.equal(verdictMove('growth', 'growth'), 'same')
+  assert.equal(verdictMove('', 'go'), 'unknown')
+  assert.equal(verdictMove('stellar', 'go'), 'unknown')
 })
 
-test('classifyDelta respects a custom stableBand', () => {
-  assert.equal(classifyDelta(0.2, { stableBand: 0.15 }), 'improving')
-  assert.equal(classifyDelta(0.2, { stableBand: 0.5 }), 'stable')
-})
-
-// ─── listingTrajectories: grouping, delta, drivers, band crossing ─────────────
+// ─── Per-listing trajectories ─────────────────────────────────────────────
 
 test('listingTrajectories ignores single-eval listings (no movement)', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Solo', role: 'Once', overall: 7.0 }),
-  ))
-  assert.deepEqual(listingTrajectories(rows), [])
+  assert.deepEqual(listingTrajectories(parse(ev('Northwind', 'Analyst', EARLY, 7, 7))), [])
 })
 
-test('listingTrajectories surfaces a re-evaluated listing with signed delta + driver', () => {
-  // Mirrors the real Contentsquare re-eval: 6.07 → 6.53, skills 6 → 7.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Contentsquare', role: 'CS Ops & Strategy', date: '2026-05-08', overall: 6.07, skills_match: 6, ease_of_entry: 5 }),
-    row({ company: 'Contentsquare', role: 'CS Ops & Strategy', date: '2026-05-09', overall: 6.53, skills_match: 7, ease_of_entry: 5 }),
+test('Want and Ease are classified separately, each on its own floor', () => {
+  const [t] = listingTrajectories(parse(
+    ev('Northwind', 'Analyst', EARLY, 7.0, 6.0),
+    ev('Northwind', 'Analyst', LATE, 7.6, 6.1),
   ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.evals, 2)
-  assert.equal(t.firstOverall, 6.07)
-  assert.equal(t.latestOverall, 6.53)
-  assert.equal(t.delta, 0.46)
-  assert.equal(t.verdict, 'improving')
-  // skills_match is the only dim that moved (+1) → it's the top driver.
-  assert.equal(t.topMover.key, 'skills_match')
-  assert.equal(t.topMover.delta, 1)
-  // ease_of_entry didn't move → not the driver.
-  assert.notEqual(t.topMover.key, 'ease_of_entry')
+  assert.equal(t.want.first, 7)
+  assert.equal(t.want.latest, 7.6)
+  assert.equal(t.want.delta, 0.6)
+  assert.equal(t.want.movementClass, 'improving')
+  assert.equal(t.want.detectable, true)
+  assert.equal(t.want.noiseFloor, WANT_NOISE_FLOOR)
+  assert.equal(t.ease.delta, 0.1)
+  assert.equal(t.ease.movementClass, 'within-noise')
+  assert.equal(t.ease.detectable, false)
+  assert.equal(t.ease.noiseFloor, EASE_NOISE_FLOOR)
+  assert.equal('delta' in t, false, 'no combined delta')
+  assert.equal('firstOverall' in t, false)
 })
 
-test('listingTrajectories detects a declining listing and a band crossing', () => {
-  // 7.2 (solid) → 6.4 (pass): crosses the solid→pass boundary downward.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Slide', role: 'X', date: '2026-05-01', overall: 7.2 }),
-    row({ company: 'Slide', role: 'X', date: '2026-05-20', overall: 6.4 }),
+test('a delta EXACTLY at its floor is detectable; just under is within-noise', () => {
+  const one = (w0, w1, e0, e1) => listingTrajectories(parse(
+    ev('Fabrikam Labs', 'Analyst', EARLY, w0, e0),
+    ev('Fabrikam Labs', 'Analyst', LATE, w1, e1),
+  ))[0]
+  const at = one(7.0, 7.3, 6.0, 6.35)
+  assert.equal(at.want.movementClass, 'improving')
+  assert.equal(at.ease.movementClass, 'improving')
+  const under = one(7.0, 7.29, 6.0, 6.34)
+  assert.equal(under.want.movementClass, 'within-noise')
+  assert.equal(under.ease.movementClass, 'within-noise')
+  // The same 0.34 delta clears the Want floor but not the Ease floor.
+  const split = one(7.0, 7.34, 6.0, 6.34)
+  assert.equal(split.want.movementClass, 'improving')
+  assert.equal(split.ease.movementClass, 'within-noise')
+})
+
+test('a declining move past the floor classifies as declining', () => {
+  const [t] = listingTrajectories(parse(
+    ev('Contoso Retail', 'Analyst', EARLY, 8.0, 7.0),
+    ev('Contoso Retail', 'Analyst', LATE, 7.2, 6.0),
   ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.verdict, 'declining')
-  assert.equal(t.delta, -0.8)
-  assert.equal(t.bandFrom, 'solid')
-  assert.equal(t.bandTo, 'pass')
-  assert.equal(t.bandChanged, true)
+  assert.equal(t.want.movementClass, 'declining')
+  assert.equal(t.ease.movementClass, 'declining')
+})
+
+test('per-dimension deltas cover the v2 dims; the driver is per metric and only on a detectable move', () => {
+  const [t] = listingTrajectories(parse(
+    { company: 'Tailspin Toys', role: 'Analyst', date: EARLY, growth_mobility: 6, brand_value: 6, competition: 6 },
+    { company: 'Tailspin Toys', role: 'Analyst', date: LATE, growth_mobility: 8, brand_value: 9, competition: 6 },
+  ))
+  assert.equal(t.dimDeltas.length, 10)
+  assert.ok(t.dimDeltas.every(d => DIMENSIONS.some(x => x.key === d.key)))
+  assert.equal(t.want.movementClass, 'improving')
+  assert.equal(t.want.topMover.key, 'brand_value')
+  assert.equal(t.want.topMover.rollup, 'want')
+  assert.equal(t.want.topMover.delta, 3)
+  assert.equal(t.ease.movementClass, 'within-noise')
+  assert.equal(t.ease.topMover, null)
+})
+
+test('a within-noise move has no driver even if a dimension moved', () => {
+  const [t] = listingTrajectories(parse(
+    { company: 'Tailspin Toys', role: 'Analyst', date: EARLY, growth_mobility: 7 },
+    { company: 'Tailspin Toys', role: 'Analyst', date: LATE, growth_mobility: 8 },
+  ))
+  assert.equal(t.want.delta, 0.25) // one motivator step at equal weights
+  assert.equal(t.want.movementClass, 'within-noise')
+  assert.equal(t.want.topMover, null)
 })
 
 test('listingTrajectories collapses same-date duplicate writes (last wins)', () => {
-  // Two rows on the SAME date are a duplicate write, not a re-eval over time.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Dup', role: 'Y', date: '2026-05-14', overall: 7.0 }),
-    row({ company: 'Dup', role: 'Y', date: '2026-05-14', overall: 7.5 }),
+  const [t] = listingTrajectories(parse(
+    ev('Northwind', 'Analyst', EARLY, 6.0, 6.0),
+    ev('Northwind', 'Analyst', EARLY, 6.5, 6.0),
+    ev('Northwind', 'Analyst', LATE, 7.5, 6.0),
   ))
-  // Single distinct date → not a trajectory.
-  assert.deepEqual(listingTrajectories(rows), [])
-
-  // Add a genuinely later date → now it's a 2-point trajectory, and the
-  // same-date pair collapsed to the LAST row (7.5), so first=7.5, latest=8.0.
-  const rows2 = parseScoreHistory(tsv(
-    row({ company: 'Dup', role: 'Y', date: '2026-05-14', overall: 7.0 }),
-    row({ company: 'Dup', role: 'Y', date: '2026-05-14', overall: 7.5 }),
-    row({ company: 'Dup', role: 'Y', date: '2026-05-20', overall: 8.0 }),
-  ))
-  const [t] = listingTrajectories(rows2)
   assert.equal(t.evals, 2)
-  assert.equal(t.firstOverall, 7.5)
-  assert.equal(t.latestOverall, 8.0)
-})
-
-// Malformed-date graceful behavior (audit finding 12b): dates are opaque
-// strings compared lexically (ISO sorts right), never Date-parsed. A malformed
-// value like '2026-5-1' (missing zero-padding) must NOT throw or NaN-poison the
-// trajectory — it is retained verbatim and ordered by string comparison. This
-// PINS the actual current behavior: here '2026-5-1' lexically sorts after the
-// zero-padded January date, landing as latestDate (chronologically correct by
-// luck of the padding). Zero-padding is what keeps this honest — the pin
-// documents that malformed input degrades gracefully, not that it's re-parsed.
-test('listingTrajectories keeps a malformed date gracefully (no throw, string-ordered)', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Acme', role: 'Analyst', date: '2026-01-01', overall: 6.0 }),
-    row({ company: 'Acme', role: 'Analyst', date: '2026-5-1', overall: 8.0 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.evals, 2)
-  assert.equal(t.firstDate, '2026-01-01')
-  assert.equal(t.latestDate, '2026-5-1') // retained verbatim, not normalized
-  assert.equal(t.firstOverall, 6.0)
-  assert.equal(t.latestOverall, 8.0)
+  assert.equal(t.want.first, 6.5)
+  // Two same-date rows alone are not a trajectory.
+  assert.deepEqual(listingTrajectories(parse(
+    ev('Northwind', 'Analyst', EARLY, 6.0, 6.0),
+    ev('Northwind', 'Analyst', EARLY, 7.0, 6.0),
+  )), [])
 })
 
 test('listingTrajectories merges spelling/spacing drift onto one trajectory', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Celonis', role: 'Strategy Analyst Internship', date: '2026-05-14', overall: 7.0 }),
-    row({ company: 'celonis', role: 'Strategy  Analyst  Internship', date: '2026-05-27', overall: 7.4 }),
+  const ts = listingTrajectories(parse(
+    ev('Northwind Analytics', 'Data  Analyst', EARLY, 6.0, 6.0),
+    ev('northwind analytics', 'data analyst', LATE, 7.0, 6.0),
   ))
-  const traj = listingTrajectories(rows)
-  assert.equal(traj.length, 1)
-  assert.equal(traj[0].evals, 2)
+  assert.equal(ts.length, 1)
+  assert.equal(ts[0].evals, 2)
 })
 
-test('listingTrajectories reports peak/trough across a non-monotonic path', () => {
-  // Climb then give it back: 6.0 → 8.0 → 6.5. first→latest delta is +0.5 but
-  // peak should capture the 8.0.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Wobble', role: 'Z', date: '2026-05-01', overall: 6.0 }),
-    row({ company: 'Wobble', role: 'Z', date: '2026-05-10', overall: 8.0 }),
-    row({ company: 'Wobble', role: 'Z', date: '2026-05-20', overall: 6.5 }),
+test('peak / trough span a non-monotonic path; sequence is chronological', () => {
+  const [t] = listingTrajectories(parse(
+    ev('Northwind', 'Analyst', '2026-07-01', 7.0, 6.0),
+    ev('Northwind', 'Analyst', EARLY, 6.0, 6.0),
+    ev('Northwind', 'Analyst', LATE, 8.5, 5.0),
   ))
-  const [t] = listingTrajectories(rows)
+  assert.deepEqual(t.sequence.map(s => s.date), [EARLY, LATE, '2026-07-01'])
+  assert.equal(t.want.peak, 8.5)
+  assert.equal(t.want.trough, 6)
+  assert.equal(t.ease.trough, 5)
+  assert.equal(t.want.delta, 1)
+})
+
+test('rows without a date are skipped', () => {
+  assert.deepEqual(listingTrajectories(parse(
+    ev('Northwind', 'Analyst', '', 6.0, 6.0),
+    ev('Northwind', 'Analyst', LATE, 7.0, 6.0),
+  )), [])
+})
+
+test('trajectory confidence climbs with the evaluation count (g = 2)', () => {
+  const traj = (n) => listingTrajectories(parse(
+    ...Array.from({ length: n }, (_, i) => ev('Northwind', 'Analyst', `2026-05-${String(i + 1).padStart(2, '0')}`, 6 + i * 0.1, 6)),
+  ))[0]
+  assert.equal(traj(2).confidence, 'low')
+  assert.equal(traj(2).want.confidence, 'low')
+  assert.equal(traj(3).confidence, 'low')
+  assert.equal(traj(4).confidence, 'moderate')
+  assert.equal(traj(8).confidence, 'high')
+})
+
+// ─── Verdict moves per listing ────────────────────────────────────────────
+
+test('a verdict upgrade backed by a detectable move is detectable', () => {
+  const [t] = listingTrajectories(parse(
+    ev('Northwind', 'Analyst', EARLY, 7.0, 7.5), // solid
+    ev('Northwind', 'Analyst', LATE, 8.5, 7.5),  // go
+  ))
+  assert.equal(t.verdictFrom, 'solid')
+  assert.equal(t.verdictTo, 'go')
+  assert.equal(t.verdictMove, 'upgrade')
+  assert.equal(t.verdictChanged, true)
+  assert.equal(t.verdictMoveDetectable, true)
+})
+
+test('a verdict flip on a sub-floor wobble is flagged as not detectable', () => {
+  const [t] = listingTrajectories(parse(
+    ev('Northwind', 'Analyst', EARLY, 7.9, 7.5), // solid
+    ev('Northwind', 'Analyst', LATE, 8.1, 7.5),  // go
+  ))
+  assert.equal(t.verdictMove, 'upgrade')
+  assert.equal(t.want.movementClass, 'within-noise')
+  assert.equal(t.verdictMoveDetectable, false)
+  assert.match(describeTrajectory(t), /verdict Solid → Go · Want flat within noise/)
+})
+
+test('blocked → scored is a visible verdict upgrade with no score movement', () => {
+  const [t] = listingTrajectories(parse(
+    blockedEv('Fabrikam Labs', 'Analyst', EARLY),
+    ev('Fabrikam Labs', 'Analyst', LATE, 8.5, 7.5),
+  ))
+  assert.equal(t.evals, 2)
+  assert.equal(t.scoredEvals, 1)
+  assert.equal(t.blockedEvals, 1)
+  assert.equal(t.verdictFrom, 'blocked')
+  assert.equal(t.verdictTo, 'go')
+  assert.equal(t.verdictMove, 'upgrade')
+  assert.equal(t.verdictMoveDetectable, true)
+  assert.equal(t.blockedFrom, true)
+  assert.equal(t.blockedTo, false)
+  assert.equal(t.want.n, 1)
+  assert.equal(t.want.delta, null)
+  assert.equal(t.want.movementClass, 'unknown')
+  assert.equal(t.want.confidence, 'insufficient')
+  assert.deepEqual(t.sequence[0], { date: EARLY, want: null, ease: null, verdict: 'blocked' })
+})
+
+test('scored → blocked is a downgrade; blocked → blocked is unchanged', () => {
+  const [down] = listingTrajectories(parse(
+    ev('Contoso Retail', 'Analyst', EARLY, 7.0, 7.5),
+    blockedEv('Contoso Retail', 'Analyst', LATE),
+  ))
+  assert.equal(down.verdictMove, 'downgrade')
+  assert.equal(down.verdictMoveDetectable, true)
+  const [same] = listingTrajectories(parse(
+    blockedEv('Contoso Retail', 'Analyst', EARLY),
+    blockedEv('Contoso Retail', 'Analyst', LATE),
+  ))
+  assert.equal(same.verdictMove, 'same')
+  assert.equal(same.verdictChanged, false)
+})
+
+test('blocked evals in the middle are excluded from the Want / Ease track', () => {
+  const [t] = listingTrajectories(parse(
+    ev('Northwind', 'Analyst', EARLY, 6.0, 6.0),
+    blockedEv('Northwind', 'Analyst', LATE),
+    ev('Northwind', 'Analyst', '2026-07-01', 7.0, 6.0),
+  ))
   assert.equal(t.evals, 3)
-  assert.equal(t.firstOverall, 6.0)
-  assert.equal(t.latestOverall, 6.5)
-  assert.equal(t.delta, 0.5)
-  assert.equal(t.peakOverall, 8.0)
-  assert.equal(t.troughOverall, 6.0)
-  assert.equal(t.sequence.length, 3)
+  assert.equal(t.want.n, 2)
+  assert.equal(t.want.delta, 1)
+  assert.equal(t.want.trough, 6)
 })
 
-test('listingTrajectories sorts biggest absolute mover first', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Small', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Small', role: 'A', date: '2026-05-10', overall: 7.3 }),  // +0.3
-    row({ company: 'Big', role: 'B', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Big', role: 'B', date: '2026-05-10', overall: 5.5 }),    // -1.5
+test('detectable verdict moves sort first, then the move furthest past its floor', () => {
+  const ts = listingTrajectories(parse(
+    ev('Big Mover', 'Analyst', EARLY, 6.6, 3.0), ev('Big Mover', 'Analyst', LATE, 7.9, 4.0), // skip → skip, large Ease move
+    ev('Verdict Mover', 'Analyst', EARLY, 7.0, 7.5), ev('Verdict Mover', 'Analyst', LATE, 8.5, 7.5),
+    ev('Small Mover', 'Analyst', EARLY, 7.0, 6.0), ev('Small Mover', 'Analyst', LATE, 7.4, 6.0),
   ))
-  const traj = listingTrajectories(rows)
-  assert.equal(traj[0].company, 'Big')   // |−1.5| > |+0.3|
-  assert.equal(traj[1].company, 'Small')
+  assert.deepEqual(ts.map(t => t.company), ['Verdict Mover', 'Big Mover', 'Small Mover'])
 })
 
-// ─── trajectorySummary: verdict split + band up/downgrades ────────────────────
+// ─── trajectorySummary ────────────────────────────────────────────────────
 
-test('trajectorySummary tallies verdicts and band moves', () => {
-  const rows = parseScoreHistory(tsv(
-    // improving + band upgrade: pass(6.5) → solid(7.2)
-    row({ company: 'Up', role: 'A', date: '2026-05-01', overall: 6.5 }),
-    row({ company: 'Up', role: 'A', date: '2026-05-10', overall: 7.2 }),
-    // declining + band downgrade: solid(7.1) → pass(6.3)
-    row({ company: 'Down', role: 'B', date: '2026-05-01', overall: 7.1 }),
-    row({ company: 'Down', role: 'B', date: '2026-05-10', overall: 6.3 }),
-    // stable: 7.0 → 7.1 (within dead-band)
-    row({ company: 'Flat', role: 'C', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Flat', role: 'C', date: '2026-05-10', overall: 7.1 }),
+test('trajectorySummary tallies Want and Ease separately and counts verdict moves', () => {
+  const ts = listingTrajectories(parse(
+    ev('A Co', 'Analyst', EARLY, 7.0, 7.5), ev('A Co', 'Analyst', LATE, 8.5, 7.5),   // want ↑, ease flat, upgrade
+    ev('B Co', 'Analyst', EARLY, 7.0, 6.0), ev('B Co', 'Analyst', LATE, 7.1, 5.0),   // want flat, ease ↓, thin→thin
+    blockedEv('C Co', 'Analyst', EARLY), ev('C Co', 'Analyst', LATE, 7.0, 7.5),      // blocked → solid
   ))
-  const sum = trajectorySummary(listingTrajectories(rows))
-  assert.equal(sum.reevaluated, 3)
-  assert.equal(sum.verdicts.improving, 1)
-  assert.equal(sum.verdicts.declining, 1)
-  assert.equal(sum.verdicts.stable, 1)
-  assert.equal(sum.bandUpgrades, 1)
-  assert.equal(sum.bandDowngrades, 1)
+  const s = trajectorySummary(ts)
+  assert.equal(s.reevaluated, 3)
+  assert.deepEqual(s.want, { n: 2, improving: 1, declining: 0, withinNoise: 1, detectable: 1, avgDelta: 0.8, medianDelta: 0.8, noiseFloor: WANT_NOISE_FLOOR })
+  assert.equal(s.ease.n, 2)
+  assert.equal(s.ease.declining, 1)
+  assert.equal(s.ease.withinNoise, 1)
+  assert.deepEqual(s.verdictMoves, { upgrade: 2, downgrade: 0, same: 1, unknown: 0 })
+  for (const gone of ['verdicts', 'avgDelta', 'bandUpgrades', 'bandDowngrades', 'movement', 'noiseFloor']) {
+    assert.equal(gone in s, false, `${gone} should be gone`)
+  }
 })
 
-// ─── landscapeTrend: split, guards, share delta ───────────────────────────────
-
-test('landscapeTrend reports insufficientData below the row floor', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 7 }),
-    row({ date: '2026-05-02', overall: 7 }),
-  ))
-  const t = landscapeTrend(rows) // 2 rows < minPerWindow*2 (6)
-  assert.equal(t.insufficientData, true)
+test('trajectorySummary on empty trajectories returns zero-state', () => {
+  const s = trajectorySummary([])
+  assert.equal(s.reevaluated, 0)
+  assert.equal(s.want.n, 0)
+  assert.equal(s.want.avgDelta, 0)
+  assert.deepEqual(s.verdictMoves, { upgrade: 0, downgrade: 0, same: 0, unknown: 0 })
 })
 
-test('landscapeTrend reports insufficientData when all evals share one date', () => {
-  const rows = parseScoreHistory(tsv(
-    ...Array.from({ length: 8 }, () => row({ date: '2026-05-01', overall: 7 })),
+// ─── verdictMoves (corpus roll-up) ────────────────────────────────────────
+
+test('verdictMoves lists the listings and gates the count as a corpus claim', () => {
+  const ts = listingTrajectories(parse(
+    ev('A Co', 'Analyst', EARLY, 7.0, 7.5), ev('A Co', 'Analyst', LATE, 8.5, 7.5),
+    ev('B Co', 'Analyst', EARLY, 7.9, 7.5), ev('B Co', 'Analyst', LATE, 8.1, 7.5),
+    ev('C Co', 'Analyst', EARLY, 8.5, 7.5), blockedEv('C Co', 'Analyst', LATE),
   ))
-  const t = landscapeTrend(rows) // plenty of rows, but 1 distinct date → no time axis
-  assert.equal(t.insufficientData, true)
-  assert.equal(t.distinctDates, 1)
+  const { verdictUpgrades: up, verdictDowngrades: down } = verdictMoves(ts)
+  assert.equal(up.count, 2)
+  assert.equal(up.detectable, 1)
+  assert.equal(up.n, 3)
+  assert.equal(up.gate, GATES.trendMinPerWindowForVerdict)
+  assert.equal(up.insufficientData, true)
+  assert.equal(up.confidence, 'insufficient')
+  assert.deepEqual(up.listings.map(l => l.company).sort(), ['A Co', 'B Co'])
+  assert.equal(down.count, 1)
+  assert.deepEqual(down.listings[0], {
+    key: listingKey('C Co', 'Analyst'), company: 'C Co', role: 'Analyst',
+    from: 'go', to: 'blocked', firstDate: EARLY, latestDate: LATE, evals: 2, detectable: true,
+  })
+  const ten = verdictMoves(ts, { gate: 3 })
+  assert.equal(ten.verdictUpgrades.insufficientData, false)
+  assert.equal(ten.verdictUpgrades.confidence, 'low')
 })
 
-test('landscapeTrend splits at the median date and computes an upward trend', () => {
-  // 3 older roles avg 6.0, 3 recent roles avg 8.0 → recent sharper.
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 6.0 }),
-    row({ date: '2026-05-02', overall: 6.0 }),
-    row({ date: '2026-05-03', overall: 6.0 }),
-    row({ date: '2026-05-20', overall: 8.0 }),
-    row({ date: '2026-05-21', overall: 8.0 }),
-    row({ date: '2026-05-22', overall: 8.0 }),
-  ))
-  const t = landscapeTrend(rows)
-  assert.equal(t.insufficientData, false)
-  assert.equal(t.older.count, 3)
-  assert.equal(t.recent.count, 3)
-  assert.equal(t.older.avgOverall, 6.0)
-  assert.equal(t.recent.avgOverall, 8.0)
-  assert.equal(t.delta, 2.0)
-  assert.equal(t.verdict, 'improving')
-  // strong/solid share: older 0% (all 6.0 = pass), recent 100% (all 8.0 = strong)
-  assert.equal(t.older.strongSolidShare, 0)
-  assert.equal(t.recent.strongSolidShare, 100)
-  assert.equal(t.strongSolidShareDelta, 100)
-})
+// ─── landscapeTrend ───────────────────────────────────────────────────────
 
-test('landscapeTrend detects a downward trend', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 8.0 }),
-    row({ date: '2026-05-02', overall: 8.0 }),
-    row({ date: '2026-05-03', overall: 8.0 }),
-    row({ date: '2026-05-20', overall: 6.0 }),
-    row({ date: '2026-05-21', overall: 6.0 }),
-    row({ date: '2026-05-22', overall: 6.0 }),
-  ))
-  const t = landscapeTrend(rows)
-  assert.equal(t.verdict, 'declining')
-  assert.equal(t.delta, -2.0)
-})
-
-test('landscapeTrend stays stable inside the ±0.15 landscape dead-band', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 7.0 }),
-    row({ date: '2026-05-02', overall: 7.1 }),
-    row({ date: '2026-05-03', overall: 7.0 }),
-    row({ date: '2026-05-20', overall: 7.05 }),
-    row({ date: '2026-05-21', overall: 7.1 }),
-    row({ date: '2026-05-22', overall: 7.0 }),
-  ))
-  const t = landscapeTrend(rows)
-  assert.equal(t.insufficientData, false)
-  assert.equal(t.verdict, 'stable')
+test('landscapeTrend early-outs carry withheld Want / Ease blocks and the gate', () => {
+  const few = landscapeTrend(parse(...windowRows(EARLY, 2, 7, 7), ...windowRows(LATE, 2, 7, 7)))
+  const oneDate = landscapeTrend(parse(...windowRows(EARLY, 12, 7, 7)))
+  for (const t of [few, oneDate]) {
+    assert.equal(t.insufficientData, true)
+    assert.ok(t.reason)
+    assert.equal(t.verdictGate.met, false)
+    assert.equal(t.verdictConfidence, 'insufficient')
+    for (const m of ['want', 'ease']) {
+      assert.equal(t[m].movementClass, 'insufficient-data')
+      assert.equal(t[m].reportableVerdict, 'insufficient-data')
+      assert.equal(t[m].delta, null)
+    }
+    assert.equal(t.actionableShareDelta, null)
+    assert.ok(t.verdictUpgrades && t.verdictDowngrades)
+  }
+  assert.equal(oneDate.distinctDates, 1)
 })
 
 test('landscapeTrend picks a balanced split, not the lopsided median-date cut', () => {
-  // Dates: 05-01(×1), 05-02(×4), 05-03(×4). Distinct dates = 3, so the naive
-  // "median date" cut is at 05-02 → older = 1 row (starved). The balanced-split
-  // search instead cuts at 05-03: older = 5 (05-01 + 05-02), recent = 4. Both
-  // clear the floor and the split is as close to 50/50 as the calendar allows.
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 6.0 }),
-    row({ date: '2026-05-02', overall: 6.0 }),
-    row({ date: '2026-05-02', overall: 6.0 }),
-    row({ date: '2026-05-02', overall: 6.0 }),
-    row({ date: '2026-05-02', overall: 6.0 }),
-    row({ date: '2026-05-03', overall: 8.0 }),
-    row({ date: '2026-05-03', overall: 8.0 }),
-    row({ date: '2026-05-03', overall: 8.0 }),
-    row({ date: '2026-05-03', overall: 8.0 }),
+  const t = landscapeTrend(parse(
+    ...windowRows('2026-05-01', 4, 7, 7),
+    ...windowRows('2026-05-02', 4, 7, 7),
+    ...windowRows('2026-05-03', 12, 7, 7),
   ))
-  const t = landscapeTrend(rows)
-  assert.equal(t.insufficientData, false)
   assert.equal(t.splitDate, '2026-05-03')
-  assert.equal(t.older.count, 5)
-  assert.equal(t.recent.count, 4)
+  assert.equal(t.earlier.count, 8)
+  assert.equal(t.later.count, 12)
 })
 
 test('landscapeTrend reports insufficientData when no boundary yields two viable windows', () => {
-  // One lone early row then a big same-day batch — no cut gives older ≥ 3.
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 6.0 }),
-    row({ date: '2026-05-02', overall: 6.0 }),
-    ...Array.from({ length: 6 }, () => row({ date: '2026-05-03', overall: 8.0 })),
-  ))
-  const t = landscapeTrend(rows)
+  const t = landscapeTrend(parse(...windowRows(EARLY, 2, 7, 7), ...windowRows(LATE, 10, 7, 7)))
   assert.equal(t.insufficientData, true)
+  assert.match(t.reason, /too concentrated/)
 })
 
-// ─── trendRecommendations: gates ──────────────────────────────────────────────
+test('corpus verdict is WITHHELD with 9 scored evals per window (numbers stay auditable)', () => {
+  const t = landscapeTrend(parse(...windowRows(EARLY, 9, 7.0, 6.0), ...windowRows(LATE, 9, 8.0, 6.0)))
+  assert.equal(t.insufficientData, false)
+  assert.equal(t.verdictGate.met, false)
+  assert.equal(t.verdictGate.earlierCount, 9)
+  assert.equal(t.verdictGate.laterCount, 9)
+  assert.match(t.verdictGate.reason, /withheld/)
+  assert.equal(t.want.delta, 1)
+  assert.equal(t.want.movementClass, 'insufficient-data')
+  assert.equal(t.want.reportableVerdict, 'insufficient-data')
+  assert.equal(t.want.detectable, false)
+  assert.equal(t.want.confidence, 'insufficient')
+  assert.equal(t.verdictConfidence, 'insufficient')
+})
+
+test('corpus verdict UNLOCKS at exactly 10 per window; Want and Ease read separately', () => {
+  const t = landscapeTrend(parse(...windowRows(EARLY, 10, 7.0, 6.0), ...windowRows(LATE, 10, 7.5, 6.2)))
+  assert.equal(t.verdictGate.met, true)
+  assert.equal(t.verdictConfidence, 'low')
+  assert.deepEqual(
+    { earlier: t.want.earlier, later: t.want.later, delta: t.want.delta },
+    { earlier: 7, later: 7.5, delta: 0.5 },
+  )
+  assert.equal(t.want.movementClass, 'improving')
+  assert.equal(t.want.reportableVerdict, 'improving')
+  assert.equal(t.want.noiseFloor, WANT_NOISE_FLOOR)
+  assert.equal(t.want.n, 10)
+  assert.equal(t.want.confidence, 'low')
+  assert.equal(t.ease.delta, 0.2)
+  assert.equal(t.ease.movementClass, 'within-noise')
+  assert.equal(t.ease.reportableVerdict, 'flat-within-noise')
+  assert.equal(t.ease.noiseFloor, EASE_NOISE_FLOOR)
+  for (const gone of ['older', 'recent', 'delta', 'verdict', 'reportableVerdict', 'strongSolidShareDelta', 'noiseFloor']) {
+    assert.equal(gone in t, false, `${gone} should be gone`)
+  }
+})
+
+test('corpus verdict confidence rises with window size (g = 10)', () => {
+  const tier = (n) => landscapeTrend(parse(...windowRows(EARLY, n, 7, 6), ...windowRows(LATE, n, 7, 6))).verdictConfidence
+  assert.equal(tier(10), 'low')
+  assert.equal(tier(20), 'moderate')
+  assert.equal(tier(40), 'high')
+})
+
+test('actionableShareDelta is the go+stretch+solid share later − earlier, in points', () => {
+  const t = landscapeTrend(parse(
+    ...windowRows(EARLY, 2, 8.5, 7.5, 'e-go'), ...windowRows(EARLY, 8, 6.0, 6.0, 'e-skip'),   // 20%
+    ...windowRows(LATE, 5, 7.0, 7.5, 'l-solid'), ...windowRows(LATE, 5, 6.0, 6.0, 'l-skip'), // 50%
+  ))
+  assert.equal(t.earlier.actionableShare, 20)
+  assert.equal(t.earlier.actionableCount, 2)
+  assert.equal(t.earlier.verdicts.go, 2)
+  assert.equal(t.earlier.verdicts.skip, 8)
+  assert.equal(t.later.actionableShare, 50)
+  assert.equal(t.later.verdicts.solid, 5)
+  assert.equal(t.actionableShareDelta, 30)
+})
+
+test('blocked rows never count toward a window, but are counted beside it', () => {
+  const t = landscapeTrend(parse(
+    ...windowRows(EARLY, 10, 7, 6),
+    ...Array.from({ length: 5 }, (_, i) => blockedEv(`Blocked ${i}`, 'Analyst', EARLY)),
+    ...windowRows(LATE, 10, 7, 6),
+  ))
+  assert.equal(t.evaluated, 20)
+  assert.equal(t.blocked, 5)
+  assert.equal(t.earlier.count, 10)
+  assert.equal(t.earlier.blocked, 5)
+  assert.equal(t.later.blocked, 0)
+  assert.equal(t.verdictGate.earlierCount, 10)
+  assert.equal(t.want.earlier, 7, 'blocked rows are not read as 0')
+})
+
+test('landscapeTrend accepts a caller-supplied verdict gate and floors', () => {
+  const rows = parse(...windowRows(EARLY, 6, 7.0, 6.0), ...windowRows(LATE, 6, 7.2, 6.0))
+  const t = landscapeTrend(rows, { minPerWindowForVerdict: 6, wantFloor: 0.1 })
+  assert.equal(t.verdictGate.met, true)
+  assert.equal(t.want.noiseFloor, 0.1)
+  assert.equal(t.want.movementClass, 'improving')
+})
+
+test('landscapeTrend carries the verdict upgrades / downgrades of re-evaluated listings', () => {
+  const t = landscapeTrend(parse(
+    ...windowRows(EARLY, 10, 7, 6), ...windowRows(LATE, 10, 7, 6),
+    ev('Re Co', 'Analyst', EARLY, 7.0, 7.5), ev('Re Co', 'Analyst', LATE, 8.5, 7.5),
+  ))
+  assert.equal(t.verdictUpgrades.count, 1)
+  assert.equal(t.verdictUpgrades.listings[0].company, 'Re Co')
+  assert.equal(t.verdictDowngrades.count, 0)
+})
+
+// ─── trendRecommendations ─────────────────────────────────────────────────
 
 test('trendRecommendations flags the sharpest decliner and strongest improver', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Faller', role: 'D', date: '2026-05-01', overall: 7.2 }),
-    row({ company: 'Faller', role: 'D', date: '2026-05-20', overall: 6.2 }),   // -1.0
-    row({ company: 'Riser', role: 'R', date: '2026-05-01', overall: 6.5 }),
-    row({ company: 'Riser', role: 'R', date: '2026-05-20', overall: 7.6 }),    // +1.1, band cross
+  const ts = listingTrajectories(parse(
+    ev('Down Co', 'Analyst', EARLY, 8.5, 7.5), ev('Down Co', 'Analyst', LATE, 7.0, 7.5),
+    ev('Up Co', 'Analyst', EARLY, 6.0, 6.0), ev('Up Co', 'Analyst', LATE, 6.0, 7.2),
   ))
-  const traj = listingTrajectories(rows)
-  const recs = trendRecommendations(traj, { insufficientData: true })
-  assert.ok(recs.some(r => /Re-check "Faller/.test(r.action)))
-  assert.ok(recs.some(r => /Prioritize "Riser/.test(r.action)))
-  // Riser crossed pass→solid → high impact.
-  const riserRec = recs.find(r => /Riser/.test(r.action))
-  assert.equal(riserRec.impact, 'high')
+  const recs = trendRecommendations(ts, null)
+  assert.equal(recs.length, 2)
+  assert.match(recs[0].action, /^Re-check "Down Co — Analyst": verdict Go → Solid · Want 8\.5 → 7 \(-1\.5\)/)
+  assert.equal(recs[0].impact, 'high')
+  assert.equal(recs[0].confidence, 'low')
+  assert.equal(recs[0].sampleSize, 2)
+  assert.match(recs[1].action, /^Prioritize "Up Co — Analyst": .*Ease 6 → 7\.2 \(\+1\.2\)/)
+  for (const r of recs) assert.doesNotMatch(r.action, /Overall|\/10/)
 })
 
-test('trendRecommendations stays silent on movements below minDelta', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Tiny', role: 'T', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Tiny', role: 'T', date: '2026-05-20', overall: 7.3 }),   // +0.3 < 0.5
+test('trendRecommendations stays silent on sub-floor and sub-minDelta moves', () => {
+  const ts = listingTrajectories(parse(
+    ev('Flat Co', 'Analyst', EARLY, 7.0, 6.0), ev('Flat Co', 'Analyst', LATE, 7.2, 6.2),
+    ev('Small Co', 'Analyst', EARLY, 7.0, 6.0), ev('Small Co', 'Analyst', LATE, 7.4, 6.0),
   ))
-  const recs = trendRecommendations(listingTrajectories(rows), { insufficientData: true })
-  assert.equal(recs.length, 0)
+  assert.deepEqual(trendRecommendations(ts, null), [])
 })
 
-test('trendRecommendations emits a landscape verdict line when trending up', () => {
-  const trend = {
-    insufficientData: false, verdict: 'improving',
-    recent: { avgOverall: 7.8 }, older: { avgOverall: 6.9 },
-    delta: 0.9, strongSolidShareDelta: 20,
-  }
-  const recs = trendRecommendations([], trend)
-  assert.ok(recs.some(r => /Targeting is sharpening/.test(r.action)))
+test('a blocked → scored move is recommended with the eligibility reason', () => {
+  const ts = listingTrajectories(parse(blockedEv('Gate Co', 'Analyst', EARLY), ev('Gate Co', 'Analyst', LATE, 8.5, 7.5)))
+  const [rec] = trendRecommendations(ts, null)
+  assert.match(rec.action, /Prioritize "Gate Co — Analyst": verdict Blocked → Go/)
+  assert.match(rec.reasoning, /eligibility gate/)
 })
-
-// ─── analyzeTrend: end-to-end shape + error guards ────────────────────────────
-
-test('analyzeTrend returns a structured analysis object', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'A', role: 'r', date: '2026-05-01', overall: 6.0 }),
-    row({ company: 'A', role: 'r', date: '2026-05-20', overall: 7.0 }),
-    row({ company: 'B', role: 's', date: '2026-05-02', overall: 6.0 }),
-    row({ company: 'C', role: 't', date: '2026-05-03', overall: 8.0 }),
-    row({ company: 'D', role: 'u', date: '2026-05-21', overall: 8.0 }),
-    row({ company: 'E', role: 'v', date: '2026-05-22', overall: 8.0 }),
-  ))
-  const out = analyzeTrend(rows)
-  assert.equal(out.metadata.evaluated, 6)
-  assert.equal(out.metadata.reevaluatedListings, 1)   // only (A, r) repeats
-  assert.equal(out.metadata.dateRange.from, '2026-05-01')
-  assert.ok(Array.isArray(out.listingTrajectories))
-  assert.ok(out.trajectorySummary)
-  assert.ok(out.landscapeTrend)
-  assert.ok(Array.isArray(out.recommendations))
-})
-
-test('analyzeTrend errors on empty or score-less input', () => {
-  assert.ok(analyzeTrend([]).error)
-  const noScores = parseScoreHistory(tsv(row({ overall: 'x' })))
-  assert.ok(analyzeTrend(noScores).error)
-})
-
-/* ═══════════════════════════════════════════════════════════════════════════
- * Additional edge-case coverage (extension round)
- * ═══════════════════════════════════════════════════════════════════════════ */
-
-// ─── listingTrajectories: rows missing date or non-finite overall ──────────
-
-test('listingTrajectories skips rows that have no date', () => {
-  // A row without a date field is not eligible for trajectories.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Nodater', role: 'X', overall: 7.0, date: '' }),
-    row({ company: 'Nodater', role: 'X', overall: 7.5, date: '' }),
-  ))
-  // Both rows parsed with empty date → filtered out → no trajectory.
-  assert.deepEqual(listingTrajectories(rows), [])
-})
-
-test('listingTrajectories skips rows with non-finite overall (NaN / string)', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'BadScore', role: 'Y', overall: 'TBD', date: '2026-05-01' }),
-    row({ company: 'BadScore', role: 'Y', overall: 7.0,   date: '2026-05-10' }),
-  ))
-  // Only 1 row is scoreable → no trajectory (need ≥2 distinct-date scored rows).
-  assert.deepEqual(listingTrajectories(rows), [])
-})
-
-// ─── trajectorySummary: empty input + all-stable ──────────────────────────
-
-test('trajectorySummary on empty trajectories returns zero-state', () => {
-  const sum = trajectorySummary([])
-  assert.equal(sum.reevaluated, 0)
-  assert.equal(sum.avgDelta, 0)
-  assert.equal(sum.medianDelta, 0)
-  assert.equal(sum.bandUpgrades, 0)
-  assert.equal(sum.bandDowngrades, 0)
-  assert.deepEqual(sum.verdicts, { improving: 0, declining: 0, stable: 0 })
-})
-
-test('trajectorySummary with all-stable trajectories has zero band moves', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'P', role: 'q', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'P', role: 'q', date: '2026-05-10', overall: 7.1 }),
-    row({ company: 'Q', role: 'r', date: '2026-05-01', overall: 8.0 }),
-    row({ company: 'Q', role: 'r', date: '2026-05-10', overall: 8.1 }),
-  ))
-  const sum = trajectorySummary(listingTrajectories(rows))
-  assert.equal(sum.verdicts.stable, 2)
-  assert.equal(sum.bandUpgrades, 0)
-  assert.equal(sum.bandDowngrades, 0)
-})
-
-// ─── classifyDelta: Infinity / -Infinity ──────────────────────────────────
-
-test('classifyDelta handles Infinity as improving (finite check is already in guard)', () => {
-  // Infinity IS finite? No — Number.isFinite(Infinity) is false → 'unknown'.
-  assert.equal(classifyDelta(Infinity), 'unknown')
-  assert.equal(classifyDelta(-Infinity), 'unknown')
-})
-
-// ─── landscapeTrend: custom minPerWindow ──────────────────────────────────
-
-test('landscapeTrend respects a custom minPerWindow=1', () => {
-  // With minPerWindow=1, even a 2-row dataset with 2 distinct dates qualifies.
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 6.0 }),
-    row({ date: '2026-05-20', overall: 8.0 }),
-  ))
-  const t = landscapeTrend(rows, { minPerWindow: 1 })
-  assert.equal(t.insufficientData, false)
-  assert.equal(t.older.count, 1)
-  assert.equal(t.recent.count, 1)
-  assert.equal(t.delta, 2.0)
-})
-
-// ─── landscapeTrend: the "stable" verdict uses a ±0.15 dead-band ─────────
-
-test('landscapeTrend stable verdict at exactly ±0.15 boundary', () => {
-  // Use values that produce delta = exactly 0.15 (or -0.15) — should be 'stable'.
-  const rows = parseScoreHistory(tsv(
-    row({ date: '2026-05-01', overall: 7.0 }),
-    row({ date: '2026-05-02', overall: 7.0 }),
-    row({ date: '2026-05-03', overall: 7.0 }),
-    row({ date: '2026-05-20', overall: 7.15 }),
-    row({ date: '2026-05-21', overall: 7.15 }),
-    row({ date: '2026-05-22', overall: 7.15 }),
-  ))
-  const t = landscapeTrend(rows)
-  // delta = 0.15 which is NOT strictly > 0.15 → should be 'stable' per classifyDelta(_, {stableBand:0.15}).
-  assert.equal(t.verdict, 'stable')
-})
-
-// ─── trendRecommendations: declining landscape verdict ───────────────────
-
-test('trendRecommendations emits a declining-landscape verdict', () => {
-  const trend = {
-    insufficientData: false, verdict: 'declining',
-    recent: { avgOverall: 6.2 }, older: { avgOverall: 7.5 },
-    delta: -1.3, strongSolidShareDelta: -20,
-  }
-  const recs = trendRecommendations([], trend)
-  assert.ok(recs.some(r => /quality is sliding/.test(r.action)))
-  const rec = recs.find(r => /quality is sliding/.test(r.action))
-  assert.equal(rec.impact, 'high')
-})
-
-test('trendRecommendations is silent when trend is insufficient data', () => {
-  const trend = { insufficientData: true }
-  const recs = trendRecommendations([], trend)
-  // No landscape-level rec when there is no usable trend.
-  assert.ok(!recs.some(r => /sharpening|sliding/.test(r.action)))
-})
-
-// ─── listingTrajectories: topMover is null when no dimension changed ───────
-
-test('listingTrajectories topMover is null when all dimensions are identical across evals', () => {
-  // Both evaluations have every dimension the same — only overall differs (forced).
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Flat', role: 'Z', date: '2026-05-01', overall: 6.5 }),
-    row({ company: 'Flat', role: 'Z', date: '2026-05-10', overall: 7.5 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  // Every base dimension in the row() helper is the same across both evals,
-  // so no dim delta is non-zero → topMover is null.
-  assert.equal(t.topMover, null)
-})
-
-// ─── listingTrajectories: sequence has all eval dates in order ────────────
-
-test('listingTrajectories sequence is chronological even if rows arrived out of order', () => {
-  // Feed rows in reverse-chronological order; the output sequence must be sorted.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'OutOfOrder', role: 'A', date: '2026-05-20', overall: 8.0 }),
-    row({ company: 'OutOfOrder', role: 'A', date: '2026-05-01', overall: 6.0 }),
-    row({ company: 'OutOfOrder', role: 'A', date: '2026-05-10', overall: 7.0 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  const dates = t.sequence.map(s => s.date)
-  assert.deepEqual(dates, ['2026-05-01', '2026-05-10', '2026-05-20'])
-  // first and latest should reflect the true chronological endpoints.
-  assert.equal(t.firstOverall, 6.0)
-  assert.equal(t.latestOverall, 8.0)
-})
-
-// ─── analyzeTrend: passes custom stableBand through ──────────────────────
-
-test('analyzeTrend passes a custom stableBand to listingTrajectories', () => {
-  // A delta of 0.3 is improving under the default 0.25 band but stable under 0.5.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Tight', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Tight', role: 'A', date: '2026-05-10', overall: 7.3 }),
-  ))
-  const defaultOut = analyzeTrend(rows, {})
-  const wideOut    = analyzeTrend(rows, { stableBand: 0.5 })
-  const defaultT = defaultOut.listingTrajectories[0]
-  const wideT    = wideOut.listingTrajectories[0]
-  assert.equal(defaultT.verdict, 'improving') // 0.3 > 0.25 default → improving
-  assert.equal(wideT.verdict, 'stable')       // 0.3 ≤ 0.5 wide band → stable
-})
-
-// ═══════════════════════════════════════════════════════════════════════════
-// Statistical contract (docs/scoring-statistical-design.md)
-//
-// Everything below pins the ADDED surface: the noise-floor classification on
-// per-listing moves and the ≥10-per-window gate on the corpus verdict. The
-// pre-contract fields (`verdict`, `insufficientData`, the window blocks) must
-// keep their old names, types, and dead-bands throughout.
-// ═══════════════════════════════════════════════════════════════════════════
-
-// n scored rows on n distinct dates, one listing each — a calendar window.
-function windowRows(prefix, count, overall, startDay) {
-  return Array.from({ length: count }, (_, i) =>
-    row({
-      company: `${prefix}${i}`,
-      role: 'A',
-      date: `2026-05-${String(startDay + i).padStart(2, '0')}`,
-      overall,
-    }))
-}
-
-// ─── per-listing: the noise floor ────────────────────────────────────────────
-
-test('trajectory: a delta EXACTLY at the noise floor is detectable', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Floor', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Floor', role: 'A', date: '2026-05-10', overall: 7.3 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.delta, 0.3)
-  assert.equal(t.detectable, true)
-  assert.equal(t.movementClass, 'improving')
-  assert.equal(t.noiseFloor, OVERALL_NOISE_FLOOR)
-})
-
-test('trajectory: a delta just under the floor is within-noise, not a direction', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Wobble', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Wobble', role: 'A', date: '2026-05-10', overall: 7.29 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.detectable, false)
-  assert.equal(t.movementClass, 'within-noise')
-  // ...while the legacy field still reads 'improving' under its own ±0.25 band.
-  assert.equal(t.verdict, 'improving')
-})
-
-test('trajectory: one CF-dimension step alone never classifies as movement', () => {
-  // 7.00 → 7.23 is what a single Current Fit dim re-judging by one integer does.
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'OneDim', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'OneDim', role: 'A', date: '2026-05-10', overall: 7.23 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.movementClass, 'within-noise')
-})
-
-test('trajectory: a declining move past the floor classifies as declining', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Slide', role: 'A', date: '2026-05-01', overall: 8.0 }),
-    row({ company: 'Slide', role: 'A', date: '2026-05-10', overall: 7.2 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.movementClass, 'declining')
-  assert.equal(t.detectable, true)
-})
-
-test('trajectory: a two-eval trajectory can never read above low confidence', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Two', role: 'A', date: '2026-05-01', overall: 5.0 }),
-    row({ company: 'Two', role: 'A', date: '2026-05-10', overall: 9.0 }),
-  ))
-  const [t] = listingTrajectories(rows)
-  assert.equal(t.evals, 2)
-  assert.equal(t.delta, 4)          // an enormous move...
-  assert.equal(t.confidence, 'low') // ...still with only one difference behind it
-})
-
-test('trajectory confidence climbs with the evaluation count', () => {
-  const mk = (days) => parseScoreHistory(tsv(
-    ...days.map((d, i) => row({
-      company: 'Many', role: 'A', date: `2026-05-${d}`, overall: 7 + i * 0.1,
-    })),
-  ))
-  const four = listingTrajectories(mk(['01', '02', '03', '04']))[0]
-  assert.equal(four.evals, 4)
-  assert.equal(four.confidence, 'moderate')
-  const eight = listingTrajectories(mk(['01', '02', '03', '04', '05', '06', '07', '08']))[0]
-  assert.equal(eight.confidence, 'high')
-})
-
-test('trajectorySummary splits detectable moves from flat-within-noise ones', () => {
-  const rows = parseScoreHistory(tsv(
-    // a real climb
-    row({ company: 'Real', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Real', role: 'A', date: '2026-05-10', overall: 8.0 }),
-    // a wobble under the floor
-    row({ company: 'Noise', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Noise', role: 'A', date: '2026-05-10', overall: 7.1 }),
-  ))
-  const sum = trajectorySummary(listingTrajectories(rows))
-  assert.equal(sum.detectable, 1)
-  assert.equal(sum.withinNoise, 1)
-  assert.equal(sum.movement.improving, 1)
-  assert.equal(sum.movement['within-noise'], 1)
-  assert.equal(sum.noiseFloor, OVERALL_NOISE_FLOOR)
-  // Legacy fields untouched: the 0.1 wobble is still 'stable' under ±0.25.
-  assert.equal(sum.reevaluated, 2)
-  assert.equal(sum.verdicts.improving, 1)
-  assert.equal(sum.verdicts.stable, 1)
-})
-
-test('trajectorySummary tolerates pre-contract trajectory objects', () => {
-  // A caller holding a trajectory built before this contract (no movementClass)
-  // still gets a correct movement split, derived from its delta.
-  const sum = trajectorySummary([
-    { verdict: 'improving', delta: 0.8, bandChanged: false },
-    { verdict: 'stable', delta: 0.05, bandChanged: false },
-  ])
-  assert.equal(sum.detectable, 1)
-  assert.equal(sum.withinNoise, 1)
-})
-
-// ─── corpus verdict: the ≥10-per-window gate ────────────────────────────────
-
-test('landscapeTrend attaches a withheld verdictGate on both early-out paths', () => {
-  // (a) no usable time axis at all
-  const tooFew = landscapeTrend(parseScoreHistory(tsv(
-    row({ company: 'A', role: 'A', date: '2026-05-01', overall: 7 }),
-    row({ company: 'B', role: 'B', date: '2026-05-02', overall: 7 }),
-  )))
-  assert.equal(tooFew.insufficientData, true)
-  assert.equal(tooFew.verdictGate.met, false)
-  assert.equal(tooFew.reportableVerdict, 'insufficient-data')
-
-  // (b) dates too concentrated for any balanced boundary (8 on one date, 1 on another)
-  const concentrated = landscapeTrend(parseScoreHistory(tsv(
-    ...Array.from({ length: 8 }, (_, i) =>
-      row({ company: `C${i}`, role: 'A', date: '2026-05-01', overall: 7 })),
-    row({ company: 'Late', role: 'A', date: '2026-05-20', overall: 8 }),
-  )))
-  assert.equal(concentrated.insufficientData, true)
-  assert.equal(concentrated.reportableVerdict, 'insufficient-data')
-  assert.equal(concentrated.verdictGate.met, false)
-})
-
-test('corpus verdict is WITHHELD with 9 evals per window (one under the gate)', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 9, 6.0, 1),
-    ...windowRows('New', 9, 8.0, 11),
-  ))
-  const t = landscapeTrend(rows)
-  assert.equal(t.insufficientData, false)  // legacy field: a split does exist
-  assert.equal(t.verdict, 'improving')     // legacy field: unchanged
-  assert.equal(t.verdictGate.met, false)
-  assert.equal(t.verdictGate.olderCount, 9)
-  assert.equal(t.reportableVerdict, 'insufficient-data')
-  assert.equal(t.verdictConfidence, 'insufficient')
-  assert.match(t.verdictGate.reason, /10 required/)
-})
-
-test('corpus verdict UNLOCKS at exactly 10 evals per window', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 10, 6.0, 1),
-    ...windowRows('New', 10, 8.0, 11),
-  ))
-  const t = landscapeTrend(rows)
-  assert.equal(t.verdictGate.met, true)
-  assert.equal(t.verdictGate.olderCount, 10)
-  assert.equal(t.verdictGate.recentCount, 10)
-  assert.equal(t.reportableVerdict, 'improving')
-  assert.equal(t.verdictConfidence, 'low')  // exactly at the gate
-})
-
-test('corpus verdict confidence rises with window size', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 20, 6.0, 1),
-    ...windowRows('New', 20, 8.0, 21),
-  ))
-  assert.equal(landscapeTrend(rows).verdictConfidence, 'moderate')
-})
-
-test('a gate-passing corpus move under the noise floor is flat-within-noise', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 10, 7.0, 1),
-    ...windowRows('New', 10, 7.2, 11),
-  ))
-  const t = landscapeTrend(rows)
-  assert.equal(t.verdictGate.met, true)
-  assert.equal(t.delta, 0.2)
-  assert.equal(t.reportableVerdict, 'flat-within-noise')
-  // The legacy field disagrees (±0.15 dead-band) and is preserved as-is.
-  assert.equal(t.verdict, 'improving')
-})
-
-test('landscapeTrend accepts a caller-supplied verdict gate', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 4, 6.0, 1),
-    ...windowRows('New', 4, 8.0, 11),
-  ))
-  assert.equal(landscapeTrend(rows).reportableVerdict, 'insufficient-data')
-  assert.equal(landscapeTrend(rows, { minPerWindowForVerdict: 4 }).reportableVerdict, 'improving')
-})
-
-// ─── recommendations: the corpus claim is replaced, never softened ──────────
 
 test('trendRecommendations emits an insufficient-data marker under the gate', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 5, 6.0, 1),
-    ...windowRows('New', 5, 8.0, 11),
-  ))
+  const rows = parse(...windowRows(EARLY, 6, 7, 6), ...windowRows(LATE, 6, 8, 6))
   const recs = trendRecommendations([], landscapeTrend(rows))
   assert.equal(recs.length, 1)
   assert.equal(recs[0].insufficientData, true)
   assert.equal(recs[0].confidence, 'insufficient')
-  assert.match(recs[0].action, /insufficient data/i)
-  // No sharpening/sliding language may leak through (docs § 4 rule 5).
-  assert.ok(!/sharpening|sliding/i.test(recs.map(r => r.action).join(' ')))
-})
-
-test('trendRecommendations states n on a gate-passing corpus verdict', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 10, 6.0, 1),
-    ...windowRows('New', 10, 8.0, 11),
-  ))
-  const recs = trendRecommendations([], landscapeTrend(rows))
-  const corpus = recs.find(r => /sharpening/i.test(r.action))
-  assert.ok(corpus, 'expected the sharpening verdict once the gate is met')
-  assert.equal(corpus.sampleSize, 10)
-  assert.equal(corpus.confidence, 'low')
-  assert.match(corpus.reasoning, /10 earlier vs 10 recent evals/)
+  assert.equal(recs[0].sampleSize, 6)
+  assert.equal(recs[0].gate, GATES.trendMinPerWindowForVerdict)
+  assert.doesNotMatch(recs[0].action, /sharpening|sliding/)
 })
 
 test('trendRecommendations reports a gate-passing flat corpus as flat', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 10, 7.0, 1),
-    ...windowRows('New', 10, 7.2, 11),
-  ))
-  const recs = trendRecommendations([], landscapeTrend(rows))
-  assert.equal(recs.length, 1)
-  assert.match(recs[0].action, /flat within noise/i)
-  assert.equal(recs[0].sampleSize, 10)
+  const rows = parse(...windowRows(EARLY, 10, 7.0, 6.0), ...windowRows(LATE, 10, 7.1, 6.1))
+  const [rec] = trendRecommendations([], landscapeTrend(rows))
+  assert.match(rec.action, /^Landscape trend: flat within noise — Want flat within noise .*; Ease flat within noise/)
+  assert.equal(rec.confidence, 'low')
+  assert.equal(rec.sampleSize, 10)
 })
 
-test('trendRecommendations keeps pre-contract behavior for hand-built trends', () => {
-  // An external caller passing the old shape (no verdictGate) is unaffected.
-  const trend = {
-    insufficientData: false, verdict: 'improving',
-    older: { avgOverall: 6.5 }, recent: { avgOverall: 7.4 },
-    delta: 0.9, strongSolidShareDelta: 12,
-  }
-  const recs = trendRecommendations([], trend)
-  assert.equal(recs.length, 1)
-  assert.match(recs[0].action, /Targeting is sharpening/)
+test('trendRecommendations: sharpening, sliding and mixed landscape lines', () => {
+  const line = (wLate, eLate) => trendRecommendations([], landscapeTrend(parse(
+    ...windowRows(EARLY, 10, 7.0, 6.0), ...windowRows(LATE, 10, wLate, eLate),
+  )))[0]
+  const up = line(7.6, 6.0)
+  assert.match(up.action, /^Targeting is sharpening — Want improving \(7\.6 vs 7 earlier, \+0\.6\); Ease flat within noise/)
+  assert.equal(up.impact, 'medium')
+  assert.match(up.reasoning, /10 earlier vs 10 later scored evals; low confidence/)
+  const down = line(7.0, 5.0)
+  assert.match(down.action, /^Evaluated landscape is sliding — Want flat within noise .*; Ease declining/)
+  assert.equal(down.impact, 'high')
+  const mixed = line(7.6, 5.0)
+  assert.match(mixed.action, /^Landscape trend is mixed/)
 })
 
-// ─── analyzeTrend: additive shape ───────────────────────────────────────────
-
-test('analyzeTrend publishes the contract it ran under', () => {
-  const rows = parseScoreHistory(tsv(
-    ...windowRows('Old', 10, 6.0, 1),
-    ...windowRows('New', 10, 8.0, 11),
-  ))
-  const out = analyzeTrend(rows)
-  assert.equal(out.metadata.contract.noiseFloor, OVERALL_NOISE_FLOOR)
-  assert.equal(out.metadata.contract.minPerWindowForVerdict, 10)
-  assert.equal(out.metadata.contract.minEvalsPerTrajectory, 2)
-  assert.match(out.metadata.contract.doc, /scoring-statistical-design/)
+test('trendRecommendations is silent on the landscape when the trend has no time axis', () => {
+  const t = landscapeTrend(parse(...windowRows(EARLY, 12, 7, 7)))
+  assert.deepEqual(trendRecommendations([], t), [])
 })
 
-test('analyzeTrend keeps every pre-contract field with its old meaning', () => {
-  const rows = parseScoreHistory(tsv(
-    row({ company: 'Re', role: 'A', date: '2026-05-01', overall: 7.0 }),
-    row({ company: 'Re', role: 'A', date: '2026-05-10', overall: 8.0 }),
-    ...windowRows('Old', 4, 6.0, 2),
-    ...windowRows('New', 4, 7.0, 12),
-  ))
-  const out = analyzeTrend(rows)
-  assert.equal(typeof out.metadata.evaluated, 'number')
-  assert.equal(typeof out.metadata.reevaluatedListings, 'number')
-  assert.ok(out.metadata.dateRange.from && out.metadata.dateRange.to)
+// ─── analyzeTrend ─────────────────────────────────────────────────────────
 
-  const t = out.listingTrajectories[0]
-  for (const k of ['key', 'company', 'role', 'evals', 'firstDate', 'latestDate',
-    'firstOverall', 'latestOverall', 'delta', 'bandFrom', 'bandTo', 'bandChanged',
-    'peakOverall', 'troughOverall', 'verdict', 'dimDeltas', 'sequence']) {
-    assert.ok(k in t, `trajectory lost pre-contract field: ${k}`)
-  }
-  assert.ok(['improving', 'declining', 'stable', 'unknown'].includes(t.verdict))
+test('analyzeTrend returns a structured analysis object and publishes its contract', () => {
+  const rows = parse(
+    ...windowRows(EARLY, 10, 7, 6), ...windowRows(LATE, 10, 7, 6),
+    blockedEv('Blocked Co', 'Analyst', LATE),
+    ev('Re Co', 'Analyst', EARLY, 7.0, 7.5), ev('Re Co', 'Analyst', LATE, 8.5, 7.5),
+  )
+  const r = analyzeTrend(rows)
+  assert.equal(r.metadata.evaluated, 22)
+  assert.equal(r.metadata.blocked, 1)
+  assert.equal(r.metadata.reevaluatedListings, 1)
+  assert.deepEqual(r.metadata.dateRange, { from: EARLY, to: LATE })
+  assert.deepEqual(r.metadata.contract, {
+    doc: 'docs/scoring-statistical-design.md',
+    noiseFloors: { want: WANT_NOISE_FLOOR, ease: EASE_NOISE_FLOOR },
+    minEvalsPerTrajectory: GATES.trendMinEvals,
+    minPerWindowForVerdict: GATES.trendMinPerWindowForVerdict,
+  })
+  assert.equal(r.trajectorySummary.reevaluated, 1)
+  assert.equal(r.listingTrajectories.length, 1)
+  assert.equal(r.landscapeTrend.verdictGate.met, true)
+  assert.equal(r.landscapeTrend.verdictUpgrades.count, 1)
+  assert.ok(Array.isArray(r.recommendations))
+  assert.doesNotMatch(JSON.stringify(r), /overall|Overall|strongSolid|band(From|To|Up|Down)/)
+})
 
-  for (const k of ['reevaluated', 'verdicts', 'avgDelta', 'medianDelta',
-    'bandUpgrades', 'bandDowngrades']) {
-    assert.ok(k in out.trajectorySummary, `summary lost pre-contract field: ${k}`)
-  }
-
-  for (const k of ['insufficientData', 'splitDate', 'older', 'recent', 'delta',
-    'strongSolidShareDelta', 'verdict']) {
-    assert.ok(k in out.landscapeTrend, `landscapeTrend lost pre-contract field: ${k}`)
-  }
-  assert.equal(typeof out.landscapeTrend.older.count, 'number')
-  assert.equal(typeof out.landscapeTrend.recent.avgOverall, 'number')
+test('analyzeTrend errors on empty or all-blocked input', () => {
+  assert.ok(analyzeTrend([]).error)
+  assert.ok(analyzeTrend(null).error)
+  const allBlocked = analyzeTrend(parse(blockedEv('A Co', 'Analyst', EARLY), blockedEv('B Co', 'Analyst', LATE)))
+  assert.match(allBlocked.error, /No scored evaluations .*2 blocked/)
 })

@@ -4,6 +4,9 @@ import assert from 'node:assert/strict'
 import {
   findResultEvent,
   extractScore,
+  extractVerdict,
+  extractEligibility,
+  isBlocked,
   parseWorkerLog,
   usageTsvRow,
   USAGE_TSV_HEADER,
@@ -15,7 +18,7 @@ const RESULT_EVENT = {
   is_error: false,
   duration_ms: 184223,
   num_turns: 41,
-  result: 'Done.\n```json\n{\n  "status": "completed",\n  "score": 7.4,\n  "tier": "T2"\n}\n```',
+  result: 'Done.\n```json\n{\n  "status": "completed",\n  "want": 8.25,\n  "ease": 5.6,\n  "eligibility": "amber",\n  "verdict": "stretch",\n  "tier": "T2",\n  "score": 6.8\n}\n```',
   total_cost_usd: 0.8123,
   usage: {
     input_tokens: 1200,
@@ -63,7 +66,7 @@ test('returns null for empty / non-JSON / JSON-without-usage logs', () => {
 // ─── extractScore ────────────────────────────────────────────────────────────
 
 test('extracts score from the decoded result string', () => {
-  assert.equal(extractScore('', RESULT_EVENT), 7.4)
+  assert.equal(extractScore('', RESULT_EVENT), 6.8)
 })
 
 test('falls back to raw content for legacy text logs', () => {
@@ -77,7 +80,53 @@ test('returns null when no score is present anywhere', () => {
 
 test('prefers the result-event score over stray matches in raw content', () => {
   const content = '{"score": 2.0} earlier noise'
-  assert.equal(extractScore(content, RESULT_EVENT), 7.4)
+  assert.equal(extractScore(content, RESULT_EVENT), 6.8)
+})
+
+// ─── blocked listings (score: null) ──────────────────────────────────────────
+
+const BLOCKED_EVENT = {
+  ...RESULT_EVENT,
+  result: 'Done.\n```json\n{"status": "completed", "want": null, "ease": null, "eligibility": "red", "verdict": "blocked", "tier": "T4", "score": null}\n```',
+}
+
+test('a blocked listing has a null score but a blocked verdict', () => {
+  assert.equal(extractScore('', BLOCKED_EVENT), null)
+  assert.equal(extractVerdict('', BLOCKED_EVENT), 'blocked')
+  assert.equal(extractEligibility('', BLOCKED_EVENT), 'red')
+  const parsed = parseWorkerLog(JSON.stringify(BLOCKED_EVENT))
+  assert.equal(parsed.score, null)
+  assert.equal(parsed.verdict, 'blocked')
+  assert.equal(parsed.blocked, true)
+  assert.equal(parsed.status, 'completed')
+})
+
+test('isBlocked: verdict blocked or red eligibility', () => {
+  assert.equal(isBlocked('blocked', null), true)
+  assert.equal(isBlocked(null, 'red'), true)
+  assert.equal(isBlocked('stretch', 'amber'), false)
+  assert.equal(isBlocked(null, null), false)
+})
+
+test('extractVerdict / extractEligibility: null when absent, case-folded, legacy text logs', () => {
+  assert.equal(extractVerdict('no json', { result: 'nope' }), null)
+  assert.equal(extractEligibility('no json', { result: 'nope' }), null)
+  assert.equal(extractVerdict('{"verdict": "GO"}', null), 'go')
+  assert.equal(extractEligibility('{"eligibility": "Green"}', null), 'green')
+})
+
+test('an unscored, unblocked log (worker emitted no summary) is not flagged blocked', () => {
+  const parsed = parseWorkerLog(JSON.stringify({ ...RESULT_EVENT, result: 'Done, no json.' }))
+  assert.equal(parsed.score, null)
+  assert.equal(parsed.verdict, null)
+  assert.equal(parsed.blocked, false)
+})
+
+test('blocked row renders score and verdict cells', () => {
+  const row = usageTsvRow({ timestamp: 't', batchId: '1', reportNum: '002', parsed: parseWorkerLog(JSON.stringify(BLOCKED_EVENT)) })
+  const cols = row.split('\t')
+  assert.equal(cols[4], '-')
+  assert.equal(cols[5], 'blocked')
 })
 
 // ─── parseWorkerLog ──────────────────────────────────────────────────────────
@@ -86,7 +135,9 @@ test('parses a full successful worker log', () => {
   const parsed = parseWorkerLog(JSON.stringify(RESULT_EVENT))
   assert.deepEqual(parsed, {
     status: 'completed',
-    score: 7.4,
+    score: 6.8,
+    verdict: 'stretch',
+    blocked: false,
     inputTokens: 1200,
     cacheCreationTokens: 45000,
     cacheReadTokens: 310000,
@@ -126,6 +177,6 @@ test('full row renders every numeric field', () => {
   const row = usageTsvRow({ timestamp: 't', batchId: '1', reportNum: '001', parsed })
   assert.equal(
     row,
-    't\t1\t001\tcompleted\t7.4\t1200\t45000\t310000\t5400\t0.8123\t184223\t41',
+    't\t1\t001\tcompleted\t6.8\tstretch\t1200\t45000\t310000\t5400\t0.8123\t184223\t41',
   )
 })

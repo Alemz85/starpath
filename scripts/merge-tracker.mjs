@@ -8,8 +8,12 @@
  * - 8-col:  num\tdate\tcompany\trole\tstatus\tscore\tpdf\treport (no notes, backward-compat)
  * - Pipe-delimited (markdown table row): | col | col | ... |
  *
+ * The score column is a v2 "W8.3 E5.6" cell (legacy "7.4/10" still accepted).
+ *
  * Dedup: company normalized + role fuzzy match + report number match
- * If duplicate with higher score → update in-place, update report link
+ * If duplicate with a higher Priority (sqrt(want × ease) for v2 cells, the
+ * legacy number for legacy cells; v2 beats legacy on a tie) → update in-place,
+ * update report link
  * Validates status against states.yml (rejects non-canonical, logs warning)
  *
  * All parsing/normalization lives in lib/tracker-core.mjs (pure + unit-tested);
@@ -27,12 +31,13 @@ import {
   normalizeRoleForIndex,
   roleFuzzyMatch,
   extractReportNum,
-  parseScore,
+  compareScoreCells,
+  describeReEval,
   parseAppRow,
   parseTsvAddition,
 } from './lib/tracker-core.mjs';
 
-const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
+const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
@@ -142,20 +147,20 @@ for (const file of tsvFiles) {
   }
 
   if (duplicate) {
-    const newScore = parseScore(addition.score);
-    const oldScore = parseScore(duplicate.score);
+    const better = compareScoreCells(addition.score, duplicate.score) > 0;
 
-    if (newScore > oldScore) {
-      console.log(`🔄 Update: #${duplicate.num} ${addition.company} — ${addition.role} (${oldScore}→${newScore})`);
+    if (better) {
+      const change = describeReEval(duplicate.score, addition.score);
+      console.log(`🔄 Update: #${duplicate.num} ${addition.company} — ${addition.role} ${change}`);
       const lineIdx = appLines.indexOf(duplicate.raw);
       if (lineIdx >= 0) {
-        const updatedLine = `| ${duplicate.num} | ${addition.date} | ${addition.company} | ${addition.role} | ${addition.score} | ${duplicate.status} | ${duplicate.pdf} | ${addition.deadline || duplicate.deadline || 'n/d'} | ${addition.report} | Re-eval ${addition.date} (${oldScore}→${newScore}). ${addition.notes} |`;
+        const updatedLine = `| ${duplicate.num} | ${addition.date} | ${addition.company} | ${addition.role} | ${addition.score} | ${duplicate.status} | ${duplicate.pdf} | ${addition.deadline || duplicate.deadline || 'n/d'} | ${addition.report} | Re-eval ${addition.date} ${change}. ${addition.notes} |`;
         appLines[lineIdx] = updatedLine;
         updated++;
         appendDedupIndex(addition.company, addition.role, addition.date);
       }
     } else {
-      console.log(`⏭️  Skip: ${addition.company} — ${addition.role} (existing #${duplicate.num} ${oldScore} >= new ${newScore})`);
+      console.log(`⏭️  Skip: ${addition.company} — ${addition.role} (existing #${duplicate.num} ${duplicate.score} >= new ${addition.score})`);
       skipped++;
     }
   } else {
@@ -207,7 +212,7 @@ if (DRY_RUN) console.log('(dry-run — no changes written)');
 if (VERIFY && !DRY_RUN) {
   console.log('\n--- Running verification ---');
   try {
-    execFileSync('node', [join(CAREER_OPS, 'verify-pipeline.mjs')], { stdio: 'inherit' });
+    execFileSync('node', [fileURLToPath(new URL('./verify-pipeline.mjs', import.meta.url))], { stdio: 'inherit' });
   } catch (e) {
     process.exit(1);
   }

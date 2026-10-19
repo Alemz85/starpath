@@ -17,6 +17,8 @@
 // `parseAppRow` detects the deadline column by width and exposes the correct
 // report/notes indices so every consumer agrees.
 
+import { verdictFromCells } from './scouting-core.mjs';
+
 /* ───── Canonical states ─────────────────────────────────────────── */
 
 // Canonical applications.md states (templates/states.yml). Scouting
@@ -133,10 +135,84 @@ export function roleMatchStrict(a, b) {
 
 /* ───── Scalar field parsers ─────────────────────────────────────── */
 
-/** Pull the leading numeric out of a score cell ("7.2/10", "**8**") → number. */
-export function parseScore(s) {
-  const m = String(s).replace(/\*\*/g, '').match(/([\d.]+)/);
-  return m ? parseFloat(m[1]) : 0;
+// Score cell forms in applications.md (docs/scoring-v2.md §8.3):
+//   v2      "W8.3 E5.6"   (Want + Ease; blocked listings are never promoted)
+//   legacy  "7.4/10"      (v1 Overall; existing rows stay valid and display as-is)
+const V2_CELL_RE = /^W\s*(\d+(?:\.\d+)?)\s*[ ·\/,]?\s*E\s*(\d+(?:\.\d+)?)$/i;
+const LEGACY_CELL_RE = /^(\d+(?:\.\d+)?)(?:\s*\/\s*10)?$/;
+
+/**
+ * Parse an applications.md Score cell (or tracker-additions score column).
+ *   "W8.3 E5.6" → { want: 8.3, ease: 5.6 }
+ *   "7.4/10"    → { legacy: 7.4 }
+ *   anything else ("N/A", "—", "", garbage) → null
+ * Tolerates bold markers and a few separators ("W8.3 · E5.6", "W8.3/E5.6").
+ * Mirrored by the frontend's applications parser.
+ */
+export function parseScoreCell(cell) {
+  const s = String(cell ?? '').replace(/\*\*/g, '').trim();
+  if (!s) return null;
+  const v2 = s.match(V2_CELL_RE);
+  if (v2) return { want: parseFloat(v2[1]), ease: parseFloat(v2[2]) };
+  const legacy = s.match(LEGACY_CELL_RE);
+  if (legacy) return { legacy: parseFloat(legacy[1]) };
+  return null;
+}
+
+/** Canonical v2 cell text: formatScoreCell(8.3, 5.6) → "W8.3 E5.6". */
+export function formatScoreCell(want, ease) {
+  return `W${Number(want)} E${Number(ease)}`;
+}
+
+/** Human display of a score cell: "W8.3 · E5.6" for v2, "7.4/10" for legacy, raw text otherwise. */
+export function displayScoreCell(cell) {
+  const p = parseScoreCell(cell);
+  if (!p) return String(cell ?? '').trim();
+  if ('legacy' in p) return `${p.legacy}/10`;
+  return `W${p.want} · E${p.ease}`;
+}
+
+/**
+ * Sort key for "higher wins" comparisons: Priority = round(sqrt(want × ease), 2)
+ * for v2 cells (spec §5), the legacy number for legacy cells, null when the
+ * cell is unparseable.
+ */
+export function scoreCellPriority(cell) {
+  const p = parseScoreCell(cell);
+  if (!p) return null;
+  if ('legacy' in p) return p.legacy;
+  return Math.round(Math.sqrt(p.want * p.ease) * 100) / 100;
+}
+
+/**
+ * Compare two score cells for "higher wins": > 0 when `a` is better than `b`,
+ * < 0 when worse, 0 when equal. Unparseable cells rank below everything. On an
+ * exact priority tie a v2 cell beats a legacy one (the newer model wins).
+ */
+export function compareScoreCells(a, b) {
+  const pa = scoreCellPriority(a);
+  const pb = scoreCellPriority(b);
+  if (pa === null && pb === null) return 0;
+  if (pa === null) return -1;
+  if (pb === null) return 1;
+  if (pa !== pb) return pa - pb;
+  const v2a = 'want' in parseScoreCell(a);
+  const v2b = 'want' in parseScoreCell(b);
+  if (v2a === v2b) return 0;
+  return v2a ? 1 : -1;
+}
+
+/**
+ * Re-eval annotation for the Notes cell: "(W 7.1→8.3, E 5→5.6)" when both
+ * cells are v2, otherwise "(7.4/10→W8.3 · E5.6)"-style old→new display.
+ */
+export function describeReEval(oldCell, newCell) {
+  const o = parseScoreCell(oldCell);
+  const n = parseScoreCell(newCell);
+  if (o && n && 'want' in o && 'want' in n) {
+    return `(W ${o.want}→${n.want}, E ${o.ease}→${n.ease})`;
+  }
+  return `(${displayScoreCell(oldCell)}→${displayScoreCell(newCell)})`;
 }
 
 /** Extract the report number from a "[#12](…)" / "[12](…)" link, else null. */
@@ -213,27 +289,31 @@ export function normalizeStatus(raw) {
 /* ───── Report tier paths ────────────────────────────────────────── */
 
 /**
- * Derive the report tier (1-4) from a global Score (1-10) and status.
- * SKIP → 4; ≥9.0 → 1; ≥7.0 → 2; >0 → 3; otherwise null (unknown — caller
- * should leave the path untouched).
+ * Derive the report tier (1-4) from a score cell + status, for rewriting a
+ * flat `reports/foo.md` path into its tier subfolder. SKIP → 4. A v2 cell goes
+ * through the verdict grid (docs/scoring-v2.md §4; eligibility is not carried
+ * in the cell, and amber is already priced into Ease, so green is assumed).
+ * Legacy `X.X/10` cells and unparseable cells return null (v1 tier cut-offs are
+ * retired) — the caller leaves the path untouched.
  */
-export function tierForScore(score, status) {
+export function tierForScoreCell(cell, status) {
   if (String(status || '').toLowerCase() === 'skip') return 4;
-  if (score >= 9.0) return 1;
-  if (score >= 7.0) return 2;
-  if (score > 0) return 3;
-  return null;
+  const p = parseScoreCell(cell);
+  if (!p || !('want' in p)) return null;
+  const { tier } = verdictFromCells({ want: p.want, ease: p.ease, eligibility: 'green' });
+  return Number(tier.slice(1));
 }
 
 /**
  * Reports live in tier subfolders (reports/tier-1…tier-4). If the writer left
- * a flat `reports/foo.md` path, rewrite it into the tier derived from score +
- * status. Already-tiered paths and the "no report" sentinels pass through.
+ * a flat `reports/foo.md` path, rewrite it into the tier derived from the
+ * score cell + status. Already-tiered paths, the "no report" sentinels and
+ * cells without a derivable tier pass through.
  */
-export function rewriteReportPathForOfertaTier(reportStr, score, status) {
+export function rewriteReportPathForOfertaTier(reportStr, scoreCell, status) {
   if (!reportStr || reportStr === '—' || reportStr === '-') return reportStr;
   if (/reports\/tier-\d\//.test(reportStr)) return reportStr;
-  const tier = tierForScore(score, status);
+  const tier = tierForScoreCell(scoreCell, status);
   if (tier === null) return reportStr;
   return reportStr.replace(/reports\//, `reports/tier-${tier}/`);
 }
@@ -306,7 +386,8 @@ export function serializeAppRow(cells) {
 
 /**
  * Parse one tracker-additions TSV (or pipe-delimited markdown row) into a
- * normalized addition. Handles the canonical 10-col TSV, the legacy 9-col and
+ * normalized addition. The score column is a v2 `W8.3 E5.6` cell (legacy
+ * `X.X/10` still accepted). Handles the canonical 10-col TSV, the legacy 9-col and
  * 8-col forms, and a pipe-delimited fallback. Tolerates the historical
  * status/score column swap via a value-shape heuristic. Returns null (and
  * warns) on malformed input.
@@ -342,7 +423,7 @@ export function parseTsvAddition(content, filename = 'addition', warn = console.
     // emitted (score, status). Disambiguate by value shape.
     const col4 = parts[4].trim();
     const col5 = parts[5].trim();
-    const looksScore = (v) => /^\d+\.?\d*\/\d+$/.test(v) || v === 'N/A' || v === 'DUP';
+    const looksScore = (v) => /^W\s*\d/i.test(v) || /^\d+\.?\d*\/\d+$/.test(v) || v === 'N/A' || v === 'DUP';
     const looksStatus = (v) => /^(evaluated|applied|responded|interview|offer|rejected|discarded|skip|evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(v);
 
     let statusCol, scoreCol;
@@ -369,6 +450,36 @@ export function parseTsvAddition(content, filename = 'addition', warn = console.
     return null;
   }
 
-  addition.report = rewriteReportPathForOfertaTier(addition.report, parseScore(addition.score), addition.status);
+  // Score validation: a v2 "W.. E.." cell, a legacy "X.X/10" cell, or the
+  // N/A / DUP sentinels. Anything else (a "—" blocked marker, a v1-era
+  // shape error) would poison the higher-wins comparison, so skip it loudly.
+  const parsedScore = parseScoreCell(addition.score);
+  if (parsedScore && 'want' in parsedScore) {
+    addition.score = formatScoreCell(parsedScore.want, parsedScore.ease); // canonical spelling
+  } else if (!parsedScore && !['N/A', 'DUP'].includes(String(addition.score).trim())) {
+    warn(`⚠️  Skipping ${filename}: unparseable score "${addition.score}" (expected "W8.3 E5.6" or legacy "7.4/10")`);
+    return null;
+  }
+
+  addition.report = rewriteReportPathForOfertaTier(addition.report, addition.score, addition.status);
   return addition;
+}
+
+/* ───── Score cell validation (verify-pipeline) ──────────────────── */
+
+/**
+ * Validate an applications.md Score cell. Returns an error string, or null when
+ * the cell is acceptable: a v2 "W8.3 E5.6" (both in [1,10]), a legacy
+ * "X.X/10", or the N/A / DUP sentinels. A "—" is invalid here — blocked
+ * listings are never promoted into applications.md.
+ */
+export function validateScoreCell(cell) {
+  const s = String(cell ?? '').replace(/\*\*/g, '').trim();
+  if (s === 'N/A' || s === 'DUP') return null;
+  const p = parseScoreCell(s);
+  if (!p) return `invalid score format "${cell}" (expected "W8.3 E5.6" or legacy "7.4/10")`;
+  if ('want' in p && (p.want < 1 || p.want > 10 || p.ease < 1 || p.ease > 10)) {
+    return `score "${cell}" out of range (Want/Ease must be 1-10)`;
+  }
+  return null;
 }

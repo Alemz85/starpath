@@ -7,6 +7,9 @@
 // constant here without changing the doc (or vice-versa) that is a defect —
 // scoring-stats.test.mjs pins the values so the drift is caught.
 //
+// Scoring model: v2 (docs/scoring-v2.md §9): Want and Ease each have their own
+// floor; Priority has one too, for the surfaces that sort on it.
+//
 // Why this file exists: a score is an LLM judgment on a coarse ordinal rubric.
 // Peer rank, score trend, and calibration advice all read that log and can
 // easily overclaim — a 0.1 wobble rendered as a trend arrow, a percentile
@@ -15,31 +18,53 @@
 // gates that keep those surfaces honest. All functions are pure.
 
 /* ───── 1. Rubric geometry (docs § 1) ─────────────────────────────────────── */
+//
+// Scoring v2 (docs/scoring-v2.md) has no Overall. A listing carries two
+// independent numbers, Want and Ease, plus Priority = √(Want·Ease) as a sort
+// key. Each gets its own noise floor, derived from the smallest move one
+// integer re-judgment of one dimension produces in that rollup.
 
-/** Overall = CF × 0.70 + AF × 0.30 (modes/_shared.md § Overall). */
-export const CF_WEIGHT = 0.70
-export const AF_WEIGHT = 0.30
+/** Want: one motivator moving one integer step at the default equal weights
+ *  (4 motivators) moves the motivator mean, and so Want, by 1/4. */
+export const WANT_DIM_STEP = 0.25
 
-/** Each rollup is the mean of three integer dimensions, so one dimension
- *  moving one integer step moves Overall by a fixed amount. */
-export const CF_DIM_STEP = CF_WEIGHT / 3   // 0.2333… — one Current Fit dim, one step
-export const AF_DIM_STEP = AF_WEIGHT / 3   // 0.1000  — one Aspirational Fit dim, one step
+/** Ease: one step on a 0.35-weight stage of the weighted geometric mean, near
+ *  the middle of the scale (stage ≈ 6, Ease ≈ 6): 6 × ((7/6)^0.35 − 1) ≈ 0.33,
+ *  6 × (1 − (5/6)^0.35) ≈ 0.37; the spec rounds the typical move to ≈ 0.32. */
+export const EASE_DIM_STEP = 0.32
 
 /**
- * OVERALL_NOISE_FLOOR — the minimum detectable difference in Overall.
- *
- * Derivation (docs § 1 "The noise floor"): the floor must be strictly greater
- * than the largest Overall move a SINGLE dimension can produce by wobbling one
- * integer step (0.2333, one Current Fit dim — a re-evaluation does that for
- * free), and no greater than the smallest move that needs TWO dimensions to
- * agree (0.3333, one CF + one AF dim in the same direction). 0.30 is the round
- * value inside (0.2333, 0.3333].
- *
- * A delta below this is NOT a small change — it is the resolution limit of the
- * instrument. Surfaces report it as "flat within noise", never with a sign,
- * arrow, or directional verb.
+ * WANT_NOISE_FLOOR — the minimum detectable Want difference (spec §9).
+ * One motivator re-judged one step moves Want by 0.25; the floor is that,
+ * rounded up, so no single motivator wobble can clear it.
  */
-export const OVERALL_NOISE_FLOOR = 0.30
+export const WANT_NOISE_FLOOR = 0.30
+
+/**
+ * EASE_NOISE_FLOOR — the minimum detectable Ease difference (spec §9).
+ * One step on a 0.35-weight stage near 6 moves Ease by ≈ 0.32; 0.35 is the
+ * round value above it.
+ */
+export const EASE_NOISE_FLOOR = 0.35
+
+/**
+ * PRIORITY_NOISE_FLOOR — Priority = √(Want·Ease). A one-step Want wobble moves
+ * it by ≈ ½·√(E/W)·0.25 ≈ 0.13, a one-step Ease wobble by ≈ 0.16; 0.30 is
+ * conservatively above both and below most two-dimension moves.
+ */
+export const PRIORITY_NOISE_FLOOR = 0.30
+
+/** Floor per metric, for surfaces that classify Want, Ease and Priority. */
+export const NOISE_FLOORS = Object.freeze({
+  want: WANT_NOISE_FLOOR,
+  ease: EASE_NOISE_FLOOR,
+  priority: PRIORITY_NOISE_FLOOR,
+})
+
+/** @returns {number} the noise floor for 'want' | 'ease' | 'priority' (Priority's floor for anything else). */
+export function noiseFloorFor(metric) {
+  return NOISE_FLOORS[metric] ?? PRIORITY_NOISE_FLOOR
+}
 
 /* ───── 2. Dimension classes (docs § 2) ───────────────────────────────────── */
 
@@ -53,17 +78,19 @@ export const MECHANICAL_DIMS = Object.freeze([
 ])
 
 /** An agent's reading of prose against a CV. Ordinal/comparative claims only —
- *  NEVER read as precise to a decimal across re-evaluations. Ease of Entry is
- *  listed here because its discretionary share dominates its table-driven
- *  share; its table adjustments are still mechanical facts. */
+ *  NEVER read as precise to a decimal across re-evaluations. Experience bar
+ *  and Competition are listed here because their discretionary share (how far
+ *  the candidate "partly meets" a bar; how much signalling the pool has)
+ *  dominates their anchor-table share; their table adjustments are still
+ *  mechanical facts. */
 export const JUDGMENT_DIMS = Object.freeze([
   'skills_match',
-  'ease_of_entry',
-  'strategic_fit',
+  'experience_bar',
+  'competition',
   'growth_mobility',
   'optionality_exit',
+  'role_content',
   'work_life_balance',
-  'sales_trap_risk',
 ])
 
 /** @returns {'mechanical'|'judgment'|'unknown'} */
@@ -90,9 +117,9 @@ export const GATES = Object.freeze({
   trendMinEvals: 2,
 
   /** score-trend corpus verdict: ≥10 scored evals in EACH calendar window.
-   *  No single evaluation may move a window mean by more than the noise floor:
-   *  a single extreme role deviates by up to ≈3.0 Overall, and 3.0/k ≤ 0.30
-   *  gives k ≥ 10. */
+   *  No single evaluation may move a window mean by more than its noise floor:
+   *  a single extreme role deviates by up to ≈3.0 Want (3.0/k ≤ 0.30) or
+   *  ≈3.5 Ease (3.5/k ≤ 0.35), and both give k ≥ 10. */
   trendMinPerWindowForVerdict: 10,
 
   /** calibration: a per-company brand verdict places a company mean on one
@@ -170,7 +197,9 @@ export function describeSample(n, gate) {
 /* ───── 5. Movement classification (docs § 1 + § 4) ───────────────────────── */
 
 /**
- * Classify a signed Overall delta against the noise floor.
+ * Classify a signed Want / Ease / Priority delta against a noise floor. Pass
+ * `metric` ('want' | 'ease' | 'priority') to use that metric's floor, or an
+ * explicit `floor`; the default is the Priority floor.
  *
  * Returns 'within-noise' for |Δ| < floor — a first-class reported outcome, NOT
  * the absence of a result and NOT a hedged direction. Otherwise 'improving' /
@@ -181,7 +210,7 @@ export function describeSample(n, gate) {
  *
  * @returns {'within-noise'|'improving'|'declining'|'unknown'}
  */
-export function classifyMovement(delta, { floor = OVERALL_NOISE_FLOOR } = {}) {
+export function classifyMovement(delta, { metric, floor = noiseFloorFor(metric) } = {}) {
   const d = Number(delta)
   if (!Number.isFinite(d)) return 'unknown'
   if (Math.abs(d) < floor) return 'within-noise'
@@ -189,7 +218,7 @@ export function classifyMovement(delta, { floor = OVERALL_NOISE_FLOOR } = {}) {
 }
 
 /** True when |Δ| is under the resolution limit — i.e. not evidence of change. */
-export function isWithinNoise(delta, { floor = OVERALL_NOISE_FLOOR } = {}) {
+export function isWithinNoise(delta, { metric, floor = noiseFloorFor(metric) } = {}) {
   return classifyMovement(delta, { floor }) === 'within-noise'
 }
 
@@ -201,8 +230,10 @@ export function formatSample(n, noun = 'observation') {
   return `of ${count} ${count === 1 ? noun : pluralize(noun)}`
 }
 
-/** "flat within noise (|Δ| 0.10 < 0.30 floor)" — the first-class flat result. */
-export function formatWithinNoise(delta, { floor = OVERALL_NOISE_FLOOR } = {}) {
+/** "flat within noise (|Δ| 0.10 < 0.30 floor)" — the first-class flat result.
+ *  With `metric`, the floor is that metric's ("… < 0.35 Ease floor" is not
+ *  added: the caller names the metric in the surrounding sentence). */
+export function formatWithinNoise(delta, { metric, floor = noiseFloorFor(metric) } = {}) {
   const d = Math.abs(Number(delta) || 0)
   return `flat within noise (|Δ| ${d.toFixed(2)} < ${floor.toFixed(2)} floor)`
 }

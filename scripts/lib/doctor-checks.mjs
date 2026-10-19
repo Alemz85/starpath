@@ -27,12 +27,15 @@ import {
   countPendingPipelineLines,
 } from './profile-core.mjs';
 import { HISTORY_HEADER } from './merge-staging-core.mjs';
+import { isV2ScoutingHeader } from './scouting-core.mjs';
 
 // ── Expected TSV headers ────────────────────────────────────────────────────
 
-const SCORE_HISTORY_REQUIRED_COLS = [
-  'date', 'company', 'role', 'archetype', 'overall',
-  'skills_match', 'ease_of_entry', 'strategic_fit',
+// Scoring v2 (docs/scoring-v2.md §8.1). The full header is 29 columns; these are
+// the ones every reader needs. Exported so verify-pipeline checks the same set.
+export const SCORE_HISTORY_REQUIRED_COLS = [
+  'date', 'company', 'role', 'archetype', 'want', 'ease',
+  'eligibility', 'verdict', 'tier',
 ];
 
 // Single-sourced from the scanner's canonical header — the schema owner is
@@ -126,6 +129,67 @@ export function validateScoreHistoryHeader(cols) {
   const lower = cols.map(c => c.toLowerCase());
   const missing = SCORE_HISTORY_REQUIRED_COLS.filter(r => !lower.includes(r));
   return { valid: missing.length === 0, missing };
+}
+
+/**
+ * Row-level check of a v2 score-history.tsv, by header NAME (never by column
+ * position, so a column addition can't silently shift the checks). Used by
+ * verify-pipeline.
+ *   errors   — missing required columns; a row whose eligibility is not
+ *              green|amber|red; a red row that carries want/ease/priority; a
+ *              non-red row whose want/ease isn't a number in [1,10]; a tier
+ *              outside T1-T4.
+ *   warnings — a row with a different column count than the header.
+ * Empty cells mean "missing" (never 0) per docs/scoring-v2.md §8.1.
+ *
+ * @param {string} content raw score-history.tsv text
+ * @returns {{ errors: string[], warnings: string[], rows: number }}
+ */
+export function checkScoreHistoryRows(content) {
+  const errors = [];
+  const warnings = [];
+  const lines = String(content ?? '').split('\n');
+  const header = (lines[0] || '').split('\t').map(c => c.trim());
+  const { valid, missing } = validateScoreHistoryHeader(header);
+  if (!valid) {
+    errors.push(`score-history.tsv header is missing required v2 column(s): ${missing.join(', ')}`);
+    return { errors, warnings, rows: 0 };
+  }
+  const idx = (name) => header.map(c => c.toLowerCase()).indexOf(name);
+  const iWant = idx('want'), iEase = idx('ease'), iPri = idx('priority');
+  const iElig = idx('eligibility'), iTier = idx('tier');
+  const label = (cols, i) => `row ${i + 1} (${cols[idx('company')] ?? '?'} — ${cols[idx('role')] ?? '?'})`;
+  let rows = 0;
+  for (let i = 1; i < lines.length; i++) {
+    if (!lines[i].trim()) continue;
+    rows++;
+    const cols = lines[i].split('\t');
+    if (cols.length !== header.length) {
+      warnings.push(`score-history ${label(cols, i)}: ${cols.length} columns, header has ${header.length}`);
+    }
+    const get = (k) => (k >= 0 ? (cols[k] ?? '').trim() : '');
+    const elig = get(iElig).toLowerCase();
+    if (!['green', 'amber', 'red'].includes(elig)) {
+      errors.push(`score-history ${label(cols, i)}: eligibility "${get(iElig)}" is not green|amber|red`);
+    }
+    const tier = get(iTier);
+    if (!/^T[1-4]$/.test(tier)) {
+      errors.push(`score-history ${label(cols, i)}: tier "${tier}" is not T1-T4`);
+    }
+    if (elig === 'red') {
+      for (const [name, k] of [['want', iWant], ['ease', iEase], ['priority', iPri]]) {
+        if (k >= 0 && get(k) !== '') errors.push(`score-history ${label(cols, i)}: blocked (red) row has ${name} "${get(k)}" — must be empty`);
+      }
+    } else if (elig) {
+      for (const [name, k] of [['want', iWant], ['ease', iEase]]) {
+        const n = Number(get(k));
+        if (get(k) === '' || !Number.isFinite(n) || n < 1 || n > 10) {
+          errors.push(`score-history ${label(cols, i)}: ${name} "${get(k)}" is not a number in [1,10]`);
+        }
+      }
+    }
+  }
+  return { errors, warnings, rows };
 }
 
 /**
@@ -292,10 +356,13 @@ export function buildArtifactChecks(files, counts = {}) {
     if (valid) {
       checks.push({ pass: true, label: `data/score-history.tsv present (${rows} evaluation${rows === 1 ? '' : 's'})` });
     } else {
+      const isV1 = cols.map(c => c.toLowerCase()).includes('overall');
       checks.push({
         pass: false,
         label: `data/score-history.tsv has unexpected header (missing: ${missing.join(', ')})`,
-        fix: 'This may indicate a version mismatch — check modes/scouting.md TSV spec',
+        fix: isV1
+          ? 'This is a pre-v2 score-history (Overall/CF/AF). Archive it under data/archive/scoring-v1/ and start a fresh v2 file (docs/scoring-v2.md §8.1)'
+          : 'This may indicate a version mismatch — check docs/scoring-v2.md §8.1 for the TSV spec',
       });
     }
   }
@@ -308,7 +375,16 @@ export function buildArtifactChecks(files, counts = {}) {
     });
   } else {
     const rows = countMarkdownTableRows(files.scouting);
-    checks.push({ pass: true, label: `data/scouting.md present (${rows} scouted role${rows === 1 ? '' : 's'})` });
+    const headerLine = String(files.scouting).split('\n').find(l => /^\|\s*#\s*\|/.test(l));
+    if (headerLine && !isV2ScoutingHeader(headerLine)) {
+      checks.push({
+        pass: false,
+        label: 'data/scouting.md has a pre-v2 header (Score / CF/AF columns)',
+        fix: 'Archive it under data/archive/scoring-v1/ and recreate with the 12-column v2 header (Want, Ease, Tier, Eligibility) — docs/scoring-v2.md §8.2',
+      });
+    } else {
+      checks.push({ pass: true, label: `data/scouting.md present (${rows} scouted role${rows === 1 ? '' : 's'})` });
+    }
   }
 
   // ── applications.md ──────────────────────────────────────────────────────

@@ -103,13 +103,16 @@ export function pathKind(canonicalPath) {
 //                         scaffold is an empty file
 //   - filter-audit-state.json → scan.mjs writes {lastReportDate}; `{}` = never
 
-/** score-history.tsv header — must match modes/_shared.md + batch/batch-prompt.md. */
+/**
+ * score-history.tsv header (v2, 29 columns) — docs/scoring-v2.md §8.1; must
+ * match modes/_shared.md + batch/batch-prompt.md byte for byte.
+ */
 export const SCORE_HISTORY_HEADER =
-  'date\tarchetype\tskills_match\tease_of_entry\tstrategic_fit\tcurrent_fit\t' +
-  'growth_mobility\toptionality_exit\tbrand_value\tsales_trap_risk\t' +
-  'aspirational_fit\toverall\tbest_cities\tsalary_adj_city\twork_life_balance\t' +
-  'best_fit_roles\tmode\tcompany\trole\ttier\tsource\tlocation\t' +
-  'employment_type\tduration\tsalary_raw\turl';
+  'date\tarchetype\tskills_match\texperience_bar\tcompetition\tease\t' +
+  'growth_mobility\toptionality_exit\tbrand_value\trole_content\t' +
+  'best_cities\tsalary_adj_city\twork_life_balance\twant\tpriority\t' +
+  'eligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\t' +
+  'tier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl';
 
 /** discarded.tsv header — matches the frontend tombstone writer. */
 export const DISCARDED_HEADER = 'company\trole\tdate';
@@ -118,9 +121,9 @@ export const DISCARDED_HEADER = 'company\trole\tdate';
 export const SCOUTING_SCAFFOLD =
   '# Scouting Tracker\n\n' +
   'Landscape-mapping inventory. Entries here are NOT active applications — they are observations from `scouting` mode runs.\n\n' +
-  '**Promotion path:** Tier 1 entries are flagged `READY` in the Promotion Hint column. Run `node scripts/promote-to-applications.mjs <num>` to move an entry from this file to `data/applications.md` and start the active application flow.\n\n' +
-  '| # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes |\n' +
-  '|---|------|---------|------|-------|------|-------|--------|----------|----------------|-------|\n';
+  '**Promotion path:** `go` verdicts (Tier 1) are flagged `READY` (`stretch` / `solid` are `MONITOR`) in the Promotion Hint column. Run `node scripts/promote-to-applications.mjs <num>` to move an entry from this file to `data/applications.md` and start the active application flow.\n\n' +
+  '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |\n' +
+  '|---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|\n';
 
 /**
  * data/applications.md scaffold — canonical 10-column header per CLAUDE.md

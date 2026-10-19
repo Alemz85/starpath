@@ -80,7 +80,7 @@ The `--json` output (and what to read off it):
 | `drift` | The headline. `drift.drift` is `{ verdict, deltaEur, basis, note }` or `null` when there are too few full-time anchors to judge honestly. `drift.byType` splits anchors into `fulltime` / `intern` / `other`. |
 | `byArchetype` | Per archetype (≥ `minRoles`): `adjMedian`, `compWeakShare` (% at savings-power ≤ 4), `anchorCount` + `anchorMedianEur` where disclosed. Ranked best-comp first. |
 | `byCity` | Same shape, grouped by posting city. |
-| `floorRisks` | Non-intern roles evaluated at savings-power ≤ 4 — each took a −0.4 Overall penalty from the comp modifier. The roles where comp is actively dragging the score. |
+| `floorRisks` | Non-intern roles evaluated at savings-power ≤ 4 — each one's salary hygiene term pulled Want down (−0.40 at 4, −0.80 at 3, −1.20 below 3; below 3 the hygiene veto also caps Want at 5.0). The roles where comp is actively dragging the score. |
 | `recommendations` | Concrete comp moves with `impact` level. |
 
 ## Step 2 — Interpret the drift verdict for the user
@@ -114,12 +114,12 @@ separate in your narration.
   savings-power runs strongest; the bottom is weakest. If comp is a priority for
   the user, this is a sourcing signal — weight scan keywords toward the
   stronger-comp archetypes. A high `compWeakShare` on an archetype means many of
-  those roles land in the band that penalizes Overall.
+  those roles take a salary hygiene penalty on Want.
 - **Best cities by comp:** the top of `byCity`. High savings-power means the
   pay-vs-cost-of-living math works out well there, not just that salaries are
   nominally high.
-- **Comp-floor drag (`floorRisks`):** these non-intern roles each took a −0.4
-  Overall hit purely from comp. If there are several, either they're in
+- **Comp-floor drag (`floorRisks`):** these non-intern roles each took a salary
+  hygiene hit on Want purely from comp. If there are several, either they're in
   expensive cities relative to pay or genuinely low-paying — a filtering or
   sourcing signal.
 

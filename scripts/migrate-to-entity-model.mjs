@@ -19,6 +19,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { parseScoutingRow } from './lib/scouting-core.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -110,11 +111,14 @@ function readScouting() {
   for (const line of text.split('\n')) {
     if (!line.startsWith('|')) continue;
     if (/^\|\s*[#-]/.test(line)) continue;     // header / separator
-    const cells = line.split('|').slice(1, -1).map(c => c.trim());
-    if (cells.length < 11) continue;
-    const [num, date, company, role, score, tier, cfaf, report, deadline, hint, notes] = cells;
-    if (!/^\d+$/.test(num)) continue;
-    rows.push({ num: Number(num), date, company, role, score, tier, cfaf, report, deadline, hint, notes });
+    // 12-column v2 scouting row (docs/scoring-v2.md §8.2); v1 rows are skipped.
+    const r = parseScoutingRow(line);
+    if (!r) continue;
+    rows.push({
+      num: r.num, date: r.date, company: r.company, role: r.role,
+      want: r.want, ease: r.ease, tier: r.tier, eligibility: r.eligibility,
+      report: r.report, deadline: r.deadline, hint: r.hint, notes: r.notes,
+    });
   }
   return rows;
 }
@@ -129,7 +133,7 @@ function readScoreHistory() {
   const colIdx = (name) => header.indexOf(name);
   const ci = {
     date: colIdx('date'), company: colIdx('company'), role: colIdx('role'),
-    location: colIdx('location'), overall: colIdx('overall'), tier: colIdx('tier'),
+    location: colIdx('location'), want: colIdx('want'), ease: colIdx('ease'), tier: colIdx('tier'),
   };
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
@@ -139,7 +143,8 @@ function readScoreHistory() {
       company:  cells[ci.company],
       role:     cells[ci.role],
       location: cells[ci.location] ?? '',
-      overall:  cells[ci.overall],
+      want:     cells[ci.want],
+      ease:     cells[ci.ease],
       tier:     cells[ci.tier],
     });
   }
@@ -230,10 +235,10 @@ function renderReport({ resolved, byEntity, siblingGroups }) {
     for (const [id, rows] of collisions) {
       out.push(`### \`${id}\``);
       out.push('');
-      out.push(`| # | Date | Company | Role | Score | Tier | Location | Notes |`);
-      out.push(`|---|------|---------|------|-------|------|----------|-------|`);
+      out.push(`| # | Date | Company | Role | Want | Ease | Tier | Location | Notes |`);
+      out.push(`|---|------|---------|------|------|------|------|----------|-------|`);
       for (const r of rows) {
-        out.push(`| ${r.row.num} | ${r.row.date} | ${r.row.company} | ${r.row.role} | ${r.row.score} | ${r.row.tier} | ${r.location} | ${(r.row.notes || '').slice(0, 80)} |`);
+        out.push(`| ${r.row.num} | ${r.row.date} | ${r.row.company} | ${r.row.role} | ${r.row.want} | ${r.row.ease} | ${r.row.tier} | ${r.location} | ${(r.row.notes || '').slice(0, 80)} |`);
       }
       out.push('');
     }

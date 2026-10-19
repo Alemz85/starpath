@@ -55,7 +55,7 @@ batch/
         --append-system-prompt-file batch/batch-prompt.md \
         "Procesa esta oferta. URL: {url}. JD: /tmp/batch-jd-{id}.txt. Report: {num}. ID: {id}"
       ```
-   e. Actualizar `batch-state.tsv` (completed/failed + score + report_num)
+   e. Actualizar `batch-state.tsv` (completed/failed + score (= Priority del JSON final; vacío si Blocked) + report_num)
    f. Log a `logs/{report_num}-{id}.log`
    g. Chrome: volver atrás → siguiente oferta
 5. **Paginación**: Si no hay más ofertas → click "Next" → repetir
@@ -78,7 +78,7 @@ Opciones:
 
 ```
 id	url	status	started_at	completed_at	report_num	score	error	retries
-1	https://...	completed	2026-...	2026-...	002	4.2	-	0
+1	https://...	completed	2026-...	2026-...	002	6.8	-	0
 2	https://...	failed	2026-...	2026-...	-	-	Error msg	1
 3	https://...	pending	-	-	-	-	-	0
 ```

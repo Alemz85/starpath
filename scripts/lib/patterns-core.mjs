@@ -2,9 +2,11 @@
 //
 // analyze-patterns.mjs has two jobs that answer two different questions:
 //
-//   --scouting  → "where is the LANDSCAPE offering me strong matches, and which
-//                  dimension drags my scores down?"  (targeting-core.mjs; rich
-//                  from day one, before any application has been sent.)
+//   --scouting  → "where is the LANDSCAPE offering me actionable matches
+//                  (verdict go / stretch / solid), which dimension drags Want
+//                  or Ease down, and which eligibility check keeps blocking
+//                  listings?"  (targeting-core.mjs; rich from day one, before
+//                  any application has been sent.)
 //
 //   default     → "now that I've actually APPLIED to things and heard back,
 //                  what's costing me applications?"  (this module.) This signal
@@ -22,10 +24,24 @@
 // different fixes. computeFunnel answers exactly that, and diagnoseFunnel names
 // the weakest stage.
 //
+// Scoring v2 (docs/scoring-v2.md): applications.md Score cells are
+// "W8.3 E5.6" (Want + Ease) or legacy "7.4/10" (kept valid, shown as-is). They
+// are read only through tracker-core's parseScoreCell / displayScoreCell;
+// Priority (√(Want·Ease), v2 cells only — a legacy v1 Overall is not on that
+// scale, so legacy cells are excluded from Priority stats and counted) is the one
+// number per row and only ever an aggregate/sort key. The verdict is derived
+// from Want/Ease through scouting-core's verdictFromCells with eligibility
+// green (blocked listings are never promoted to applications.md); legacy rows
+// have no verdict unless the linked report states one. "Actionable" = verdict
+// go / stretch / solid.
+//
 // Everything here is a pure function of its inputs — no filesystem, no clock, no
 // globals, no mutation. The thin file/CLI wrapper stays in analyze-patterns.mjs.
 
-import { parseAppRow } from './tracker-core.mjs'
+import { parseAppRow, parseScoreCell, displayScoreCell } from './tracker-core.mjs'
+import { verdictFromCells } from './scouting-core.mjs'
+import { computePriority, verdictRank, VERDICT_ORDER, VERDICT_LABELS } from './score-bands.mjs'
+import { ACTIONABLE_VERDICTS } from './targeting-core.mjs'
 
 /* ───── Status normalization (mirrors verify-pipeline.mjs) ──────────────────
  *
@@ -137,10 +153,99 @@ export function extractBlockerType(gap) {
 
 /* ───── Small numeric helpers ───────────────────────────────────────────────*/
 const round2 = (n) => Math.round(n * 100) / 100
-function scoreStats(arr) {
-  if (arr.length === 0) return { avg: 0, min: 0, max: 0, count: 0 }
-  const avg = arr.reduce((a, b) => a + b, 0) / arr.length
-  return { avg: round2(avg), min: Math.min(...arr), max: Math.max(...arr), count: arr.length }
+const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length
+const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : null)
+
+/** Zeroed tally over every verdict key (blocked included, for completeness). */
+function emptyVerdicts() {
+  return Object.fromEntries(VERDICT_ORDER.map(v => [v, 0]))
+}
+
+/**
+ * Score stats for one group of enriched rows (rows without a parseable score
+ * are skipped, never read as 0):
+ *   { count, avgPriority, minPriority, maxPriority,
+ *     wantEaseCount, avgWant, avgEase, verdicts, actionableRate,
+ *     excluded: { legacy, unscored } }
+ *   count          rows with a Priority (√(W·E); v2 cells, or a legacy cell
+ *                  whose linked v2 report states Want/Ease)
+ *   excluded       legacy = legacy "X.X/10" cells with no v2 Want/Ease (a v1
+ *                  Overall can't be placed on Priority's scale, same rule as
+ *                  calibration-advisor); unscored = no parseable score
+ *   wantEaseCount  rows with v2 Want/Ease (avgWant/avgEase are over these)
+ *   verdicts       tally over VERDICT_ORDER of rows with a known verdict
+ *   actionableRate % of rows with a known verdict that are go/stretch/solid
+ * Averages are null when their sample is empty.
+ */
+export function scoreStats(rows) {
+  const prios = rows.map(r => r.priority).filter(Number.isFinite)
+  const we = rows.filter(r => Number.isFinite(r.want) && Number.isFinite(r.ease))
+  const verdicts = emptyVerdicts()
+  let known = 0
+  for (const r of rows) {
+    if (r.verdict && r.verdict in verdicts) { verdicts[r.verdict]++; known++ }
+  }
+  const actionable = ACTIONABLE_VERDICTS.reduce((a, v) => a + verdicts[v], 0)
+  const excluded = { legacy: 0, unscored: 0 }
+  for (const r of rows) {
+    if (Number.isFinite(r.priority)) continue
+    if (r.legacyScore != null) excluded.legacy++
+    else excluded.unscored++
+  }
+  return {
+    count: prios.length,
+    avgPriority: prios.length ? round2(mean(prios)) : null,
+    minPriority: prios.length ? Math.min(...prios) : null,
+    maxPriority: prios.length ? Math.max(...prios) : null,
+    wantEaseCount: we.length,
+    avgWant: we.length ? round2(mean(we.map(r => r.want))) : null,
+    avgEase: we.length ? round2(mean(we.map(r => r.ease))) : null,
+    verdicts,
+    actionableRate: pct(actionable, known),
+    excluded,
+  }
+}
+
+/* ───── Score cell → Want / Ease / Priority / verdict ───────────────────────
+ *
+ * One applications.md row's score info, read through tracker-core:
+ *   v2 cell "W8.3 E5.6" → want 8.3, ease 5.6, priority √(w·e), verdict from
+ *                         the grid with eligibility green
+ *   legacy "7.4/10"     → legacyScore 7.4, priority null (a v1 Overall is not
+ *                         on Priority's scale); Want / Ease / priority / verdict
+ *                         from the linked report when it states them (a v2
+ *                         report header), else null
+ *   unparseable         → all null (never 0)
+ * `report` is the parsed report ({ scores: { want, ease }, verdict }) or null.
+ */
+export function scoreInfo(cell, report = null) {
+  const parsed = parseScoreCell(cell)
+  const out = {
+    scoreLabel: parsed ? displayScoreCell(cell) : null,
+    priority: parsed && 'want' in parsed ? computePriority(parsed.want, parsed.ease) : null,
+    want: null,
+    ease: null,
+    legacyScore: parsed && 'legacy' in parsed ? parsed.legacy : null,
+    verdict: null,
+  }
+  if (parsed && 'want' in parsed) {
+    out.want = parsed.want
+    out.ease = parsed.ease
+  } else {
+    const rw = Number(report?.scores?.want)
+    const re = Number(report?.scores?.ease)
+    if (Number.isFinite(rw) && Number.isFinite(re)) {
+      out.want = rw
+      out.ease = re
+      if (out.priority === null) out.priority = computePriority(rw, re)
+    }
+  }
+  if (out.want !== null && out.ease !== null) {
+    out.verdict = verdictFromCells({ want: out.want, ease: out.ease, eligibility: 'green' }).verdict
+  } else if (report?.verdict && VERDICT_ORDER.includes(report.verdict)) {
+    out.verdict = report.verdict
+  }
+  return out
 }
 
 /* ───── Stage-conversion funnel ─────────────────────────────────────────────
@@ -266,8 +371,11 @@ export function diagnoseFunnel(funnel, { minBase = 3 } = {}) {
  * Takes parsed tracker entries and a `loadReport(pathRelToRoot) → reportData`
  * resolver (injected so this stays pure — the CLI supplies a fs-backed one).
  * reportData shape: { archetype, seniority, remote, teamSize, comp, domain,
- * scores, gaps } — exactly what parseReport in the CLI produces; any field may
- * be null/absent.
+ * scores: { want, ease }, eligibility, verdict, gaps } — exactly what
+ * parseReport in the CLI produces; any field may be null/absent.
+ *
+ * Each enriched row keeps the raw `score` cell and adds the scoreInfo fields
+ * (scoreLabel, priority, want, ease, legacyScore, verdict).
  */
 export function enrichEntries(entries, loadReport) {
   return entries.map(e => {
@@ -276,14 +384,13 @@ export function enrichEntries(entries, loadReport) {
       ? loadReport(reportMatch[1])
       : null
     const outcome = classifyOutcome(e.status)
-    const score = parseFloat(e.score) || 0
     const remoteSource = reportData?.remote || e.notes || ''
     const teamSource = reportData?.teamSize || ''
     return {
       ...e,
       normalizedStatus: normalizeStatus(e.status),
       outcome,
-      score,
+      ...scoreInfo(e.score, reportData),
       report: reportData,
       remoteBucket: classifyRemote(remoteSource),
       companySize: classifyCompanySize(teamSource),
@@ -318,30 +425,35 @@ export function analyzeOutcomes(enriched, { minThreshold = 5 } = {}) {
   const conversionFunnel = computeFunnel(enriched)
   const funnelDiagnosis = diagnoseFunnel(conversionFunnel)
 
-  // --- Score by outcome ---
-  const scoresByOutcome = { positive: [], negative: [], self_filtered: [], pending: [] }
-  for (const e of enriched) {
-    if (e.score > 0) scoresByOutcome[e.outcome].push(e.score)
-  }
+  // --- Score by outcome (Priority / Want / Ease / verdict mix per group) ---
+  const byOutcome = { positive: [], negative: [], self_filtered: [], pending: [] }
+  for (const e of enriched) byOutcome[e.outcome].push(e)
   const scoreComparison = {
-    positive: scoreStats(scoresByOutcome.positive),
-    negative: scoreStats(scoresByOutcome.negative),
-    self_filtered: scoreStats(scoresByOutcome.self_filtered),
-    pending: scoreStats(scoresByOutcome.pending),
+    positive: scoreStats(byOutcome.positive),
+    negative: scoreStats(byOutcome.negative),
+    self_filtered: scoreStats(byOutcome.self_filtered),
+    pending: scoreStats(byOutcome.pending),
   }
+  const allStats = scoreStats(enriched)
 
   // --- Archetype breakdown ---
   const archetypeMap = new Map()
   for (const e of enriched) {
     const arch = e.report?.archetype || 'Unknown'
-    if (!archetypeMap.has(arch)) archetypeMap.set(arch, { total: 0, positive: 0, negative: 0, self_filtered: 0, pending: 0 })
+    if (!archetypeMap.has(arch)) archetypeMap.set(arch, { total: 0, positive: 0, negative: 0, self_filtered: 0, pending: 0, verdictCount: 0, actionable: 0 })
     const entry = archetypeMap.get(arch)
     entry.total++
     entry[e.outcome]++
+    if (e.verdict) {
+      entry.verdictCount++
+      if (ACTIONABLE_VERDICTS.includes(e.verdict)) entry.actionable++
+    }
   }
-  const archetypeBreakdown = [...archetypeMap.entries()].map(([archetype, data]) => ({
+  const archetypeBreakdown = [...archetypeMap.entries()].map(([archetype, { actionable, ...data }]) => ({
     archetype, ...data,
     conversionRate: data.total > 0 ? Math.round((data.positive / data.total) * 100) : 0,
+    // Share of this archetype's rows with a known verdict that are go/stretch/solid.
+    actionableRate: pct(actionable, data.verdictCount),
   })).sort((a, b) => b.total - a.total)
 
   // --- Blocker analysis ---
@@ -387,18 +499,12 @@ export function analyzeOutcomes(enriched, { minThreshold = 5 } = {}) {
     conversionRate: data.total > 0 ? Math.round((data.positive / data.total) * 100) : 0,
   })).sort((a, b) => b.total - a.total)
 
-  // --- Score threshold ---
-  const positiveScores = scoresByOutcome.positive.filter(s => s > 0)
-  const minPositiveScore = positiveScores.length > 0 ? Math.min(...positiveScores) : 0
-  const scoreThreshold = {
-    recommended: minPositiveScore > 0 ? Math.floor(minPositiveScore * 10) / 10 : 3.5,
-    reasoning: positiveScores.length > 0
-      ? `Lowest score among positive outcomes is ${minPositiveScore}. No applications below this score led to progress.`
-      : 'Not enough positive outcome data to determine threshold.',
-    positiveRange: positiveScores.length > 0
-      ? `${Math.min(...positiveScores)} - ${Math.max(...positiveScores)}`
-      : 'N/A',
-  }
+  // --- Verdict floor (replaces the v1 numeric score threshold) ---
+  const verdictFloor = computeVerdictFloor(enriched)
+
+  // --- Skip-verdict applications actually sent ---
+  const SENT = new Set(['applied', 'responded', 'interview', 'offer', 'rejected', 'discarded'])
+  const skipApplications = enriched.filter(e => e.verdict === 'skip' && SENT.has(e.normalizedStatus)).length
 
   // --- Tech stack gaps (from negative + self_filtered outcomes) ---
   const stackGapCounts = new Map()
@@ -423,7 +529,7 @@ export function analyzeOutcomes(enriched, { minThreshold = 5 } = {}) {
   // --- Recommendations ---
   const recommendations = buildOutcomeRecommendations({
     funnelDiagnosis, conversionFunnel, blockerAnalysis, techStackGaps,
-    minPositiveScore, scoreThreshold, archetypeBreakdown, remotePolicy, enriched,
+    verdictFloor, skipApplications, archetypeBreakdown, remotePolicy, enriched,
   })
 
   const dates = enriched.map(e => e.date).filter(Boolean).sort()
@@ -443,14 +549,53 @@ export function analyzeOutcomes(enriched, { minThreshold = 5 } = {}) {
     funnel,
     conversionFunnel,
     funnelDiagnosis,
+    // Share of all applications with a known verdict that are go/stretch/solid.
+    actionableRate: allStats.actionableRate,
+    verdictMix: allStats.verdicts,
     scoreComparison,
     archetypeBreakdown,
     blockerAnalysis,
     remotePolicy,
     companySizeBreakdown,
-    scoreThreshold,
+    verdictFloor,
+    skipApplications,
     techStackGaps,
     recommendations,
+  }
+}
+
+/* ───── Verdict floor ───────────────────────────────────────────────────────
+ *
+ * The worst verdict (VERDICT_ORDER) among applications that actually
+ * PROGRESSED (responded / interview / offer), and how many sent-or-pending
+ * rows sit below it. A band from the verdict, never a cut-off on a number
+ * (docs/scoring-v2.md §9). Rows without a derivable verdict (legacy cells
+ * with no v2 report) are left out.
+ *
+ *   { lowest, lowestLabel, progressedCount, progressedVerdicts, belowFloor, reasoning }
+ */
+export function computeVerdictFloor(enriched) {
+  const PROGRESSED = new Set(['responded', 'interview', 'offer'])
+  const progressed = enriched.filter(e => PROGRESSED.has(e.normalizedStatus) && e.verdict)
+  const progressedVerdicts = emptyVerdicts()
+  for (const e of progressed) progressedVerdicts[e.verdict]++
+  if (progressed.length === 0) {
+    return {
+      lowest: null, lowestLabel: null, progressedCount: 0, progressedVerdicts, belowFloor: 0,
+      reasoning: 'No application with a known verdict has progressed past "Applied" yet.',
+    }
+  }
+  const lowest = progressed.reduce((lo, e) => (verdictRank(e.verdict) < verdictRank(lo) ? e.verdict : lo), progressed[0].verdict)
+  const belowFloor = enriched.filter(e =>
+    e.verdict && !PROGRESSED.has(e.normalizedStatus) && verdictRank(e.verdict) < verdictRank(lowest)).length
+  const lowestLabel = VERDICT_LABELS[lowest]
+  return {
+    lowest,
+    lowestLabel,
+    progressedCount: progressed.length,
+    progressedVerdicts,
+    belowFloor,
+    reasoning: `Every application that progressed (${progressed.length}) was verdict ${lowestLabel} or better; ${belowFloor} with a lower verdict have not.`,
   }
 }
 
@@ -461,8 +606,8 @@ export function analyzeOutcomes(enriched, { minThreshold = 5 } = {}) {
  * heuristics follow.
  */
 export function buildOutcomeRecommendations({
-  funnelDiagnosis, blockerAnalysis, techStackGaps, minPositiveScore,
-  scoreThreshold, archetypeBreakdown, remotePolicy, enriched,
+  funnelDiagnosis, blockerAnalysis, techStackGaps, verdictFloor,
+  skipApplications = 0, archetypeBreakdown, remotePolicy, enriched,
 }) {
   const recommendations = []
 
@@ -496,11 +641,22 @@ export function buildOutcomeRecommendations({
     })
   }
 
-  // 3. Score threshold.
-  if (minPositiveScore > 3.0) {
+  // 3. Verdict floor — where effort stops paying off (needs ≥3 progressed
+  //    applications and ≥2 below the floor to be more than noise).
+  if (verdictFloor?.lowest && verdictFloor.progressedCount >= 3 && verdictFloor.belowFloor >= 2) {
+    const label = verdictFloor.lowestLabel
     recommendations.push({
-      action: `Set minimum score threshold at ${scoreThreshold.recommended}/5 before generating PDFs`,
-      reasoning: `No positive outcomes below ${minPositiveScore}/5. Scores below this are wasted effort.`,
+      action: `Focus PDFs and applications on verdict ${label} or better -- every application that progressed was ${label}+`,
+      reasoning: `${verdictFloor.progressedCount} applications progressed, none below ${label}; ${verdictFloor.belowFloor} with a lower verdict have not.`,
+      impact: 'medium',
+    })
+  }
+
+  // 3b. Applications sent to Skip-verdict listings (the grid recommends against them).
+  if (skipApplications >= 2) {
+    recommendations.push({
+      action: `Stop applying to Skip-verdict roles -- ${skipApplications} applications went to listings the verdict grid says to skip`,
+      reasoning: 'Skip means the role is not worth applying to on Want and Ease; that effort is better spent on go / stretch / solid listings.',
       impact: 'medium',
     })
   }

@@ -29,14 +29,14 @@ const NETWORK_MD = `# Network
 // Pipeline: applications + scouting rows (shared leading shape).
 const APPS_MD = `| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
 |---|------|---------|------|-------|--------|-----|--------|-------|
-| 1 | 2026-06-20 | Vandelay | Strategy Analyst | 8.7/10 | Applied | ✅ | [1](reports/tier-1/x.md) | |
-| 2 | 2026-06-22 | Hooli | Platform Analyst | 7.9/10 | Applied | ✅ | [2](reports/tier-2/y.md) | |
+| 1 | 2026-06-20 | Vandelay | Strategy Analyst | W8.7 E8.7 | Applied | ✅ | [1](reports/tier-1/x.md) | |
+| 2 | 2026-06-22 | Hooli | Platform Analyst | W7.9 E7.9 | Applied | ✅ | [2](reports/tier-2/y.md) | |
 `
 
-const SCOUTING_MD = `| # | Date | Company | Role | Score | Tier | PDF | Deadline | Report | Src | Notes |
-|---|------|---------|------|-------|------|-----|----------|--------|-----|-------|
-| 1 | 2026-06-25 | Globex | Ops Associate | 7.4/10 | T2 | ❌ | n/d | [1](reports/tier-2/z.md) | scan | |
-| 2 | 2026-06-26 | Initech | Data Analyst | 6.9/10 | T3 | ❌ | n/d | [2](reports/tier-3/w.md) | scan | |
+const SCOUTING_MD = `| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
+|---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|
+| 1 | 2026-06-25 | Globex | Ops Associate | 7.4 | 7.4 | T2 | green | [1](reports/tier-2/z.md) | n/d | MONITOR | |
+| 2 | 2026-06-26 | Initech | Data Analyst | 6.9 | 6.9 | T2 | green | [2](reports/tier-2/w.md) | n/d | | |
 `
 
 function world() {
@@ -73,6 +73,7 @@ test('untouched 1st-degree ties become warm-direct; 2nd-degree become warm-intro
   assert.equal(vandelay.target.name, 'Dana Fox')
   assert.equal(vandelay.topRole.role, 'Strategy Analyst')
   assert.equal(vandelay.topRole.score, 8.7)
+  assert.equal(vandelay.topRole.scoreLabel, 'W8.7 · E8.7')
 
   const globex = byCompany.Globex
   assert.equal(globex.play, 'warm-intro')

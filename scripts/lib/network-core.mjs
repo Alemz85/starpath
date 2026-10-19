@@ -327,21 +327,47 @@ export function parseNetwork(content) {
 }
 
 /* ───── Parse the pipeline (applications.md + scouting.md) ───────────────────
- * Both files share the leading shape `| num | date | company | role | score |`.
- * We only need company + role + score + a source tag here, so one lenient parser
- * handles both. Score lets us rank coverage gaps (a referral matters most for a
- * high-scoring role).
+ * Both files lead with `| num | date | company | role |`, but the score cells
+ * differ under scoring v2 (docs/scoring-v2.md §8):
+ *   applications.md  col 5 = Score    "W8.3 E5.6" (v2) or "7.4/10" (legacy)
+ *   scouting.md      col 5 = Want, col 6 = Ease  (numbers, or "—" when Blocked)
+ * We only need company + role + a rank key + a display label + a source tag
+ * here, so one lenient parser handles both. `score` is the rank key —
+ * Priority = round(sqrt(want × ease), 2) for v2 cells, the legacy number for
+ * legacy cells — so coverage gaps still sort by how much a referral matters.
+ * It is a sort key only; surfaces should show `scoreLabel` ("W8.3 · E5.6").
+ * Blocked scouting rows (Want/Ease "—") are not referral targets and are
+ * dropped.
  */
 
-/** Pull the leading numeric from a score cell ("7.2/10", "**8**") → number, 0 if none. */
-export function parseScore(s) {
-  const m = String(s ?? '').replace(/\*\*/g, '').match(/([\d.]+)/);
-  return m ? parseFloat(m[1]) : 0;
+const num = (v) => {
+  const m = String(v ?? '').replace(/\*\*/g, '').trim().match(/^(\d+(?:\.\d+)?)(?:\s*\/\s*10)?$/);
+  return m ? parseFloat(m[1]) : null;
+};
+const priorityOf = (want, ease) => Math.round(Math.sqrt(want * ease) * 100) / 100;
+
+/**
+ * Parse an applications.md Score cell → { score, want, ease, scoreLabel } or null.
+ *   "W8.3 E5.6" → { score: 6.81, want: 8.3, ease: 5.6, scoreLabel: 'W8.3 · E5.6' }
+ *   "7.4/10"    → { score: 7.4,  want: null, ease: null, scoreLabel: '7.4/10' }
+ */
+export function parseScoreCellInfo(cell) {
+  const s = String(cell ?? '').replace(/\*\*/g, '').trim();
+  const v2 = s.match(/^W\s*(\d+(?:\.\d+)?)\s*[ ·\/,]?\s*E\s*(\d+(?:\.\d+)?)$/i);
+  if (v2) {
+    const want = parseFloat(v2[1]);
+    const ease = parseFloat(v2[2]);
+    return { score: priorityOf(want, ease), want, ease, scoreLabel: `W${want} · E${ease}` };
+  }
+  const legacy = num(s);
+  if (legacy !== null) return { score: legacy, want: null, ease: null, scoreLabel: `${legacy}/10` };
+  return null;
 }
 
 /**
- * Parse one pipeline row into { company, role, score } or null.
- * `source` tags where it came from ('application' | 'scouting').
+ * Parse one pipeline row into { company, companyKey, role, score, want, ease,
+ * scoreLabel, source } or null. `source` is 'application' | 'scouting' and
+ * selects which score columns apply (see above).
  */
 export function parsePipelineRow(line, source) {
   const t = String(line ?? '').trim();
@@ -349,19 +375,36 @@ export function parsePipelineRow(line, source) {
   if (/^\|\s*#\s*\|/.test(t)) return null;
   const parts = t.split('|').map((s) => s.trim());
   if (parts.length < 6) return null;
-  const num = parseInt(parts[1], 10);
-  if (Number.isNaN(num)) return null;
+  const n = parseInt(parts[1], 10);
+  if (Number.isNaN(n)) return null;
   const date = parts[2];
   const company = clean(parts[3]);
   const role = clean(parts[4]);
   if (!company || !role) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) return null; // guard header noise
-  return { company, companyKey: companyKey(company), role, score: parseScore(parts[5]), source };
+
+  let info;
+  if (source === 'scouting') {
+    const want = num(parts[5]);
+    const ease = num(parts[6]);
+    if (want !== null && ease !== null) {
+      info = { score: priorityOf(want, ease), want, ease, scoreLabel: `W${want} · E${ease}` };
+    } else if (want !== null && /^T[1-4]$/i.test(parts[6] ?? '')) {
+      // Lenient: a pre-v2 row (`… | 7.5/10 | T2 | …`) keeps its single score as
+      // the rank key rather than vanishing from the referral lens.
+      info = parseScoreCellInfo(parts[5]);
+    } else {
+      return null; // Blocked ("—") or malformed: not a referral target
+    }
+  } else {
+    info = parseScoreCellInfo(parts[5]) ?? { score: 0, want: null, ease: null, scoreLabel: '' };
+  }
+  return { company, companyKey: companyKey(company), role, ...info, source };
 }
 
 /**
  * Build the deduped set of pipeline targets from applications + scouting text.
- * Keyed by (companyKey + normalized role); the higher score wins on collision,
+ * Keyed by (companyKey + normalized role); the higher Priority wins on collision,
  * and an 'application' source is preferred over 'scouting' for the same key
  * (you've decided to apply → it's a more committed target).
  */
@@ -383,6 +426,11 @@ export function parsePipeline(applicationsContent, scoutingContent) {
   for (const line of String(applicationsContent ?? '').split('\n')) add(line, 'application');
   for (const line of String(scoutingContent ?? '').split('\n')) add(line, 'scouting');
   return [...byKey.values()];
+}
+
+/** Role summary carried on matches/gaps/paths: rank key + display label. */
+function roleInfo(t) {
+  return { role: t.role, score: t.score, want: t.want ?? null, ease: t.ease ?? null, scoreLabel: t.scoreLabel ?? '', source: t.source };
 }
 
 /* ───── The match: network × pipeline ───────────────────────────────────────── */
@@ -441,7 +489,7 @@ export function matchNetworkToPipeline(contacts, pipeline, todayStr) {
     const roles = targets
       .slice()
       .sort((a, b) => b.score - a.score)
-      .map((t) => ({ role: t.role, score: t.score, source: t.source }));
+      .map((t) => roleInfo(t));
     matches.push({
       company: cs[0].company, // display name from the first contact's spelling
       companyKey: ck,
@@ -462,7 +510,7 @@ export function matchNetworkToPipeline(contacts, pipeline, todayStr) {
       company: sorted[0].company,
       companyKey: ck,
       topScore: sorted[0].score,
-      roles: sorted.map((t) => ({ role: t.role, score: t.score, source: t.source })),
+      roles: sorted.map((t) => roleInfo(t)),
     });
   }
 
@@ -513,7 +561,7 @@ export function pathsForCompany(companyName, contacts, pipeline, todayStr) {
   const roles = pipeline
     .filter((p) => p.companyKey === ck)
     .sort((a, b) => b.score - a.score)
-    .map((p) => ({ role: p.role, score: p.score, source: p.source }));
+    .map((p) => roleInfo(p));
   const targetRoles = roles.map((r) => r.role);
   const ranked = contacts
     .filter((c) => c.companyKey === ck)

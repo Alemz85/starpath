@@ -20,7 +20,10 @@ import {
   dimensionGaps,
   gapRecommendations,
   analyzeCvGap,
+  CV_LEVER_DIMS,
 } from './cv-gap.mjs';
+import { parseScoreHistory } from './targeting-core.mjs';
+import { historyTsv } from './testing/score-history-fixture.mjs';
 
 // ── buildCvIndex / termInCv ────────────────────────────────────────────────
 
@@ -169,44 +172,68 @@ test('weakProofPoints ignores non-achievement lines (no false nagging)', () => {
 
 // ── dimensionGaps (over targeting-core's dimensionDrag) ─────────────────────
 
-const SCORE_HEADER = [
-  'date', 'archetype', 'skills_match', 'ease_of_entry', 'strategic_fit',
-  'current_fit', 'growth_mobility', 'optionality_exit', 'brand_value',
-  'sales_trap_risk', 'aspirational_fit', 'overall', 'best_cities',
-  'salary_adj_city', 'work_life_balance', 'best_fit_roles', 'mode',
-  'company', 'role', 'tier', 'source', 'location', 'employment_type',
-  'duration', 'salary_raw', 'url',
-];
-
-// Build score rows directly as objects (dimensionDrag reads .skills_match etc.)
+// Build score rows through the shared v2 fixture + the real parser, so
+// dimensionDrag sees exactly what it sees in production. Base: Ease-side
+// skills_match + experience_bar low (4), everything else healthy (8).
+const LOW_EASE = {
+  skills_match: 4, experience_bar: 4, competition: 7,
+  growth_mobility: 8, optionality_exit: 8, brand_value: 8, role_content: 8,
+  best_cities: 8, salary_adj_city: 7, work_life_balance: 7,
+};
+function scoreRows(...overrides) {
+  return parseScoreHistory(historyTsv(...overrides.map((o) => ({ ...LOW_EASE, ...o }))));
+}
 function scoreRow(over = {}) {
-  const base = {
-    skills_match: 4, ease_of_entry: 4, strategic_fit: 8,
-    growth_mobility: 8, optionality_exit: 8, brand_value: 8, overall: 7,
-  };
-  return { ...base, ...over };
+  return scoreRows(over)[0];
 }
 
 test('dimensionGaps surfaces only the systematically low dimensions', () => {
-  const rows = [scoreRow(), scoreRow(), scoreRow()]; // skills+ease low (avg 4)
+  const rows = scoreRows({}, {}, {}); // skills + experience low (avg 4)
   const gaps = dimensionGaps(rows, { avgThreshold: 6.0 });
   const keys = gaps.map((g) => g.key);
   assert.ok(keys.includes('skills_match'));
-  assert.ok(keys.includes('ease_of_entry'));
-  assert.ok(!keys.includes('strategic_fit'), 'strategic_fit avg 8 is not a gap');
+  assert.ok(keys.includes('experience_bar'));
+  assert.ok(!keys.includes('role_content'), 'role_content avg 8 is not a gap');
+  assert.ok(!keys.includes('competition'), 'competition avg 7 is not a gap');
+  for (const g of gaps) {
+    assert.equal(g.rollup, 'ease');
+    assert.equal(g.group, 'ease');
+  }
 });
 
-test('dimensionGaps marks skills_match as the one CV-actionable dimension', () => {
-  const rows = [scoreRow(), scoreRow()];
+test('dimensionGaps tags Want-side drags with their rollup + group', () => {
+  const rows = scoreRows({ role_content: 3, skills_match: 8, experience_bar: 8 }, { role_content: 3, skills_match: 8, experience_bar: 8 });
   const gaps = dimensionGaps(rows, { avgThreshold: 6.0 });
-  const skills = gaps.find((g) => g.key === 'skills_match');
-  const ease = gaps.find((g) => g.key === 'ease_of_entry');
-  assert.equal(skills.cvActionable, true);
-  assert.equal(ease.cvActionable, false);
+  assert.deepEqual(gaps.map((g) => g.key), ['role_content']);
+  assert.equal(gaps[0].rollup, 'want');
+  assert.equal(gaps[0].group, 'motivator');
+  assert.equal(gaps[0].cvActionable, false);
+});
+
+test('dimensionGaps ignores Blocked rows (empty score cells are missing, not 0)', () => {
+  const rows = parseScoreHistory(historyTsv(
+    { ...LOW_EASE, skills_match: 8, experience_bar: 8 },
+    { eligibility: 'red', eligibility_flags: 'language:red:German C1 required' },
+    { eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship' },
+  ));
+  assert.equal(rows.filter((r) => r.blocked).length, 2);
+  assert.deepEqual(dimensionGaps(rows, { avgThreshold: 6.0 }), []);
+  const res = analyzeCvGap({ cvText: 'CV text', demandDocs: [], scoreRows: rows });
+  assert.equal(res.metadata.scoreRows, 3);
+  assert.equal(res.metadata.blockedRows, 2);
+});
+
+test('dimensionGaps marks skills_match + experience_bar CV-actionable, competition not', () => {
+  const rows = scoreRows({ competition: 3 }, { competition: 3 });
+  const gaps = dimensionGaps(rows, { avgThreshold: 6.0 });
+  assert.deepEqual([...CV_LEVER_DIMS], ['skills_match', 'experience_bar']);
+  assert.equal(gaps.find((g) => g.key === 'skills_match').cvActionable, true);
+  assert.equal(gaps.find((g) => g.key === 'experience_bar').cvActionable, true);
+  assert.equal(gaps.find((g) => g.key === 'competition').cvActionable, false);
 });
 
 test('dimensionGaps returns [] when no dimension drags', () => {
-  const rows = [scoreRow({ skills_match: 8, ease_of_entry: 8 })];
+  const rows = [scoreRow({ skills_match: 8, experience_bar: 8 })];
   assert.deepEqual(dimensionGaps(rows, { avgThreshold: 6.0 }), []);
 });
 
@@ -246,13 +273,20 @@ test('gapRecommendations separates CV-fixable skills drag from targeting drags',
     keyword: { totalRoles: 5, gaps: [] },
     proof: { achievementBullets: 0, quantifiedPct: 0, weak: [] },
     dimension: [
-      { key: 'skills_match', label: 'Skills Match', avg: 4, lowShare: 50, cvActionable: true, hint: 'h' },
-      { key: 'brand_value', label: 'Brand Value', avg: 5, lowShare: 30, cvActionable: false, hint: 'h' },
+      { key: 'skills_match', label: 'Skills Match', rollup: 'ease', avg: 4, lowShare: 50, cvActionable: true, hint: 'h' },
+      { key: 'experience_bar', label: 'Experience bar', rollup: 'ease', avg: 4.5, lowShare: 40, cvActionable: true, hint: 'h' },
+      { key: 'brand_value', label: 'Brand Value', rollup: 'want', avg: 5, lowShare: 30, cvActionable: false, hint: 'h' },
     ],
   };
   const recs = gapRecommendations(report);
-  assert.ok(recs.some((r) => r.action.includes('Skills Match') && r.action.includes('drag')));
-  assert.ok(recs.some((r) => r.action.includes('targeting/sourcing fixes')));
+  const skills = recs.find((r) => r.action.includes('Skills Match') && r.action.includes('drag'));
+  const exp = recs.find((r) => r.action.includes('Experience bar') && r.action.includes('drag'));
+  assert.equal(skills.impact, 'high');
+  assert.equal(exp.impact, 'medium');
+  const targeting = recs.find((r) => r.action.includes('targeting/sourcing fixes'));
+  assert.ok(targeting);
+  assert.match(targeting.action, /Brand Value/);
+  assert.ok(!targeting.action.includes('Skills Match'));
 });
 
 // ── analyzeCvGap (end-to-end) ──────────────────────────────────────────────
@@ -278,8 +312,8 @@ test('analyzeCvGap produces a full report from CV + demand + scores', () => {
     'SQL and Tableau reporting. SQL Tableau.',
     'SQL pipelines, Tableau dashboards. SQL Tableau.',
   ];
-  const scoreRows = [scoreRow(), scoreRow(), scoreRow()];
-  const res = analyzeCvGap({ cvText: cv, demandDocs: docs, scoreRows });
+  const rows = scoreRows({}, {}, {});
+  const res = analyzeCvGap({ cvText: cv, demandDocs: docs, scoreRows: rows });
   assert.equal(res.metadata.rolesAnalyzed, 3);
   // keyword gaps present (sql, tableau)
   const gapTerms = res.keyword.gaps.map((g) => g.term.split(/\s+/)[0]);
@@ -442,8 +476,8 @@ test('dimensionGaps: lowShareThreshold triggers when lowShare is high even if av
   // Avg = 6.5 (above avgThreshold 6.0) but lowShare could be high if some evals score ≤4.
   // Build rows where skills_match is 6.5 avg but 30% score ≤4 (3 out of 10).
   const rows = [
-    ...Array.from({ length: 3 }, () => scoreRow({ skills_match: 4, ease_of_entry: 8 })), // ≤4
-    ...Array.from({ length: 7 }, () => scoreRow({ skills_match: 7.5, ease_of_entry: 8 })), // above
+    ...Array.from({ length: 3 }, () => scoreRow({ skills_match: 4, experience_bar: 8 })), // ≤4
+    ...Array.from({ length: 7 }, () => scoreRow({ skills_match: 7.5, experience_bar: 8 })), // above
   ];
   // avg = (4*3 + 7.5*7) / 10 = (12+52.5)/10 = 6.45 → above avgThreshold 6.0
   // lowShare = 3/10 = 30% → above lowShareThreshold default 25
@@ -459,13 +493,13 @@ test('dimensionGaps: empty score rows → [] (no crash)', () => {
 
 test('dimensionGaps: all dimensions healthy → [] returned', () => {
   const rows = Array.from({ length: 5 }, () =>
-    scoreRow({ skills_match: 9, ease_of_entry: 8, strategic_fit: 8 }));
+    scoreRow({ skills_match: 9, experience_bar: 8, competition: 8 }));
   const gaps = dimensionGaps(rows, { avgThreshold: 6.0, lowShareThreshold: 25 });
   assert.deepEqual(gaps, []);
 });
 
 test('dimensionGaps: has hint for every returned dimension', () => {
-  const rows = [scoreRow(), scoreRow()]; // skills+ease both at 4
+  const rows = scoreRows({ competition: 3, role_content: 3 }, { competition: 3, role_content: 3 }); // four drags
   const gaps = dimensionGaps(rows, { avgThreshold: 6.0 });
   for (const g of gaps) {
     assert.ok(g.hint, `dimension ${g.key} should have a hint`);

@@ -3,7 +3,7 @@
 //
 // Reads closing dates from TWO sources:
 //   • data/applications.md  (all rows with a Deadline cell)
-//   • data/scouting.md      (T1/T2 rows with a Deadline cell)
+//   • data/scouting.md      (T1/T2 rows with a Deadline cell; Blocked rows skipped)
 //
 // Parses every deadline value, buckets each entry by true urgency, and renders
 // a clear "act today / this week / watch" breakdown — the three questions the
@@ -178,12 +178,24 @@ export function parseApplicationsDeadlines(content) {
   return entries;
 }
 
+/** True for a Blocked scouting row: red eligibility or no Want/Ease. */
+function isBlockedScoutingRow(row) {
+  return row.eligibilityStatus === 'red' || row.wantNum === null || row.easeNum === null;
+}
+
+/** "W8.3 · E5.6" display label for a scouting row. */
+function scoreLabelOf(row) {
+  return `W${row.wantNum} · E${row.easeNum}`;
+}
+
 /**
  * Parse all rows from scouting.md content and return deadline entries for
- * T1 and T2 rows only (T3/T4 are not actionable).
+ * T1 and T2 rows only (T3/T4 are not actionable). Blocked rows (red
+ * eligibility, Want/Ease "—") are skipped — a closing date on a role you
+ * can't take is noise (blocked rows are T4 anyway; this guards hand-edits).
  *
  * Each entry:
- *   { source: 'scouting', num, company, role, tier, score, deadline, parsed }
+ *   { source: 'scouting', num, company, role, tier, want, ease, scoreLabel, deadline, parsed }
  *
  * Rows with Deadline = n/d are excluded (no deadline data to track).
  */
@@ -196,6 +208,7 @@ export function parseScoutingDeadlines(content) {
 
     const tier = String(row.tier || '').trim().toUpperCase();
     if (tier !== 'T1' && tier !== 'T2') continue;
+    if (isBlockedScoutingRow(row)) continue;
 
     const deadline = row.deadline;
     if (!deadline || deadline === 'n/d') continue;
@@ -207,7 +220,9 @@ export function parseScoutingDeadlines(content) {
       company: row.company,
       role: row.role,
       tier,
-      score: row.score,
+      want: row.wantNum,
+      ease: row.easeNum,
+      scoreLabel: scoreLabelOf(row),
       deadline,
       parsed,
     });
@@ -312,6 +327,7 @@ export function countMissingScoutingDeadlines(content) {
     if (!row) continue;
     const tier = String(row.tier || '').trim().toUpperCase();
     if (tier !== 'T1' && tier !== 'T2') continue;
+    if (isBlockedScoutingRow(row)) continue;
     const deadline = row.deadline;
     if (!deadline || deadline === 'n/d') count++;
   }
@@ -351,7 +367,7 @@ function tableRow(entry) {
 function tableRowRolling(entry) {
   const tierOrStatus = entryTierStatus(entry);
   const notes = entry.source === 'scouting'
-    ? (entry.score ? `Score: ${entry.score}` : '')
+    ? (entry.scoreLabel || '')
     : (entry.status || '');
   return `| ${entry.num} | ${entry.company} | ${entry.role} | ${tierOrStatus} | ${notes} |`;
 }

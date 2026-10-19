@@ -71,21 +71,23 @@ When the user accepts a re-eval and runs it: the new evaluation's report file is
 
 ## Step 2c — Relevance gate (DISCARD irrelevant listings BEFORE scoring)
 
-**Why this exists:** the title-filter in `user/portals.yml` is permissive — a single positive keyword admits the URL into the pipeline. After scan typically lets a few hundred URLs through. Many are off-archetype on JD inspection. Scoring all of them dilutes the 1-10 scale and floods the Database with noise the user has to wade through. This gate cuts the scored set down to listings that are *actually plausible* given the user's archetypes, location, comp targets, and visa.
+**Why this exists:** the title-filter in `user/portals.yml` is permissive — a single positive keyword admits the URL into the pipeline. After scan typically lets a few hundred URLs through. Many are off-archetype on JD inspection. Scoring all of them dilutes the 1-10 scale and floods the Database with noise the user has to wade through. This gate cuts the scored set down to listings that are *actually plausible* given the user's archetypes, seniority, domain exclusions and comp floor.
+
+**Eligibility walls are NOT filtered here.** Location / work-rights / visa locks, language walls, start-date clashes and graduation windows belong to the eligibility gate (`modes/_shared.md` § Step 1). A listing that fails one is **logged as Blocked, not filtered**: run `node scripts/score-listing.mjs --eligibility-only` on its `eligibility_facts`, and on `red` write the score-history row (scores empty), the report-summaries row and the scouting TSV with `red: {reason}` — no report, no dimension scoring. That way the user sees *why* a role they might have wanted is closed to them (and dream-company walls come back as `Revisit next cycle:`), instead of the listing vanishing into Filtered Out.
 
 **The survivor count is a RESULT, not a TARGET.** Earlier versions of this rule had a "expect ~20-30% to survive" framing, which pressured the agent to pad the pass-list with marginal fits when the true number was lower. Don't do that. If 5 / 350 URLs are honest fits, the right answer is 5. If 250 / 350 are honest fits, the right answer is 250. Apply the gate per JD; let the count fall where it falls. (Sanity flag: if survivors < 5% of input OR > 80% of input, mention it in the run summary — that signals either an upstream pool problem or a gate calibration drift, both worth surfacing.)
 
-For each non-duplicate URL, fetch the JD (Playwright/WebFetch) and run a fast pre-scoring check against the user's profile (`user/_profile.md` archetypes, `user/profile.yml` target_roles, location policy):
+For each non-duplicate URL, fetch the JD (Playwright/WebFetch) and run a fast pre-scoring check against the user's profile (`user/_profile.md` archetypes, `user/profile.yml` target_roles, red flags):
 
 **Discard (mark `- [!] FILTERED — {reason}` in pipeline.md, do NOT score, do NOT add to scouting.md, do NOT write a row to score-history.tsv) if ANY of:**
 
 1. **Wrong archetype.** The JD's actual day-to-day work does not map to any of the user's primary or secondary archetypes. Be honest about this — "could plausibly contribute to" is not the bar; "this role's core responsibilities are something the user actually wants to do" is the bar. Examples to discard: pure quota-carrying sales (BDR/SDR/AE) when user wants Strategy/Analytics; pure customer-support / customer-success-rep work without analytics scope; pure delivery / logistics / supply-chain ops; pure clinical / medical / nursing; pure legal counsel; pure backend / frontend / mobile engineering; pure finance / audit / tax / payroll / accounting (unless analytics-finance-bridge is named in archetypes).
 2. **Wrong seniority.** The JD body requires **5+ years of experience**, OR titles "Senior", "Lead", "Principal", "Manager (with reports)", "Director" that slipped past title-filter. Internships, graduate programmes, and 0–3 YoE roles are in scope.
-3. **Geo-locked outside user's reachable set.** Location is US-only (no EU work-rights / no remote-EU option), or restricted to a country the user cannot legally work in, or requires a clearance the user does not hold.
-4. **Excluded domain.** Defense, weapons, oil & gas, online gambling, adult content, MLM/pyramid, predatory lending, tobacco/vaping — unless the user has explicitly opted in via `_profile.md`.
-5. **Visa-locked.** "Must be a US citizen", "active TS/SCI clearance required", "Italian passport required" when user is non-Italian, etc. (Soft visa friction — e.g., UK roles for EU citizens — is NOT a discard; it's an Ease of Entry penalty per `_shared.md` § Ease of Entry calibration.)
-6. **Poverty-wage.** Salary is disclosed and would score **1** on the savings-power rubric in `_shared.md` § Salary Adj for City — i.e., monthly net minus city baseline is below −€400 (you'd burn capital just living there). (A salary that scores 3–5 stays in — gets a low Salary Adj but doesn't disqualify; only score-1 poverty wages discard.)
-7. **JD body explicitly contradicts a user red flag.** `_profile.md` § Red Flags to Watch For lists categorical mismatches the user has surfaced (commission-only / 2-3+ years required / non-tech "analytics" = Excel reporting / etc). If a JD matches a stated red flag, discard.
+3. **Excluded domain.** Defense, weapons, oil & gas, online gambling, adult content, MLM/pyramid, predatory lending, tobacco/vaping — unless the user has explicitly opted in via `_profile.md`.
+4. **Poverty-wage.** Salary is disclosed and would score **1** on the savings-power rubric in `_shared.md` § Salary Adj for City — i.e., monthly net minus city baseline is below −€400 (you'd burn capital just living there). (A salary that scores 3–5 stays in — gets a low Salary Adj hygiene term but doesn't disqualify; only score-1 poverty wages discard.)
+5. **JD body explicitly contradicts a user red flag.** `_profile.md` § Red Flags to Watch For lists categorical mismatches the user has surfaced (commission-only / 2-3+ years required / non-tech "analytics" = Excel reporting / etc). If a JD matches a stated red flag, discard.
+
+(The former geo-locked and visa-locked discards — "US-only", "must hold the right to work in X", "citizenship / clearance required" — now run through the eligibility gate as `work_auth` / `other` checks and land as Blocked, per the note above.)
 
 **Borderline cases — DISCARD, don't score.** When in doubt, the listing is OUT. The bar for inclusion is *"I can write a one-sentence reason, citing JD evidence, why this role is a fit for one of the user's primary or secondary archetypes."* If you cannot articulate that sentence honestly, the listing is not a fit — move it to `## Filtered Out` and the user can audit. Padding the Database with 5/10s the user has to manually reject is worse than a tight gate the user has to occasionally widen.
 
@@ -150,8 +152,8 @@ For each URL that **survived Step 2c** (in priority order):
 a. Compute the next sequential entry number: read `data/scouting.md` + `data/applications.md`, take highest number + 1
 b. **Extract JD:** Playwright (`browser_navigate` + `browser_snapshot`) → WebFetch → WebSearch
 c. If not accessible → mark `- [!]` with a note and continue
-d. **Run evaluation** per `modes/scouting.md` — score the listing, write the per-listing report under `reports/tier-N/{Company} - {Role}.md`, append the row to `data/score-history.tsv` and the scouting tracker. CF/AF rollup weights are fixed at 70/30 (see `_shared.md` § Overall).
-e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | Score/10 | Tier | PDF ✅/❌`
+d. **Run evaluation** per `modes/scouting.md` — eligibility gate first, then score the listing, write the per-listing report under `reports/tier-N/{Company} - {Role}.md` (none for T4), append the row to `data/score-history.tsv` and the scouting tracker.
+e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | W{want} E{ease} | Tier | verdict` (Blocked: `- [x] #NNN | URL | Company | Role | BLOCKED | T4 | {reason}`)
 
 **If 3+ pending URLs:** launch agents in parallel (`Agent tool` with `run_in_background`) to maximize speed. Keep company grouping intact — evaluate the same-company batch together before dispatching the next company.
 
@@ -160,10 +162,10 @@ e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | Scor
 When all URLs are processed, show:
 
 ```
-| # | Company | Role | Score/10 | Tier | PDF | Action |
+| # | Company | Role | Want | Ease | Verdict | Tier | Action |
 ```
 
-Sort by Score descending. Include a note for any `[STALE]` entries that were liveness-checked and found closed.
+Sort by Priority (`√(Want × Ease)`) descending; Blocked rows last, with their reason in Action. Include a note for any `[STALE]` entries that were liveness-checked and found closed.
 
 ## Step 5 — Filter Intelligence (automatic, silent)
 
@@ -173,7 +175,7 @@ Run this after every batch of **3+ evaluations**. Takes ~10 seconds and requires
 
 Collect every posting in this batch that:
 - Passed the title filter (i.e., the scanner let it through), AND
-- Scored **< 4.5 Overall**
+- Landed verdict `skip` with **Want < 5.0** (the role itself is off-target — Ease-only skips and Blocked listings don't count, since a title keyword can't predict either)
 
 These are false positives from the scanner's perspective — the keywords were too permissive.
 
@@ -187,9 +189,9 @@ Read `data/filter-log.md` (create it if absent with the header below). Append ea
 # Filter Intelligence Log
 
 ## False Positive Patterns
-<!-- Postings that passed title filters but scored < 4.5 -->
-| Date | Company | Title | Score | Suspected Pattern | Count |
-|------|---------|-------|-------|-------------------|-------|
+<!-- Postings that passed title filters but landed skip with Want < 5.0 -->
+| Date | Company | Title | Want | Suspected Pattern | Count |
+|------|---------|-------|------|-------------------|-------|
 ```
 
 ### 5c — Auto-apply when threshold is met
@@ -287,11 +289,11 @@ in the Configuration tab.
 ## Filtered Out
 - [!] FILTERED | https://example.com/job | DefenseCo | Analyst | excluded domain (defense)
 - [!] FILTERED | https://example.com/job | BigBank | Senior Director | wrong seniority (10+ YoE)
-- [!] FILTERED | https://example.com/job | USStartup | Engineer | geo-locked (US-only, no remote-EU)
 
 ## Processed
-- [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | Analyst | 8.2/10 | T2 | PDF ✅
-- [x] #144 | https://boards.greenhouse.io/xyz/jobs/012 | BigCo | SA | 5.1/10 | T3 | PDF ❌
+- [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | Analyst | W8.3 E6.1 | T2 | stretch
+- [x] #144 | https://boards.greenhouse.io/xyz/jobs/012 | BigCo | SA | W8.1 E4.2 | T3 | growth
+- [x] #145 | https://jobs.example.com/posting/901 | USStartup | Engineer | BLOCKED | T4 | work_auth: US-only, no sponsorship
 - [x] DUPE | https://... | OldCo | Analyst | → existing #112
 - [!] CLOSED | https://stale.url | ClosedCo | PM | stale + liveness check failed
 ```

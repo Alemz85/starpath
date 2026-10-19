@@ -7,14 +7,27 @@
 // the outcome funnel says nothing.
 //
 // What IS rich from day one is data/score-history.tsv: every scouting
-// evaluation logs an archetype + the full 6-dimension fingerprint + an overall
-// score. That landscape tells the user where they're consistently finding
-// strong matches, which dimension keeps dragging scores down (a *targeting*
-// blocker, distinct from an *outcome* blocker), and where evaluation effort is
-// being spent on roles that score too low to ever be worth applying to.
+// evaluation logs an archetype, the eligibility gate result, the ten v2
+// dimensions, Want, Ease, Priority and the verdict (docs/scoring-v2.md §8.1).
+// That landscape tells the user where they're consistently finding actionable
+// matches (verdict go / stretch / solid), which dimension keeps dragging scores
+// down (a *targeting* blocker, distinct from an *outcome* blocker), which
+// eligibility check keeps blocking listings, and where evaluation effort is
+// being spent on roles that land in `skip`.
+//
+// Blocked rows (eligibility red) carry empty score cells. They are excluded
+// from every score aggregate here (never read as 0) and counted only in the
+// eligibility breakdown.
 //
 // All functions here are pure (no I/O, no mutation, no globals) so they're
 // trivially testable. The thin file/CLI wrapper lives in analyze-patterns.mjs.
+
+import { SCORE_HISTORY_HEADER } from './profile-core.mjs'
+import {
+  assignVerdict, computePriority, VERDICT_ORDER, VERDICT_TIERS,
+  MOTIVATOR_DIMS, HYGIENE_DIMS, EASE_DIMS,
+} from './score-bands.mjs'
+import { DIM_LABELS } from './explain-score.mjs'
 
 /* ───── Archetype label normalization ──────────────────────────────────────
  *
@@ -37,52 +50,92 @@ export function normalizeArchetype(raw) {
 
 /* ───── Row parsing ─────────────────────────────────────────────────────────
  *
- * score-history.tsv is tab-separated with a header row. We parse defensively:
- * older rows suffer from a column-shift bug (the `tier` column sometimes holds
- * `short`/`growth`/`full`/`skip` from the `duration`/`mode` columns), so we
- * never trust positional `tier` — we recompute the band from `overall`.
+ * score-history.tsv is tab-separated with a v2 header row (spec §8.1). We parse
+ * by header name. Empty numeric cells (Blocked rows) become NaN so callers can
+ * filter; they are never coerced to 0.
  */
-const HEADER_FALLBACK = [
-  'date', 'archetype', 'skills_match', 'ease_of_entry', 'strategic_fit',
-  'current_fit', 'growth_mobility', 'optionality_exit', 'brand_value',
-  'sales_trap_risk', 'aspirational_fit', 'overall', 'best_cities',
-  'salary_adj_city', 'work_life_balance', 'best_fit_roles', 'mode',
-  'company', 'role', 'tier', 'source', 'location', 'employment_type',
-  'duration', 'salary_raw', 'url',
-]
+
+const HEADER_FALLBACK = SCORE_HISTORY_HEADER.split('\t')
+
+/** The numeric score-history columns (spec §8.1). */
+export const NUMERIC_COLUMNS = Object.freeze([
+  ...EASE_DIMS, 'ease', ...MOTIVATOR_DIMS, ...HYGIENE_DIMS, 'want', 'priority',
+])
+
+/** Verdicts that count as "worth applying to" for share metrics. */
+export const ACTIONABLE_VERDICTS = Object.freeze(['go', 'stretch', 'solid'])
+
+/**
+ * Parse an `eligibility_flags` cell (`check:status:reason` joined by `;`)
+ * into [{ check, status, reason }]. The reason may itself contain colons.
+ */
+export function parseEligibilityFlags(cell) {
+  const out = []
+  for (const part of String(cell ?? '').split(';')) {
+    const t = part.trim()
+    if (!t) continue
+    const i = t.indexOf(':')
+    const j = i >= 0 ? t.indexOf(':', i + 1) : -1
+    if (i < 0) { out.push({ check: t, status: 'unknown', reason: '' }); continue }
+    const check = t.slice(0, i).trim()
+    const status = (j < 0 ? t.slice(i + 1) : t.slice(i + 1, j)).trim().toLowerCase()
+    const reason = j < 0 ? '' : t.slice(j + 1).trim()
+    out.push({ check, status, reason })
+  }
+  return out
+}
 
 /**
  * Parse the raw TSV text into row objects keyed by the header. Skips the
- * header line and any blank/short lines. Numeric dimension fields are coerced
- * to numbers (NaN when absent/garbage, so callers can filter).
+ * header line and blank lines. Numeric columns are numbers (NaN when empty).
+ * Adds:
+ *   eligibility       'green' | 'amber' | 'red' | '' (lower-cased)
+ *   eligibilityFlags  parsed eligibility_flags
+ *   verdict           the stored verdict, or derived from want/ease/eligibility
+ *                     through assignVerdict when the cell is empty
+ *   tier              stored, else from the verdict
+ *   priority          stored, else √(want·ease) when both are finite
+ *   blocked           true for eligibility red / verdict blocked
  */
 export function parseScoreHistory(tsvText) {
   if (!tsvText) return []
   const lines = tsvText.split('\n').filter(l => l.trim().length > 0)
   if (lines.length === 0) return []
 
-  // Detect & honor a header row; fall back to the canonical column order.
-  const first = lines[0].split('\t')
+  const first = lines[0].split('\t').map(c => c.trim())
   const hasHeader = first[0] === 'date' && first.includes('archetype')
   const header = hasHeader ? first : HEADER_FALLBACK
   const dataLines = hasHeader ? lines.slice(1) : lines
-
-  const numericCols = new Set([
-    'skills_match', 'ease_of_entry', 'strategic_fit', 'current_fit',
-    'growth_mobility', 'optionality_exit', 'brand_value', 'sales_trap_risk',
-    'aspirational_fit', 'overall', 'salary_adj_city', 'work_life_balance',
-  ])
+  const numericCols = new Set(NUMERIC_COLUMNS)
 
   const rows = []
   for (const line of dataLines) {
     const cells = line.split('\t')
-    if (cells.length < 12) continue // too short to carry the score block
+    if (cells.length < 3) continue
     const row = {}
     header.forEach((key, i) => {
       const val = cells[i] !== undefined ? cells[i].trim() : ''
       row[key] = numericCols.has(key) ? toNum(val) : val
     })
     row.archetype = normalizeArchetype(row.archetype)
+    row.eligibility = String(row.eligibility ?? '').toLowerCase()
+    row.eligibilityFlags = parseEligibilityFlags(row.eligibility_flags)
+    row.verdict = String(row.verdict ?? '').trim().toLowerCase()
+    if (!VERDICT_ORDER.includes(row.verdict)) {
+      if (row.eligibility === 'red') row.verdict = 'blocked'
+      else if (Number.isFinite(row.want) && Number.isFinite(row.ease)) {
+        row.verdict = assignVerdict({ want: row.want, ease: row.ease, eligibility: row.eligibility || 'green' }).verdict
+      } else row.verdict = ''
+    }
+    row.blocked = row.verdict === 'blocked' || row.eligibility === 'red'
+    if (row.blocked) {
+      // Spec §8.1: a Blocked row has no scores, whatever the cells hold.
+      row.want = NaN; row.ease = NaN; row.priority = NaN
+    } else if (!Number.isFinite(row.priority)) {
+      const p = computePriority(row.want, row.ease)
+      row.priority = p == null ? NaN : p
+    }
+    if (!/^T[1-4]$/.test(row.tier ?? '') && row.verdict) row.tier = VERDICT_TIERS[row.verdict] ?? row.tier
     rows.push(row)
   }
   return rows
@@ -94,20 +147,24 @@ function toNum(v) {
   return Number.isFinite(n) ? n : NaN
 }
 
-/* ───── Score band (recomputed, never trusted from the polluted column) ─────
- *
- * A coarse band derived purely from `overall`, used to bucket the landscape:
- *   strong  ≥ 7.5   — worth prioritizing
- *   solid   7.0–7.49 — apply if pipeline is thin
- *   pass    6.0–6.99 — growth target / borderline
- *   weak    < 6.0    — likely wasted evaluation effort
- */
-export function overallBand(overall) {
-  if (!Number.isFinite(overall)) return 'unknown'
-  if (overall >= 7.5) return 'strong'
-  if (overall >= 7.0) return 'solid'
-  if (overall >= 6.0) return 'pass'
-  return 'weak'
+/** True when the row is Blocked (eligibility red). */
+export function isBlocked(row) {
+  return row?.blocked === true || row?.verdict === 'blocked' || row?.eligibility === 'red'
+}
+
+/** True when the row carries a finite Want and Ease (and isn't Blocked). */
+export function isScored(row) {
+  return !isBlocked(row) && Number.isFinite(row?.want) && Number.isFinite(row?.ease)
+}
+
+/** The rows score analytics may use: non-blocked, finite Want and Ease. */
+export function scoredRows(rows) {
+  return (rows || []).filter(isScored)
+}
+
+/** True for go / stretch / solid. */
+export function isActionable(verdict) {
+  return ACTIONABLE_VERDICTS.includes(verdict)
 }
 
 const round2 = (n) => Math.round(n * 100) / 100
@@ -118,97 +175,167 @@ const median = (arr) => {
   const mid = Math.floor(s.length / 2)
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2
 }
+const pct = (n, d) => (d ? Math.round((n / d) * 100) : 0)
 
-/* ───── The six Current/Aspirational Fit dimensions ───────────────────────── */
-export const DIMENSIONS = [
-  { key: 'skills_match', label: 'Skills Match' },
-  { key: 'ease_of_entry', label: 'Ease of Entry' },
-  { key: 'strategic_fit', label: 'Strategic Fit' },
-  { key: 'growth_mobility', label: 'Growth / Mobility' },
-  { key: 'optionality_exit', label: 'Optionality / Exit' },
-  { key: 'brand_value', label: 'Brand Value' },
-]
+/** Zeroed verdict tally for scored rows (blocked is counted separately). */
+function emptyVerdicts() {
+  return { go: 0, stretch: 0, solid: 0, thin: 0, growth: 0, skip: 0 }
+}
+
+/* ───── The ten v2 dimensions ────────────────────────────────────────────── */
+// group: 'motivator' | 'hygiene' (both feed Want) | 'ease'.
+export const DIMENSIONS = Object.freeze([
+  ...MOTIVATOR_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'motivator', rollup: 'want' })),
+  ...HYGIENE_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'hygiene', rollup: 'want' })),
+  ...EASE_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'ease', rollup: 'ease' })),
+].map(Object.freeze))
 
 /* ───── Archetype performance ───────────────────────────────────────────────
  *
- * Per archetype: how many roles, the average/median Overall, and the band mix.
- * This answers "where is the landscape actually offering me strong matches?" —
- * the single most useful targeting question before any outcomes exist.
+ * Per archetype: how many scored roles, average/median Want and Ease, the
+ * verdict mix and the actionable rate. This answers "where is the landscape
+ * actually offering me matches worth applying to?". Blocked rows are counted
+ * per archetype as `blocked` but never enter the score aggregates.
  */
 export function archetypePerformance(rows) {
   const map = new Map()
-  for (const r of rows) {
-    if (!Number.isFinite(r.overall)) continue
-    if (!map.has(r.archetype)) {
-      map.set(r.archetype, { archetype: r.archetype, overalls: [], bands: {} })
-    }
-    const e = map.get(r.archetype)
-    e.overalls.push(r.overall)
-    const b = overallBand(r.overall)
-    e.bands[b] = (e.bands[b] || 0) + 1
+  const get = (a) => {
+    if (!map.has(a)) map.set(a, { archetype: a, wants: [], eases: [], prios: [], verdicts: emptyVerdicts(), blocked: 0 })
+    return map.get(a)
   }
-  const total = [...map.values()].reduce((a, e) => a + e.overalls.length, 0)
+  for (const r of rows) {
+    if (isBlocked(r)) { get(r.archetype).blocked++; continue }
+    if (!isScored(r)) continue
+    const e = get(r.archetype)
+    e.wants.push(r.want)
+    e.eases.push(r.ease)
+    if (Number.isFinite(r.priority)) e.prios.push(r.priority)
+    if (r.verdict in e.verdicts) e.verdicts[r.verdict]++
+  }
+  const total = [...map.values()].reduce((a, e) => a + e.wants.length, 0)
   return [...map.values()]
+    .filter(e => e.wants.length > 0)
     .map(e => {
-      const strong = (e.bands.strong || 0) + (e.bands.solid || 0)
+      const n = e.wants.length
+      const actionable = ACTIONABLE_VERDICTS.reduce((a, v) => a + e.verdicts[v], 0)
       return {
         archetype: e.archetype,
-        count: e.overalls.length,
-        avgOverall: round2(mean(e.overalls)),
-        medianOverall: round2(median(e.overalls)),
-        maxOverall: round2(Math.max(...e.overalls)),
-        // Share of THIS archetype's roles that land in strong/solid bands.
-        strongRate: Math.round((strong / e.overalls.length) * 100),
-        // Share of the whole evaluated landscape spent on this archetype.
-        share: total ? Math.round((e.overalls.length / total) * 100) : 0,
-        bands: e.bands,
+        count: n,
+        avgWant: round2(mean(e.wants)),
+        medianWant: round2(median(e.wants)),
+        avgEase: round2(mean(e.eases)),
+        medianEase: round2(median(e.eases)),
+        avgPriority: round2(mean(e.prios)),
+        maxPriority: e.prios.length ? round2(Math.max(...e.prios)) : 0,
+        verdicts: e.verdicts,
+        // Share of THIS archetype's scored roles whose verdict is go/stretch/solid.
+        actionableRate: pct(actionable, n),
+        // Share of the whole scored landscape spent on this archetype.
+        share: pct(n, total),
+        blocked: e.blocked,
       }
     })
-    .sort((a, b) => b.avgOverall - a.avgOverall || b.count - a.count)
+    .sort((a, b) => b.actionableRate - a.actionableRate || b.avgPriority - a.avgPriority || b.count - a.count)
 }
 
 /* ───── Dimension drag ──────────────────────────────────────────────────────
  *
- * For each of the six dimensions, its average across the landscape. The
- * LOWEST-averaging dimensions are the systemic targeting blockers — the thing
- * that most consistently keeps Overall down across the roles the user evaluates.
- * A persistently low Ease of Entry, for example, says the user keeps evaluating
- * roles they're underqualified for; a low Skills Match says a stack/skill gap.
+ * For each v2 dimension, its average across the scored landscape. The
+ * LOWEST-averaging dimensions are the systemic targeting blockers. A
+ * persistently low Experience bar says the user keeps evaluating roles that
+ * ask for more years than they have; a low Skills Match says a stack gap; a
+ * low Role content says the scan keeps surfacing sales/ops-heavy roles.
  */
 export function dimensionDrag(rows) {
-  const out = DIMENSIONS.map(({ key, label }) => {
-    const vals = rows.map(r => r[key]).filter(Number.isFinite)
+  const scored = rows.filter(r => !isBlocked(r))
+  const out = DIMENSIONS.map(({ key, label, group, rollup }) => {
+    const vals = scored.map(r => r[key]).filter(Number.isFinite)
     return {
       key,
       label,
+      group,
+      rollup,
       avg: round2(mean(vals)),
       median: round2(median(vals)),
       count: vals.length,
       // How often this dim scores in the bottom range (≤ 4) — the share of
       // evaluations where it's an active drag rather than just below average.
-      lowShare: vals.length
-        ? Math.round((vals.filter(v => v <= 4).length / vals.length) * 100)
-        : 0,
+      lowShare: pct(vals.filter(v => v <= 4).length, vals.length),
     }
   }).filter(d => d.count > 0)
-  // Sort weakest first — the top of the list is what to fix in targeting.
   return out.sort((a, b) => a.avg - b.avg)
 }
 
-/* ───── Landscape band mix + wasted-effort estimate ─────────────────────── */
+/* ───── Landscape verdict mix + wasted-effort estimate ──────────────────── */
 export function landscapeSummary(rows) {
-  const overalls = rows.map(r => r.overall).filter(Number.isFinite)
-  const bands = { strong: 0, solid: 0, pass: 0, weak: 0 }
-  for (const o of overalls) bands[overallBand(o)]++
-  const evaluated = overalls.length
-  const weak = bands.weak
+  const scored = scoredRows(rows)
+  const blocked = rows.filter(isBlocked).length
+  const verdicts = emptyVerdicts()
+  for (const r of scored) if (r.verdict in verdicts) verdicts[r.verdict]++
+  const evaluated = scored.length
+  const actionable = ACTIONABLE_VERDICTS.reduce((a, v) => a + verdicts[v], 0)
+  const wants = scored.map(r => r.want)
+  const eases = scored.map(r => r.ease)
   return {
     evaluated,
-    avgOverall: round2(mean(overalls)),
-    medianOverall: round2(median(overalls)),
-    bands,
-    // Share of evaluation effort spent on roles too weak to be worth applying.
-    wastedShare: evaluated ? Math.round((weak / evaluated) * 100) : 0,
+    blocked,
+    avgWant: round2(mean(wants)),
+    medianWant: round2(median(wants)),
+    avgEase: round2(mean(eases)),
+    medianEase: round2(median(eases)),
+    verdicts,
+    actionableShare: pct(actionable, evaluated),
+    // Share of scored evaluation effort spent on roles the grid says to skip.
+    wastedShare: pct(verdicts.skip, evaluated),
+    // Share of ALL listings (scored + blocked) stopped by the eligibility gate.
+    blockedShare: pct(blocked, evaluated + blocked),
+  }
+}
+
+/* ───── Eligibility breakdown ───────────────────────────────────────────────
+ *
+ * Counts every row, Blocked ones included (spec §9: blocked rows are counted
+ * in eligibility analytics). Per check, how many listings it made red and how
+ * many amber, from the `eligibility_flags` column. Shares are of all listings
+ * with a known eligibility status.
+ */
+export function eligibilityBreakdown(rows) {
+  const status = { green: 0, amber: 0, red: 0, unknown: 0 }
+  const byCheck = new Map()
+  for (const r of rows || []) {
+    const s = ['green', 'amber', 'red'].includes(r.eligibility) ? r.eligibility
+      : isBlocked(r) ? 'red' : 'unknown'
+    status[s]++
+    const seen = new Set()
+    for (const f of r.eligibilityFlags ?? parseEligibilityFlags(r.eligibility_flags)) {
+      if (f.status !== 'red' && f.status !== 'amber') continue
+      const key = `${f.check}:${f.status}`
+      if (seen.has(key)) continue // one listing counts once per check+status
+      seen.add(key)
+      if (!byCheck.has(f.check)) byCheck.set(f.check, { check: f.check, red: 0, amber: 0, reasons: new Map() })
+      const e = byCheck.get(f.check)
+      e[f.status]++
+      if (f.reason) e.reasons.set(f.reason, (e.reasons.get(f.reason) || 0) + 1)
+    }
+  }
+  const total = status.green + status.amber + status.red
+  return {
+    total,
+    status,
+    redShare: pct(status.red, total),
+    amberShare: pct(status.amber, total),
+    byCheck: [...byCheck.values()]
+      .map(e => ({
+        check: e.check,
+        red: e.red,
+        amber: e.amber,
+        redShare: pct(e.red, total),
+        amberShare: pct(e.amber, total),
+        topReasons: [...e.reasons.entries()]
+          .sort((a, b) => b[1] - a[1]).slice(0, 3)
+          .map(([reason, count]) => ({ reason, count })),
+      }))
+      .sort((a, b) => b.red - a.red || b.amber - a.amber || a.check.localeCompare(b.check)),
   }
 }
 
@@ -228,10 +355,9 @@ function normalizeCity(s) {
 
 /* ───── City exposure ───────────────────────────────────────────────────────
  *
- * Where the strong matches geographically cluster. Prefers the `location`
- * column (the actual posting city) and falls back to `best_cities`; we split
- * and tally only the cities attached to strong/solid roles, so the output
- * answers "which cities should I weight my sourcing toward?".
+ * Where the actionable matches (verdict go / stretch / solid by default)
+ * geographically cluster, from the `location` column, so the output answers
+ * "which cities should I weight my sourcing toward?".
  */
 /**
  * Reject tokens that aren't plausibly a city name. Guards against the
@@ -250,17 +376,14 @@ function isLikelyCity(s) {
   return true
 }
 
-export function cityExposure(rows, { minBand = 'solid' } = {}) {
-  const rank = { strong: 3, solid: 2, pass: 1, weak: 0, unknown: -1 }
-  const floor = rank[minBand] ?? 2
+export function cityExposure(rows, { verdicts = ACTIONABLE_VERDICTS } = {}) {
   const counts = new Map()
   for (const r of rows) {
-    if ((rank[overallBand(r.overall)] ?? -1) < floor) continue
-    // location is the clean posting city; best_cities is a noisier fallback.
-    const raw = (r.location && isLikelyCity(r.location)) ? r.location : (r.best_cities || '')
-    // Reject the "n/d" sentinel before splitting — otherwise the "/" split
-    // would shred it into bogus "n" and "d" tokens.
-    if (/^n\s*\/?\s*d$/i.test(raw.trim())) continue
+    if (!isScored(r) || !verdicts.includes(r.verdict)) continue
+    // v2: best_cities is a numeric score, so the posting city comes from
+    // `location` only.
+    const raw = r.location && isLikelyCity(r.location) ? r.location : ''
+    if (!raw || /^n\s*\/?\s*d$/i.test(raw.trim())) continue
     for (const part of raw.split(/[;,/]| and /i)) {
       if (!isLikelyCity(part)) continue
       const city = normalizeCity(part)
@@ -282,28 +405,27 @@ export function cityExposure(rows, { minBand = 'solid' } = {}) {
  */
 export function targetingRecommendations(rows, { minRoles = 4 } = {}) {
   const recs = []
-  const perf = archetypePerformance(rows)
+  const perf = archetypePerformance(rows).filter(a => a.count >= minRoles)
   const drag = dimensionDrag(rows)
   const land = landscapeSummary(rows)
+  const elig = eligibilityBreakdown(rows)
 
-  // 1. Best archetype to lean into.
-  const best = perf.filter(a => a.count >= minRoles)[0]
-  if (best && best.avgOverall >= 7.0) {
+  // 1. Best archetype to lean into (verdict-based: share of go/stretch/solid).
+  const best = perf[0]
+  if (best && best.actionableRate >= 40) {
     recs.push({
-      action: `Lean into "${best.archetype}" — strongest landscape (avg ${best.avgOverall}, ${best.strongRate}% strong/solid across ${best.count} roles)`,
-      reasoning: `This archetype consistently scores well, so sourcing more of it raises the average quality of what you evaluate.`,
+      action: `Lean into "${best.archetype}" — strongest landscape (${best.actionableRate}% go/stretch/solid across ${best.count} roles; avg Want ${best.avgWant}, Ease ${best.avgEase})`,
+      reasoning: `This archetype consistently lands in apply-worthy verdict cells, so sourcing more of it raises the quality of what you evaluate.`,
       impact: 'high',
     })
   }
 
   // 2. Worst-performing archetype that's eating real effort.
-  const worst = [...perf]
-    .filter(a => a.count >= minRoles)
-    .sort((a, b) => a.avgOverall - b.avgOverall)[0]
-  if (worst && worst.avgOverall < 6.5 && worst.archetype !== best?.archetype) {
+  const worst = [...perf].sort((a, b) => a.actionableRate - b.actionableRate || a.avgPriority - b.avgPriority)[0]
+  if (worst && worst.actionableRate <= 15 && worst.archetype !== best?.archetype) {
     recs.push({
-      action: `Pull back on "${worst.archetype}" — weak landscape (avg ${worst.avgOverall} across ${worst.count} roles, ${worst.share}% of all evaluations)`,
-      reasoning: `These roles rarely clear the apply bar, so the evaluation time is largely wasted. Narrow the scan keywords that surface them.`,
+      action: `Pull back on "${worst.archetype}" — weak landscape (${worst.actionableRate}% go/stretch/solid across ${worst.count} roles, ${worst.share}% of all evaluations)`,
+      reasoning: `These roles rarely land in an apply-worthy cell, so the evaluation time is largely wasted. Narrow the scan keywords that surface them.`,
       impact: worst.share >= 15 ? 'high' : 'medium',
     })
   }
@@ -312,16 +434,21 @@ export function targetingRecommendations(rows, { minRoles = 4 } = {}) {
   const weakestDim = drag[0]
   if (weakestDim && (weakestDim.avg < 6.0 || weakestDim.lowShare >= 25)) {
     const fixHint = {
-      ease_of_entry: 'you keep evaluating roles you may be underqualified for — tighten seniority/keyword filters or invest in a credential',
+      experience_bar: 'you keep evaluating roles that ask for more experience than you have — tighten seniority/keyword filters',
       skills_match: 'a recurring skill/stack gap — either filter these roles out or close the gap',
-      strategic_fit: 'these roles drift from your North Star — re-check your scan keywords against your target archetypes',
+      competition: 'the pools you target are very selective — add companies where your profile stands out, or build referral paths',
+      role_content: 'the day-to-day work drifts from what you want (quota/ops-heavy roles) — re-check your scan keywords against your target archetypes',
       brand_value: 'the companies surfacing are weak on brand — add stronger target companies to user/portals.yml',
       growth_mobility: 'these roles offer limited progression — weight sourcing toward higher-growth companies',
       optionality_exit: 'narrow exit optionality — favor roles/companies with broader downstream paths',
+      best_cities: 'the roles surfacing are outside your preferred cities — tighten the location filters',
+      salary_adj_city: 'pay vs. cost of living is weak in what you evaluate — check your target cities and comp filters',
+      work_life_balance: 'the roles surfacing have poor work-life balance — weight sourcing toward calmer employers',
     }[weakestDim.key] || 'this dimension consistently drags your scores down'
+    const rollup = weakestDim.rollup === 'ease' ? 'Ease' : 'Want'
     recs.push({
       action: `Address the "${weakestDim.label}" drag (avg ${weakestDim.avg}, low in ${weakestDim.lowShare}% of evals)`,
-      reasoning: `${weakestDim.label} is the dimension most often holding your Overall down — ${fixHint}.`,
+      reasoning: `${weakestDim.label} is the dimension most often holding your ${rollup} down — ${fixHint}.`,
       impact: 'high',
     })
   }
@@ -329,9 +456,20 @@ export function targetingRecommendations(rows, { minRoles = 4 } = {}) {
   // 4. Wasted-effort warning.
   if (land.wastedShare >= 25) {
     recs.push({
-      action: `${land.wastedShare}% of evaluations land below 6.0 (weak) — raise the bar before evaluating`,
-      reasoning: `${land.bands.weak} of ${land.evaluated} evaluated roles are too weak to apply to. A pre-evaluation filter on scan results would reclaim that effort.`,
+      action: `${land.wastedShare}% of scored evaluations land in Skip — raise the bar before evaluating`,
+      reasoning: `${land.verdicts.skip} of ${land.evaluated} scored roles aren't worth applying to. A pre-evaluation filter on scan results would reclaim that effort.`,
       impact: 'medium',
+    })
+  }
+
+  // 5. An eligibility check that keeps blocking listings.
+  const topRed = elig.byCheck.find(c => c.red > 0)
+  if (topRed && topRed.red >= minRoles && topRed.redShare >= 20) {
+    const reason = topRed.topReasons[0]?.reason
+    recs.push({
+      action: `"${topRed.check}" blocks ${topRed.redShare}% of listings (${topRed.red} of ${elig.total}) — filter them out before evaluating`,
+      reasoning: `Blocked listings never get scored, so each one is evaluation effort with no upside${reason ? ` (most common reason: ${reason})` : ''}. A scan-time filter (keywords, location, language) would catch most of them.`,
+      impact: topRed.redShare >= 35 ? 'high' : 'medium',
     })
   }
 
@@ -343,21 +481,25 @@ export function analyzeScouting(rows, opts = {}) {
   if (!rows || rows.length === 0) {
     return { error: 'No scouting evaluations found in score-history.tsv.' }
   }
-  const scored = rows.filter(r => Number.isFinite(r.overall))
+  const scored = scoredRows(rows)
+  const eligibility = eligibilityBreakdown(rows)
   if (scored.length === 0) {
-    return { error: 'No rows with a valid Overall score in score-history.tsv.' }
+    return { error: 'No scored (non-blocked) rows with Want and Ease in score-history.tsv.', eligibility }
   }
-  const dates = scored.map(r => r.date).filter(Boolean).sort()
+  const dates = rows.map(r => r.date).filter(Boolean).sort()
   return {
     metadata: {
       evaluated: scored.length,
+      blocked: rows.filter(isBlocked).length,
+      total: rows.length,
       dateRange: { from: dates[0], to: dates[dates.length - 1] },
       analysisDate: new Date().toISOString().split('T')[0],
     },
-    landscape: landscapeSummary(scored),
-    archetypePerformance: archetypePerformance(scored),
+    landscape: landscapeSummary(rows),
+    archetypePerformance: archetypePerformance(rows),
     dimensionDrag: dimensionDrag(scored),
+    eligibility,
     cityExposure: cityExposure(scored).slice(0, 12),
-    recommendations: targetingRecommendations(scored, opts),
+    recommendations: targetingRecommendations(rows, opts),
   }
 }

@@ -24,7 +24,7 @@ import {
   isDataRow,
   parseContactRow,
   parseNetwork,
-  parseScore,
+  parseScoreCellInfo,
   parsePipelineRow,
   parsePipeline,
   matchNetworkToPipeline,
@@ -184,11 +184,14 @@ test('parseNetwork handles empty / null input', () => {
 
 /* ───── pipeline parsing ─────────────────────────────────────────── */
 
-test('parseScore pulls the leading numeric', () => {
-  assert.equal(parseScore('7.2/10'), 7.2);
-  assert.equal(parseScore('**8**'), 8);
-  assert.equal(parseScore('—'), 0);
-  assert.equal(parseScore(''), 0);
+test('parseScoreCellInfo: v2 cell → Priority rank key + label; legacy → the number', () => {
+  assert.deepEqual(parseScoreCellInfo('W9 E4'), { score: 6, want: 9, ease: 4, scoreLabel: 'W9 · E4' });
+  assert.deepEqual(parseScoreCellInfo('**W8.3 E5.6**'), { score: 6.82, want: 8.3, ease: 5.6, scoreLabel: 'W8.3 · E5.6' });
+  assert.deepEqual(parseScoreCellInfo('7.2/10'), { score: 7.2, want: null, ease: null, scoreLabel: '7.2/10' });
+  assert.deepEqual(parseScoreCellInfo('**8**'), { score: 8, want: null, ease: null, scoreLabel: '8/10' });
+  assert.equal(parseScoreCellInfo('—'), null);
+  assert.equal(parseScoreCellInfo(''), null);
+  assert.equal(parseScoreCellInfo('TBD'), null);
 });
 
 test('parsePipelineRow reads applications/scouting leading shape', () => {
@@ -199,6 +202,34 @@ test('parsePipelineRow reads applications/scouting leading shape', () => {
   assert.equal(r.role, 'Data Analyst');
   assert.equal(r.score, 7.2);
   assert.equal(r.source, 'application');
+});
+
+test('parsePipelineRow: v2 application row carries Priority + the W/E label', () => {
+  const r = parsePipelineRow('| 2 | 2026-06-05 | Acme Corp | Data Analyst | W8.3 E5.6 | Applied | ❌ | n/d |  |', 'application');
+  assert.equal(r.score, 6.82);
+  assert.equal(r.want, 8.3);
+  assert.equal(r.ease, 5.6);
+  assert.equal(r.scoreLabel, 'W8.3 · E5.6');
+});
+
+test('parsePipelineRow: v2 scouting row reads Want/Ease from columns 5-6', () => {
+  const r = parsePipelineRow('| 10 | 2026-06-01 | Globex | ML Engineer | 8.25 | 5.6 | T2 | green | [#10](reports/tier-2/G.md) | n/d | MONITOR | n |', 'scouting');
+  assert.equal(r.want, 8.25);
+  assert.equal(r.ease, 5.6);
+  assert.equal(r.score, 6.8);
+  assert.equal(r.scoreLabel, 'W8.25 · E5.6');
+  assert.equal(r.source, 'scouting');
+});
+
+test('parsePipelineRow: Blocked scouting rows (— / —) are not referral targets', () => {
+  assert.equal(parsePipelineRow('| 11 | 2026-06-01 | Contoso | Grad Analyst | — | — | T4 | red: German C1 required | — | n/d |  | n |', 'scouting'), null);
+});
+
+test('parsePipelineRow: a pre-v2 scouting row keeps its single score as the rank key (lenient)', () => {
+  const r = parsePipelineRow('| 12 | 2026-06-01 | Globex | ML Engineer | 7.5/10 | T2 |', 'scouting');
+  assert.equal(r.score, 7.5);
+  assert.equal(r.want, null);
+  assert.equal(r.scoreLabel, '7.5/10');
 });
 
 test('parsePipelineRow rejects header / separator / non-date rows', () => {
@@ -212,9 +243,9 @@ test('parsePipeline dedups by company+role, prefers application source then high
   const apps = `| # | Date | Company | Role | Score | Status |
 | 1 | 2026-05-05 | Acme Corp | Data Analyst | 7.2/10 | Applied |`;
   const scouting = `| # | Date | Company | Role | Score | Tier |
-| 10 | 2026-06-01 | Acme Corp | Data Analyst | 8.0/10 | T2 |
-| 11 | 2026-06-01 | Globex | ML Engineer | 9.1/10 | T1 |
-| 12 | 2026-06-02 | Globex | ML Engineer | 6.0/10 | T3 |`;
+| 10 | 2026-06-01 | Acme Corp | Data Analyst | 8.0 | 8.0 | T2 | green |
+| 11 | 2026-06-01 | Globex | ML Engineer | 9.1 | 9.1 | T1 | green |
+| 12 | 2026-06-02 | Globex | ML Engineer | 6.0 | 6.0 | T3 | green |`;
   const pipe = parsePipeline(apps, scouting);
   // Acme/Data Analyst: same key in both → application wins (even though scouting score is higher).
   const acme = pipe.find((p) => p.companyKey === 'acmecorp');
@@ -239,8 +270,8 @@ function fixture() {
   const apps = `| # | Date | Company | Role | Score | Status |
 | 1 | 2026-05-05 | Acme Corp | Data Analyst | 7.2/10 | Applied |`;
   const scouting = `| # | Date | Company | Role | Score | Tier |
-| 10 | 2026-06-01 | Globex | ML Engineer | 9.1/10 | T1 |
-| 11 | 2026-06-01 | Initech | Strategy Analyst | 8.5/10 | T2 |`;
+| 10 | 2026-06-01 | Globex | ML Engineer | 9.1 | 9.1 | T1 | green |
+| 11 | 2026-06-01 | Initech | Strategy Analyst | 8.5 | 8.5 | T2 | green |`;
   return { network, apps, scouting };
 }
 
@@ -280,9 +311,9 @@ test('matchNetworkToPipeline pairs contacts to pipeline companies and ranks path
 
 test('matchNetworkToPipeline gaps are ranked by best role score (most worth a contact first)', () => {
   const network = `| 1 | Ada | Acme | Eng | strong | 1 |  | 2026-06-01 | x |`;
-  const scouting = `| 10 | 2026-06-01 | Globex | A | 6.0/10 | T3 |
-| 11 | 2026-06-01 | Initech | B | 9.0/10 | T1 |
-| 12 | 2026-06-01 | Umbrella | C | 7.5/10 | T2 |`;
+  const scouting = `| 10 | 2026-06-01 | Globex | A | 6.0 | 6.0 | T3 | green |
+| 11 | 2026-06-01 | Initech | B | 9.0 | 9.0 | T1 | green |
+| 12 | 2026-06-01 | Umbrella | C | 7.5 | 7.5 | T2 | green |`;
   const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
   assert.deepEqual(res.gaps.map((g) => g.company), ['Initech', 'Umbrella', 'Globex']);
 });
@@ -438,25 +469,11 @@ test('parseContactRow handles a row with more than 9 data cells (extra trailing 
   assert.equal(c.notes, 'notes');
 });
 
-/* ───── parseScore: edge cases ───────────────────────────────────────────── */
-
-test('parseScore handles bold-wrapped scores and scores with no denominator', () => {
-  assert.equal(parseScore('**7.5**'), 7.5);
-  assert.equal(parseScore('9'), 9);
-  assert.equal(parseScore('7.2/10'), 7.2);
-});
-
-test('parseScore returns 0 for non-numeric content', () => {
-  assert.equal(parseScore('TBD'), 0);
-  assert.equal(parseScore(null), 0);
-  assert.equal(parseScore('—'), 0);
-});
-
 /* ───── parsePipeline: scouting-vs-scouting score collision ─────────────── */
 
 test('parsePipeline: among two scouting rows for the same role, higher score wins', () => {
-  const scouting = `| 10 | 2026-06-01 | Initech | Strategy Analyst | 6.0/10 | T3 |
-| 11 | 2026-06-02 | Initech | Strategy Analyst | 8.5/10 | T2 |`;
+  const scouting = `| 10 | 2026-06-01 | Initech | Strategy Analyst | 6.0 | 6.0 | T3 | green |
+| 11 | 2026-06-02 | Initech | Strategy Analyst | 8.5 | 8.5 | T2 | green |`;
   const pipe = parsePipeline('', scouting);
   assert.equal(pipe.length, 1);
   assert.equal(pipe[0].score, 8.5);
@@ -464,7 +481,7 @@ test('parsePipeline: among two scouting rows for the same role, higher score win
 
 test('parsePipeline: application source wins over scouting even when scouting score is higher', () => {
   const apps = `| 1 | 2026-05-01 | TechCo | PM | 7.0/10 | Applied |`;
-  const scouting = `| 5 | 2026-06-01 | TechCo | PM | 9.5/10 | T1 |`;
+  const scouting = `| 5 | 2026-06-01 | TechCo | PM | 9.5 | 9.5 | T1 | green |`;
   const pipe = parsePipeline(apps, scouting);
   assert.equal(pipe.length, 1);
   assert.equal(pipe[0].source, 'application');
@@ -475,9 +492,9 @@ test('parsePipeline: application source wins over scouting even when scouting sc
 
 test('matchNetworkToPipeline surfaces multiple roles per matched company, sorted by score', () => {
   const network = `| 1 | Ada | MegaCorp | PM | strong | 1 |  | 2026-06-01 | x |`;
-  const scouting = `| 1 | 2026-06-01 | MegaCorp | Data Scientist | 9.0/10 | T1 |
-| 2 | 2026-06-02 | MegaCorp | Data Analyst | 7.5/10 | T2 |
-| 3 | 2026-06-03 | MegaCorp | Junior Analyst | 6.0/10 | T3 |`;
+  const scouting = `| 1 | 2026-06-01 | MegaCorp | Data Scientist | 9.0 | 9.0 | T1 | green |
+| 2 | 2026-06-02 | MegaCorp | Data Analyst | 7.5 | 7.5 | T2 | green |
+| 3 | 2026-06-03 | MegaCorp | Junior Analyst | 6.0 | 6.0 | T3 | green |`;
   const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
   assert.equal(res.counts.matchedCompanies, 1);
   const match = res.matches[0];
@@ -494,7 +511,7 @@ test('matchNetworkToPipeline ranks contacts within a company by warmth', () => {
   const network = `| 1 | Strong Friend | Alpha Co | CEO | strong | 1 |  | 2026-06-01 | x |
 | 2 | Weak Acquaintance | Alpha Co | HR | weak | 2 |  | 2024-01-01 | y |
 | 3 | Medium Colleague | Alpha Co | Eng | medium | 1 |  | n/d | z |`;
-  const scouting = `| 1 | 2026-06-01 | Alpha Co | Data Engineer | 8.5/10 | T1 |`;
+  const scouting = `| 1 | 2026-06-01 | Alpha Co | Data Engineer | 8.5 | 8.5 | T1 | green |`;
   const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
   const match = res.matches[0];
   assert.equal(match.contacts.length, 3);
@@ -643,7 +660,7 @@ test('leverage surfaces the hiring-manager path and ranks it by leverage among e
   // manager gets the manager lift and carries the tier for the UI to flag.
   const network = `| 1 | Unrelated Accountant | Acme | Accountant | strong | 1 |  | 2026-06-01 | x |
 | 2 | The Hiring Manager | Acme | Head of Data | medium | 1 |  | 2026-06-01 | owns the req |`;
-  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5/10 | T1 |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5 | 8.5 | T1 | green |`;
   const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
   const match = res.matches[0];
   // "Accountant" shares no function with "Data Engineer" and isn't a manager cue
@@ -662,7 +679,7 @@ test('a medium-tie hiring manager DOES outrank a medium-tie unrelated contact (t
   // now ranks above a random same-warmth tie — matching contacto.md § Step 2.
   const network = `| 1 | Random Mediumtie | Acme | Accountant | medium | 1 |  | 2026-06-01 | x |
 | 2 | The Hiring Manager | Acme | Head of Data | medium | 1 |  | 2026-06-01 | owns the req |`;
-  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5/10 | T1 |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5 | 8.5 | T1 | green |`;
   const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
   const match = res.matches[0];
   // Both medium+1st+recent; the manager's 1.3 lift (2.6) beats the neutral 2.0.
@@ -674,7 +691,7 @@ test('a medium-tie hiring manager DOES outrank a medium-tie unrelated contact (t
 test('a weak-tie hiring manager does NOT beat a strong direct peer (relationship still dominates)', () => {
   const network = `| 1 | Strong Peer | Acme | Data Engineer | strong | 1 |  | 2026-06-01 | x |
 | 2 | Weak Manager | Acme | Head of Data | weak | 1 |  | 2026-06-01 | barely know them |`;
-  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5/10 | T1 |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5 | 8.5 | T1 | green |`;
   const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
   const match = res.matches[0];
   // Strong peer: 3 × 1.0 × 1.0 × 1.2 = 3.6 ; weak manager: 1 × 1.0 × 1.0 × 1.3 = 1.3.
@@ -685,7 +702,7 @@ test('a weak-tie hiring manager does NOT beat a strong direct peer (relationship
 test('matchNetworkToPipeline carries the leverage tier onto each matched contact', () => {
   const network = `| 1 | Manager Person | Acme | Head of Engineering | medium | 1 |  | 2026-06-01 | x |
 | 2 | Recruiter Person | Acme | Technical Recruiter | medium | 1 |  | 2026-06-01 | y |`;
-  const scouting = `| 1 | 2026-06-01 | Acme | Software Engineer | 8.0/10 | T1 |`;
+  const scouting = `| 1 | 2026-06-01 | Acme | Software Engineer | 8.0 | 8.0 | T1 | green |`;
   const res = matchNetworkToPipeline(parseNetwork(network), parsePipeline('', scouting), '2026-06-25');
   const byName = Object.fromEntries(res.matches[0].contacts.map((c) => [c.name, c.leverage]));
   assert.equal(byName['Manager Person'], 'manager');
@@ -714,4 +731,23 @@ test('pathLabel surfaces the leverage read when present', () => {
     pathLabel({ name: 'Sam', title: 'Analyst', relationship: 'medium', degree: 1, via: '' }),
     'Sam · Analyst — medium tie, 1st-degree (direct)',
   );
+});
+
+/* ───── v2: role summaries carry the W/E label ──────────────────────────── */
+
+test('matchNetworkToPipeline / pathsForCompany role summaries carry want, ease and scoreLabel', () => {
+  const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5 | 6.0 | T2 | green | — | n/d | MONITOR | n |
+| 2 | 2026-06-01 | Initech | Analyst | 7.0 | 7.0 | T2 | green | — | n/d | MONITOR | n |`;
+  const pipe = parsePipeline('', scouting);
+  const contacts = parseNetwork('| 1 | Pat Doe | Acme | Engineer | strong | 1 |  | 2026-06-01 | x |');
+  const res = matchNetworkToPipeline(contacts, pipe, '2026-06-24');
+  const role = res.matches[0].roles[0];
+  assert.equal(role.scoreLabel, 'W8.5 · E6');
+  assert.equal(role.want, 8.5);
+  assert.equal(role.ease, 6);
+  assert.equal(role.score, 7.14); // Priority, a sort key only
+  const gap = res.gaps[0];
+  assert.equal(gap.roles[0].scoreLabel, 'W7 · E7');
+  const paths = pathsForCompany('Acme', contacts, pipe, '2026-06-24');
+  assert.equal(paths.roles[0].scoreLabel, 'W8.5 · E6');
 });

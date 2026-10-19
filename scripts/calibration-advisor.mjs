@@ -10,12 +10,18 @@
  * the outcome funnel in data/applications.md, and SURFACES where the calibration
  * looks off:
  *
- *   • brand bonuses that are inert (the company already scores strong) or
- *     misdirected (it scores so weak even the bonus can't reach the apply bar),
- *   • un-credited companies that consistently score strong (candidates to add),
+ *   • brand bonuses that are inert (the company's mean Want is in the top
+ *     verdict row without them) or misdirected (its mean Want stays in the
+ *     bottom row even with them, so every verdict is Skip),
+ *   • un-credited companies whose roles keep reaching the top Want row
+ *     (candidates to add),
  *   • rubric dimensions pinned at a ceiling/floor (no discriminating signal),
  *   • comp targets that sit above (or below) what the landscape actually pays,
- *   • archetypes the rubric loves but that never convert, or vice-versa.
+ *   • archetypes the verdict grid says to apply to that never convert, or
+ *     vice-versa (each application's Score cell `W.. E..` vs its status).
+ *
+ * Scoring model: v2 (docs/scoring-v2.md) — Want / Ease / verdict; blocked
+ * (eligibility red) rows never enter a score claim.
  *
  * It is strictly READ-ONLY and SUGGEST-ONLY. It never writes user/* — it prints
  * concrete edits the user can choose to apply, keeping personalization in the
@@ -38,6 +44,7 @@ import yaml from 'js-yaml'
 import { parseScoreHistory } from './lib/targeting-core.mjs'
 import { parseAppRow, normalizeStatus } from './lib/tracker-core.mjs'
 import { analyzeCalibration } from './lib/calibration-advisor.mjs'
+import { VERDICT_LABELS } from './lib/score-bands.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -64,24 +71,27 @@ function firstExisting(paths) {
   return paths.find(p => existsSync(p)) || paths[0]
 }
 
-/* ───── Read calibration out of user/profile.yml ─────────────────────
+/* ───── Read calibration + scoring weights out of user/profile.yml ──────
  *
- * Calibration lives in the structured `calibration:` block, with dream
- * companies historically also under `target_roles.dream_companies` /
+ * Calibration lives in the structured `calibration:` block (dream_companies,
+ * lower_tier_dream_companies, brand_affinity_companies, extra_brand_bonuses —
+ * the field names scripts/lib/calibration.mjs reads), with dream companies
+ * historically also under `target_roles.dream_companies` /
  * `profile.dream_companies`. We merge all three sources into the single shape
- * scripts/lib/calibration.mjs (and the advisor) consume, so the advisor sees
- * exactly what the scorer sees. Everything is optional — a missing file or
- * block yields an empty calibration (the advisor still runs the rubric-health
- * and comp checks that don't need it).
+ * the scorer consumes, so the advisor sees exactly what the scorer sees. The
+ * `scoring:` block's want_weights / ease_weights are read the same way
+ * score-listing.mjs reads them. Everything is optional — a missing file or
+ * block yields an empty calibration and default weights (the advisor still
+ * runs the rubric-health and comp checks that don't need them).
  */
-function loadCalibration(path) {
-  if (!path || !existsSync(path)) return {}
+function loadProfile(path) {
+  if (!path || !existsSync(path)) return { calibration: {}, weights: {} }
   let doc
   try {
     doc = yaml.load(readFileSync(path, 'utf8')) || {}
   } catch (e) {
     process.stderr.write(`⚠️  Could not parse ${path}: ${e.message}\n`)
-    return {}
+    return { calibration: {}, weights: {} }
   }
   const cal = { ...(doc.calibration || {}) }
 
@@ -91,15 +101,22 @@ function loadCalibration(path) {
   if (dreamFromTargets && !cal.dream_companies) {
     cal.dream_companies = dreamFromTargets
   }
-  return cal
+  const scoring = doc.scoring || {}
+  const weights = {
+    want: scoring.want ?? scoring.want_weights,
+    ease: scoring.ease ?? scoring.ease_weights,
+  }
+  return { calibration: cal, weights }
 }
 
 /* ───── Read outcomes out of data/applications.md ────────────────────
  *
  * We reuse tracker-core's row parser (handles both the 9- and 10-column
  * layouts) and status normalizer, so the advisor's outcome join matches the
- * rest of the pipeline. Returns [] when the file is absent — the advisor then
- * simply skips the score→outcome calibration check.
+ * rest of the pipeline. The raw Score cell is passed through; the lib parses
+ * it with tracker-core parseScoreCell (`W8.3 E5.6`; legacy `7.4/10` cells are
+ * excluded from score claims). Returns [] when the file is absent — the
+ * advisor then simply skips the score→outcome calibration check.
  */
 function loadOutcomes(path) {
   if (!path || !existsSync(path)) return []
@@ -112,7 +129,7 @@ function loadOutcomes(path) {
     // capitalized); the advisor's outcome join wants a bare lowercase token.
     const norm = normalizeStatus(row.status || '')
     const status = (norm?.status || '').toLowerCase()
-    out.push({ company: row.company, role: row.role, status })
+    out.push({ company: row.company, role: row.role, status, score: row.score })
   }
   return out
 }
@@ -123,10 +140,10 @@ function main() {
     fail(`No score history found at ${rel(SCORE_HISTORY)}. Evaluate some roles first — calibration feedback needs a score history to mine.`)
   }
   const rows = parseScoreHistory(readFileSync(SCORE_HISTORY, 'utf8'))
-  const calibration = loadCalibration(PROFILE_YML)
+  const { calibration, weights } = loadProfile(PROFILE_YML)
   const outcomes = loadOutcomes(APPS_FILE)
 
-  const report = analyzeCalibration(rows, { calibration, outcomes })
+  const report = analyzeCalibration(rows, { calibration, outcomes, weights })
 
   if (asJson) {
     process.stdout.write(JSON.stringify(report, null, 2) + '\n')
@@ -158,7 +175,7 @@ function printSummary(r) {
   line('  │  CALIBRATION ADVISOR — does your scoring match reality?       │')
   line('  └─────────────────────────────────────────────────────────────┘')
   line()
-  line(`  Evaluated roles:   ${m.evaluated}  (${m.dateRange.from || '?'} → ${m.dateRange.to || '?'})`)
+  line(`  Scored roles:      ${m.evaluated}  (${m.dateRange.from || '?'} → ${m.dateRange.to || '?'})${m.blocked ? `  · ${m.blocked} blocked by eligibility (not scored, excluded)` : ''}`)
   line(`  Calibration set:   ${m.calibrationConfigured ? 'yes' : 'no (brand/growth bonuses not configured)'}`)
   line(`  Outcomes joined:   ${m.outcomesAvailable ? 'yes (applications.md)' : 'no — apply to roles to unlock score→outcome checks'}`)
   line()
@@ -177,10 +194,11 @@ function printSummary(r) {
   // ── Brand-bonus drift ──
   const drift = d.brandBonusDrift || []
   if (drift.length) {
-    line('  BRAND-BONUS DRIFT')
+    line(`  BRAND-BONUS DRIFT (mean Want vs the verdict rows: ${m.contract.wantRows.mid.toFixed(1)} / ${m.contract.wantRows.high.toFixed(1)})`)
     for (const x of drift) {
       const tag = x.verdict === 'misdirected' ? '✗ misdirected' : '· inert'
-      line(`    ${pad(tag, 14)} ${pad(x.company, 22)} avg ${x.avgOverall}/10 over ${x.roles}  [${x.source}]  [n=${x.roles}, ${x.confidence}]`)
+      const unaided = x.avgWantUnaided !== x.avgWant ? ` (${x.avgWantUnaided} without the bonus)` : ''
+      line(`    ${pad(tag, 14)} ${pad(x.company, 22)} Want ${x.avgWant}${unaided} · Ease ${x.avgEase} over ${x.roles}  [${x.source}]  [n=${x.roles}, ${x.confidence}]`)
     }
     line()
   }
@@ -188,9 +206,9 @@ function printSummary(r) {
   // ── Candidates ──
   const cand = (d.brandBonusCandidates || []).slice(0, 5)
   if (cand.length) {
-    line('  UN-CREDITED STRONG COMPANIES (candidates to add)')
+    line('  UN-CREDITED TOP-WANT COMPANIES (candidates to add)')
     for (const x of cand) {
-      line(`    +  ${pad(x.company, 22)} avg ${x.avgOverall}/10 over ${x.roles} evals  [n=${x.roles}, ${x.confidence}]`)
+      line(`    +  ${pad(x.company, 22)} Want ${x.avgWant} · Ease ${x.avgEase} over ${x.roles} evals  [n=${x.roles}, ${x.confidence}]`)
     }
     line()
   }
@@ -200,9 +218,10 @@ function printSummary(r) {
   if (comp && comp.status !== 'sparse' && comp.status !== 'aligned') {
     line('  COMP-TARGET REALITY')
     const label = comp.status === 'targets-above-market'
-      ? `targets ABOVE market (mean ${comp.mean}/10, ${comp.lowShare}% ≤4)`
-      : `targets BELOW market (mean ${comp.mean}/10, comp never bites)`
-    line(`    ⚠  ${label}  [n=${comp.count}, ${comp.confidence}]`)
+      ? `targets ABOVE market (mean salary score ${comp.mean}, ${comp.lowShare}% ≤4)`
+      : `targets BELOW market (mean salary score ${comp.mean}, comp never bites)`
+    const interns = comp.internsExcluded ? `, ${comp.internsExcluded} intern rows excluded` : ''
+    line(`    ⚠  ${label}  [n=${comp.count}, ${comp.confidence}${interns}]`)
     line()
   }
 
@@ -213,11 +232,17 @@ function printSummary(r) {
     if (flags.length) {
       line('  SCORE → OUTCOME MISMATCH')
       for (const a of flags) {
+        const where = `typically ${VERDICT_LABELS[a.typicalVerdict] ?? a.typicalVerdict} (Want ${a.avgWant} · Ease ${a.avgEase})`
         const desc = a.flag === 'high-score-no-convert'
-          ? `scores high (${a.avgScore}) but 0/${a.applied} converted`
-          : `scores low (${a.avgScore}) yet converts ${a.convertRate}%`
+          ? `${where} but 0/${a.applied} converted`
+          : `${where} yet converts ${a.convertRate}%`
         line(`    ⚠  ${pad(a.archetype, 24)} ${desc}  [n=${a.applied}, ${a.confidence}]`)
       }
+      line()
+    }
+    const ex = so.excluded || {}
+    if (ex.legacy || ex.unscored) {
+      line(`    (excluded from score→outcome: ${ex.legacy || 0} legacy (v1 Overall) Score cells — an Overall can't be placed on the Want × Ease grid — and ${ex.unscored || 0} applications with no score)`)
       line()
     }
   }

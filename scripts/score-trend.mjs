@@ -1,44 +1,67 @@
 #!/usr/bin/env node
 /**
- * score-trend.mjs — Re-evaluation / score-trend tracker for career-ops.
+ * score-trend.mjs — Re-evaluation / score-trend tracker for career-ops
+ * (scoring v2: Want, Ease, verdict — docs/scoring-v2.md).
  *
  * The targeting analyzer (analyze-patterns.mjs --scouting) treats
  * data/score-history.tsv as a flat landscape. This tool adds the TIME axis it
  * omits, answering two questions the flat view can't:
  *
- *   1. Per-listing trajectory — for every company+role evaluated 2+ times,
- *      how did its Overall MOVE across re-evaluations (improving / declining /
- *      stable), and which dimension drove the move?
- *   2. Landscape trend — are the roles you've evaluated *recently* scoring
- *      higher than your *earlier* ones? (i.e. is your targeting sharpening?)
+ *   1. Per-listing trajectory — for every company+role evaluated on 2+
+ *      distinct dates, how did its Want and its Ease MOVE (each against its
+ *      own noise floor), and did its verdict move (upgrade / downgrade)?
+ *   2. Landscape trend — are the roles you've evaluated *later* wanted more /
+ *      easier to reach than your *earlier* ones, and did the actionable share
+ *      (go + stretch + solid) rise? (i.e. is your targeting sharpening?)
+ *
+ * Blocked evaluations (eligibility red) carry no Want / Ease: they are kept out
+ * of every score number but still count on the verdict axis, so a listing that
+ * went blocked ↔ scored shows up as a verdict move.
  *
  * Read-only: it never writes to score-history.tsv or anything else. All math
  * lives in the pure lib/score-trend-core.mjs; this file is just file I/O +
  * formatting.
  *
  * Every claim here is bound by docs/scoring-statistical-design.md: per-listing
- * moves under the 0.30 Overall noise floor print as "flat within noise", and
- * the corpus verdict is withheld entirely below 10 scored evals per calendar
- * window rather than rendered in a hedged form.
+ * Want moves under 0.30 and Ease moves under 0.35 print as "flat within noise",
+ * and the corpus verdict is withheld entirely below 10 scored evals per
+ * calendar window rather than rendered in a hedged form.
  *
  * Run: node scripts/score-trend.mjs            (JSON to stdout)
  *      node scripts/score-trend.mjs --summary  (human-readable report)
  *      node scripts/score-trend.mjs --summary --min-delta 0.3
- *      node scripts/score-trend.mjs --summary --stable-band 0.4
- *      node scripts/score-trend.mjs --summary --min-window-verdict 6
+ *      node scripts/score-trend.mjs --summary --min-window-verdict 6   (inspection only)
+ *      node scripts/score-trend.mjs --summary --want-floor 0.3 --ease-floor 0.35
  */
 
 import { readFileSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { parseScoreHistory, analyzeTrend } from './lib/score-trend-core.mjs'
-import { GATES, OVERALL_NOISE_FLOOR } from './lib/scoring-stats.mjs'
+import { GATES, WANT_NOISE_FLOOR, EASE_NOISE_FLOOR } from './lib/scoring-stats.mjs'
+import { VERDICT_LABELS } from './lib/score-bands.mjs'
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)))
 const SCORE_HISTORY_FILE = join(CAREER_OPS, 'data/score-history.tsv')
 
 // --- CLI args ---
 const args = process.argv.slice(2)
+
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`Usage: node scripts/score-trend.mjs [--summary] [options]
+
+Re-evaluation trajectories and the earlier-vs-later landscape trend over
+data/score-history.tsv, on Want and Ease separately (scoring v2).
+
+  --summary                 human-readable report (default: JSON)
+  --min-delta N             smallest Want/Ease move a recommendation fires on (default 0.5)
+  --min-per-window N        minimum scored rows per calendar window to split (default 3)
+  --min-window-verdict N    corpus-verdict gate per window (default ${GATES.trendMinPerWindowForVerdict}; inspection only)
+  --want-floor N            Want noise floor (default ${WANT_NOISE_FLOOR}; inspection only)
+  --ease-floor N            Ease noise floor (default ${EASE_NOISE_FLOOR}; inspection only)`)
+  process.exit(0)
+}
+
 const summaryMode = args.includes('--summary')
 
 function numArg(flag, fallback) {
@@ -49,82 +72,116 @@ function numArg(flag, fallback) {
 }
 const opts = {
   minDelta: numArg('--min-delta', 0.5),
-  stableBand: numArg('--stable-band', 0.25),
   minPerWindow: numArg('--min-per-window', 3),
   // Statistical contract (docs/scoring-statistical-design.md § 3.3): the
   // corpus "targeting is sharpening" verdict needs ≥10 scored evals per
   // calendar window. Overridable for inspection, never for publishing.
   minPerWindowForVerdict: numArg('--min-window-verdict', GATES.trendMinPerWindowForVerdict),
-  noiseFloor: numArg('--noise-floor', OVERALL_NOISE_FLOOR),
+  wantFloor: numArg('--want-floor', WANT_NOISE_FLOOR),
+  easeFloor: numArg('--ease-floor', EASE_NOISE_FLOOR),
 }
 
 // --- Arrow + sign helpers for the summary ---
-// Arrows are reserved for movement that cleared the noise floor (docs § 4
-// rule 5); anything within noise renders flat, never with a direction.
-const arrow = (v) => (v === 'improving' ? '↑' : v === 'declining' ? '↓' : '→')
+// Arrows are reserved for movement that cleared the floor AND the gate
+// (docs § 4 rule 5); anything within noise renders flat, never with a direction.
+const arrow = (v) => (v === 'improving' ? '↑' : v === 'declining' ? '↓' : '·')
 const signed = (n) => (n > 0 ? `+${n}` : `${n}`)
-const movementArrow = (t) =>
-  t.movementClass === 'improving' ? '↑' : t.movementClass === 'declining' ? '↓' : '·'
+const label = (v) => VERDICT_LABELS[v] ?? v
+
+/** "Want 7.1 → 7.6 (+0.5) ↑" / "Want flat within noise (|Δ| 0.10 < 0.30)" / "Want n/a (1 scored eval)". */
+function metricCell(name, track) {
+  if (!track || !Number.isFinite(track.delta)) {
+    return `${name} n/a (${track?.n ?? 0} scored eval${track?.n === 1 ? '' : 's'})`
+  }
+  if (!track.detectable) {
+    return `${name} ${track.first} → ${track.latest} flat within noise (|Δ| ${Math.abs(track.delta).toFixed(2)} < ${track.noiseFloor})`
+  }
+  return `${name} ${track.first} → ${track.latest} (${signed(track.delta)}) ${arrow(track.movementClass)}`
+}
+
+function printMetricTrend(name, block) {
+  if (block.reportableVerdict === 'insufficient-data') {
+    console.log(`  ${name.padEnd(5)} earlier ${block.earlier ?? 'n/a'} · later ${block.later ?? 'n/a'}  — no verdict (gate not met)`)
+  } else if (block.reportableVerdict === 'flat-within-noise') {
+    console.log(`  ${name.padEnd(5)} earlier ${block.earlier} · later ${block.later}  · flat within noise (|Δ| ${Math.abs(block.delta).toFixed(2)} < ${block.noiseFloor} floor; n=${block.n}, ${block.confidence} confidence)`)
+  } else {
+    console.log(`  ${name.padEnd(5)} earlier ${block.earlier} · later ${block.later}  ${arrow(block.reportableVerdict)} ${block.reportableVerdict} (${signed(block.delta)}; n=${block.n}, ${block.confidence} confidence)`)
+  }
+}
 
 function printSummary(result) {
   if (result.error) {
     console.log(`\n${result.error}\n`)
     return
   }
-  const { metadata, trajectorySummary: ts, listingTrajectories, landscapeTrend, recommendations } = result
+  const { metadata, trajectorySummary: ts, listingTrajectories, landscapeTrend: lt, recommendations } = result
 
   console.log(`\n${'='.repeat(64)}`)
   console.log(`  Score Trend — ${metadata.analysisDate}`)
-  console.log(`  ${metadata.evaluated} evaluations (${metadata.dateRange.from} to ${metadata.dateRange.to}) · ${metadata.reevaluatedListings} re-evaluated listing(s)`)
+  console.log(`  ${metadata.evaluated} scored evaluations${metadata.blocked ? ` + ${metadata.blocked} blocked` : ''} (${metadata.dateRange.from} to ${metadata.dateRange.to}) · ${metadata.reevaluatedListings} re-evaluated listing(s)`)
+  console.log(`  Noise floors: Want ${metadata.contract.noiseFloors.want} · Ease ${metadata.contract.noiseFloors.ease}`)
   console.log(`${'='.repeat(64)}\n`)
 
   // --- Landscape trend (is targeting sharpening?) ---
-  console.log('LANDSCAPE TREND (earlier vs recent evaluations)')
+  console.log('LANDSCAPE TREND (earlier vs later evaluations)')
   console.log('-'.repeat(48))
-  if (landscapeTrend.insufficientData) {
-    console.log(`  ${landscapeTrend.reason}`)
+  if (lt.insufficientData) {
+    console.log(`  ${lt.reason}`)
   } else {
-    const lt = landscapeTrend
-    console.log(`  earlier  avg ${lt.older.avgOverall}  (${lt.older.count} evals, ${lt.older.strongSolidShare}% strong/solid, ${lt.older.dateRange.from}→${lt.older.dateRange.to})`)
-    console.log(`  recent   avg ${lt.recent.avgOverall}  (${lt.recent.count} evals, ${lt.recent.strongSolidShare}% strong/solid, ${lt.recent.dateRange.from}→${lt.recent.dateRange.to})`)
-    // The verdict line follows the contract, not the legacy dead-band: under
-    // the per-window gate it is an explicit insufficient-data marker; within
-    // the noise floor it is a stated flat result, never a hedged direction.
-    if (lt.reportableVerdict === 'insufficient-data') {
+    const win = (w) => `${w.count} scored evals${w.blocked ? ` (+${w.blocked} blocked)` : ''}, ${w.actionableShare}% actionable, ${w.dateRange.from}→${w.dateRange.to}`
+    console.log(`  split at ${lt.splitDate}`)
+    console.log(`  earlier  ${win(lt.earlier)}`)
+    console.log(`  later    ${win(lt.later)}`)
+    // Verdict lines follow the contract: under the per-window gate an explicit
+    // insufficient-data marker; within a floor a stated flat result.
+    if (!lt.verdictGate.met) {
       console.log(`  ⃠ insufficient data — no verdict`)
       console.log(`    ${lt.verdictGate.reason}`)
-    } else if (lt.reportableVerdict === 'flat-within-noise') {
-      console.log(`  · flat within noise  (|Δ| ${Math.abs(lt.delta).toFixed(2)} < ${lt.noiseFloor} floor; n=${Math.min(lt.verdictGate.olderCount, lt.verdictGate.recentCount)}, ${lt.verdictConfidence} confidence)`)
-    } else {
-      console.log(`  ${arrow(lt.reportableVerdict)} ${lt.reportableVerdict}  (${signed(lt.delta)} Overall, ${signed(lt.strongSolidShareDelta)} pts strong/solid; n=${Math.min(lt.verdictGate.olderCount, lt.verdictGate.recentCount)}, ${lt.verdictConfidence} confidence)`)
     }
+    printMetricTrend('Want', lt.want)
+    printMetricTrend('Ease', lt.ease)
+    const share = lt.verdictGate.met
+      ? `${signed(lt.actionableShareDelta)} pts`
+      : `${lt.actionableShareDelta} pts difference, no verdict`
+    console.log(`  actionable share (go + stretch + solid) ${lt.earlier.actionableShare}% → ${lt.later.actionableShare}% (${share}; ${lt.verdictGate.earlierCount} vs ${lt.verdictGate.laterCount} evals)`)
+  }
+
+  // --- Verdict moves across re-evaluations ---
+  const up = lt.verdictUpgrades
+  const down = lt.verdictDowngrades
+  if (up.n > 0) {
+    const caveat = up.insufficientData
+      ? ` — ${up.n} listing(s) compared, ${up.gate} needed before reading a direction`
+      : ` (${up.confidence} confidence)`
+    console.log(`  verdict moves: ${up.count} upgrade(s) · ${down.count} downgrade(s) of ${up.n} re-evaluated${caveat}`)
   }
 
   // --- Re-evaluated listings summary ---
+  console.log('\nRE-EVALUATED LISTINGS')
+  console.log('-'.repeat(48))
   if (ts.reevaluated > 0) {
-    console.log('\nRE-EVALUATED LISTINGS')
-    console.log('-'.repeat(48))
-    console.log(`  ${ts.detectable} moved beyond the ${ts.noiseFloor} noise floor · ${ts.withinNoise} flat within noise`)
-    console.log(`  of those: ${ts.movement.improving} improving · ${ts.movement.declining} declining`)
-    console.log(`  avg move ${signed(ts.avgDelta)} · band upgrades ${ts.bandUpgrades} · downgrades ${ts.bandDowngrades}`)
+    for (const [name, s] of [['Want', ts.want], ['Ease', ts.ease]]) {
+      console.log(`  ${name}: ${s.detectable} of ${s.n} moved beyond the ${s.noiseFloor} floor (${s.improving} improving · ${s.declining} declining) · ${s.withinNoise} flat within noise`)
+    }
+    console.log(`  verdict: ${ts.verdictMoves.upgrade} upgraded · ${ts.verdictMoves.downgrade} downgraded · ${ts.verdictMoves.same} unchanged`)
 
-    // --- Per-listing movers (biggest absolute move first) ---
-    console.log('\nBIGGEST MOVERS (first → latest Overall)')
+    // --- Per-listing movers ---
+    console.log('\nBIGGEST MOVERS (first → latest)')
     console.log('-'.repeat(48))
     for (const t of listingTrajectories.slice(0, 12)) {
-      const label = `${t.company} — ${t.role}`.slice(0, 40)
-      const band = t.bandChanged ? `  [${t.bandFrom}→${t.bandTo}]` : ''
-      const driver = t.topMover ? `  (${t.topMover.label} ${signed(t.topMover.delta)})` : ''
-      // Sub-floor moves print flat and carry no sign; every row states its n.
-      const move = t.detectable
-        ? `${signed(t.delta)}`
-        : `flat within noise (|Δ| ${Math.abs(t.delta).toFixed(2)} < ${t.noiseFloor})`
-      console.log(`  ${movementArrow(t)} ${label.padEnd(41)} ${t.firstOverall} → ${t.latestOverall}  ${move}  [n=${t.evals}, ${t.confidence}]${band}${driver}`)
+      const name = `${t.company} — ${t.role}`.slice(0, 40)
+      const verdict = t.verdictChanged
+        ? `  [${label(t.verdictFrom)} → ${label(t.verdictTo)}${t.verdictMoveDetectable ? '' : ', sub-floor wobble'}]`
+        : `  [${label(t.verdictTo)}]`
+      const drivers = ['want', 'ease']
+        .map(m => t[m].topMover)
+        .filter(Boolean)
+        .map(d => `${d.label} ${signed(d.delta)}`)
+      const driver = drivers.length ? `  (${drivers.join(', ')})` : ''
+      console.log(`  ${name.padEnd(41)} ${metricCell('Want', t.want)} · ${metricCell('Ease', t.ease)}  [n=${t.evals}, ${t.confidence}]${verdict}${driver}`)
     }
   } else {
-    console.log('\nRE-EVALUATED LISTINGS')
-    console.log('-'.repeat(48))
-    console.log('  No company+role has been evaluated more than once yet.')
+    console.log('  No company+role has been evaluated on more than one date yet.')
   }
 
   // --- Recommendations ---

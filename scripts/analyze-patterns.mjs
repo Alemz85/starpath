@@ -3,8 +3,12 @@
  * analyze-patterns.mjs — Rejection Pattern Detector for career-ops
  *
  * Parses applications.md + all linked reports, extracts dimensions
- * (archetype, seniority, remote, gaps, scores), classifies outcomes,
- * and outputs structured JSON with actionable patterns.
+ * (archetype, seniority, remote, gaps, Want / Ease / verdict), classifies
+ * outcomes, and outputs structured JSON with actionable patterns.
+ *
+ * Scoring v2 (docs/scoring-v2.md): applications are read as Want · Ease
+ * (legacy "X/10" cells shown as-is), Priority is only an aggregate/sort key,
+ * and "actionable" = verdict go / stretch / solid (`actionableRate`).
  *
  * Run: node scripts/analyze-patterns.mjs          (JSON to stdout)
  *      node scripts/analyze-patterns.mjs --summary (human-readable table)
@@ -18,6 +22,7 @@ import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseScoreHistory, analyzeScouting } from './lib/targeting-core.mjs';
+import { VERDICT_ORDER, VERDICT_LABELS } from './lib/score-bands.mjs';
 import { parseTracker, enrichEntries, analyzeOutcomes } from './lib/patterns-core.mjs';
 
 const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -42,6 +47,16 @@ const MIN_THRESHOLD = minThresholdIdx !== -1 && args[minThresholdIdx + 1] !== un
 // file-reading wrapper: it reads applications.md + the linked report files off
 // disk, then hands the parsed data to the core.
 
+// "Stretch" / "If pipeline thin" / "go" → verdict key, or null.
+function verdictKeyFromLabel(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return null;
+  for (const key of VERDICT_ORDER) {
+    if (t === key || t === VERDICT_LABELS[key].toLowerCase()) return key;
+  }
+  return null;
+}
+
 // --- Parse a single report file ---
 function parseReport(reportPath) {
   if (!existsSync(reportPath)) return null;
@@ -54,6 +69,8 @@ function parseReport(reportPath) {
     comp: null,
     domain: null,
     scores: {},
+    eligibility: null,
+    verdict: null,
     gaps: [],
   };
 
@@ -86,31 +103,20 @@ function parseReport(reportPath) {
   const domainMatch = plain.match(domainRegex);
   if (domainMatch) report.domain = domainMatch[1].trim();
 
-  // Extract scoring table — look for table with "Global" row (using plain, bold already stripped)
-  const scoreRegex = /\|\s*(?:CV Match|Match con CV)\s*\|\s*([\d.]+)\/5\s*\|/i;
-  const northStarRegex = /\|\s*(?:North Star)\s*\|\s*([\d.]+)\/5\s*\|/i;
-  const compScoreRegex = /\|\s*(?:Comp)\s*\|\s*([\d.]+)\/5\s*\|/i;
-  const culturalRegex = /\|\s*(?:Cultural signals|Cultural)\s*\|\s*([\d.]+)\/5\s*\|/i;
-  const redFlagsRegex = /\|\s*(?:Red flags)\s*\|\s*([-+]?[\d.]+)\s*\|/i;
-  const globalRegex = /\|\s*(?:Global)\s*\|\s*([\d.]+)\/5\s*\|/i;
-
-  const cvScoreMatch = plain.match(scoreRegex);
-  if (cvScoreMatch) report.scores.cvMatch = parseFloat(cvScoreMatch[1]);
-
-  const nsMatch = plain.match(northStarRegex);
-  if (nsMatch) report.scores.northStar = parseFloat(nsMatch[1]);
-
-  const csMatch = plain.match(compScoreRegex);
-  if (csMatch) report.scores.comp = parseFloat(csMatch[1]);
-
-  const culMatch = plain.match(culturalRegex);
-  if (culMatch) report.scores.cultural = parseFloat(culMatch[1]);
-
-  const rfMatch = plain.match(redFlagsRegex);
-  if (rfMatch) report.scores.redFlags = parseFloat(rfMatch[1]);
-
-  const glMatch = plain.match(globalRegex);
-  if (glMatch) report.scores.global = parseFloat(glMatch[1]);
+  // v2 report header (docs/scoring-v2.md §8.5), bold already stripped:
+  //   Want: 8.25/10 · Ease: 5.6/10
+  //   Eligibility: amber — start date not stated
+  //   Verdict: Stretch — apply with prep
+  const wantMatch = plain.match(/^\s*Want:\s*([\d.]+)(?:\s*\/\s*10)?/im);
+  const easeMatch = plain.match(/\bEase:\s*([\d.]+)(?:\s*\/\s*10)?/i);
+  if (wantMatch && easeMatch) {
+    report.scores.want = parseFloat(wantMatch[1]);
+    report.scores.ease = parseFloat(easeMatch[1]);
+  }
+  const eligMatch = plain.match(/^\s*Eligibility:\s*(green|amber|red)\b/im);
+  if (eligMatch) report.eligibility = eligMatch[1].toLowerCase();
+  const verdictMatch = plain.match(/^\s*Verdict:\s*([^—\n-]+)/im);
+  if (verdictMatch) report.verdict = verdictKeyFromLabel(verdictMatch[1]);
 
   // Extract gaps table
   const gapTableRegex = /\|\s*Gap\s*\|\s*Severity\s*\|.*?\n\|[-|\s]+\n([\s\S]*?)(?:\n\n|\n##|\n\*\*|$)/i;
@@ -150,7 +156,7 @@ function printSummary(result) {
     return;
   }
 
-  const { metadata, funnel, conversionFunnel, funnelDiagnosis, scoreComparison, archetypeBreakdown, blockerAnalysis, remotePolicy, scoreThreshold, techStackGaps, recommendations } = result;
+  const { metadata, funnel, conversionFunnel, funnelDiagnosis, actionableRate, verdictMix, scoreComparison, archetypeBreakdown, blockerAnalysis, remotePolicy, verdictFloor, skipApplications, techStackGaps, recommendations } = result;
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`  Pattern Analysis — ${metadata.analysisDate}`);
@@ -186,12 +192,35 @@ function printSummary(result) {
     }
   }
 
-  // Score comparison
-  console.log('\nSCORE BY OUTCOME');
+  // Verdict mix across all applications with a known verdict
+  const mix = verdictLine(verdictMix);
+  if (mix) {
+    console.log('\nVERDICT MIX (applications with a known verdict)');
+    console.log('-'.repeat(40));
+    console.log(`  ${mix}`);
+    if (actionableRate !== null) console.log(`  ${actionableRate}% actionable (go / stretch / solid)`);
+    if (skipApplications > 0) console.log(`  ${skipApplications} application(s) sent to Skip-verdict listings`);
+  }
+
+  // Want / Ease by outcome (Priority is the sort key only; legacy X/10 rows are
+  // excluded from it and counted)
+  console.log('\nWANT · EASE BY OUTCOME');
   console.log('-'.repeat(40));
   for (const [group, stats] of Object.entries(scoreComparison)) {
-    if (stats.count > 0) {
-      console.log(`  ${group.padEnd(15)} avg ${stats.avg}/5  (${stats.count} entries, range ${stats.min}-${stats.max})`);
+    if (stats.count === 0) continue;
+    const we = stats.wantEaseCount > 0 ? `W ${stats.avgWant} · E ${stats.avgEase}` : 'W — · E —';
+    const act = stats.actionableRate === null ? '' : `  ${stats.actionableRate}% actionable`;
+    const ex = stats.excluded?.legacy ? `; ${stats.excluded.legacy} legacy X/10 excluded` : '';
+    console.log(`  ${group.padEnd(15)} ${we}  (${stats.count} entries, priority ${stats.minPriority}–${stats.maxPriority}${ex})${act}`);
+  }
+
+  // Archetypes
+  if (archetypeBreakdown.length > 0) {
+    console.log('\nARCHETYPES');
+    console.log('-'.repeat(40));
+    for (const a of archetypeBreakdown.slice(0, 10)) {
+      const act = a.actionableRate === null ? '' : `, ${a.actionableRate}% actionable`;
+      console.log(`  ${a.archetype.slice(0, 32).padEnd(33)} ${String(a.total).padStart(3)} total, ${a.conversionRate}% positive${act}`);
     }
   }
 
@@ -220,9 +249,9 @@ function printSummary(result) {
     }
   }
 
-  // Score threshold
-  console.log(`\nSCORE THRESHOLD: ${scoreThreshold.recommended}/5`);
-  console.log(`  ${scoreThreshold.reasoning}`);
+  // Verdict floor (a band from the verdict, never a numeric cut-off)
+  console.log(`\nVERDICT FLOOR: ${verdictFloor.lowest ? `${verdictFloor.lowestLabel} or better` : 'n/a'}`);
+  console.log(`  ${verdictFloor.reasoning}`);
 
   // Recommendations
   if (recommendations.length > 0) {
@@ -239,39 +268,64 @@ function printSummary(result) {
 }
 
 // --- Scouting targeting summary (human-readable) ---
+function verdictLine(verdicts) {
+  if (!verdicts) return '';
+  const parts = VERDICT_ORDER.slice().reverse()
+    .filter(v => verdicts[v] > 0)
+    .map(v => `${v} ${verdicts[v]}`);
+  return parts.join(' · ');
+}
+
+function printEligibility(elig) {
+  if (!elig || elig.total === 0) return;
+  console.log('\nELIGIBILITY GATE (all listings, blocked included)');
+  console.log('-'.repeat(40));
+  const st = elig.status;
+  console.log(`  green ${st.green} · amber ${st.amber} · red ${st.red}  (${elig.redShare}% red, ${elig.amberShare}% amber of ${elig.total})`);
+  for (const c of elig.byCheck) {
+    const top = c.topReasons[0] ? `  — ${c.topReasons[0].reason}` : '';
+    console.log(`  ${c.check.padEnd(14)} red ${String(c.red).padStart(3)} (${String(c.redShare).padStart(2)}%) · amber ${String(c.amber).padStart(3)} (${String(c.amberShare).padStart(2)}%)${top}`);
+  }
+}
+
 function printScoutingSummary(result) {
   if (result.error) {
     console.log(`\n${result.error}\n`);
+    if (result.eligibility) { printEligibility(result.eligibility); console.log(''); }
     return;
   }
-  const { metadata, landscape, archetypePerformance, dimensionDrag, cityExposure, recommendations } = result;
+  const { metadata, landscape, archetypePerformance, dimensionDrag, eligibility, cityExposure, recommendations } = result;
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`  Targeting Intelligence — ${metadata.analysisDate}`);
-  console.log(`  ${metadata.evaluated} scouting evaluations (${metadata.dateRange.from} to ${metadata.dateRange.to})`);
+  console.log(`  ${metadata.evaluated} scored evaluations + ${metadata.blocked} blocked (${metadata.dateRange.from} to ${metadata.dateRange.to})`);
   console.log(`${'='.repeat(60)}\n`);
 
   console.log('LANDSCAPE');
   console.log('-'.repeat(40));
-  console.log(`  avg Overall ${landscape.avgOverall}  ·  median ${landscape.medianOverall}`);
-  const b = landscape.bands;
-  console.log(`  strong ${b.strong || 0} · solid ${b.solid || 0} · pass ${b.pass || 0} · weak ${b.weak || 0}`);
-  console.log(`  ${landscape.wastedShare}% of evaluations are weak (< 6.0)`);
+  console.log(`  avg Want ${landscape.avgWant} · Ease ${landscape.avgEase}  (median W ${landscape.medianWant} · E ${landscape.medianEase})`);
+  const mix = verdictLine({ ...landscape.verdicts, blocked: landscape.blocked });
+  if (mix) console.log(`  ${mix}`);
+  console.log(`  ${landscape.actionableShare}% actionable (go / stretch / solid) · ${landscape.wastedShare}% skip · ${landscape.blockedShare}% blocked`);
 
-  console.log('\nARCHETYPE PERFORMANCE (best avg first)');
+  console.log('\nARCHETYPE PERFORMANCE (most actionable first)');
   console.log('-'.repeat(40));
   for (const a of archetypePerformance.slice(0, 10)) {
-    console.log(`  ${a.archetype.slice(0, 32).padEnd(33)} avg ${String(a.avgOverall).padStart(4)}  ${String(a.count).padStart(3)} roles  ${a.strongRate}% strong/solid`);
+    const blocked = a.blocked ? `  +${a.blocked} blocked` : '';
+    console.log(`  ${a.archetype.slice(0, 32).padEnd(33)} W ${String(a.avgWant).padStart(4)} · E ${String(a.avgEase).padStart(4)}  ${String(a.count).padStart(3)} roles  ${a.actionableRate}% actionable${blocked}`);
   }
 
   console.log('\nDIMENSION DRAG (weakest first — fix the top one)');
   console.log('-'.repeat(40));
   for (const d of dimensionDrag) {
-    console.log(`  ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  (low in ${d.lowShare}% of evals)`);
+    const tag = `(${d.group})`;
+    console.log(`  ${d.label.padEnd(22)} ${tag.padEnd(12)} avg ${String(d.avg).padStart(4)}  (low in ${d.lowShare}% of evals)`);
   }
 
+  printEligibility(eligibility);
+
   if (cityExposure.length > 0) {
-    console.log('\nWHERE STRONG MATCHES CLUSTER (solid+ roles)');
+    console.log('\nWHERE ACTIONABLE MATCHES CLUSTER (go / stretch / solid)');
     console.log('-'.repeat(40));
     for (const c of cityExposure.slice(0, 8)) {
       console.log(`  ${c.city.padEnd(24)} ${c.count}x`);

@@ -1,5 +1,8 @@
 # Scoring statistical design
 
+**Scoring model: v2** (`docs/scoring-v2.md` §9). Re-derived for Want / Ease /
+Priority; the v1 Overall floor and the CF / AF weights are retired.
+
 This document is the contract for every analytic derived from
 `data/score-history.tsv`. Those analytics — peer rank, score trend, calibration
 advice — read a log of **LLM judgments recorded on a coarse ordinal rubric**.
@@ -13,109 +16,122 @@ the same values. A change to one without the other is a defect.
 
 ## 1. What a score is
 
-An evaluation produces six rubric dimensions on **integers 1–10** (half-steps
-permitted only when the reasoning explicitly justifies one), rolled up by the
-fixed weights in `modes/_shared.md`:
+Scoring model: **v2** (`docs/scoring-v2.md`). An evaluation first runs the
+eligibility gate (green / amber / red), then scores ten rubric dimensions on
+**integers 1–10** and rolls them up into two independent numbers:
 
 ```
-Current Fit       = mean(Skills Match, Ease of Entry, Strategic Fit)      − 0.30 per bottom-range dim
-Aspirational Fit  = mean(Growth/Mobility, Optionality/Exit, Brand Value)  − 0.30 per bottom-range dim
-Overall           = CF × 0.70 + AF × 0.30 + context modifiers
+Want  = mean(4 motivators, weighted) − 0.30 per motivator ≤ 2 + hygiene terms h(x)   (then dream floor, vetoes)
+Ease  = weighted geometric mean(Skills Match 0.35, Experience bar 0.35, Competition 0.30)
+        (then the experience wall, then −0.5 per amber check, max −1.0)
+Priority = √(Want × Ease)   — a sort key only, never a headline score
 ```
 
-Two consequences follow directly from that structure, and they are the whole
-basis of this contract.
+A **blocked** listing (eligibility red) has no dimensions, no Want, no Ease and
+no Priority: those cells are empty in `data/score-history.tsv`. Every reader
+treats empty as **missing**, never as 0. Blocked rows are excluded from every
+score analytic in this document and counted only in eligibility analytics
+(share of red / amber listings per check, from `eligibility_flags`).
 
-**Overall lives on a lattice.** Because each rollup is a mean of three integers,
-one dimension moving by one integer step moves Overall by a fixed amount:
+Two consequences follow from that structure, and they are the basis of this
+contract.
 
-| Dimension moved by one step | Overall moves by |
+**Want and Ease live on lattices.** One dimension moving by one integer step
+moves its rollup by a roughly fixed amount:
+
+| Dimension moved by one step | Moves |
 |---|---|
-| any Current Fit dimension | 0.70 / 3 = **0.2333** |
-| any Aspirational Fit dimension | 0.30 / 3 = **0.1000** |
+| any motivator (default equal weights) | Want by 1 / 4 = **0.25** |
+| a hygiene factor crossing a threshold (8, 5, 4, 3) | Want by **0.25–0.40** (0 when it stays inside a band) |
+| a 0.35-weight Ease stage near 6 | Ease by **≈ 0.33 up / ≈ 0.37 down** |
+| the 0.30-weight Competition stage near 6 | Ease by **≈ 0.28 up / ≈ 0.32 down** |
 
-An Overall delta smaller than 0.1000 cannot correspond to any dimension changing
-its mind. It can only come from a rounding artifact, a context modifier, or a
-rewritten comp figure.
+The Ease step grows as the stage value falls (it is a geometric mean: one weak
+stage drags more than a strong one lifts). These are mid-scale figures; at the
+low end of a stage a single step moves Ease by more.
 
-**A re-evaluation wobbles by about one step.** The rubric itself concedes this:
-`modes/_shared.md` § Reasoning column quality bar states that two agents reading
-the same JD "might land at 5 or 7 depending on how they weigh the audit signals"
-and calls that range of judgment fine. A judgment dimension therefore has a
-re-evaluation spread on the order of one integer step, in either direction, with
-no change in the world.
+**A re-evaluation wobbles by about one step.** The rubric concedes that two
+agents reading the same JD can land a judgment dimension a step apart. A
+judgment dimension therefore has a re-evaluation spread on the order of one
+integer step, in either direction, with no change in the world.
 
-### The noise floor
+### The noise floors
 
-**`OVERALL_NOISE_FLOOR = 0.30`.**
+| Metric | Constant | Value | Derivation |
+|---|---|---|---|
+| Want | `WANT_NOISE_FLOOR` | **0.30** | One motivator re-judged one step = 0.25; the floor is that, rounded up. Two motivators agreeing (0.50) clear it. |
+| Ease | `EASE_NOISE_FLOOR` | **0.35** | One step on a 0.35-weight stage near 6 ≈ 0.32 (spec §9); 0.35 is the round value above it. |
+| Priority | `PRIORITY_NOISE_FLOOR` | **0.30** | Priority = √(W·E): a one-step Want wobble moves it ≈ 0.13 and a one-step Ease wobble ≈ 0.16 at mid-scale; 0.30 sits above both. |
 
-Derivation. The floor must be strictly greater than the largest Overall move a
-*single* dimension can produce by wobbling one step, because that wobble is
-exactly what a re-evaluation does for free:
+Want and Ease are classified **separately**, each against its own floor. A
+surface never combines them into one movement statistic; when it needs one
+sortable number it uses Priority with the Priority floor.
 
-- one Current Fit dimension wobbling one step → 0.2333
-- one Aspirational Fit dimension wobbling one step → 0.1000
-- two Aspirational Fit dimensions wobbling the same way → 0.2000
-
-and it must be no greater than the smallest move that needs **two** dimensions
-to agree, since that is the cheapest configuration we are willing to call real:
-
-- one Current Fit + one Aspirational Fit dimension, same direction → 0.3333
-- two Current Fit dimensions, same direction → 0.4667
-
-0.30 is the round value inside `(0.2333, 0.3333]`. It is the tightest threshold
-that **no single dimension re-judgment can clear**, while still admitting the
-smallest genuine two-dimension move. Anything looser discards real signal;
-anything tighter promotes one agent's shrug into a trend.
-
-**A delta with |Δ| < 0.30 is not evidence of change.** It is not a small
+**A delta under its floor is not evidence of change.** It is not a small
 improvement, not a slight decline, and not a weak signal. It is the resolution
-limit of the instrument. Surfaces must report it as *flat within noise* — see
-§ 4 — and must never render it with a direction, an arrow, or a sign-carrying
-verb.
+limit of the instrument. Surfaces report it as *flat within noise* — see § 4 —
+and never render it with a direction, an arrow, or a sign-carrying verb.
+
+**Known limits of the floors.** Three single-step moves can reach a floor on
+their own: a hygiene factor crossing the 5 → 4 threshold (−0.40 Want), a
+motivator dropping to the bottom range (3 → 2: −0.25 and the −0.30 penalty),
+and a downward step on a 0.35-weight Ease stage near 6 (≈ −0.37 Ease). These
+are threshold effects in the engine, not noise in the judge, and they are
+mostly carried by explicit engine rules (hygiene steps, bottom penalty) the
+explain-score bundle names; but a surface cannot tell them apart from a
+re-judgment using `data/score-history.tsv` alone. The floors are what the spec
+fixes; treat a delta that only just clears a floor as the weakest admissible
+claim.
+
+**Bands come from the verdict, never from new thresholds on a number.** The
+display/sorting buckets are the verdict cells (`go`, `stretch`, `growth`,
+`solid`, `thin`, `skip`, `blocked`) computed by `assignVerdict` in
+`scripts/lib/score-bands.mjs`. No surface invents its own cut-offs on Want,
+Ease or Priority. A corpus "actionable share" is the share of scored rows whose
+verdict is `go`, `stretch` or `solid`.
 
 **The floor is not a significance test.** It is a resolution limit derived from
 the rubric's arithmetic. It says nothing about how many observations back a
 claim; sample-size gates in § 3 do that job, and both must pass independently.
 
 **Mechanical carve-out, and why the engines do not use it.** A sub-floor delta
-that is *fully explained by a deterministic context modifier* — a comp figure
-becoming disclosed and flipping the `Salary Adj ≤ 4 → −0.4` or
-`WLB ≤ 4 → −0.2` modifier — is a mechanical fact, not a judgment. Such a change
-may be stated as a fact ("comp disclosed; the salary modifier no longer fires")
-when the provenance is in hand. `data/score-history.tsv` does not log which
-modifiers fired, so **no engine in this repo may claim the carve-out**. Every
-sub-floor delta is classified as within-noise until a surface can prove the
-mechanical provenance.
+that is fully explained by a mechanical input — comp becoming disclosed and
+moving `salary_adj_city` across a hygiene threshold, or an amber check being
+resolved (+0.5 Ease) — is a fact, not a judgment, and may be stated as such
+when the provenance is in hand. `data/score-history.tsv` logs the eligibility
+flags but not which hygiene terms or calibration adjustments fired, so **no
+engine in this repo claims the carve-out** for dimension-driven deltas. Every
+sub-floor delta is classified as within-noise.
 
 ## 2. Dimension classes
 
-The six rollup dimensions are not equally reproducible, and the claims they
-support differ in kind. Every surface must respect the class.
+The ten v2 dimensions are not equally reproducible, and the claims they support
+differ in kind. Every surface must respect the class.
 
 **Mechanical dimensions** resolve against a table, a document, or a stated fact.
 Given the same JD and the same user configuration they reproduce exactly:
 
-- **Brand Value** — read off the brand-tier table in `modes/_shared.md`, then
-  adjusted by the calibration lists in `user/profile.yml`.
-- **Ease of Entry**, in the part driven by the visa / country / school
-  calibration tables — the stated table adjustments are deterministic.
-- The context dimensions **Salary Adj for City** (computed by
-  `scripts/score-listing.mjs` from comp inputs) and **Best Cities** (a lookup
-  against the user's preferred-cities list).
+- **Brand Value** (`brand_value`) — read off the brand-tier table, then adjusted
+  by the calibration lists in `user/profile.yml`.
+- **Salary Adj for City** (`salary_adj_city`) — computed by
+  `scripts/score-listing.mjs` from comp, tax and cost of living.
+- **City** (`best_cities`) — a lookup against the user's preferred-cities list.
 
-Mechanical dimensions support factual claims: *this role is in a country that
-costs −2 on Ease of Entry*; *comp is now disclosed and the modifier changed*.
-A change in a mechanical dimension across re-evaluations means an **input**
-changed — the JD, the comp cache, or the user's configuration — and may be
-reported as such, naming the input.
+Mechanical dimensions support factual claims: *comp is now disclosed and the
+salary term changed*. A change in a mechanical dimension across
+re-evaluations means an **input** changed — the JD, the comp cache, or the
+user's configuration — and may be reported as such, naming the input. The
+eligibility gate is mechanical in the same sense: it is computed from JD facts
+against the profile's `eligibility:` block.
 
 **Judgment dimensions** are an agent's reading of prose against a CV:
 
-- **Skills Match**, **Strategic/Analytical Fit**, **Growth/Mobility**,
-  **Optionality/Exit**, the discretionary share of **Ease of Entry**, and
-  **Work-Life Balance**. **Sales-Trap Risk** is judgment too, though it is
-  excluded from the rollups.
+- **Skills Match**, **Experience bar**, **Competition** (Ease), and
+  **Growth / Mobility**, **Optionality / Exit**, **Role content**,
+  **Work-Life Balance** (Want). Experience bar and Competition have anchor
+  tables (years required; brand-competition tier, cohort size, school match),
+  but their discretionary share dominates; their table adjustments are still
+  mechanical facts.
 
 Judgment dimensions support ordinal and comparative claims only: *this role
 scores higher on Skills Match than most peers in its archetype*; *the pool
@@ -124,11 +140,9 @@ clusters at the ceiling on Brand Value*. They support nothing finer.
 **Binding rules for judgment dimensions:**
 
 - A judgment dimension **must never be read as precise to a decimal across
-  re-evaluations**. `7.0 → 7.4` on Skills Match is one agent phrasing a
-  half-step differently, not a 0.4 improvement. Report the integer band or
-  report nothing.
+  re-evaluations**. Report the integer band or report nothing.
 - A per-dimension delta across re-evaluations may be shown as the **driver** of
-  an Overall move that itself cleared the noise floor. It may never be the
+  a Want or Ease move that itself cleared its noise floor. It may never be the
   headline claim on its own.
 - A mean of a judgment dimension across a pool (peer averages, corpus
   fingerprints) is a **pool descriptor**, valid for ranking pools against each
@@ -164,7 +178,10 @@ the only implementation.
 
 ### 3.2 Peer rank — `scripts/peer-rank.mjs`
 
-**Gate: `minPeers = 5` same-archetype peers with a finite Overall.** The
+**Gate: `minPeers = 5` same-archetype, non-blocked peers with a finite
+Priority.** The rank is computed on Priority (spec §5: the peer percentile is
+one of Priority's sanctioned uses); the block also states where the role's Want
+and Ease sit among the same peers, each as its own claim. The
 existing omission rule stands unchanged: below five peers the block is **omitted
 entirely**, returning `null`. It is never rendered with a placeholder, a
 "not enough data yet" line, or a partial block. This preserves the rule stated
@@ -191,7 +208,7 @@ Above the gate:
 - The outlier threshold stays at |Δ| ≥ 1.5 against the peer mean. It is a
   full step and a half on the raw rubric — comfortably above one-step judge
   wobble — and is deliberately expressed in raw dimension points, not in
-  Overall points, so it is not confused with the noise floor.
+  Want / Ease points, so it is not confused with the noise floors.
 
 ### 3.3 Score trend — `scripts/score-trend.mjs`, `scripts/lib/score-trend-core.mjs`
 
@@ -200,9 +217,11 @@ Above the gate:
 1. **≥ 2 evaluations on distinct dates** for the same canonical (company, role)
    key. Same-date rows are duplicate writes, not re-evaluations, and collapse to
    the last one. This is already how trajectories are built.
-2. **|Δ Overall| ≥ 0.30** — the noise floor from § 1.
+2. **|Δ Want| ≥ 0.30** or **|Δ Ease| ≥ 0.35** — each metric is classified
+   against its own floor from § 1, and reported separately. A trajectory can
+   be "Ease improving, Want flat within noise".
 
-A trajectory failing (2) is classified **`within-noise`** and reported as
+A metric failing (2) is classified **`within-noise`** and reported as
 *flat within noise*, with its n (evaluation count) and its confidence from
 § 3.1 with `g = 2`: 2–3 evals is `low`, 4–7 `moderate`, 8+ `high`. A two-point
 trajectory is `low` by construction and can never be more — one difference
@@ -211,28 +230,35 @@ is.
 
 **Corpus-level trend** — the "targeting is sharpening / sliding" claim —
 requires **≥ 10 scored evaluations in each of the two calendar windows**
-(`MIN_TREND_WINDOW = 10`, so ≥ 20 in total), in addition to the existing
+(`GATES.trendMinPerWindowForVerdict = 10`, so ≥ 20 in total), in addition to the existing
 balanced-split construction.
 
 Derivation. The claim compares two window means. A window mean must not be at
 the mercy of one evaluation, so require that no single evaluation can move its
-window's mean by more than the noise floor. The usable spread of Overall in a
-real landscape runs about three points between a weak role and a stellar one, so
-a single extreme role deviates from its window mean by up to ≈ 3.0 and shifts
-that mean by `3.0 / k`. Setting `3.0 / k ≤ 0.30` gives **k ≥ 10 per window**.
+window's mean by more than the noise floor. The usable spread of Want in a real
+landscape runs about three points between a weak role and a dream one, so a
+single extreme role deviates from its window mean by up to ≈ 3.0 and shifts
+that mean by `3.0 / k`; `3.0 / k ≤ 0.30` gives **k ≥ 10 per window**. Ease
+spreads a little wider (≈ 3.5) against a wider floor: `3.5 / k ≤ 0.35` gives
+the same k ≥ 10. Blocked rows are not scored evaluations and do not count
+toward k.
 Below that, the verdict is a report about one role wearing the costume of a
 trend.
 
 A corpus trend under the gate emits an **explicit insufficient-data marker** —
-never a verdict, never a direction, never an arrow. Above the gate, the verdict
-is additionally subject to the noise floor: a window-mean delta with |Δ| < 0.30
-is `flat-within-noise`, not "slightly improving".
+never a verdict, never a direction, never an arrow. Above the gate, each verdict
+is additionally subject to its noise floor: a window-mean Want delta with
+|Δ| < 0.30, or Ease delta with |Δ| < 0.35, is `flat-within-noise`, not
+"slightly improving". The corpus trend also reports the change in the
+**actionable share** (verdict `go` / `stretch` / `solid`) between windows; a
+share is a band count, not a measurement, so it is stated with both window
+counts and never given an arrow below the gate.
 
 The corpus claim carries its own confidence from § 3.1 with `g = 10` on the
 smaller of the two window counts: 10–19 is `low`, 20–39 `moderate`, 40+ `high`.
 
 **Corpus movement is not causal.** Even at `high` confidence, a rise in recent
-average Overall is compatible with the scanner having pulled a different segment
+average Want or Ease is compatible with the scanner having pulled a different segment
 of the market — different archetypes, employer tiers, or cities — on either side
 of the split date. `modes/positioning.md` already requires that caveat to be
 stated; this contract makes it binding. A trend claim states what moved, not why.
@@ -243,7 +269,7 @@ The advisor produces two different kinds of output and they are held to
 different standards.
 
 **Diagnostics describe; advisories prescribe.** A diagnostic ("this company's
-evaluated roles average 5.8") is a statement about the log and may be shown with
+evaluated roles average Want 5.8") is a statement about the log and may be shown with
 its n at any sample size. An advisory ("remove this company from your bonus
 list") asks the user to change their configuration, which silently alters every
 future score. Advisories are gated; diagnostics are not.
@@ -255,11 +281,11 @@ CLI summary, not in JSON consumed by a mode, not in a UI.
 
 | Advisory | Sample counted | Gate | Why |
 |---|---|---|---|
-| Brand-bonus drift (inert / misdirected) | evaluated roles at that company | **4** | The verdict places a company mean on one side of a band boundary. Role-to-role spread within a company is about a full point, so the standard error of the mean is `1.0/√n`; the narrowest band the verdict must resolve is half a point wide, giving `n ≥ 4`. |
+| Brand-bonus drift (inert / misdirected) | scored (non-blocked) roles at that company | **4** | The verdict places a company's mean **Want** on one side of a verdict-row boundary (Want 6.5 / 8.0). Role-to-role spread within a company is about a full point, so the standard error of the mean is `1.0/√n`; the narrowest band the verdict must resolve is half a point wide, giving `n ≥ 4`. |
 | Brand-bonus candidate (company to add) | evaluated roles at that company | **4** | Same claim shape, same boundary, same gate. |
 | Dimension pinned at ceiling / floor | evaluations scoring that dimension | **20** | The claim is a share claim ("≥ 70% of evaluations sit at ≥ 9") plus a dispersion claim. A share estimated from 5 observations has a confidence interval wide enough to contain 50%, i.e. no pinning at all; 20 observations narrow it to roughly ±20 points, which keeps the estimate on the claimed side. Dispersion estimates from fewer than 20 points are unstable in the same way. |
-| Comp targets above / below market | evaluations with a Salary Adj score | **20** | Identical share-plus-mean claim over one dimension; identical gate. |
-| Archetype scores high but never converts / scores low but converts | applications that reached the market in that archetype | **8** | "0 of n converted" is only remarkable if 0 is unlikely under a healthy rate. At a 20% true conversion rate, seeing zero successes has probability `0.8^n`; that only drops below ~1-in-6 at `n = 8`. Below 8, a zero-conversion archetype is an ordinary run of bad luck and must not be presented as a rubric defect. |
+| Comp targets above / below market | scored evaluations with a `salary_adj_city` score | **20** | Identical share-plus-mean claim over one dimension; identical gate. |
+| Archetype scores high (Priority / verdict) but never converts / scores low but converts | applications that reached the market in that archetype | **8** | "0 of n converted" is only remarkable if 0 is unlikely under a healthy rate. At a 20% true conversion rate, seeing zero successes has probability `0.8^n`; that only drops below ~1-in-6 at `n = 8`. Below 8, a zero-conversion archetype is an ordinary run of bad luck and must not be presented as a rubric defect. |
 
 Sub-gate advisories appear in `insufficientData` with the same `action` text,
 their `sampleSize`, their gate, and the reason — so the user can see what the
@@ -268,12 +294,12 @@ advisor *would* say once the evidence arrives, without being asked to act on it.
 ### 3.5 Targeting momentum — `frontend/src/lib/trendsAnalytics.ts`
 
 The Trends view's momentum card splits the date-windowed scored corpus into two
-chronological halves and contrasts per-half **medians** (typical Overall, share
-above the apply bar). It asserts a direction — `improving` / `steady` /
+chronological halves and contrasts per-half **medians** (typical Want and
+Ease, each against its own floor, and the actionable share). It asserts a direction — `improving` / `steady` /
 `declining` — so it is a verdict surface and must be gated. Its parameters:
 
-- **Deadband = the Overall noise floor (0.30).** A median swing below the floor
-  is `steady`, never a direction. The card must not restate the floor locally;
+- **Deadband = the metric's noise floor** (Want 0.30, Ease 0.35, Priority
+  0.30). A median swing below the floor is `steady`, never a direction. The card must not restate the floor locally;
   it reads the shared constant.
 - **Gate: ≥ 5 scored evaluations in EACH half** (`momentumMinPerHalf`). The
   corpus-trend derivation (`k ≥ 10` per window, § 3.3) bounds how far one
@@ -318,16 +344,16 @@ that consumes these outputs.
 
 ## 5. Compatibility rule
 
-Every field these engines emitted before this contract existed still exists,
-with its original type and meaning, including the pre-contract `verdict` and
-`stable` classifications that use their own dead-bands. The contract is enforced
-through **added** fields — `confidence`, `sampleSize`, `movementClass`,
-`verdictGate`, `reportableVerdict`, `insufficientData` — so downstream consumers
-that mirror this math independently (the desktop app maintains its own
-renderer-side ports) keep working unchanged while they migrate.
+The switch to scoring v2 was a breaking change: v1 history was archived
+(`data/archive/scoring-v1/`) and the Overall-based fields (`avgOverall`,
+Overall bands, CF / AF fingerprints) were replaced by Want / Ease / verdict
+fields. Within v2 the contract is enforced through the fields `confidence`,
+`sampleSize`, `movementClass`, `verdictGate`, `reportableVerdict` and
+`insufficientData`; the desktop app mirrors these numbers in
+`frontend/src/lib/scoringStats.ts` (same constant names) and its suite pins the
+two runtimes together.
 
-**New surfaces must read the added fields.** Where a legacy field and a
-contract field disagree — legacy `verdict: "improving"` against
-`movementClass: "within-noise"` — the contract field is correct and the legacy
-field is retained only for compatibility. No new renderer may present the legacy
-field as the answer.
+**New surfaces must read the contract fields.** Where a convenience field and a
+contract field disagree — `verdict: "improving"` against
+`movementClass: "within-noise"` — the contract field is correct. No renderer may
+present the convenience field as the answer.

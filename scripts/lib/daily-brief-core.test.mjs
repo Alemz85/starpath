@@ -31,6 +31,8 @@ import {
   SECTION_ORDER,
   buildCrossProfileSection,
   countFreshScanRows,
+  verdictStars,
+  scoreCellInfo,
 } from './daily-brief-core.mjs'
 
 /* ───── followupItems ───────────────────────────────────────────────────────*/
@@ -68,6 +70,27 @@ test('followupItems includes a contact in the sub when present', () => {
     entries: [{ company: 'A', role: 'r', status: 'applied', urgency: 'overdue', daysSinceApplication: 10, followupCount: 1, contacts: [{ email: 'jo@a.test' }] }],
   })
   assert.match(items[0].sub, /jo@a\.test/)
+})
+
+test('followupItems shows Want · Ease + verdict stars from a v2 Score cell; legacy cells as-is', () => {
+  const items = followupItems({
+    entries: [
+      { company: 'Northwind Analytics', role: 'Analyst', status: 'applied', urgency: 'overdue', daysSinceApplication: 10, followupCount: 0, score: 'W8.4 E7.2', contacts: [] },
+      { company: 'Contoso Retail', role: 'Analyst', status: 'applied', urgency: 'overdue', daysSinceApplication: 10, followupCount: 0, score: '7.4/10', contacts: [] },
+      { company: 'Fabrikam Labs', role: 'Analyst', status: 'applied', urgency: 'overdue', daysSinceApplication: 10, followupCount: 0, score: 'W7.0 E5.5', contacts: [] },
+    ],
+  })
+  // Same urgency + days → higher Priority first (√(8.4·7.2)≈7.78 > 7.4 legacy > √(7·5.5)≈6.2).
+  assert.deepEqual(items.map((i) => i.label.split(' — ')[0]), ['Northwind Analytics', 'Contoso Retail', 'Fabrikam Labs'])
+  assert.match(items[0].sub, /W8\.4 · E7\.2 ★★/) // go
+  assert.equal(items[0].meta.verdict, 'go')
+  assert.equal(items[0].meta.scoreLabel, 'W8.4 · E7.2')
+  assert.equal(items[0].meta.score, 'W8.4 E7.2') // raw cell passes through
+  assert.match(items[1].sub, /· 7\.4\/10$/) // legacy shown as-is, no stars
+  assert.equal(items[1].meta.verdict, null)
+  assert.equal(items[1].meta.priority, 7.4)
+  assert.match(items[2].sub, /W7 · E5\.5$/) // thin → no stars
+  assert.equal(items[2].meta.verdict, 'thin')
 })
 
 test('followupItems tolerates error/empty/missing input', () => {
@@ -117,33 +140,70 @@ function digestStub(over = {}) {
   }
 }
 
-test('newHitItems takes prioritize (scored) before needs-eval, scored sorted by overall desc', () => {
+test('newHitItems: go before stretch/solid before needs-eval, Priority desc within', () => {
   const digest = digestStub({
     prioritize: [
-      { company: 'A', title: 'Analyst', overall: 7.4, band: 'solid', location: 'Madrid', url: 'https://a.test/1', ageDays: 1 },
-      { company: 'B', title: 'Strategist', overall: 8.9, band: 'strong', location: 'Berlin', url: 'https://b.test/2', ageDays: 0 },
+      { company: 'Contoso Retail', title: 'Analyst', want: 7.5, ease: 9.2, priority: 8.31, verdict: 'solid', verdictLabel: 'Solid', location: 'Lisbon', url: 'https://a.test/1', ageDays: 1 },
+      { company: 'Northwind Analytics', title: 'Strategist', want: 8.4, ease: 7.1, priority: 7.72, verdict: 'go', verdictLabel: 'Go', location: 'Porto', url: 'https://b.test/2', ageDays: 0 },
+      { company: 'Fabrikam Labs', title: 'Associate', want: 8.2, ease: 5.5, priority: 6.72, verdict: 'stretch', verdictLabel: 'Stretch', location: 'Lyon', url: 'https://d.test/4', ageDays: 3 },
     ],
     needsEval: [
-      { company: 'C', title: 'PM', location: 'Paris', url: 'https://c.test/3', ageDays: 2 },
+      { company: 'Tailspin Toys', title: 'PM', location: 'Ghent', url: 'https://c.test/3', ageDays: 2 },
     ],
   })
   const items = newHitItems(digest)
-  assert.equal(items.length, 3)
-  assert.equal(items[0].label, 'B — Strategist') // 8.9 first
-  assert.equal(items[1].label, 'A — Analyst')
-  assert.equal(items[2].meta.kind, 'needs-eval') // unscored last
-  assert.match(items[0].sub, /8\.9\/10 ★★/) // strong → double star
-  assert.match(items[2].sub, /Unscored/)
+  assert.equal(items.length, 4)
+  // go first even though the solid row has the higher Priority
+  assert.deepEqual(items.map((i) => i.label), [
+    'Northwind Analytics — Strategist', 'Contoso Retail — Analyst', 'Fabrikam Labs — Associate', 'Tailspin Toys — PM',
+  ])
+  assert.equal(items[3].meta.kind, 'needs-eval') // unscored last
+  assert.match(items[0].sub, /^W8\.4 · E7\.1 ★★ Go/) // go → double star
+  assert.match(items[1].sub, /^W7\.5 · E9\.2 ★ Solid/) // solid → single star
+  assert.match(items[2].sub, /^W8\.2 · E5\.5 ★ Stretch/) // stretch → single star
+  assert.match(items[3].sub, /Unscored/)
+  assert.doesNotMatch(items.map((i) => i.sub).join('\n'), /\/10/)
+  assert.equal(items[0].meta.priority, 7.72)
+  assert.equal(items[0].meta.verdict, 'go')
+  assert.ok(!('overall' in items[0].meta) && !('band' in items[0].meta))
+})
+
+test('newHitItems never surfaces a blocked row and computes Priority when absent', () => {
+  const items = newHitItems(digestStub({
+    prioritize: [
+      { company: 'Blocked Co', title: 't', want: null, ease: null, verdict: 'blocked', verdictLabel: 'blocked: no sponsorship' },
+      { company: 'Contoso Retail', title: 't', want: 8, ease: 8, verdict: 'go' },
+    ],
+  }))
+  assert.equal(items.length, 1)
+  assert.equal(items[0].meta.priority, 8)
+  assert.doesNotMatch(items[0].sub, /blocked/)
 })
 
 test('newHitItems respects the maxPrioritize / maxNeedsEval caps', () => {
   const digest = digestStub({
-    prioritize: Array.from({ length: 12 }, (_, i) => ({ company: `P${i}`, title: 't', overall: 7 + i / 100, band: 'solid' })),
+    prioritize: Array.from({ length: 12 }, (_, i) => ({ company: `P${i}`, title: 't', want: 7 + i / 100, ease: 7.5, verdict: 'solid' })),
     needsEval: Array.from({ length: 9 }, (_, i) => ({ company: `N${i}`, title: 't' })),
   })
   const items = newHitItems(digest, { maxPrioritize: 3, maxNeedsEval: 2 })
   assert.equal(items.filter((i) => i.meta.kind === 'prioritize').length, 3)
   assert.equal(items.filter((i) => i.meta.kind === 'needs-eval').length, 2)
+})
+
+/* ───── verdict markers / score cells ───────────────────────────────────────*/
+
+test('verdictStars: go ★★, stretch/solid ★, none otherwise (blocked never)', () => {
+  assert.equal(verdictStars('go'), '★★')
+  assert.equal(verdictStars('stretch'), '★')
+  assert.equal(verdictStars('solid'), '★')
+  for (const v of ['thin', 'growth', 'skip', 'blocked', null, undefined]) assert.equal(verdictStars(v), '')
+})
+
+test('scoreCellInfo parses v2 and legacy Score cells through tracker-core', () => {
+  assert.deepEqual(scoreCellInfo('W8.3 E5.6'), { scoreLabel: 'W8.3 · E5.6', priority: 6.82, want: 8.3, ease: 5.6, verdict: 'stretch' })
+  assert.deepEqual(scoreCellInfo('7.4/10'), { scoreLabel: '7.4/10', priority: 7.4, want: null, ease: null, verdict: null })
+  assert.deepEqual(scoreCellInfo('N/A'), { scoreLabel: null, priority: null, want: null, ease: null, verdict: null })
+  assert.deepEqual(scoreCellInfo(undefined), { scoreLabel: null, priority: null, want: null, ease: null, verdict: null })
 })
 
 test('newHitItems tolerates null/empty digest', () => {
@@ -156,27 +216,41 @@ test('newHitItems tolerates null/empty digest', () => {
 test('insightItems renders the systemic constraint + cheapest lever', () => {
   const intel = {
     systemicConstraint: {
-      dominant: { dimension: 'ease_of_entry', label: 'Ease of Entry', archetypes: ['Strategy', 'Ops', 'Finance', 'Product'], count: 4 },
-      lever: { dimension: 'ease_of_entry', label: 'Ease of Entry', count: 3, avgLift: 1.2 },
+      dominant: { dimension: 'experience_bar', label: 'Experience bar', archetypes: ['Strategy', 'Ops', 'Finance', 'Product'], count: 4 },
+      lever: { dimension: 'experience_bar', label: 'Experience bar', count: 3, avgLift: 1.2 },
     },
   }
   const items = insightItems(intel)
   assert.equal(items.length, 1)
-  assert.match(items[0].label, /Ease of Entry is your systemic blocker/)
+  assert.match(items[0].label, /Experience bar is your systemic blocker/)
   assert.match(items[0].sub, /binding constraint across 4 archetype/)
   assert.match(items[0].sub, /\+2 more/) // 4 archetypes → "Strategy, Ops +2 more"
-  assert.match(items[0].sub, /lift Ease of Entry/)
+  assert.match(items[0].sub, /lift Experience bar \(moves the verdict for 3 archetype\(s\), avg \+1\.2\)/)
+})
+
+test('insightItems keys a rollup-level constraint (low_ease, dimension null) by its tally key', () => {
+  const intel = {
+    systemicConstraint: {
+      dominant: { key: 'low_ease', label: 'Ease', dimension: null, check: null, archetypes: ['Strategy', 'Ops'], count: 2 },
+      lever: null,
+    },
+  }
+  const [item] = insightItems(intel)
+  assert.equal(item.key, 'insight|low_ease')
+  assert.equal(item.meta.constraint, 'low_ease')
+  assert.doesNotMatch(item.key, /null/)
 })
 
 test('insightItems falls back to strongest archetype when nothing binds', () => {
   const intel = {
     systemicConstraint: { dominant: null, tally: [], lever: null },
-    fingerprints: [{ archetype: 'Strategy', avgOverall: 7.82 }, { archetype: 'Ops', avgOverall: 6.1 }],
+    fingerprints: [{ archetype: 'Strategy', avgWant: 7.82, avgEase: 6.14 }, { archetype: 'Ops', avgWant: 6.1, avgEase: 5.0 }],
   }
   const items = insightItems(intel)
   assert.equal(items.length, 1)
   assert.match(items[0].label, /lean into Strategy/)
-  assert.match(items[0].sub, /7\.8\/10/)
+  assert.match(items[0].sub, /avg Want 7\.8 · Ease 6\.1/)
+  assert.doesNotMatch(items[0].sub, /\/10/)
 })
 
 test('insightItems returns empty on error/empty intel', () => {
@@ -189,7 +263,7 @@ test('insightItems returns empty on error/empty intel', () => {
 
 test('assembleBrief orders sections, counts actions, and picks the top action', () => {
   const inputs = {
-    digest: digestStub({ prioritize: [{ company: 'X', title: 'Analyst', overall: 8.0, band: 'solid', url: 'https://x.test/1' }] }),
+    digest: digestStub({ prioritize: [{ company: 'X', title: 'Analyst', want: 7.5, ease: 7.5, verdict: 'solid', url: 'https://x.test/1' }] }),
     followupResult: { entries: [{ company: 'Acme', role: 'PM', status: 'responded', urgency: 'urgent', daysSinceApplication: 1, followupCount: 0, contacts: [] }] },
     outreachResult: { entries: [{ company: 'Beta', role: 'Lead', contact: 'Jo', action: 'nudge', daysSince: 8, reason: 'No reply' }] },
     positioningIntel: { systemicConstraint: { dominant: { dimension: 'd', label: 'Brand', archetypes: ['A'], count: 1 }, lever: null } },
@@ -216,7 +290,7 @@ test('assembleBrief orders sections, counts actions, and picks the top action', 
 test('assembleBrief top action skips empty sections to the next non-empty one', () => {
   const inputs = {
     // no followups, no outreach → top action should be the new hit
-    digest: digestStub({ prioritize: [{ company: 'X', title: 'Analyst', overall: 8.0, band: 'solid' }] }),
+    digest: digestStub({ prioritize: [{ company: 'X', title: 'Analyst', want: 7.5, ease: 7.5, verdict: 'solid' }] }),
     followupResult: { entries: [] },
     outreachResult: { entries: [] },
     positioningIntel: null,
@@ -245,10 +319,10 @@ test('assembleBrief normalizes period and validates asOf', () => {
 
 test('renderBrief produces a dated heading, do-this-first, scoreboard, and sections', () => {
   const inputs = {
-    digest: digestStub({ prioritize: [{ company: 'X', title: 'Analyst', overall: 8.2, band: 'solid', location: 'Madrid', url: 'https://x.test/1', ageDays: 1 }] }),
+    digest: digestStub({ prioritize: [{ company: 'X', title: 'Analyst', want: 7.6, ease: 8.0, verdict: 'solid', location: 'Lisbon', url: 'https://x.test/1', ageDays: 1 }] }),
     followupResult: { entries: [{ company: 'Acme', role: 'PM', status: 'overdue' === 'overdue' ? 'applied' : '', urgency: 'overdue', daysSinceApplication: 12, followupCount: 1, contacts: [] }] },
     outreachResult: { entries: [] },
-    positioningIntel: { systemicConstraint: { dominant: { dimension: 'd', label: 'Ease of Entry', archetypes: ['A', 'B'], count: 2 }, lever: { label: 'Ease of Entry', count: 2, avgLift: 1.0 } } },
+    positioningIntel: { systemicConstraint: { dominant: { dimension: 'd', label: 'Experience bar', archetypes: ['A', 'B'], count: 2 }, lever: { label: 'Experience bar', count: 2, avgLift: 1.0 } } },
   }
   const md = renderBrief(assembleBrief(inputs, { asOf: '2026-06-25', period: 'daily' }))
 
@@ -262,7 +336,7 @@ test('renderBrief produces a dated heading, do-this-first, scoreboard, and secti
   assert.match(md, /\[X — Analyst\]\(https:\/\/x\.test\/1\)/)
   // insight renders as prose under its own heading
   assert.match(md, /## Standing positioning note/)
-  assert.match(md, /Ease of Entry is your systemic blocker/)
+  assert.match(md, /Experience bar is your systemic blocker/)
   // footer provenance
   assert.match(md, /scripts\/daily-brief\.mjs/)
 })
@@ -338,6 +412,24 @@ test('deadlineItems surfaces urgent bucket first, then near', () => {
   assert.equal(items[1].urgency, 1) // near
   assert.match(items[1].sub, /20d left/)
   assert.match(items[1].sub, /T1/)
+})
+
+test('deadlineItems: scouting entries show Want · Ease + verdict stars, Priority breaks day ties', () => {
+  const classified = classifiedDeadlinesStub({
+    urgent: [
+      { source: 'scouting', num: 7, company: 'Contoso Retail', role: 'Analyst', tier: 'T2', want: 8.1, ease: 5.4, scoreLabel: 'W8.1 · E5.4', deadline: '2026-06-28', parsed: { kind: 'date' }, daysLeft: 3 },
+      { source: 'scouting', num: 8, company: 'Northwind Analytics', role: 'Analyst', tier: 'T1', want: 8.6, ease: 7.4, scoreLabel: 'W8.6 · E7.4', deadline: '2026-06-28', parsed: { kind: 'date' }, daysLeft: 3 },
+      { source: 'applications', num: 2, company: 'Fabrikam Labs', role: 'PM', status: 'Applied', deadline: '2026-06-28', parsed: { kind: 'date' }, daysLeft: 3 },
+    ],
+  })
+  const items = deadlineItems(classified)
+  assert.deepEqual(items.map((i) => i.label.split(' — ')[0]), ['Northwind Analytics', 'Contoso Retail', 'Fabrikam Labs'])
+  assert.match(items[0].sub, /^3d left · T1 · W8\.6 · E7\.4 ★★ — decide now$/)
+  assert.match(items[1].sub, /^3d left · T2 · W8\.1 · E5\.4 ★ — decide now$/) // stretch
+  assert.match(items[2].sub, /^3d left · Applied — decide now$/) // no score on an app deadline
+  assert.equal(items[0].meta.verdict, 'go')
+  assert.equal(items[0].meta.priority, 7.98)
+  assert.equal(items[2].meta.priority, null)
 })
 
 test('deadlineItems closes-today entry uses "closes today" wording', () => {
@@ -518,14 +610,14 @@ test('renderBrief top-action for a deadline entry includes days-left callout', (
 
 test('renderBrief top-action for a new-hit entry links to its URL', () => {
   const digest = digestStub({
-    prioritize: [{ company: 'Stripe', title: 'PM', overall: 8.5, band: 'strong', url: 'https://stripe.test/jobs/1' }],
+    prioritize: [{ company: 'Fabrikam Labs', title: 'PM', want: 8.5, ease: 7.4, verdict: 'go', url: 'https://fabrikam.test/jobs/1' }],
   })
   const brief = assembleBrief(
     { digest, followupResult: { entries: [] }, outreachResult: { entries: [] } },
     { asOf: '2026-06-25' },
   )
   const md = renderBrief(brief)
-  assert.match(md, /\[Stripe — PM\]\(https:\/\/stripe\.test\/jobs\/1\)/)
+  assert.match(md, /\[Fabrikam Labs — PM\]\(https:\/\/fabrikam\.test\/jobs\/1\)/)
 })
 
 test('renderBrief all-clear message mentions deadline pressure', () => {
@@ -547,7 +639,7 @@ test('patternHeadsUp surfaces the first high-impact recommendation', () => {
   const patterns = {
     metadata: { total: 14 },
     recommendations: [
-      { action: 'Set minimum score threshold at 3.6/5', reasoning: 'No positive outcomes below 3.6.', impact: 'medium' },
+      { action: 'Every application that progressed was verdict Solid or better', reasoning: 'Spend application effort on Solid+ listings.', impact: 'medium' },
       { action: 'Tighten location filters — 36% hit a geo-restriction blocker', reasoning: '5 of 14 are US-only.', impact: 'high' },
     ],
   }
@@ -635,17 +727,22 @@ test('globalPriority: more-days-overdue follow-up surfaces before less-overdue',
 test('globalPriority: obligations (follow-ups, outreach) outrank opportunities (new hits)', () => {
   const overdueFollowup = globalPriority('followups', { urgency: 1, meta: { daysSince: 9 } })
   const outreach = globalPriority('outreach', { meta: { daysSince: 9 } })
-  const strongHit = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 9.5 } })
+  const strongHit = globalPriority('newhits', { meta: { kind: 'prioritize', verdict: 'go', priority: 9.5 } })
   assert.ok(overdueFollowup < outreach, 'follow-up band (200s) before outreach band (300s)')
   assert.ok(outreach < strongHit, 'outreach band (300s) before new-hits band (500s)')
 })
 
-test('globalPriority: scored new hits outrank needs-eval, higher score first', () => {
-  const strong = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 9 } })
-  const weakish = globalPriority('newhits', { meta: { kind: 'prioritize', overall: 7 } })
+test('globalPriority: new hits rank go > stretch/solid > needs-eval, higher Priority first', () => {
+  const goHigh = globalPriority('newhits', { meta: { kind: 'prioritize', verdict: 'go', priority: 9 } })
+  const goLow = globalPriority('newhits', { meta: { kind: 'prioritize', verdict: 'go', priority: 7.5 } })
+  const solidHigh = globalPriority('newhits', { meta: { kind: 'prioritize', verdict: 'solid', priority: 9.5 } })
+  const stretch = globalPriority('newhits', { meta: { kind: 'prioritize', verdict: 'stretch', priority: 6.5 } })
   const unscored = globalPriority('newhits', { meta: { kind: 'needs-eval' } })
-  assert.ok(strong < weakish, 'higher score → smaller priority')
-  assert.ok(weakish < unscored, 'scored (500s) before needs-eval (550s)')
+  assert.ok(goHigh < goLow, 'higher Priority → smaller rank')
+  assert.ok(goLow < solidHigh, 'any go before any solid, whatever the Priority')
+  assert.ok(solidHigh < stretch)
+  assert.ok(stretch < unscored, 'scored before needs-eval')
+  for (const p of [goHigh, goLow, solidHigh, stretch, unscored]) assert.ok(p >= 500 && p < 600)
 })
 
 test('globalPriority: unknown section is lowest priority', () => {
@@ -692,7 +789,7 @@ test('pickTopAction: with no deadline, the urgent follow-up wins', () => {
   const sections = actionSections({
     followups: [{ label: 'Acme — Analyst', urgency: 0, meta: { daysSince: 1 } }],
     outreach: [{ label: 'Gamma — PM', meta: { daysSince: 14 } }],
-    newhits: [{ label: 'Delta — Growth', meta: { kind: 'prioritize', overall: 9 } }],
+    newhits: [{ label: 'Delta — Growth', meta: { kind: 'prioritize', verdict: 'go', priority: 9 } }],
   })
   const top = pickTopAction(sections)
   assert.equal(top.section, 'followups')
@@ -766,7 +863,7 @@ test('globalPriority: triage sits in the 6xx band, higher score first, below new
   assert.ok(high >= 600 && high < 700)
   assert.ok(high < low)
   // Any fresh posting beats any triage pick.
-  assert.ok(globalPriority('newhits', { meta: { kind: 'needs-eval', overall: 0 } }) < high)
+  assert.ok(globalPriority('newhits', { meta: { kind: 'needs-eval', priority: null } }) < high)
 })
 
 test('assembleBrief folds the triage section in; a deadline still wins top action', () => {
@@ -803,7 +900,7 @@ const warmOpps = [
     company: 'Vandelay',
     play: 'warm-direct',
     target: { name: 'Dana Fox', title: 'Head of Strategy', leverage: 'manager', warmth: 3.9, degree: 1, via: null },
-    topRole: { role: 'Strategy Analyst', score: 8.7, source: 'application' },
+    topRole: { role: 'Strategy Analyst', score: 8.7, want: 9.1, ease: 8.3, scoreLabel: 'W9.1 · E8.3', source: 'application' },
     reason: 'Dana Fox is your warmest untouched path in (strong tie, manager).',
     channel: 'Direct message / email',
     cautions: [],
@@ -813,7 +910,7 @@ const warmOpps = [
     company: 'Globex',
     play: 'warm-intro',
     target: { name: 'Kim Osei', title: 'Ops Manager', leverage: 'peer', warmth: 1.2, degree: 2, via: 'Dana Fox' },
-    topRole: { role: 'Ops Associate', score: 7.4, source: 'scouting' },
+    topRole: { role: 'Ops Associate', score: 6.27, want: 7.0, ease: 5.62, scoreLabel: 'W7 · E5.62', source: 'scouting' },
     reason: 'Kim Osei is a 2nd-degree path.',
     channel: 'Ask Dana Fox for the introduction',
     cautions: ['Cold thread — do not re-touch: Raj Patel.'],
@@ -823,7 +920,7 @@ const warmOpps = [
     company: 'Initech',
     play: 'warm-direct',
     target: { name: 'Ana Ruiz', title: null, leverage: 'neutral', warmth: 2.0, degree: 1, via: null },
-    topRole: { role: 'Analyst', score: 0, source: 'scouting' },
+    topRole: { role: 'Analyst', score: 0, want: null, ease: null, scoreLabel: '', source: 'scouting' },
     reason: 'x',
     channel: 'y',
     cautions: [],
@@ -836,8 +933,13 @@ test('warmPathItems: warm-direct says who to message; warm-intro names the bridg
   assert.equal(items.length, 3)
   assert.equal(items[0].label, 'Vandelay — Strategy Analyst')
   assert.match(items[0].sub, /Message Dana Fox \(Head of Strategy\) directly — untouched 1st-degree tie/)
-  assert.match(items[0].sub, /8\.7\/10 role/)
+  assert.match(items[0].sub, /· W9\.1 · E8\.3 ★★ role$/) // go → double star
   assert.equal(items[0].meta.kind, 'warm-direct')
+  assert.equal(items[0].meta.rolePriority, 8.7)
+  assert.equal(items[0].meta.roleVerdict, 'go')
+  assert.equal(items[0].meta.roleScoreLabel, 'W9.1 · E8.3')
+  assert.match(items[1].sub, /· W7 · E5\.62 role$/) // thin → no stars
+  assert.equal(items[1].meta.roleVerdict, 'thin')
   assert.match(items[1].sub, /Ask Dana Fox for an intro to Kim Osei \(Ops Manager\) — 2nd-degree bridge/)
   assert.equal(items[1].meta.via, 'Dana Fox')
   assert.deepEqual(items[1].meta.cautions, ['Cold thread — do not re-touch: Raj Patel.'])
@@ -846,7 +948,8 @@ test('warmPathItems: warm-direct says who to message; warm-intro names the bridg
 test('warmPathItems: unscored role gets no score suffix; input order is preserved; cap applies', () => {
   const items = warmPathItems(warmOpps)
   assert.equal(items[2].label, 'Initech — Analyst')
-  assert.doesNotMatch(items[2].sub, /\/10 role/)
+  assert.doesNotMatch(items[2].sub, / role$/)
+  assert.equal(items[2].meta.rolePriority, null)
   const capped = warmPathItems(warmOpps, { maxWarmPaths: 1 })
   assert.equal(capped.length, 1)
   assert.equal(capped[0].meta.contact, 'Dana Fox')
@@ -858,14 +961,14 @@ test('warmPathItems tolerates null/empty input', () => {
 })
 
 test('globalPriority: warm paths sit in the 4xx band — after any nudge, before any fresh posting', () => {
-  const warm = globalPriority('warmpaths', { meta: { roleScore: 8.7 } })
+  const warm = globalPriority('warmpaths', { meta: { rolePriority: 8.7 } })
   assert.ok(warm >= 400 && warm < 500)
   // Even a just-due nudge (0d overdue → worst outreach priority) beats a warm path…
   assert.ok(globalPriority('outreach', { meta: { daysSince: 0 } }) < warm)
   // …and even a perfect-score fresh posting loses to any warm path.
-  assert.ok(warm < globalPriority('newhits', { meta: { kind: 'prioritize', overall: 10 } }))
-  // Higher target-role score → earlier within the band.
-  assert.ok(warm < globalPriority('warmpaths', { meta: { roleScore: 6.0 } }))
+  assert.ok(warm < globalPriority('newhits', { meta: { kind: 'prioritize', verdict: 'go', priority: 10 } }))
+  // Higher target-role Priority → earlier within the band.
+  assert.ok(warm < globalPriority('warmpaths', { meta: { rolePriority: 6.0 } }))
 })
 
 test('assembleBrief folds warm paths in; a due nudge still wins the top action', () => {
@@ -885,7 +988,7 @@ test('assembleBrief folds warm paths in; a due nudge still wins the top action',
 test('a warm path becomes the top action when only opportunities exist', () => {
   const brief = assembleBrief({
     warmOutreach: warmOpps,
-    digest: { items: [{}], prioritize: [{ company: 'X', title: 'Analyst', overall: 9.9, band: 'strong' }], needsEval: [] },
+    digest: { items: [{}], prioritize: [{ company: 'X', title: 'Analyst', want: 9.9, ease: 9.9, verdict: 'go' }], needsEval: [] },
     triage: [{ url: 'https://a.io/1', company: 'Acme', title: 'Analyst', triageScore: 9.0, triageReasons: [], bucket: 'deep-eval' }],
   }, { asOf: '2026-07-02' })
   assert.equal(brief.topAction.section, 'warmpaths')

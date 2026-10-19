@@ -9,9 +9,14 @@
  * landscape. It is strictly READ-ONLY: it never mutates a tracked file.
  *
  * Two signals, kept distinct (see scripts/lib/comp-bench-core.mjs header):
- *   • the dense savings-power PROXY (salary_adj_city on every scored row), and
+ *   • the dense savings-power PROXY (salary_adj_city on every scored row — the
+ *     Salary hygiene factor of Want), and
  *   • the sparse disclosed-salary ANCHORS (parsed to annual EUR) for the
  *     euro-denominated target-vs-landscape drift verdict.
+ *
+ * Blocked rows (eligibility red) have no scores: they are excluded from the
+ * proxy and the floor-risk scan, but their disclosed salary_raw still counts
+ * as a market anchor (pass --no-blocked-anchors to drop those).
  *
  * All math lives in the pure, unit-tested scripts/lib/comp-bench-core.mjs; this
  * file is only I/O, arg parsing, and rendering.
@@ -23,6 +28,7 @@
  *   node scripts/comp-bench.mjs --gbp-eur 1.15  override the GBP→EUR rate (default 1.17)
  *   node scripts/comp-bench.mjs --score-history PATH   override the TSV source
  *   node scripts/comp-bench.mjs --profile PATH         override the profile.yml source
+ *   node scripts/comp-bench.mjs --no-blocked-anchors   ignore Blocked rows' disclosed pay
  */
 
 import { readFileSync, existsSync } from 'fs'
@@ -31,13 +37,27 @@ import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
 
 import { parseScoreHistory } from './lib/targeting-core.mjs'
-import { benchmarkComp, fmtK, DEFAULT_GBP_TO_EUR } from './lib/comp-bench-core.mjs'
+import { benchmarkComp, fmtK, DEFAULT_GBP_TO_EUR, COMP_NEUTRAL_MIN } from './lib/comp-bench-core.mjs'
+import { HYGIENE_VETO_BELOW, HYGIENE_VETO_CAP } from './lib/score-bands.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
 /* ───── CLI args ─────────────────────────────────────────────────── */
 const args = process.argv.slice(2)
 const asJson = args.includes('--json')
+const includeBlockedAnchors = !args.includes('--no-blocked-anchors')
+if (args.includes('--help') || args.includes('-h')) {
+  console.log(`comp-bench — compensation benchmark over your evaluated landscape.
+
+  node scripts/comp-bench.mjs [--json] [--min-roles N] [--gbp-eur RATE]
+                              [--score-history PATH] [--profile PATH]
+                              [--no-blocked-anchors]
+
+Savings-power proxy (salary_adj_city, the Salary hygiene factor of Want) by
+archetype and city, disclosed-salary anchors vs. your profile.yml target band,
+and the non-intern roles whose comp costs them Want. Read-only.`)
+  process.exit(0)
+}
 const argVal = (flag) => {
   const i = args.indexOf(flag)
   return i !== -1 && args[i + 1] !== undefined ? args[i + 1] : null
@@ -89,8 +109,11 @@ function printSummary(r) {
 
   console.log(`\n${'='.repeat(64)}`)
   console.log(`  Compensation Benchmark — ${m.analysisDate}`)
-  console.log(`  ${m.evaluated} evaluated roles (${m.dateRange.from} to ${m.dateRange.to})`)
-  console.log(`  ${m.disclosedAnchors} disclosed-salary anchors · ${m.withSalaryAdj} with savings-power score`)
+  console.log(`  ${m.evaluated} scored roles (${m.dateRange.from} to ${m.dateRange.to})` +
+    (m.blocked ? ` · ${m.blocked} blocked (no scores)` : ''))
+  console.log(`  ${m.disclosedAnchors} disclosed-salary anchors` +
+    (m.blockedAnchors ? ` (${m.blockedAnchors} from blocked rows)` : '') +
+    ` · ${m.withSalaryAdj} with savings-power score`)
   console.log(`${'='.repeat(64)}\n`)
 
   // Target band.
@@ -158,11 +181,13 @@ function printSummary(r) {
 
   // Comp-floor risks.
   if (floorRisks.length) {
-    console.log('COMP-FLOOR DRAG (non-intern roles at savings-power ≤ 4 — each takes −0.4 Overall)')
+    console.log(`COMP-FLOOR DRAG (non-intern roles at savings-power < ${COMP_NEUTRAL_MIN} — Salary costs Want; < ${HYGIENE_VETO_BELOW} caps Want at ${HYGIENE_VETO_CAP.toFixed(1)})`)
     console.log('-'.repeat(48))
     for (const f of floorRisks.slice(0, 10)) {
       const eur = f.disclosedEur != null ? ` · €${fmtK(f.disclosedEur)}` : ''
-      console.log(`  ${`${f.company} — ${f.role}`.slice(0, 46).padEnd(47)} adj ${f.salaryAdj}${eur}`)
+      const we = f.want != null && f.ease != null ? ` · W${f.want} · E${f.ease}` : ''
+      const veto = f.vetoed ? ' · veto' : ''
+      console.log(`  ${`${f.company} — ${f.role}`.slice(0, 46).padEnd(47)} adj ${f.salaryAdj} (Want ${f.wantPenalty})${veto}${we}${eur}`)
     }
     console.log('')
   }
@@ -203,10 +228,10 @@ if (!existsSync(SCORE_HISTORY)) {
   fail(`No score history at ${rel(SCORE_HISTORY)}. Evaluate some roles first (scouting) — comp benchmarking mines your score history.`)
 }
 const rows = parseScoreHistory(readFileSync(SCORE_HISTORY, 'utf8'))
-const scored = rows.filter((r) => Number.isFinite(r.overall))
 const comp = loadCompensation(PROFILE_YML)
 
-const report = benchmarkComp(scored, comp, { minRoles, gbpToEur })
+// All rows go in: the core splits Blocked rows off (anchors only).
+const report = benchmarkComp(rows, comp, { minRoles, gbpToEur, includeBlockedAnchors })
 
 if (asJson) console.log(JSON.stringify(report, null, 2))
 else printSummary(report)

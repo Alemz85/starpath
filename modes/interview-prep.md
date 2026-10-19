@@ -7,7 +7,7 @@
 > - **Don't run side-checks** like update polls, "first message of session" hooks, or unrelated diagnostics — they prompt for a reply nobody can give.
 > - If you genuinely cannot proceed without input — corrupted file, missing config, ambiguous instruction — write the blocker to stderr and exit non-zero so the spawn surfaces as a failed task. Don't loiter waiting.
 
-When the user asks to prep for an interview at a specific company+role, or when an evaluation scores 4.0+ and the user updates status to `Interview`, run this mode.
+When the user asks to prep for an interview at a specific company+role, or when the user updates an evaluated listing's status to `Interview`, run this mode.
 
 ## Inputs
 

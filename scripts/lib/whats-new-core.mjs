@@ -8,19 +8,22 @@
 //     `first_seen` date, a `status` (added / skipped_*), and a pipe-joined list
 //     of `scan_dates` (every run that re-saw the URL → liveness signal).
 //   - data/score-history.tsv — every scouting evaluation, keyed by `url`, with
-//     the full dimensional fingerprint + an `overall` score + `archetype`.
+//     the v2 dimensions, Want, Ease, Priority, the eligibility gate result and
+//     the verdict (docs/scoring-v2.md §8.1).
 //
 // This module joins those two read-only sources and emits a ranked digest:
-// genuinely-new postings since a cutoff, surfaced by the fit signal already on
-// hand (the scouting `overall` where one exists), with the new-AND-high-fit
-// ones flagged to prioritize and the new-but-unscored ones flagged as
-// "needs eval".
+// genuinely-new postings since a cutoff, bucketed by their verdict (go /
+// stretch+solid / thin+growth / skip / blocked), with the new-but-unscored
+// ones flagged as "needs eval". Within a bucket, Priority (√(Want·Ease)) is
+// the sort key; it is never shown as a score.
 //
 // All functions are pure (no I/O, no globals, no mutation). The thin file/CLI
-// wrapper lives in scripts/whats-new.mjs. Parsing/banding is reused from
-// targeting-core.mjs so the score semantics stay single-sourced.
+// wrapper lives in scripts/whats-new.mjs. Parsing is reused from
+// targeting-core.mjs and the verdict rules from score-bands.mjs, so the score
+// semantics stay single-sourced.
 
-import { overallBand } from './targeting-core.mjs'
+import { parseEligibilityFlags } from './targeting-core.mjs'
+import { assignVerdict, computePriority, VERDICT_ORDER, VERDICT_LABELS } from './score-bands.mjs'
 
 /* ───── scan-history.tsv parsing ────────────────────────────────────────────
  *
@@ -176,35 +179,99 @@ export function indexScoresByUrl(scoreRows) {
   return byUrl
 }
 
-/* ───── Priority bucketing ──────────────────────────────────────────────────
+/* ───── Bucketing by verdict ────────────────────────────────────────────────
  *
- * Each new posting lands in one priority bucket. Order = how loudly to surface:
- *   prioritize  — scored strong/solid (overall ≥ 7.0): a real, worth-it match.
- *   review      — scored pass (6.0–6.99): borderline / growth target.
- *   needs-eval  — added to pipeline but never scored: unknown, go evaluate it.
- *   low         — scored weak (< 6.0): likely not worth applying.
- *   noise       — surfaced but filtered/skipped by the scanner (not `added`).
+ * Each new posting lands in one bucket, read off its scoring v2 verdict
+ * (docs/scoring-v2.md §4) — never off a cut-off on a number. Order = how
+ * loudly to surface:
+ *
+ *   go          verdict go: apply now.
+ *   apply       verdict stretch or solid: apply (stretch: with prep).
+ *   consider    verdict thin or growth: only if the pipeline is thin / close
+ *               the gap first — worth a look, not a priority.
+ *   needs-eval  added to the pipeline but never scored (or the score row has
+ *               no usable verdict): unknown, go evaluate it.
+ *   skip        verdict skip: recommend against applying.
+ *   blocked     eligibility red: not eligible. Rendered "blocked: <reason>".
+ *   noise       surfaced but filtered/skipped by the scanner (not `added`).
+ *
+ * Within a bucket, items rank by Priority (√(Want·Ease), a sort key only).
  */
-const PRIORITY_ORDER = ['prioritize', 'review', 'needs-eval', 'low', 'noise']
+const BUCKET_ORDER = ['go', 'apply', 'consider', 'needs-eval', 'skip', 'blocked', 'noise']
 
-export function priorityOf(scanRow, scoreRow) {
-  const added = scanRow.status === 'added'
-  if (!added) return 'noise'
-  if (!scoreRow) return 'needs-eval'
-  const band = overallBand(scoreRow.overall)
-  if (band === 'strong' || band === 'solid') return 'prioritize'
-  if (band === 'pass') return 'review'
-  if (band === 'weak') return 'low'
-  return 'needs-eval' // scored row with unparseable overall → treat as unknown
+const VERDICT_BUCKET = {
+  go: 'go',
+  stretch: 'apply',
+  solid: 'apply',
+  thin: 'consider',
+  growth: 'consider',
+  skip: 'skip',
+  blocked: 'blocked',
 }
+
+/**
+ * The verdict of a score-history row: the stored/derived `verdict`
+ * (targeting-core.parseScoreHistory fills it), else re-derived through the
+ * engine from finite Want/Ease. Blocked rows (eligibility red) are 'blocked'.
+ * Returns '' when nothing is derivable.
+ */
+export function verdictOf(scoreRow) {
+  if (!scoreRow) return ''
+  if (scoreRow.blocked === true || String(scoreRow.eligibility ?? '').toLowerCase() === 'red') return 'blocked'
+  const v = String(scoreRow.verdict ?? '').trim().toLowerCase()
+  if (VERDICT_ORDER.includes(v)) return v
+  const want = Number(scoreRow.want)
+  const ease = Number(scoreRow.ease)
+  if (Number.isFinite(want) && Number.isFinite(ease)) {
+    return assignVerdict({ want, ease, eligibility: scoreRow.eligibility || 'green' }).verdict
+  }
+  return ''
+}
+
+/**
+ * Why a blocked row is blocked, from its eligibility flags: the first red
+ * flag's reason (else its check name), else 'eligibility red'. Accepts parsed
+ * `eligibilityFlags` or the raw `eligibility_flags` cell.
+ */
+export function blockedReasonOf(scoreRow) {
+  if (!scoreRow) return ''
+  const flags = Array.isArray(scoreRow.eligibilityFlags)
+    ? scoreRow.eligibilityFlags
+    : parseEligibilityFlags(scoreRow.eligibility_flags)
+  const red = flags.find((f) => f.status === 'red')
+  if (red) return red.reason || red.check || 'eligibility red'
+  return 'eligibility red'
+}
+
+/** Bucket key for a scan row × its (latest) score-history row. */
+export function bucketOf(scanRow, scoreRow) {
+  if (scanRow.status !== 'added') return 'noise'
+  if (!scoreRow) return 'needs-eval'
+  return VERDICT_BUCKET[verdictOf(scoreRow)] || 'needs-eval'
+}
+
+/** @deprecated v1 name; returns the bucket key (see bucketOf). */
+export const priorityOf = bucketOf
+
+const finiteOrNull = (n) => (Number.isFinite(n) ? n : null)
 
 /* ───── Core digest builder ─────────────────────────────────────────────────
  *
  * Returns a structured digest object:
  *   { cutoff, latestRun, basis, asOf, totalNew, counts, items,
- *     prioritize, needsEval }
+ *     prioritize, needsEval, blocked }
  * where `items` is every new posting (first_seen >= cutoff) enriched with its
- * fit signal + priority, sorted most-actionable first.
+ * verdict + bucket, sorted most-actionable first. `prioritize` = the go and
+ * apply buckets (verdict go / stretch / solid), in rank order.
+ *
+ * Item shape:
+ *   { url, company, title, location, portal, status, firstSeen, ageDays,
+ *     timesSeen, want, ease, priority, verdict, verdictLabel, eligibility,
+ *     blockedReason, archetype, bucket }
+ *   want / ease / priority — numbers, null when unscored or blocked
+ *   verdict                — verdict key, null when unscored
+ *   verdictLabel           — VERDICT_LABELS[verdict]; "blocked: <reason>" for blocked
+ *   blockedReason          — the red eligibility reason, null unless blocked
  *
  * Options:
  *   since / days        — passed to resolveCutoff.
@@ -223,10 +290,16 @@ export function buildDigest(scanRows, scoreRows, opts = {}) {
     if (cutoff && r.first_seen < cutoff) continue // not new
 
     const scoreRow = scoresByUrl.get(normalizeUrl(r.url)) || null
-    const priority = priorityOf(r, scoreRow)
-    if (priority === 'noise' && !includeNoise) continue
+    const bucket = bucketOf(r, scoreRow)
+    if (bucket === 'noise' && !includeNoise) continue
 
-    const overall = scoreRow && Number.isFinite(scoreRow.overall) ? scoreRow.overall : null
+    const verdict = scoreRow ? (verdictOf(scoreRow) || null) : null
+    const blocked = verdict === 'blocked'
+    const want = !blocked && scoreRow ? finiteOrNull(Number(scoreRow.want)) : null
+    const ease = !blocked && scoreRow ? finiteOrNull(Number(scoreRow.ease)) : null
+    const stored = scoreRow ? finiteOrNull(Number(scoreRow.priority)) : null
+    const priority = blocked ? null : (stored ?? computePriority(want, ease))
+    const blockedReason = blocked ? blockedReasonOf(scoreRow) : null
     items.push({
       url: r.url,
       company: r.company || '',
@@ -237,32 +310,37 @@ export function buildDigest(scanRows, scoreRows, opts = {}) {
       firstSeen: r.first_seen,
       ageDays: asOf && isValidDate(asOf) ? daysBetween(r.first_seen, asOf) : null,
       timesSeen: (r.scan_dates_list || []).length || 1,
-      overall,
-      band: overall != null ? overallBand(overall) : null,
-      archetype: scoreRow ? scoreRow.archetype : null,
+      want,
+      ease,
       priority,
+      verdict,
+      verdictLabel: blocked ? `blocked: ${blockedReason}` : (verdict ? VERDICT_LABELS[verdict] : null),
+      eligibility: scoreRow ? (scoreRow.eligibility || null) : null,
+      blockedReason,
+      archetype: scoreRow ? scoreRow.archetype : null,
+      bucket,
     })
   }
 
-  // Sort: priority bucket, then (within scored) overall desc, then freshest,
-  // then company/title for stable ordering.
-  const rank = (p) => {
-    const i = PRIORITY_ORDER.indexOf(p)
-    return i === -1 ? PRIORITY_ORDER.length : i
+  // Sort: bucket, then Priority desc (unscored last), then freshest, then
+  // company/title for stable ordering.
+  const rank = (b) => {
+    const i = BUCKET_ORDER.indexOf(b)
+    return i === -1 ? BUCKET_ORDER.length : i
   }
   items.sort((a, b) => {
-    if (rank(a.priority) !== rank(b.priority)) return rank(a.priority) - rank(b.priority)
-    const ao = a.overall == null ? -Infinity : a.overall
-    const bo = b.overall == null ? -Infinity : b.overall
-    if (ao !== bo) return bo - ao
+    if (rank(a.bucket) !== rank(b.bucket)) return rank(a.bucket) - rank(b.bucket)
+    const ap = a.priority == null ? -Infinity : a.priority
+    const bp = b.priority == null ? -Infinity : b.priority
+    if (ap !== bp) return bp - ap
     if (a.firstSeen !== b.firstSeen) return a.firstSeen < b.firstSeen ? 1 : -1
     if (a.company !== b.company) return a.company < b.company ? -1 : 1
     return a.title < b.title ? -1 : 1
   })
 
   const counts = {}
-  for (const p of PRIORITY_ORDER) counts[p] = 0
-  for (const it of items) counts[it.priority] = (counts[it.priority] || 0) + 1
+  for (const b of BUCKET_ORDER) counts[b] = 0
+  for (const it of items) counts[it.bucket] = (counts[it.bucket] || 0) + 1
 
   return {
     cutoff,
@@ -272,17 +350,30 @@ export function buildDigest(scanRows, scoreRows, opts = {}) {
     totalNew: items.length,
     counts,
     items,
-    prioritize: items.filter((i) => i.priority === 'prioritize'),
-    needsEval: items.filter((i) => i.priority === 'needs-eval'),
+    prioritize: items.filter((i) => i.bucket === 'go' || i.bucket === 'apply'),
+    needsEval: items.filter((i) => i.bucket === 'needs-eval'),
+    blocked: items.filter((i) => i.bucket === 'blocked'),
   }
 }
 
-export const PRIORITY_LABELS = {
-  prioritize: 'Prioritize',
-  review: 'Worth a look',
+/** Star marker for a verdict: go ★★, stretch / solid ★, anything else (incl. blocked) none. */
+export function verdictStars(verdict) {
+  if (verdict === 'go') return '★★'
+  if (verdict === 'stretch' || verdict === 'solid') return '★'
+  return ''
+}
+
+export const BUCKET_LABELS = {
+  go: 'Go — apply now',
+  apply: 'Apply (stretch / solid)',
+  consider: 'Worth a look (thin / growth)',
   'needs-eval': 'Needs eval',
-  low: 'Low fit',
+  skip: 'Skip',
+  blocked: 'Blocked',
   noise: 'Filtered',
 }
 
-export { PRIORITY_ORDER }
+/** @deprecated v1 names, kept as aliases of BUCKET_LABELS / BUCKET_ORDER. */
+export const PRIORITY_LABELS = BUCKET_LABELS
+
+export { BUCKET_ORDER, BUCKET_ORDER as PRIORITY_ORDER }

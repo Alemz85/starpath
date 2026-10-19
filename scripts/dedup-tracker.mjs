@@ -3,7 +3,8 @@
  * dedup-tracker.mjs — Remove duplicate entries from applications.md
  *
  * Groups by normalized company + fuzzy role match.
- * Keeps entry with highest score. If discarded entry had more advanced status,
+ * Keeps entry with highest score (Priority = sqrt(want × ease) for v2
+ * "W8.3 E5.6" cells, the legacy number for "X.X/10" cells; v2 wins ties). If discarded entry had more advanced status,
  * preserves that status. Merges notes.
  *
  * Parsing/normalization lives in lib/tracker-core.mjs (pure + unit-tested);
@@ -19,12 +20,12 @@ import {
   STATUS_RANK,
   companyKeyLoose,
   roleMatchStrict,
-  parseScore,
+  compareScoreCells,
   parseAppRow,
   serializeAppRow,
 } from './lib/tracker-core.mjs';
 
-const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
+const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
@@ -90,7 +91,7 @@ for (const [company, companyEntries] of groups) {
     if (cluster.length < 2) continue;
 
     // Keep the one with highest score
-    cluster.sort((a, b) => parseScore(b.score) - parseScore(a.score));
+    cluster.sort((a, b) => compareScoreCells(b.score, a.score));
     const keeper = cluster[0];
 
     // Check if any removed entry has more advanced status

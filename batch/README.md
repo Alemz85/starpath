@@ -1,8 +1,8 @@
 # Batch Processing
 
-Process multiple job listings in parallel via `claude -p` workers. Each worker runs a **scouting evaluation** (the same Dimensional Scoring Framework as interactive mode — see `batch-prompt.md`): dimensional scores via `scripts/score-listing.mjs`, a tiered report, a scouting TSV, and a `data/score-history.tsv` row. Evaluation never generates PDFs — CV tailoring is the separate `pdf` skill.
+Process multiple job listings in parallel via `claude -p` workers. Each worker runs a **scouting evaluation** (the same Dimensional Scoring Framework as interactive mode — see `batch-prompt.md`): eligibility gate, Want / Ease and verdict via `scripts/score-listing.mjs`, a tiered report, a scouting TSV, and a `data/score-history.tsv` row. Evaluation never generates PDFs — CV tailoring is the separate `pdf` skill.
 
-**Report depth is banded** (token-cost lever 5 in `TODO.md`): every listing is scored fully and every band writes the complete score-history row + scouting TSV, but the prose report shrinks with the band — T1 gets the full sections, T2 a short summary, T3 a compact Gap & Growth roadmap, and T4 no report file at all. All written reports keep the universal header and the `## Dimensional scoring` table, so downstream parsers see the same shape everywhere. The mapping is pinned by `scripts/batch-prompt-parity.test.mjs` against `modes/scouting.md`.
+**Report depth is banded** (token-cost lever 5 in `TODO.md`): every listing is logged fully and every tier writes the complete score-history row + scouting TSV, but the prose report shrinks with the tier — T1 (`go`) gets the full sections, T2 (`stretch` / `solid` / `thin`) a short summary, T3 (`growth`) a compact Gap & Growth roadmap, and T4 (`skip`, and Blocked listings that fail the eligibility gate) no report file at all. All written reports keep the universal header and the `## Dimensional scoring` table, so downstream parsers see the same shape everywhere. The mapping is pinned by `scripts/batch-prompt-parity.test.mjs` against `modes/scouting.md`.
 
 Workers read `batch/cv-summary.md` — a compact, deterministically-generated summary of the user's CV — instead of the full `user/cv.md`. The runner refreshes it before spawning (`node scripts/cv-summary.mjs --if-stale`); it's gitignored derived data, safe to delete, and `batch-prompt.md` documents the fallback to `user/cv.md` when it's missing. The same prompt bundle also powers the desktop app's per-listing eval spawns (see `frontend/src/lib/evalSpawn.ts`), which pass it verbatim via `--append-system-prompt-file` — hence the "Unresolved placeholders" note in `batch-prompt.md`.
 
@@ -41,7 +41,7 @@ Workers read `batch/cv-summary.md` — a compact, deterministically-generated su
 | `--retry-failed` | off | Only retry offers marked as `failed` in state |
 | `--start-from N` | `0` | Skip offers with ID below N |
 | `--max-retries N` | `2` | Max retry attempts per offer before giving up |
-| `--min-score N` | `0` (off) | Mark offers scoring below N as `skipped` in state |
+| `--min-score N` | `0` (off) | Mark offers whose Priority (`√(Want × Ease)`) is below N as `skipped` in state |
 
 ## Directory Layout
 

@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isV2ScoutingHeader } from './scouting-core.mjs';
 
 import {
   PROFILE_CONFIG_FILES,
@@ -78,11 +79,22 @@ test('score-history scaffold header matches modes/_shared.md and batch/batch-pro
   }
 });
 
-test('scouting scaffold carries the canonical 11-column header', () => {
+test('score-history header is the v2 29-column header, byte-exact (docs/scoring-v2.md §8.1)', () => {
+  assert.equal(
+    SCORE_HISTORY_HEADER,
+    'date\tarchetype\tskills_match\texperience_bar\tcompetition\tease\tgrowth_mobility\toptionality_exit\tbrand_value\trole_content\tbest_cities\tsalary_adj_city\twork_life_balance\twant\tpriority\teligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\ttier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl'
+  );
+  assert.equal(SCORE_HISTORY_HEADER.split('\t').length, 29);
+  assert.equal(TRACKER_SCAFFOLDS['data/score-history.tsv'], SCORE_HISTORY_HEADER + '\n');
+});
+
+test('scouting scaffold carries the canonical 12-column v2 header', () => {
   assert.match(
     TRACKER_SCAFFOLDS['data/scouting.md'],
-    /\| # \| Date \| Company \| Role \| Score \| Tier \| CF\/AF \| Report \| Deadline \| Promotion Hint \| Notes \|/
+    /\| # \| Date \| Company \| Role \| Want \| Ease \| Tier \| Eligibility \| Report \| Deadline \| Promotion Hint \| Notes \|/
   );
+  const header = TRACKER_SCAFFOLDS['data/scouting.md'].split('\n').find((l) => /^\|\s*#\s*\|/.test(l));
+  assert.equal(isV2ScoutingHeader(header), true);
 });
 
 test('applications scaffold carries the canonical 10-column header (Deadline present)', () => {

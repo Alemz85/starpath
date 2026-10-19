@@ -17,6 +17,7 @@ export const USAGE_TSV_HEADER = [
   'report_num',
   'status',
   'score',
+  'verdict',
   'input_tokens',
   'cache_creation_tokens',
   'cache_read_tokens',
@@ -66,26 +67,62 @@ function isResultEvent(obj) {
 }
 
 /**
- * Extract the worker-reported evaluation score from a log.
+ * Pull one scalar JSON field out of the worker's final summary. With
+ * --output-format json the summary lives (decoded) in the result event's
+ * `.result` string; legacy text logs carry it directly. Both paths reduce to
+ * the same regex; the event string wins over stray matches in raw content.
+ */
+function extractField(content, resultEvent, re) {
+  const haystacks = []
+  if (resultEvent && typeof resultEvent.result === 'string') haystacks.push(resultEvent.result)
+  if (typeof content === 'string') haystacks.push(content)
+  for (const h of haystacks) {
+    const m = h.match(re)
+    if (m) return m[1]
+  }
+  return null
+}
+
+/**
+ * Extract the worker-reported Priority from a log (docs/scoring-v2.md §8.6:
+ * the final JSON's `score` key now carries Priority = sqrt(want × ease)).
  *
  * The worker prompt asks each worker to print a JSON summary containing
- * `"score": X.X` in its final message. With --output-format json that
- * message lives (decoded) in the result event's `.result` string; legacy
- * text logs carry it directly. Both paths reduce to the same regex.
+ * `"score": X.XX` in its final message. A Blocked listing reports
+ * `"score": null`, which — like a missing key — yields null here; use
+ * extractVerdict() / isBlocked() to tell the two apart.
  *
  * @param {string} content   raw log content
  * @param {object|null} resultEvent  the event from findResultEvent (optional)
  * @returns {number|null}
  */
 export function extractScore(content, resultEvent = null) {
-  const haystacks = []
-  if (resultEvent && typeof resultEvent.result === 'string') haystacks.push(resultEvent.result)
-  if (typeof content === 'string') haystacks.push(content)
-  for (const h of haystacks) {
-    const m = h.match(/"score"\s*:\s*([0-9]+(?:\.[0-9]+)?)/)
-    if (m) return Number(m[1])
-  }
-  return null
+  const v = extractField(content, resultEvent, /"score"\s*:\s*([0-9]+(?:\.[0-9]+)?)/)
+  return v === null ? null : Number(v)
+}
+
+/**
+ * Extract the worker-reported verdict key (go|stretch|growth|solid|thin|skip|
+ * blocked) from the final JSON, lower-cased; null when absent.
+ */
+export function extractVerdict(content, resultEvent = null) {
+  const v = extractField(content, resultEvent, /"verdict"\s*:\s*"([A-Za-z_-]+)"/)
+  return v === null ? null : v.toLowerCase()
+}
+
+/** Extract the worker-reported eligibility status (green|amber|red); null when absent. */
+export function extractEligibility(content, resultEvent = null) {
+  const v = extractField(content, resultEvent, /"eligibility"\s*:\s*"(green|amber|red)/i)
+  return v === null ? null : v.toLowerCase()
+}
+
+/**
+ * True when the worker reported a Blocked listing (verdict "blocked" or red
+ * eligibility). Blocked rows carry no Priority, so the runner's min-score gate
+ * must treat them as failing and the average must exclude them.
+ */
+export function isBlocked(verdict, eligibility) {
+  return verdict === 'blocked' || eligibility === 'red'
 }
 
 /**
@@ -95,7 +132,7 @@ export function extractScore(content, resultEvent = null) {
  * @param {string} content raw log content
  * @returns {{
  *   status: 'completed'|'failed'|'unknown',
- *   score: number|null,
+ *   score: number|null, verdict: string|null, blocked: boolean,
  *   inputTokens: number|null, cacheCreationTokens: number|null,
  *   cacheReadTokens: number|null, outputTokens: number|null,
  *   costUsd: number|null, durationMs: number|null, numTurns: number|null,
@@ -105,9 +142,12 @@ export function parseWorkerLog(content) {
   const ev = findResultEvent(content)
   const usage = ev?.usage ?? {}
   const num = (v) => (Number.isFinite(v) ? v : null)
+  const verdict = extractVerdict(content, ev)
   return {
     status: ev ? (ev.is_error ? 'failed' : 'completed') : 'unknown',
     score: extractScore(content, ev),
+    verdict,
+    blocked: isBlocked(verdict, extractEligibility(content, ev)),
     inputTokens: num(usage.input_tokens),
     cacheCreationTokens: num(usage.cache_creation_input_tokens),
     cacheReadTokens: num(usage.cache_read_input_tokens),
@@ -130,6 +170,7 @@ export function usageTsvRow({ timestamp, batchId, reportNum, parsed }) {
     cell(reportNum),
     cell(parsed.status),
     cell(parsed.score),
+    cell(parsed.verdict),
     cell(parsed.inputTokens),
     cell(parsed.cacheCreationTokens),
     cell(parsed.cacheReadTokens),

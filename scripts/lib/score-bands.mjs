@@ -6,6 +6,10 @@
 // is what actually executes during evaluation. If a rule changes,
 // update both — and pin a fixture in test-all.mjs so any regression
 // is caught.
+//
+// Scoring model: v2 (docs/scoring-v2.md): eligibility gate
+// (eligibility.mjs), then Want and Ease, then the verdict grid. The v1
+// CF/AF/Overall rollups and assignTier were removed with that model.
 
 /* ───── Salary Adj — savings band ───────────────────────────────── */
 
@@ -73,112 +77,296 @@ export function buildTotalComp({
   return { total, breakdown }
 }
 
-/* ───── Rollups ─────────────────────────────────────────────────── */
+/* ───── v2 rollups: Want, Ease, verdict, Priority ──────────────── */
+//
+// Spec: docs/scoring-v2.md §2–§5. A listing that passes the eligibility gate
+// (scripts/lib/eligibility.mjs) gets two independent numbers:
+//
+//   Want (1–10) — how much the candidate wants the role. Motivators are
+//                 averaged; hygiene factors only nudge (+0.25 when good) or
+//                 hurt (down to −1.20 when bad), because a great city or a
+//                 fair salary doesn't make a role worth wanting, but a bad
+//                 one can ruin it.
+//   Ease (1–10) — how realistic it is to get in. Hiring is a funnel, so it's
+//                 a weighted GEOMETRIC mean: one weak stage drags more than a
+//                 strong one lifts.
+//
+// The verdict comes from the Want × Ease grid; there is no Overall. Priority
+// (√(Want·Ease)) is a sort key only, never a headline score.
 
-const BOTTOM_RANGE_PENALTY = 0.30  // per dimension scoring 1 or 2
+export const MOTIVATOR_DIMS = Object.freeze(['growth_mobility', 'optionality_exit', 'brand_value', 'role_content'])
+export const HYGIENE_DIMS   = Object.freeze(['best_cities', 'salary_adj_city', 'work_life_balance'])
+export const WANT_DIMS      = Object.freeze([...MOTIVATOR_DIMS, ...HYGIENE_DIMS])
+export const EASE_DIMS      = Object.freeze(['skills_match', 'experience_bar', 'competition'])
 
-function bottomRangePenalty(scores) {
-  const lowCount = scores.filter(s => s >= 1 && s <= 2).length
-  return lowCount * BOTTOM_RANGE_PENALTY
+export const DEFAULT_WANT_WEIGHTS = Object.freeze({
+  growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1,
+})
+export const DEFAULT_EASE_WEIGHTS = Object.freeze({
+  skills_match: 0.35, experience_bar: 0.35, competition: 0.30,
+})
+
+// h(x) for hygiene factors — the first row whose `min` the score reaches wins.
+export const HYGIENE_STEPS = Object.freeze([
+  Object.freeze({ min: 8, value: +0.25 }),
+  Object.freeze({ min: 5, value:  0 }),
+  Object.freeze({ min: 4, value: -0.40 }),
+  Object.freeze({ min: 3, value: -0.80 }),
+  Object.freeze({ min: -Infinity, value: -1.20 }),
+])
+
+export const MOTIVATOR_BOTTOM_AT       = 2     // a motivator ≤ this is "bottom-range"
+export const MOTIVATOR_BOTTOM_PENALTY  = 0.30  // per bottom-range motivator
+export const HYGIENE_VETO_BELOW        = 3     // any hygiene factor < this vetoes…
+export const HYGIENE_VETO_CAP          = 5.0   // …capping Want here
+export const ROLE_CONTENT_VETO_AT      = 3     // role_content ≤ this vetoes…
+export const ROLE_CONTENT_VETO_CAP     = 6.0   // …capping Want here
+export const DREAM_WANT_FLOOR          = 8.0
+
+export const EXPERIENCE_WALL_AT        = 3     // experience_bar ≤ this…
+export const EXPERIENCE_WALL_CAP       = 4.5   // …caps Ease here
+export const AMBER_EASE_PENALTY        = 0.5   // per amber eligibility check
+export const AMBER_EASE_PENALTY_MAX    = 1.0
+export const REFERRAL_BONUS = Object.freeze({ 'warm-direct': 1.0, 'warm-intro': 0.5 })
+
+export const WANT_HIGH = 8.0
+export const WANT_MID  = 6.5
+export const EASE_HIGH = 7.0
+export const EASE_MID  = 5.0
+
+// Worst → best. explain-score's lever search uses it to decide whether a
+// hypothetical change lands in a *better* cell; surfaces can sort on it.
+export const VERDICT_ORDER = Object.freeze(['blocked', 'skip', 'thin', 'growth', 'solid', 'stretch', 'go'])
+
+export const VERDICT_LABELS = Object.freeze({
+  go:      'Go',
+  stretch: 'Stretch',
+  growth:  'Growth target',
+  solid:   'Solid',
+  thin:    'If pipeline thin',
+  skip:    'Skip',
+  blocked: 'Blocked',
+})
+
+// The action phrase from the §4 grid, for "**Verdict:** Stretch — apply with prep".
+export const VERDICT_ACTIONS = Object.freeze({
+  go:      'apply now',
+  stretch: 'apply with prep',
+  growth:  'close the gap first',
+  solid:   'apply',
+  thin:    'only if your pipeline is thin',
+  skip:    'recommend against applying',
+  blocked: 'not eligible',
+})
+
+export const VERDICT_TIERS = Object.freeze({
+  go: 'T1', stretch: 'T2', solid: 'T2', thin: 'T2', growth: 'T3', skip: 'T4', blocked: 'T4',
+})
+
+const round2 = (n) => Number(n.toFixed(2))
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n))
+
+/** Hygiene term h(x) per HYGIENE_STEPS. */
+export function hygieneTerm(x) {
+  for (const step of HYGIENE_STEPS) if (x >= step.min) return step.value
+  return HYGIENE_STEPS[HYGIENE_STEPS.length - 1].value
 }
 
-/**
- * Roll up the three Current Fit dims (Skills Match + Ease of Entry +
- * Strategic Fit) → CF, with bottom-range penalty.
- */
-export function rollupCurrentFit({ skills_match, ease_of_entry, strategic_fit }) {
-  const dims = [skills_match, ease_of_entry, strategic_fit]
-  const avg = dims.reduce((a, b) => a + b, 0) / 3
-  const penalty = bottomRangePenalty(dims)
-  return Number((avg - penalty).toFixed(2))
-}
-
-/**
- * Roll up the three Aspirational Fit dims (Growth + Optionality + Brand) → AF.
- * Sales-Trap Risk is NOT in the rollup (decision-support only) per _shared.md.
- */
-export function rollupAspirationalFit({ growth_mobility, optionality_exit, brand_value }) {
-  const dims = [growth_mobility, optionality_exit, brand_value]
-  const avg = dims.reduce((a, b) => a + b, 0) / 3
-  const penalty = bottomRangePenalty(dims)
-  return Number((avg - penalty).toFixed(2))
-}
-
-/**
- * Compute Overall = CF × 0.70 + AF × 0.30 + context modifiers.
- *
- * Context modifiers (from _shared.md § Context modifiers):
- *   Salary Adj ≤ 4   → -0.4    (skipped for interns — stipends aren't salaries)
- *   Salary Adj ≥ 9   → +0.2    (skipped for interns)
- *   Work-Life Bal ≤ 4 → -0.2   (still applies to interns — sweatshop signal matters)
- *
- * Why the intern carve-out: intern stipends are by-design close to break-even
- * after rent. Penalizing Overall by -0.4 for nearly every intern role would
- * be near-universal noise that doesn't differentiate good intern roles from
- * bad ones. The Salary Adj score itself is still surfaced in the report;
- * only its effect on Overall is suppressed for interns.
- *
- * Returns { overall, modifiersApplied } so callers can show the math.
- */
-export function rollupOverall(cf, af, { salary_adj_for_city, work_life_balance, is_intern }) {
-  const base = cf * 0.70 + af * 0.30
-  const modifiers = []
-  let delta = 0
-  if (!is_intern) {
-    if (salary_adj_for_city <= 4) { delta -= 0.4; modifiers.push({ source: 'Salary Adj ≤ 4', value: -0.4 }) }
-    if (salary_adj_for_city >= 9) { delta += 0.2; modifiers.push({ source: 'Salary Adj ≥ 9', value: +0.2 }) }
-  } else if (salary_adj_for_city <= 4 || salary_adj_for_city >= 9) {
-    // Surface the skip explicitly so the math line in the report shows
-    // why no Salary modifier appears even when the score would otherwise trigger one.
-    modifiers.push({ source: `Salary Adj modifier skipped (intern role)`, value: 0 })
+// Merge caller weights over the defaults. A missing, negative or non-finite
+// weight falls back to the default; an explicit 0 drops the dimension. If
+// everything ends up 0 the defaults are used, so the mean is always defined.
+function resolveWeights(custom, defaults) {
+  const out = {}
+  for (const [k, def] of Object.entries(defaults)) {
+    const w = custom?.[k]
+    out[k] = Number.isFinite(w) && w >= 0 ? w : def
   }
-  if (work_life_balance    <= 4) { delta -= 0.2; modifiers.push({ source: 'WLB ≤ 4',         value: -0.2 }) }
-  const overall = Number((base + delta).toFixed(2))
-  return { overall, modifiersApplied: modifiers }
+  const total = Object.values(out).reduce((a, b) => a + b, 0)
+  return total > 0 ? out : { ...defaults }
 }
 
-/* ───── Score Band & Tier assignment ─────────────────────────────── */
+/**
+ * Want rollup (spec §2.2).
+ *
+ *   dims  { growth_mobility, optionality_exit, brand_value, role_content,
+ *           best_cities, salary_adj_city, work_life_balance }
+ *         — calibrated values (Brand / Growth already adjusted).
+ *   opts  { weights, is_intern, dream }
+ *         weights:   scoring.want_weights (partial OK, merged over defaults)
+ *         is_intern: the salary term is 0 and salary can't veto (stipends
+ *                    are not salaries)
+ *         dream:     company ∈ calibration.dream_companies → floor at 8.0
+ *
+ * Order matters: raw → dream floor → vetoes. The vetoes win over the floor,
+ * so a dream company with a poverty-level city or a quota-carrying role
+ * still can't reach 8.
+ *
+ * Returns { score, raw, uncapped, motivators_mean, motivator_penalty,
+ *           hygiene: { best_cities, salary_adj_city, work_life_balance },
+ *           hygiene_total, floor, vetoes, weights }
+ *   raw      = clamp(M − penalty + H, 1, 10)
+ *   uncapped = after the floor, before the vetoes (explain-score uses it to
+ *              tell whether a veto is what holds the verdict down)
+ *   vetoes   = every veto whose condition fired: { kind, dimension, value,
+ *              cap, applied } — applied=false when Want was already ≤ cap.
+ */
+export function rollupWant(dims, { weights, is_intern = false, dream = false } = {}) {
+  const w = resolveWeights(weights, DEFAULT_WANT_WEIGHTS)
+  let num = 0, den = 0, bottom = 0
+  for (const k of MOTIVATOR_DIMS) {
+    num += w[k] * dims[k]
+    den += w[k]
+    if (w[k] > 0 && dims[k] <= MOTIVATOR_BOTTOM_AT) bottom++
+  }
+  const M = num / den
+  const penalty = bottom * MOTIVATOR_BOTTOM_PENALTY
+
+  const hygiene = {
+    best_cities:       hygieneTerm(dims.best_cities),
+    salary_adj_city:   is_intern ? 0 : hygieneTerm(dims.salary_adj_city),
+    work_life_balance: hygieneTerm(dims.work_life_balance),
+  }
+  const H = hygiene.best_cities + hygiene.salary_adj_city + hygiene.work_life_balance
+
+  const raw = clamp(M - penalty + H, 1, 10)
+  let want = raw
+
+  let floor = null
+  if (dream && want < DREAM_WANT_FLOOR) {
+    floor = { source: 'dream-company Want floor', from: round2(want), to: DREAM_WANT_FLOOR }
+    want = DREAM_WANT_FLOOR
+  }
+  const uncapped = want
+
+  const vetoes = []
+  for (const k of HYGIENE_DIMS) {
+    if (k === 'salary_adj_city' && is_intern) continue
+    if (dims[k] < HYGIENE_VETO_BELOW) {
+      vetoes.push({ kind: 'hygiene_veto', dimension: k, value: dims[k], cap: HYGIENE_VETO_CAP, applied: want > HYGIENE_VETO_CAP })
+      want = Math.min(want, HYGIENE_VETO_CAP)
+    }
+  }
+  if (dims.role_content <= ROLE_CONTENT_VETO_AT) {
+    vetoes.push({ kind: 'role_content_veto', dimension: 'role_content', value: dims.role_content, cap: ROLE_CONTENT_VETO_CAP, applied: want > ROLE_CONTENT_VETO_CAP })
+    want = Math.min(want, ROLE_CONTENT_VETO_CAP)
+  }
+
+  return {
+    score: round2(want),
+    raw: round2(raw),
+    uncapped: round2(uncapped),
+    motivators_mean: round2(M),
+    motivator_penalty: round2(penalty),
+    hygiene,
+    hygiene_total: round2(H),
+    floor,
+    vetoes,
+    weights: w,
+  }
+}
 
 /**
- * Assigns the conceptual Score Band and legacy Tier indicator.
- * Under the hood, legacy symbols ('T1'–'T4') are returned to maintain
- * perfect compatibility with Electron scanners, SQLite schemas, and TSV parsers.
+ * Ease rollup (spec §3.2): weighted geometric mean → experience wall →
+ * amber penalty → clamp.
  *
- * Mapping Rules:
- *   - Stellar (T1): CF ≥ 9.0  OR  (all 6 dims ≥ 8 AND both rollups ≥ 8.0)  ← uniform-fingerprint override
- *   - Strong (T2): CF 8.0–8.9 AND Ease of Entry > 4 (verdict: "Apply with prep")
- *   - Decent (T2): CF 7.0–7.9 AND Ease of Entry > 4 (verdict: "Apply if pipeline thin")
- *   - Pass / Growth Target (T3): Overall 5.0–6.9, or < 7.0 with AF ≥ 7.0, OR Ease of Entry ≤ 4 gate
- *   - Skip (T4): else / language wall exception
+ *   dims  { skills_match, experience_bar, competition } — competition already
+ *         carries the referral bonus (calibration.applyReferralAdjustment).
+ *   opts  { weights, amber_count }
  *
- *   sixDims = { skills_match, ease_of_entry, strategic_fit, growth_mobility, optionality_exit, brand_value }
+ * Returns { score, geometric, wall, unwalled, amber_penalty, weights }
+ *   geometric = the weighted geometric mean before the wall and ambers
+ *   wall      = true when experience_bar ≤ EXPERIENCE_WALL_AT
+ *   unwalled  = Ease without the wall (explain-score uses it)
  */
-export function assignTier({ cf, af, sixDims }) {
-  const eoe = sixDims.ease_of_entry
-  const allDimsAtLeast = (n) => Object.values(sixDims).every(s => s >= n)
+export function rollupEase(dims, { weights, amber_count = 0 } = {}) {
+  const w = resolveWeights(weights, DEFAULT_EASE_WEIGHTS)
+  let num = 0, den = 0
+  for (const k of EASE_DIMS) {
+    // ln(x) needs x > 0; the rubric's floor is 1, so clamp there.
+    num += w[k] * Math.log(clamp(dims[k], 1, 10))
+    den += w[k]
+  }
+  const geo = Math.exp(num / den)
+  const wall = dims.experience_bar <= EXPERIENCE_WALL_AT
+  const walled = wall ? Math.min(geo, EXPERIENCE_WALL_CAP) : geo
+  const ambers = Math.max(0, amber_count || 0)
+  const amberPenalty = Math.min(AMBER_EASE_PENALTY * ambers, AMBER_EASE_PENALTY_MAX)
+  return {
+    score: round2(clamp(walled - amberPenalty, 1, 10)),
+    geometric: round2(geo),
+    wall,
+    unwalled: round2(clamp(geo - amberPenalty, 1, 10)),
+    amber_penalty: round2(amberPenalty),
+    weights: w,
+  }
+}
 
-  // Stellar Band (maps to legacy Tier 1)
-  if (cf >= 9.0) return { tier: 'T1', reason: 'CF ≥ 9.0' }
-  
-  // Stellar Band uniform-fingerprint override
-  if (allDimsAtLeast(8) && cf >= 8.0 && af >= 8.0) {
-    return { tier: 'T1', reason: 'uniform fingerprint: all 6 dims ≥ 8 AND CF/AF ≥ 8.0' }
+const fmt = (n) => String(round2(n))
+const fmtC = (n) => n.toFixed(1)
+
+/**
+ * Verdict grid (spec §4). `eligibility` is the evaluateEligibility() result
+ * or just its status string. Red → blocked whatever the numbers (want/ease
+ * are null then).
+ *
+ * Returns { verdict, tier, reason }.
+ */
+export function assignVerdict({ want, ease, eligibility }) {
+  const status = typeof eligibility === 'string' ? eligibility : eligibility?.status
+  if (status === 'red') {
+    const red = typeof eligibility === 'object'
+      ? (eligibility.checks ?? []).find(c => c.status === 'red')
+      : null
+    return {
+      verdict: 'blocked',
+      tier: VERDICT_TIERS.blocked,
+      reason: red ? `Eligibility red (${red.check}): ${red.reason}` : 'Eligibility red',
+    }
   }
-  
-  // Pass / Growth Target Band: Ease of Entry ≤ 4 gate demotes to legacy Tier 3
-  if (eoe <= 4) {
-    if (af >= 7.0) return { tier: 'T3', reason: 'EoE ≤ 4 gate (growth target)' }
-    return { tier: 'T4', reason: 'EoE ≤ 4 AND AF < 7' }
+
+  const row = want >= WANT_HIGH ? 'high' : want >= WANT_MID ? 'mid' : 'low'
+  const col = ease >= EASE_HIGH ? 'high' : ease >= EASE_MID ? 'mid' : 'low'
+  const GRID = {
+    high: { high: 'go',    mid: 'stretch', low: 'growth' },
+    mid:  { high: 'solid', mid: 'thin',    low: 'skip' },
+    low:  { high: 'skip',  mid: 'skip',    low: 'skip' },
   }
-  
-  // Strong & Decent Bands (map to legacy Tier 2)
-  if (cf >= 7.0) return { tier: 'T2', reason: 'CF ≥ 7.0 AND EoE > 4' }
-  
-  // Pass / Growth Target Band: low Current Fit but high Aspirational Fit
-  if (af >= 7.0) return { tier: 'T3', reason: 'CF < 7.0 AND AF ≥ 7.0' }
-  
-  // Skip Band (maps to legacy Tier 4)
-  return { tier: 'T4', reason: 'CF < 7.0 AND AF < 7.0' }
+  const verdict = GRID[row][col]
+
+  const wantPart =
+    row === 'high' ? `Want ${fmt(want)} ≥ ${fmtC(WANT_HIGH)}`
+    : row === 'mid' ? `Want ${fmt(want)} in ${fmtC(WANT_MID)}–${fmtC(WANT_HIGH)}`
+    : `Want ${fmt(want)} < ${fmtC(WANT_MID)}`
+  const easePart =
+    col === 'high' ? `Ease ${fmt(ease)} ≥ ${fmtC(EASE_HIGH)}`
+    : col === 'mid' ? `Ease ${fmt(ease)} in ${fmtC(EASE_MID)}–${fmtC(EASE_HIGH)}`
+    : `Ease ${fmt(ease)} < ${fmtC(EASE_MID)}`
+
+  return { verdict, tier: VERDICT_TIERS[verdict], reason: `${wantPart}, ${easePart}` }
+}
+
+/** Position of a verdict in VERDICT_ORDER (higher = better; −1 if unknown). */
+export function verdictRank(verdict) {
+  return VERDICT_ORDER.indexOf(verdict)
+}
+
+/** Promotion hint (spec §4): READY for go, MONITOR for stretch / solid, '' otherwise. */
+export function promotionHint(verdict) {
+  if (verdict === 'go') return 'READY'
+  if (verdict === 'stretch' || verdict === 'solid') return 'MONITOR'
+  return ''
+}
+
+/**
+ * Priority (spec §5): √(Want × Ease), 2 decimals. A sort key only, never a
+ * headline score. Takes plain numbers or the rollup detail objects; null when
+ * either side is missing (blocked listings).
+ */
+export function computePriority(want, ease) {
+  const w = want != null && typeof want === 'object' ? want.score : want
+  const e = ease != null && typeof ease === 'object' ? ease.score : ease
+  if (w == null || e == null || !Number.isFinite(w) || !Number.isFinite(e)) return null
+  return round2(Math.sqrt(w * e))
 }
 
 /* ───── Tax math (helper used after a tax-cache lookup) ─────────── */

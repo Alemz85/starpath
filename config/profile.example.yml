@@ -3,7 +3,7 @@
 # This is the single source of truth for your personal data across all modes.
 
 # Default evaluation mode for pasted JDs / URLs / auto-pipeline.
-#   scouting     — lightweight landscape mapping (Current Fit + Aspirational Fit, no PDF per listing).
+#   scouting     — lightweight landscape mapping (eligibility gate + Want + Ease, no PDF per listing).
 #                  Use when you're mapping the market, not actively applying.
 #   applying     — full A-H oferta evaluation with tailored PDF, ready to submit.
 #                  Use when you're in active application mode.
@@ -77,3 +77,39 @@ location:
   visa_status: "No sponsorship needed"
   # For remote roles outside your country:
   # onsite_availability: "1 week/month in any city"
+
+# ── Eligibility gate (scoring v2 — docs/scoring-v2.md § 1) ──────────────────
+# Checked against every listing BEFORE it is scored. A listing that fails a
+# check is "Blocked" (logged with its reason, no score); an unclear one is
+# "amber" (scored, with a question to ask the recruiter). All values below are
+# fictional placeholders — replace them with your own.
+# eligibility:
+#   available_from: "2027-01-15"            # earliest date you can start anything
+#   blocked_windows:                         # no role may START or RUN inside these
+#     - { from: "2027-09-01", to: "2027-12-20", reason: "final study term" }
+#   graduations:                             # your own graduation dates (YYYY-MM)
+#     - { degree: "BSc", date: "2025-06" }
+#     - { degree: "MSc", date: "2027-06" }
+#   languages:                               # CEFR level (A1..C2) or "native"
+#     - { language: "English", level: "native" }
+#     - { language: "Spanish", level: "B2" }
+#   work_authorisation: ["US"]               # ISO codes; "EU" = EU-27 + EEA
+#   duration_months: { min: 3, max: 12 }     # acceptable internship / fixed-term length
+#   permanent_start_ok_before_block: false   # false = a permanent role that would run
+#                                            # through a blocked window is Blocked
+
+# ── Scoring weights (optional — omit to use the defaults) ───────────────────
+# Want averages four motivators; Ease is a weighted geometric mean of three
+# dimensions. Weights are relative. Defaults shown.
+# scoring:
+#   want_weights: { growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1 }
+#   ease_weights: { skills_match: 0.35, experience_bar: 0.35, competition: 0.30 }
+
+# ── Calibration (optional — applied by scripts/score-listing.mjs) ───────────
+# calibration:
+#   dream_companies: ["Example Corp"]           # Brand 10 + Want floor 8.0
+#   lower_tier_dream_companies: ["Sample Inc"]  # +1.0 Brand
+#   brand_affinity_companies: ["Demo Labs"]     # +0.6 Brand
+#   extra_brand_bonuses:
+#     - { company: "Placeholder Co", bonus: 0.5, reason: "alumni network" }
+#   has_structured_onboarding: false            # true → +1 Growth

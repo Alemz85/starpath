@@ -1,9 +1,11 @@
 // Unit tests for the scoring engine — scripts/lib/score-bands.mjs is the
 // canonical math that executes during every evaluation (modes/_shared.md only
 // describes it in prose). test-all.mjs pins a handful of end-to-end fixtures
-// through score-listing.mjs; this suite tests each pure function directly,
-// nailing the band boundaries, the bottom-range penalty, the intern carve-out,
-// and every tier branch so a rule change can't drift silently.
+// through score-listing.mjs; this suite tests each pure function directly:
+// the salary helpers, the v2 Want rollup (hygiene steps, intern carve-out,
+// motivator penalty, dream floor vs. vetoes), the Ease geometric mean
+// (experience wall, amber cap), and every cell of the verdict grid at its
+// exact boundaries, so a rule change can't drift silently.
 //
 // Plain ESM, zero deps: `node --test scripts/**/*.test.mjs`.
 
@@ -13,11 +15,33 @@ import {
   savingsToBaseScore,
   applyBenefitsModifier,
   buildTotalComp,
-  rollupCurrentFit,
-  rollupAspirationalFit,
-  rollupOverall,
-  assignTier,
   grossToNet,
+  hygieneTerm,
+  rollupWant,
+  rollupEase,
+  assignVerdict,
+  verdictRank,
+  promotionHint,
+  computePriority,
+  HYGIENE_STEPS,
+  MOTIVATOR_BOTTOM_PENALTY,
+  HYGIENE_VETO_CAP,
+  ROLE_CONTENT_VETO_AT,
+  ROLE_CONTENT_VETO_CAP,
+  DREAM_WANT_FLOOR,
+  DEFAULT_WANT_WEIGHTS,
+  DEFAULT_EASE_WEIGHTS,
+  EXPERIENCE_WALL_AT,
+  EXPERIENCE_WALL_CAP,
+  AMBER_EASE_PENALTY,
+  AMBER_EASE_PENALTY_MAX,
+  REFERRAL_BONUS,
+  WANT_HIGH,
+  WANT_MID,
+  EASE_HIGH,
+  EASE_MID,
+  VERDICT_ORDER,
+  VERDICT_LABELS,
 } from './score-bands.mjs'
 
 // ─── savingsToBaseScore: the 10-tier savings band ─────────────────────────────
@@ -83,102 +107,255 @@ test('buildTotalComp amortizes the sign-on over the stated tenure', () => {
   assert.equal(breakdown.sign_on, 4500)
 })
 
-// ─── rollups + bottom-range penalty ───────────────────────────────────────────
+// ─── v2: hygiene steps ────────────────────────────────────────────────────────
 
-test('rollupCurrentFit averages the three CF dims', () => {
-  assert.equal(rollupCurrentFit({ skills_match: 8, ease_of_entry: 6, strategic_fit: 7 }), 7)
-  assert.equal(rollupCurrentFit({ skills_match: 7, ease_of_entry: 7, strategic_fit: 8 }), 7.33) // 22/3
+test('hygieneTerm hits every step at its threshold and just below', () => {
+  assert.equal(hygieneTerm(10), 0.25)
+  assert.equal(hygieneTerm(8), 0.25)
+  assert.equal(hygieneTerm(7.99), 0)
+  assert.equal(hygieneTerm(5), 0)
+  assert.equal(hygieneTerm(4.99), -0.40)
+  assert.equal(hygieneTerm(4), -0.40)
+  assert.equal(hygieneTerm(3.99), -0.80)
+  assert.equal(hygieneTerm(3), -0.80)
+  assert.equal(hygieneTerm(2.99), -1.20)
+  assert.equal(hygieneTerm(1), -1.20)
+  assert.equal(HYGIENE_STEPS.length, 5)
 })
 
-test('rollupCurrentFit subtracts 0.30 per bottom-range (1-2) dim, compounding', () => {
-  // avg(5,6,7)=6.0, no low dims
-  assert.equal(rollupCurrentFit({ skills_match: 5, ease_of_entry: 6, strategic_fit: 7 }), 6)
-  // avg(2,6,7)=5.0, one dim ∈[1,2] → −0.30
-  assert.equal(rollupCurrentFit({ skills_match: 2, ease_of_entry: 6, strategic_fit: 7 }), 4.7)
-  // avg(1,2,7)=3.33, two low dims → −0.60
-  assert.equal(rollupCurrentFit({ skills_match: 1, ease_of_entry: 2, strategic_fit: 7 }), 2.73)
-  // a 3 is NOT bottom-range — no penalty
-  assert.equal(rollupCurrentFit({ skills_match: 3, ease_of_entry: 6, strategic_fit: 6 }), 5)
-})
-
-test('rollupAspirationalFit averages G/O/B (Sales-Trap Risk excluded)', () => {
-  assert.equal(rollupAspirationalFit({ growth_mobility: 8, optionality_exit: 8, brand_value: 8 }), 8)
-  assert.equal(rollupAspirationalFit({ growth_mobility: 4, optionality_exit: 7, brand_value: 7 }), 6)
-})
-
-// ─── rollupOverall + context modifiers + intern carve-out ─────────────────────
-
-test('rollupOverall is CF×0.70 + AF×0.30 with no modifiers in the neutral band', () => {
-  const { overall, modifiersApplied } = rollupOverall(7.0, 6.0, {
-    salary_adj_for_city: 6, work_life_balance: 6, is_intern: false,
+test('named constants match the spec', () => {
+  assert.equal(MOTIVATOR_BOTTOM_PENALTY, 0.30)
+  assert.equal(HYGIENE_VETO_CAP, 5.0)
+  assert.equal(ROLE_CONTENT_VETO_AT, 3)
+  assert.equal(ROLE_CONTENT_VETO_CAP, 6.0)
+  assert.equal(DREAM_WANT_FLOOR, 8.0)
+  assert.deepEqual({ ...DEFAULT_WANT_WEIGHTS }, { growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1 })
+  assert.deepEqual({ ...DEFAULT_EASE_WEIGHTS }, { skills_match: 0.35, experience_bar: 0.35, competition: 0.30 })
+  assert.equal(EXPERIENCE_WALL_AT, 3)
+  assert.equal(EXPERIENCE_WALL_CAP, 4.5)
+  assert.equal(AMBER_EASE_PENALTY, 0.5)
+  assert.equal(AMBER_EASE_PENALTY_MAX, 1.0)
+  assert.deepEqual({ ...REFERRAL_BONUS }, { 'warm-direct': 1.0, 'warm-intro': 0.5 })
+  assert.deepEqual([WANT_HIGH, WANT_MID, EASE_HIGH, EASE_MID], [8.0, 6.5, 7.0, 5.0])
+  assert.deepEqual([...VERDICT_ORDER], ['blocked', 'skip', 'thin', 'growth', 'solid', 'stretch', 'go'])
+  assert.deepEqual({ ...VERDICT_LABELS }, {
+    go: 'Go', stretch: 'Stretch', growth: 'Growth target', solid: 'Solid',
+    thin: 'If pipeline thin', skip: 'Skip', blocked: 'Blocked',
   })
-  assert.equal(overall, 6.7)
-  assert.deepEqual(modifiersApplied, [])
 })
 
-test('rollupOverall applies Salary≤4 (−0.4) and WLB≤4 (−0.2) for non-interns', () => {
-  const { overall, modifiersApplied } = rollupOverall(6.67, 8.0, {
-    salary_adj_for_city: 3, work_life_balance: 4, is_intern: false,
-  })
-  // 6.67×0.7 + 8.0×0.3 = 7.069 − 0.4 − 0.2 = 6.469 → 6.47
-  assert.equal(overall, 6.47)
-  assert.equal(modifiersApplied.length, 2)
-  assert.equal(modifiersApplied[0].value, -0.4)
-  assert.equal(modifiersApplied[1].value, -0.2)
+// ─── v2: rollupWant ───────────────────────────────────────────────────────────
+
+const WANT = (o = {}) => ({
+  growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7,
+  best_cities: 6, salary_adj_city: 6, work_life_balance: 6, ...o,
 })
 
-test('rollupOverall gives +0.2 for a strong Salary Adj (≥9)', () => {
-  const { overall } = rollupOverall(7.0, 6.0, {
-    salary_adj_for_city: 9, work_life_balance: 6, is_intern: false,
-  })
-  assert.equal(overall, 6.9)
+test('rollupWant: motivator mean with neutral hygiene', () => {
+  const w = rollupWant(WANT())
+  assert.equal(w.score, 7)
+  assert.equal(w.motivators_mean, 7)
+  assert.equal(w.motivator_penalty, 0)
+  assert.deepEqual(w.hygiene, { best_cities: 0, salary_adj_city: 0, work_life_balance: 0 })
+  assert.equal(w.floor, null)
+  assert.deepEqual(w.vetoes, [])
 })
 
-test('rollupOverall skips the Salary modifier for interns but keeps WLB', () => {
-  // Intern, salary would trigger −0.4 but is suppressed; surfaced as a 0 modifier.
-  const skip = rollupOverall(7.0, 6.0, { salary_adj_for_city: 3, work_life_balance: 6, is_intern: true })
-  assert.equal(skip.overall, 6.7)   // no salary penalty
-  assert.ok(skip.modifiersApplied.some(m => m.value === 0 && /intern/i.test(m.source)))
-
-  // WLB ≤ 4 still bites interns (sweatshop signal).
-  const wlb = rollupOverall(7.0, 6.0, { salary_adj_for_city: 3, work_life_balance: 4, is_intern: true })
-  assert.equal(wlb.overall, 6.5)    // 6.7 − 0.2
+test('rollupWant: good hygiene adds +0.25 each; bad hygiene subtracts per step', () => {
+  assert.equal(rollupWant(WANT({ best_cities: 8, salary_adj_city: 9, work_life_balance: 10 })).score, 7.75)
+  assert.equal(rollupWant(WANT({ best_cities: 4 })).score, 6.6)
+  assert.equal(rollupWant(WANT({ best_cities: 3 })).score, 6.2)
+  // 3 is not < 3: no veto, just the −0.80 term
+  assert.deepEqual(rollupWant(WANT({ work_life_balance: 3 })).vetoes, [])
 })
 
-// ─── assignTier: every branch + ordering ──────────────────────────────────────
-
-const SIX = (o = {}) => ({
-  skills_match: 7, ease_of_entry: 6, strategic_fit: 7,
-  growth_mobility: 7, optionality_exit: 7, brand_value: 7, ...o,
+test('rollupWant: intern salary carve-out — salary term is 0 and salary cannot veto', () => {
+  const full = rollupWant(WANT({ salary_adj_city: 2 }))
+  assert.equal(full.raw, 5.8)                          // 7 − 1.20
+  assert.equal(full.score, 5)                          // hygiene veto
+  assert.equal(full.vetoes[0].dimension, 'salary_adj_city')
+  const intern = rollupWant(WANT({ salary_adj_city: 2 }), { is_intern: true })
+  assert.equal(intern.score, 7)
+  assert.equal(intern.hygiene.salary_adj_city, 0)
+  assert.deepEqual(intern.vetoes, [])
+  // a high stipend doesn't add the +0.25 either
+  assert.equal(rollupWant(WANT({ salary_adj_city: 9 }), { is_intern: true }).score, 7)
+  // other hygiene factors still bite interns
+  assert.equal(rollupWant(WANT({ work_life_balance: 2 }), { is_intern: true }).score, 5)
 })
 
-test('assignTier: Stellar (T1) on CF ≥ 9.0, ahead of the EoE gate', () => {
-  assert.equal(assignTier({ cf: 9.0, af: 5, sixDims: SIX() }).tier, 'T1')
-  // CF≥9 wins even when EoE ≤ 4 would otherwise gate to T3/T4.
-  assert.equal(assignTier({ cf: 9.2, af: 5, sixDims: SIX({ ease_of_entry: 3 }) }).tier, 'T1')
+test('rollupWant: −0.30 per motivator ≤ 2, compounding; a 3 is not bottom-range', () => {
+  const two = rollupWant(WANT({ growth_mobility: 2, optionality_exit: 2, brand_value: 8, role_content: 8 }))
+  assert.equal(two.motivators_mean, 5)
+  assert.equal(two.motivator_penalty, 0.6)
+  assert.equal(two.score, 4.4)
+  assert.equal(rollupWant(WANT({ growth_mobility: 3, optionality_exit: 7, brand_value: 7, role_content: 7 })).score, 6)
+  // hygiene dims never take the motivator penalty
+  assert.equal(rollupWant(WANT({ best_cities: 2 })).motivator_penalty, 0)
 })
 
-test('assignTier: uniform-fingerprint override → T1 (all 6 dims ≥ 8 AND CF/AF ≥ 8)', () => {
-  const allEight = SIX({ skills_match: 8, ease_of_entry: 8, strategic_fit: 8, growth_mobility: 8, optionality_exit: 8, brand_value: 8 })
-  assert.equal(assignTier({ cf: 8.0, af: 8.0, sixDims: allEight }).tier, 'T1')
-  // One dim below 8 breaks the override → falls through to T2 (CF ≥ 7, EoE > 4).
-  const oneSeven = SIX({ skills_match: 7, ease_of_entry: 8, strategic_fit: 8, growth_mobility: 8, optionality_exit: 8, brand_value: 8 })
-  assert.equal(assignTier({ cf: 8.0, af: 8.0, sixDims: oneSeven }).tier, 'T2')
+test('rollupWant: role_content ≤ 3 caps Want at 6.0; 4 does not', () => {
+  const w = rollupWant(WANT({ growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 3 }))
+  assert.equal(w.raw, 7.5)
+  assert.equal(w.score, 6)
+  assert.deepEqual(w.vetoes.map(v => v.kind), ['role_content_veto'])
+  assert.equal(w.vetoes[0].applied, true)
+  assert.equal(rollupWant(WANT({ growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 4 })).score, 7.75)
 })
 
-test('assignTier: Ease-of-Entry ≤ 4 gate → T3 if AF ≥ 7, else T4', () => {
-  assert.equal(assignTier({ cf: 8, af: 7, sixDims: SIX({ ease_of_entry: 4 }) }).tier, 'T3')
-  assert.equal(assignTier({ cf: 8, af: 6, sixDims: SIX({ ease_of_entry: 4 }) }).tier, 'T4')
+test('rollupWant: vetoes record applied=false when Want is already under the cap', () => {
+  const w = rollupWant(WANT({ growth_mobility: 3, optionality_exit: 3, brand_value: 3, role_content: 3, work_life_balance: 2 }))
+  assert.equal(w.score, 1.8)
+  assert.equal(w.vetoes.length, 2)
+  assert.ok(w.vetoes.every(v => v.applied === false))
 })
 
-test('assignTier: Strong/Decent (T2) when CF ≥ 7 and EoE > 4', () => {
-  assert.equal(assignTier({ cf: 7.0, af: 5, sixDims: SIX({ ease_of_entry: 6 }) }).tier, 'T2')
-  assert.equal(assignTier({ cf: 8.9, af: 5, sixDims: SIX({ ease_of_entry: 6 }) }).tier, 'T2')
+test('rollupWant: dream floor lifts to 8.0 only when below it', () => {
+  const lifted = rollupWant(WANT({ best_cities: 4 }), { dream: true })
+  assert.equal(lifted.raw, 6.6)
+  assert.equal(lifted.score, 8)
+  assert.deepEqual(lifted.floor, { source: 'dream-company Want floor', from: 6.6, to: 8 })
+  const high = rollupWant(WANT({ growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }), { dream: true })
+  assert.equal(high.score, 9)
+  assert.equal(high.floor, null)
+  assert.equal(rollupWant(WANT({ best_cities: 4 })).score, 6.6)   // not a dream company → no floor
 })
 
-test('assignTier: Growth target (T3) on low CF but AF ≥ 7; Skip (T4) otherwise', () => {
-  assert.equal(assignTier({ cf: 6.5, af: 7.5, sixDims: SIX({ ease_of_entry: 6 }) }).tier, 'T3')
-  assert.equal(assignTier({ cf: 6.0, af: 6.0, sixDims: SIX({ ease_of_entry: 6 }) }).tier, 'T4')
+test('rollupWant: vetoes win over the dream floor', () => {
+  const hyg = rollupWant(WANT({ work_life_balance: 2 }), { dream: true })
+  assert.equal(hyg.uncapped, 8)       // floored first…
+  assert.equal(hyg.score, 5)          // …then vetoed
+  assert.equal(hyg.vetoes[0].applied, true)
+  const rc = rollupWant(WANT({ growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 3 }), { dream: true })
+  assert.equal(rc.score, 6)
+})
+
+test('rollupWant: custom weights merge over defaults; 0 drops a dim; all-zero falls back', () => {
+  const dims = WANT({ growth_mobility: 10, optionality_exit: 4, brand_value: 4, role_content: 4 })
+  assert.equal(rollupWant(dims).score, 5.5)
+  assert.equal(rollupWant(dims, { weights: { growth_mobility: 3 } }).score, 7)   // (30+12)/6
+  const zero = rollupWant(WANT({ brand_value: 1 }), { weights: { brand_value: 0 } })
+  assert.equal(zero.score, 7)
+  assert.equal(zero.motivator_penalty, 0)   // a weight-0 motivator isn't penalised
+  const allZero = { growth_mobility: 0, optionality_exit: 0, brand_value: 0, role_content: 0 }
+  assert.equal(rollupWant(dims, { weights: allZero }).score, 5.5)
+  assert.equal(rollupWant(dims, { weights: { growth_mobility: -2 } }).score, 5.5)  // invalid → default
+})
+
+test('rollupWant clamps to [1, 10]', () => {
+  const top = rollupWant(WANT({ growth_mobility: 10, optionality_exit: 10, brand_value: 10, role_content: 10, best_cities: 10, salary_adj_city: 10, work_life_balance: 10 }))
+  assert.equal(top.score, 10)
+  const bottom = rollupWant(WANT({ growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1, best_cities: 1, salary_adj_city: 1, work_life_balance: 1 }))
+  assert.equal(bottom.raw, 1)
+  assert.equal(bottom.score, 1)
+})
+
+// ─── v2: rollupEase ───────────────────────────────────────────────────────────
+
+const EASE = (s, x, c) => ({ skills_match: s, experience_bar: x, competition: c })
+
+test('rollupEase: weighted geometric mean, below the arithmetic mean when uneven', () => {
+  assert.equal(rollupEase(EASE(7, 7, 7)).score, 7)
+  const e = rollupEase(EASE(8, 6, 5))
+  assert.equal(e.geometric, 6.28)
+  assert.equal(e.score, 6.28)
+  assert.equal(e.wall, false)
+  // one weak stage drags more than strong ones lift: arithmetic would be 7.4
+  assert.equal(rollupEase(EASE(10, 10, 2)).score, 6.17)
+})
+
+test('rollupEase: experience wall caps at 4.5 when experience_bar ≤ 3; 4 does not', () => {
+  const wall = rollupEase(EASE(8, 3, 8))
+  assert.equal(wall.geometric, 5.68)
+  assert.equal(wall.wall, true)
+  assert.equal(wall.unwalled, 5.68)
+  assert.equal(wall.score, 4.5)
+  assert.equal(rollupEase(EASE(8, 4, 8)).wall, false)
+  // wall fires but doesn't bind when the mean is already lower
+  const low = rollupEase(EASE(2, 3, 2))
+  assert.equal(low.wall, true)
+  assert.equal(low.score, 2.3)
+})
+
+test('rollupEase: amber penalty −0.5 each, capped at −1.0', () => {
+  assert.equal(rollupEase(EASE(7, 7, 7), { amber_count: 1 }).score, 6.5)
+  assert.equal(rollupEase(EASE(7, 7, 7), { amber_count: 2 }).score, 6)
+  const three = rollupEase(EASE(7, 7, 7), { amber_count: 3 })
+  assert.equal(three.score, 6)
+  assert.equal(three.amber_penalty, 1)
+  // wall first, then amber
+  assert.equal(rollupEase(EASE(8, 3, 8), { amber_count: 1 }).score, 4)
+  // clamp at 1
+  assert.equal(rollupEase(EASE(1, 1, 1), { amber_count: 2 }).score, 1)
+})
+
+test('rollupEase: custom weights', () => {
+  assert.equal(rollupEase(EASE(9, 5, 5), { weights: { skills_match: 1, experience_bar: 0, competition: 0 } }).score, 9)
+  assert.equal(rollupEase(EASE(9, 5, 5)).score, 6.14)
+})
+
+// ─── v2: verdict grid ─────────────────────────────────────────────────────────
+
+test('assignVerdict: every cell of the grid, with exact boundaries', () => {
+  const cases = [
+    // [want, ease, verdict, tier]
+    [8.0,  7.0,  'go',      'T1'],
+    [9.5,  9.0,  'go',      'T1'],
+    [8.0,  6.99, 'stretch', 'T2'],
+    [8.0,  5.0,  'stretch', 'T2'],
+    [8.0,  4.99, 'growth',  'T3'],
+    [7.99, 7.0,  'solid',   'T2'],
+    [6.5,  7.0,  'solid',   'T2'],
+    [6.5,  5.0,  'thin',    'T2'],
+    [7.99, 6.99, 'thin',    'T2'],
+    [6.5,  4.99, 'skip',    'T4'],
+    [6.49, 7.0,  'skip',    'T4'],
+    [6.49, 5.0,  'skip',    'T4'],
+    [6.49, 4.99, 'skip',    'T4'],
+  ]
+  for (const [want, ease, verdict, tier] of cases) {
+    const r = assignVerdict({ want, ease, eligibility: 'green' })
+    assert.equal(r.verdict, verdict, `want ${want} ease ${ease}`)
+    assert.equal(r.tier, tier, `want ${want} ease ${ease}`)
+  }
+})
+
+test('assignVerdict: red eligibility is blocked whatever the numbers', () => {
+  const elig = { status: 'red', checks: [{ check: 'language', status: 'red', reason: 'German C1 required' }] }
+  const r = assignVerdict({ want: 9, ease: 9, eligibility: elig })
+  assert.deepEqual(r, { verdict: 'blocked', tier: 'T4', reason: 'Eligibility red (language): German C1 required' })
+  assert.equal(assignVerdict({ want: null, ease: null, eligibility: 'red' }).verdict, 'blocked')
+  // amber is scored normally
+  assert.equal(assignVerdict({ want: 9, ease: 9, eligibility: { status: 'amber', checks: [] } }).verdict, 'go')
+})
+
+test('assignVerdict: reason names both axes', () => {
+  assert.equal(assignVerdict({ want: 8.25, ease: 5.6, eligibility: 'amber' }).reason, 'Want 8.25 ≥ 8.0, Ease 5.6 in 5.0–7.0')
+  assert.equal(assignVerdict({ want: 6, ease: 4.2, eligibility: 'green' }).reason, 'Want 6 < 6.5, Ease 4.2 < 5.0')
+  assert.equal(assignVerdict({ want: 7, ease: 7, eligibility: 'green' }).reason, 'Want 7 in 6.5–8.0, Ease 7 ≥ 7.0')
+})
+
+test('verdictRank / promotionHint', () => {
+  assert.ok(verdictRank('go') > verdictRank('stretch'))
+  assert.ok(verdictRank('solid') > verdictRank('growth'))
+  assert.ok(verdictRank('thin') > verdictRank('skip'))
+  assert.ok(verdictRank('skip') > verdictRank('blocked'))
+  assert.equal(verdictRank('nope'), -1)
+  assert.equal(promotionHint('go'), 'READY')
+  assert.equal(promotionHint('stretch'), 'MONITOR')
+  assert.equal(promotionHint('solid'), 'MONITOR')
+  for (const v of ['thin', 'growth', 'skip', 'blocked']) assert.equal(promotionHint(v), '')
+})
+
+// ─── v2: Priority ─────────────────────────────────────────────────────────────
+
+test('computePriority is √(Want·Ease) to 2 decimals; null when blocked', () => {
+  assert.equal(computePriority(8.25, 5.6), 6.8)
+  assert.equal(computePriority(9, 4), 6)
+  assert.equal(computePriority({ score: 9 }, { score: 4 }), 6)
+  assert.equal(computePriority(null, null), null)
+  assert.equal(computePriority(8, null), null)
+  assert.equal(computePriority(NaN, 5), null)
 })
 
 // ─── grossToNet ───────────────────────────────────────────────────────────────

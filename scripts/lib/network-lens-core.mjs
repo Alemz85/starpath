@@ -14,7 +14,7 @@
  *   3. cadence state on every open outreach thread (due nudge / waiting /
  *      cold / replied),
  *   4. coverage gaps — pipeline companies with NO mapped contact, ranked by
- *      how much a referral would matter there (best role score first).
+ *      how much a referral would matter there (best role Priority first).
  *
  * This module composes the existing cores into that one JSON-safe overview.
  * It re-implements NO parsing and NO ranking math — every verdict comes from
@@ -37,7 +37,8 @@ import { classifyAll } from '../outreach-core.mjs';
 
 /* Companies are ordered by how actionable their recommended play is — the
  * decision ladder's own priority (a live reply beats a due nudge beats an
- * untouched warm path…), then by the best role score at the company, then by
+ * untouched warm path…), then by the best role Priority (√(Want·Ease), a sort
+ * key only; display uses each role's `scoreLabel`) at the company, then by
  * name for a stable order. */
 const PLAY_RANK = {
   'reply-handoff': 0,
@@ -167,7 +168,9 @@ export function buildNetworkOverview({
     today,
     roster: contacts, // parseNetwork's shape: num/name/company/companyKey/title/relationship/degree/via/lastContact/notes
     companies,
-    gaps, // matcher's shape, already topScore-desc: { company, companyKey, topScore, roles }
+    // matcher's shape, already topScore-desc: { company, companyKey, topScore, roles },
+    // plus topScoreLabel ("W8.3 · E5.6") for display; topScore is Priority.
+    gaps: gaps.map((g) => ({ ...g, topScoreLabel: g.roles[0]?.scoreLabel ?? '' })),
     latentLeads: orphanContacts.map(slimLead),
     threads,
     counts: {

@@ -70,7 +70,7 @@ Identificar TODAS las preguntas visibles:
 | **Behavioral / "Tell me about a time…"** | "describe a time", "give an example", "how did you handle…", "a situation where you…" | Story bank — historia STAR+R cuya competency/theme matchea | 5A |
 | **Cover letter / texto largo libre** | campo grande, "cover letter", "anything else you'd like us to know" | Estructura de carta — narrative + 1-2 stories + cierre | 5C |
 | **Motivation / "Why us / why this role"** | "why do you want", "what attracts you", "why {company}", "why this team" | Exit narrative (`user/_profile.md`) + 1 hecho concreto del JD/empresa | 5B |
-| **Fit / "Why are you a good fit"** | "what makes you qualified", "your strengths for this", "what would you bring" | Dimensional table del report (Skills Match + Strategic Fit) + 1 proof point | 5B |
+| **Fit / "Why are you a good fit"** | "what makes you qualified", "your strengths for this", "what would you bring" | Dimensional table del report (Skills Match + Role content) + 1 proof point | 5B |
 
 **Reglas de clasificación:**
 - **Logística primero.** Si la pregunta pide un hecho (comp, fecha, visa, autorización), es 5F aunque venga envuelta en prosa — no la conviertas en una mini-cover-letter.
@@ -98,7 +98,7 @@ El objetivo no es "responder la pregunta": es producir texto que un reclutador c
 ### 5B — Receta: motivation / fit → respuesta específica (no genérica)
 
 - **"Why this role/company":** una frase de la **exit narrative** (`user/_profile.md` § Your Exit Narrative) + **un hecho concreto** del JD o de la empresa (un producto, un valor que publican, una línea del JD). Prohibido: "I'm passionate about", "your innovative culture", "a great opportunity to grow". Si no puedes nombrar algo específico de ESTA empresa, la respuesta aún no está lista.
-- **"Why you're a good fit":** lidera con la dimensión más fuerte de la dimensional table (Skills Match si es alto, Strategic/Analytical Fit si el rol es analítico) y respáldala con UN proof point cuantificado del CV. Reconoce brevemente el gap más relevante de la sección Gaps del report enmarcado como trayectoria, nunca a la defensiva.
+- **"Why you're a good fit":** lidera con la dimensión más fuerte de la dimensional table (Skills Match si es alto, Role content si el día a día encaja con tu arquetipo) y respáldala con UN proof point cuantificado del CV. Reconoce brevemente el gap más relevante de la sección Gaps del report enmarcado como trayectoria, nunca a la defensiva.
 - **Tono "I'm choosing you":** postura de quien evalúa el rol, no de quien suplica. Específico, conciso, sin superlativos vacíos.
 
 ### 5C — Receta: cover letter / texto largo libre
@@ -161,7 +161,7 @@ Antes de imprimir el output, pasa CADA respuesta por este filtro. Si alguna fall
 ```
 ## Respuestas para [Empresa] — [Rol]
 
-Basado en: Report #NNN | Score: X.X/10 | Arquetipo: [tipo]
+Basado en: Report #NNN | Want X.X · Ease X.X · Verdict: [verdict] | Arquetipo: [tipo]
 
 ---
 
@@ -181,7 +181,7 @@ Notas:
 - [Sugerencias de personalización que el candidato debería revisar antes de enviar]
 ```
 
-Las respuestas se entregan listas para copy-paste; el candidato siempre revisa y envía (nunca auto-submit — ver `CLAUDE.md` § Ethical Use). Si el Score del report es < 7.0, recuérdalo brevemente en las Notas antes de redactar.
+Las respuestas se entregan listas para copy-paste; el candidato siempre revisa y envía (nunca auto-submit — ver `CLAUDE.md` § Ethical Use). Si el verdict del report es `skip` o `blocked` (o `thin`), recuérdalo brevemente en las Notas antes de redactar.
 
 ## Paso 6 — Post-apply (opcional)
 

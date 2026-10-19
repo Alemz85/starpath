@@ -119,9 +119,10 @@ roster sorted least-ready-first so the user sees where to spend effort.
   means the core artifacts (report + CV) are present and the application *can* go
   out; remaining gaps (answers/research/outreach) are quality multipliers, not
   blockers. Be honest about that distinction rather than gating on 100%.
-- **Respect the score bar.** Readiness is orthogonal to fit. If the scouting
-  report's Score is below the apply bar (see `modes/_shared.md`), a "ready" kit
-  still shouldn't be sent — surface the score caveat alongside readiness.
+- **Respect the verdict.** Readiness is orthogonal to fit. If the scouting
+  report's verdict is `skip` or `blocked` (see `modes/_shared.md` § Verdict grid),
+  a "ready" kit still shouldn't be sent — surface the verdict caveat alongside
+  readiness; a `thin` verdict carries "only if your pipeline is thin".
 - **All logic stays pure + tested.** Status/verdict/ranking live in
   `scripts/lib/apply-kit-core.mjs` (unit-tested); the CLI is only I/O. Keep it
   that way — don't push readiness rules into the CLI or the prose.

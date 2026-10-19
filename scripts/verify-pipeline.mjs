@@ -8,15 +8,22 @@
  * 1. All statuses are canonical (per states.yml)
  * 2. No duplicate company+role entries
  * 3. All report links point to existing files
- * 4. Scores match format X.XX/5 or N/A or DUP
+ * 4. Scores are a v2 "W8.3 E5.6" cell, a legacy "7.4/10" cell, or N/A / DUP
+ *    (docs/scoring-v2.md §8.3)
  * 5. All rows have proper pipe-delimited format
  * 6. No pending TSVs in tracker-additions/ (only in merged/ or archived/)
  *
  * scouting.md checks (lighter — landscape inventory, not active applications):
- * 1. All tiers are T1-T4
- * 2. All report links resolve (— is allowed for T4 skips)
- * 3. CF/AF column matches X.X/X.X
+ * 1. The table has the v2 12-column header and every row has 12 columns
+ * 2. Tier is T1-T4; Want/Ease are numbers 1-10 or "—"; Eligibility is
+ *    green | amber: … | red: …; a red row is blocked (— / — / T4)
+ * 3. All report links resolve (— is allowed for T4 skips / blocked rows)
  * 4. No pending TSVs in scouting-additions/
+ *
+ * score-history.tsv checks (by header name): the v2 required columns exist,
+ * eligibility/tier values are valid, blocked rows carry no scores.
+ *
+ * Set CAREER_OPS_ROOT to point the checks at another tree (used by the tests).
  *
  * Run: node career-ops/verify-pipeline.mjs
  */
@@ -24,8 +31,11 @@
 import { readFileSync, readdirSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { parseAppRow, validateScoreCell } from './lib/tracker-core.mjs';
+import { isV2ScoutingHeader, parseScoutingRow, validateScoutingRow } from './lib/scouting-core.mjs';
+import { checkScoreHistoryRows } from './lib/doctor-checks.mjs';
 
-const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
+const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
@@ -83,8 +93,6 @@ const CANONICAL_STATUSES = [
   'offer', 'rejected', 'discarded', 'skip',
 ];
 
-const VALID_TIERS = ['T1', 'T2', 'T3', 'T4'];
-
 const ALIASES = {
   'evaluada': 'evaluated', 'condicional': 'evaluated', 'hold': 'evaluated', 'evaluar': 'evaluated', 'verificar': 'evaluated',
   'aplicado': 'applied', 'enviada': 'applied', 'aplicada': 'applied', 'applied': 'applied', 'sent': 'applied',
@@ -116,14 +124,14 @@ const entries = [];
 if (hasAppsFile) {
   for (const line of lines) {
     if (!line.startsWith('|')) continue;
-    const parts = line.split('|').map(s => s.trim());
-    if (parts.length < 9) continue;
-    const num = parseInt(parts[1]);
-    if (isNaN(num)) continue;
+    // parseAppRow is Deadline-aware: with the 10-column layout the report cell
+    // is cells[9] (not cells[8], which is the deadline).
+    const row = parseAppRow(line);
+    if (!row) continue;
     entries.push({
-      num, date: parts[2], company: parts[3], role: parts[4],
-      score: parts[5], status: parts[6], pdf: parts[7], report: parts[8],
-      notes: parts[9] || '',
+      num: row.num, date: row.date, company: row.company, role: row.role,
+      score: row.score, status: row.status, pdf: row.pdf, deadline: row.deadline,
+      report: row.report, notes: row.notes,
     });
   }
   console.log(`\n📊 Checking ${entries.length} entries in applications.md\n`);
@@ -185,12 +193,12 @@ for (const e of entries) {
 }
 if (brokenReports === 0) ok('All report links valid');
 
-// --- Check 4: Score format ---
+// --- Check 4: Score format (v2 "W8.3 E5.6", legacy "7.4/10", N/A, DUP) ---
 let badScores = 0;
 for (const e of entries) {
-  const s = e.score.replace(/\*\*/g, '').trim();
-  if (!/^\d+\.?\d*\/(?:5|10)$/.test(s) && s !== 'N/A' && s !== 'DUP') {
-    error(`#${e.num}: Invalid score format: "${e.score}"`);
+  const problem = validateScoreCell(e.score);
+  if (problem) {
+    error(`#${e.num}: ${problem}`);
     badScores++;
   }
 }
@@ -201,8 +209,10 @@ let badRows = 0;
 for (const line of lines) {
   if (!line.startsWith('|')) continue;
   if (line.includes('---') || line.includes('Empresa')) continue;
+  // 9 columns (legacy) = 11 cells incl. the outer pipes; the current 10-column
+  // layout (Deadline present) = 12.
   const parts = line.split('|');
-  if (parts.length < 9) {
+  if (parts.length < 11) {
     error(`Row with <9 columns: ${line.substring(0, 80)}...`);
     badRows++;
   }
@@ -236,41 +246,39 @@ if (existsSync(SCOUTING_FILE)) {
   const scoutingLines = scoutingContent.split('\n');
 
   const scoutingEntries = [];
+  const scoutingHeader = scoutingLines.find(l => /^\|\s*#\s*\|/.test(l));
+  let v2Header = true;
+  if (scoutingHeader && !isV2ScoutingHeader(scoutingHeader)) {
+    v2Header = false;
+    error('data/scouting.md has a pre-v2 header (expected # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes)');
+  }
+  let malformedScoutRows = 0;
   for (const line of scoutingLines) {
     if (!line.startsWith('|')) continue;
     if (line.includes('---') || /^\|\s*#\s*\|/.test(line)) continue;
-    const parts = line.split('|').map(s => s.trim());
-    if (parts.length < 11) continue;
-    const num = parseInt(parts[1]);
+    const num = parseInt(line.split('|')[1]);
     if (isNaN(num)) continue;
-    scoutingEntries.push({
-      num, date: parts[2], company: parts[3], role: parts[4],
-      score: parts[5], tier: parts[6], cfAf: parts[7],
-      report: parts[8], hint: parts[9], notes: parts[10] || '',
-    });
+    // 12 columns (14 cells incl. the outer pipes). A shorter row is a v1 row or
+    // a hand-edit that dropped a cell; every cell index below would be off.
+    const row = parseScoutingRow(line);
+    if (!row) {
+      error(`scouting #${num}: row does not have the 12 v2 columns`);
+      malformedScoutRows++;
+      continue;
+    }
+    scoutingEntries.push(row);
   }
 
   console.log(`\n📊 Checking ${scoutingEntries.length} entries in data/scouting.md\n`);
 
-  // Tier validity
-  let badTiers = 0;
+  // Cell validity: tier, Want/Ease, Eligibility, blocked-row consistency
+  let badCells = 0;
   for (const e of scoutingEntries) {
-    if (!VALID_TIERS.includes(e.tier)) {
-      error(`scouting #${e.num}: Invalid tier "${e.tier}" (expected T1-T4)`);
-      badTiers++;
-    }
+    const { errors: errs, warnings: warns } = validateScoutingRow(e);
+    for (const m of errs) { error(`scouting #${e.num}: ${m}`); badCells++; }
+    for (const m of warns) warn(`scouting #${e.num}: ${m}`);
   }
-  if (badTiers === 0) ok('All scouting tiers valid');
-
-  // CF/AF format
-  let badCfAf = 0;
-  for (const e of scoutingEntries) {
-    if (!/^\d+\.?\d*\/\d+\.?\d*$/.test(e.cfAf)) {
-      error(`scouting #${e.num}: Invalid CF/AF "${e.cfAf}" (expected X.X/X.X)`);
-      badCfAf++;
-    }
-  }
-  if (badCfAf === 0) ok('All scouting CF/AF formatted');
+  if (badCells === 0 && malformedScoutRows === 0 && v2Header) ok('All scouting rows valid (tier, Want/Ease, Eligibility)');
 
   // Report links (— allowed for T4 skips)
   let brokenScoutReports = 0;
@@ -327,9 +335,15 @@ for (const fp of reportFiles) {
   }
 }
 
-// score-history.tsv `url` column (column 26)
+// score-history.tsv: v2 schema check (by header name), then the url column
 if (existsSync(SCORE_HISTORY_FILE)) {
-  const lines = readFileSync(SCORE_HISTORY_FILE, 'utf-8').split('\n');
+  const historyText = readFileSync(SCORE_HISTORY_FILE, 'utf-8');
+  const hist = checkScoreHistoryRows(historyText);
+  for (const m of hist.errors) error(m);
+  for (const m of hist.warnings) warn(m);
+  if (hist.errors.length === 0) ok(`score-history.tsv valid (${hist.rows} row${hist.rows === 1 ? '' : 's'})`);
+
+  const lines = historyText.split('\n');
   const header = (lines[0] || '').split('\t');
   const urlIdx = header.indexOf('url');
   if (urlIdx >= 0) {

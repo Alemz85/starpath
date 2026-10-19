@@ -6,10 +6,12 @@
 // single `claude -p --output-format json` spawn) and prints ONE tab-separated
 // line the runner can `read` back:
 //
-//   status \t score \t input_tokens \t cache_creation \t cache_read \t output_tokens \t cost_usd \t duration_ms \t num_turns
+//   status \t score \t input_tokens \t cache_creation \t cache_read \t output_tokens \t cost_usd \t duration_ms \t num_turns \t verdict
 //
-// Missing values print as '-'. Exits 0 even for mangled logs (accounting
-// must never fail the batch); exits 1 only on usage error.
+// `score` is the worker's Priority (sqrt(want × ease), docs/scoring-v2.md
+// §8.6); a Blocked listing has no Priority, so score is '-' and verdict is
+// 'blocked'. Missing values print as '-'. Exits 0 even for mangled logs
+// (accounting must never fail the batch); exits 1 only on usage error.
 //
 // Usage: node scripts/parse-batch-result.mjs <logfile>
 
@@ -34,6 +36,6 @@ const cell = (v) => (v == null ? '-' : String(v))
 process.stdout.write(
   [
     p.status, p.score, p.inputTokens, p.cacheCreationTokens, p.cacheReadTokens,
-    p.outputTokens, p.costUsd, p.durationMs, p.numTurns,
+    p.outputTokens, p.costUsd, p.durationMs, p.numTurns, p.blocked ? 'blocked' : p.verdict,
   ].map(cell).join('\t') + '\n',
 )

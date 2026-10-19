@@ -14,7 +14,8 @@
  *   • achievement bullets with no quantified outcome (the proof-point weakness
  *     recruiters notice first),
  *   • the scoring dimensions that systematically drag — flagged CV-fixable
- *     (Skills Match) vs. targeting-only (everything else).
+ *     (Skills Match, Experience bar: the Ease side the CV moves) vs.
+ *     targeting-only (everything else). Blocked rows are excluded.
  *
  * All the logic is pure and unit-tested in scripts/lib/cv-gap.mjs; this file is
  * just I/O: read user/cv.md, harvest report bodies, parse score-history.tsv.
@@ -117,7 +118,8 @@ function printSummary(res, minRoles = 2) {
 
   console.log(`\n${'='.repeat(62)}`);
   console.log(`  CV Gap Analysis — ${metadata.analysisDate}`);
-  console.log(`  ${metadata.rolesAnalyzed} evaluated roles · ${metadata.scoreRows} score-history rows`);
+  const blockedNote = metadata.blockedRows ? ` (${metadata.blockedRows} blocked, excluded from dimension averages)` : '';
+  console.log(`  ${metadata.rolesAnalyzed} evaluated roles · ${metadata.scoreRows} score-history rows${blockedNote}`);
   console.log(`${'='.repeat(62)}\n`);
 
   console.log('KEYWORD COVERAGE');
@@ -148,7 +150,7 @@ function printSummary(res, minRoles = 2) {
     console.log('-'.repeat(50));
     for (const d of dimension) {
       const tag = d.cvActionable ? '[CV-fixable]' : '[targeting]';
-      console.log(`  ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  ${tag}`);
+      console.log(`  ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  drags ${d.rollup === 'ease' ? 'Ease' : 'Want'}  ${tag}`);
     }
   }
 

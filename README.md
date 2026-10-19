@@ -10,8 +10,8 @@ You scan job portals, score every listing across ten dimensions, get tier-bucket
 
 ## What it does
 
-- **Scout the market.** Hit Greenhouse / Ashby / Lever / SmartRecruiters / Workday APIs across companies you care about, plus Indeed and Google Jobs via a [JobSpy](https://github.com/speedyapply/JobSpy) aggregator that runs in parallel. Everything gets filtered by your title rules and triaged into Tier 1–4 against a calibrated dimensional rubric.
-- **Score honestly.** Every listing gets a 1–10 score across 10 dimensions (Skills, Ease of Entry, Strategic Fit, Growth, Optionality, Brand, WLB, Salary, etc.) with JD-grounded reasoning you can audit.
+- **Scout the market.** Hit Greenhouse / Ashby / Lever / SmartRecruiters / Workday APIs across companies you care about, plus Indeed and Google Jobs via a [JobSpy](https://github.com/speedyapply/JobSpy) aggregator that runs in parallel. Everything gets filtered by your title rules and triaged against a calibrated dimensional rubric.
+- **Score honestly.** Every listing first passes an eligibility gate (start date, duration, graduation window, language, work rights) — a hard wall shows as *Blocked* with its reason, not a score. Then it gets two 1–10 scores: **Want** (growth, optionality, brand, role content, plus city / salary / work-life balance as hygiene) and **Ease** (skills match, experience bar, competition). The Want × Ease grid gives the verdict — Go, Stretch, Solid, If pipeline thin, Growth target or Skip — with JD-grounded reasoning you can audit. Contract: [`docs/scoring-v2.md`](docs/scoring-v2.md).
 - **Generate tailored CVs and applications.** When you decide to apply, the same workspace tailors a CV to the JD and drafts the application form answers from your CV + profile.
 - **Track applications.** Drag-and-drop kanban (Evaluated → Applied → Responded → Interview → Offer) with persisted writebacks to `data/applications.md`.
 - **Manage outreach.** Draft referral and LinkedIn messages, track sent threads, and get nudge reminders when a thread goes cold.
@@ -106,7 +106,7 @@ Claude Code skills are the evaluation and action engine. Each maps to a markdown
 
 | What you want to do | Mode | Notes |
 |---------------------|------|-------|
-| Evaluate a listing (paste JD or URL) | `scouting` | Tier 1–4 report: header + dimensional table + role summary + gaps + comp + recommendation + career path impact |
+| Evaluate a listing (paste JD or URL) | `scouting` | Eligibility gate → Want / Ease → verdict; report depth by tier: eligibility + dimensional tables, then role summary + gaps + comp + recommendation + career path impact for `go` |
 | Holistic career review across all data | `positioning` | Mines `data/score-history.tsv`; produces targeting intelligence |
 | Compare 2+ live offers | `ofertas` | End-of-funnel decision engine; reuses the same scoring math as scouting |
 | Draft outreach (referral / LinkedIn) | `contacto` | Find the right contact, draft a message worth reading, log the thread |

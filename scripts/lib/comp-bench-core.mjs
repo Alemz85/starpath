@@ -22,7 +22,8 @@
 // But there IS a dense, canonical comp signal on EVERY scored row: the
 // `salary_adj_city` dimension — the 1-10 *savings-power-after-cost-of-living*
 // score the scouting engine already computes (see modes/_shared.md § Salary Adj
-// for City). That is the comp axis the whole system is calibrated on. So the
+// for City), which feeds Want as a hygiene factor (docs/scoring-v2.md §2). That
+// is the comp axis the whole system is calibrated on. So the
 // benchmark is built in two layers:
 //
 //   • PROXY layer (dense): the `salary_adj_city` distribution per archetype and
@@ -35,16 +36,25 @@
 // The two are kept distinct on purpose: the proxy tells the user where the
 // comp pressure is; the anchors validate it in absolute money where they exist.
 //
+// BLOCKED ROWS (eligibility red) carry EMPTY score cells (spec §8.1), so they
+// never enter the proxy layer, the group counts, or the floor-risk scan. Their
+// `salary_raw` is still a real JD's disclosed pay for that archetype/city, so
+// by default they DO contribute disclosed-comp anchors (the euro layer is a
+// read of what the market pays, not of what the user can apply to). Pass
+// `includeBlockedAnchors: false` to benchmarkComp to drop them; every output
+// that counts anchors also reports how many came from Blocked rows.
+//
 // All functions are PURE (no I/O, no mutation, no globals). The file/CLI
 // wrapper lives in scripts/comp-bench.mjs. TSV parsing + archetype
-// normalization + the savings band are reused from the existing single-sourced
+// normalization + the hygiene term are reused from the existing single-sourced
 // libs (targeting-core, score-bands) so comp semantics never drift.
 
 // `salary_adj_city` rows are already the OUTPUT of score-bands' savingsToBaseScore
 // (the scouting engine ran it at evaluation time), so the proxy backbone reads
-// those scores directly rather than re-deriving them — no score-bands import is
-// needed here, and comp semantics stay single-sourced to the original evaluation.
-import { normalizeArchetype } from './targeting-core.mjs'
+// those scores directly rather than re-deriving them. What a given score DOES
+// to Want comes from score-bands' hygieneTerm / veto constants — never restated.
+import { normalizeArchetype, isBlocked } from './targeting-core.mjs'
+import { hygieneTerm, HYGIENE_STEPS, HYGIENE_VETO_BELOW, HYGIENE_VETO_CAP } from './score-bands.mjs'
 
 const round1 = (n) => Math.round(n * 10) / 10
 const round2 = (n) => Math.round(n * 100) / 100
@@ -286,16 +296,22 @@ export function cleanCity(raw) {
 }
 
 /**
- * Attach `disclosed` (parseSalary result or null) and `city` to each scored row.
- * Rows without a finite `salary_adj_city` are kept (the proxy filter happens in
- * the aggregators) but rows are expected to come pre-filtered to scored ones.
+ * Attach `disclosed` (parseSalary result or null), `city` and `blocked` to each
+ * row. Rows without a finite `salary_adj_city` are kept (the proxy filter
+ * happens in the aggregators). A Blocked row's salary_adj_city is forced to
+ * NaN (missing, never 0) so no aggregator can read it as a score.
  */
 export function enrichRows(rows, opts = {}) {
-  return rows.map((r) => ({
-    ...r,
-    disclosed: parseSalary(r.salary_raw, opts),
-    city: cleanCity(r.location) || cleanCity(r.best_cities),
-  }))
+  return rows.map((r) => {
+    const blocked = isBlocked(r)
+    return {
+      ...r,
+      ...(blocked ? { salary_adj_city: NaN } : {}),
+      blocked,
+      disclosed: parseSalary(r.salary_raw, opts),
+      city: cleanCity(r.location) || cleanCity(r.best_cities),
+    }
+  })
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
@@ -308,32 +324,40 @@ export function enrichRows(rows, opts = {}) {
  * The proxy is the trustworthy part; anchors are surfaced when present.
  */
 
-// salary_adj_city ≤ this is a "comp-weak" role (savings-power floor). Matches
-// the score-bands Overall modifier threshold (Salary Adj ≤ 4 → −0.4), so
-// "comp-weak" here means exactly what the scoring engine penalizes.
-const COMP_WEAK_ADJ = 4
-// salary_adj_city ≥ this is a "comp-strong" role (the +0.2 Overall bonus band).
-const COMP_STRONG_ADJ = 9
+// "Comp-weak" / "comp-strong" mean exactly what the Want rollup does with the
+// Salary hygiene term (docs/scoring-v2.md §2.2): weak = hygieneTerm < 0 (a Want
+// penalty), strong = hygieneTerm > 0 (the small Want bonus). The display
+// thresholds below are READ from HYGIENE_STEPS, not restated.
+export const isCompWeak = (adj) => Number.isFinite(adj) && hygieneTerm(adj) < 0
+export const isCompStrong = (adj) => Number.isFinite(adj) && hygieneTerm(adj) > 0
+/** Lowest salary_adj_city with no Want penalty (5 under the v2 steps). */
+export const COMP_NEUTRAL_MIN = HYGIENE_STEPS.find((st) => st.value === 0).min
+/** Lowest salary_adj_city that earns the Want bonus (8 under the v2 steps). */
+export const COMP_STRONG_MIN = HYGIENE_STEPS.find((st) => st.value > 0).min
 
 function summarizeGroup(label, rows) {
-  const adj = rows.map((r) => r.salary_adj_city).filter(Number.isFinite)
-  const anchors = rows.map((r) => r.disclosed).filter(Boolean)
-  const anchorEur = anchors.map((d) => d.annualEur).filter(Number.isFinite)
+  const scored = rows.filter((r) => !r.blocked)
+  const adj = scored.map((r) => r.salary_adj_city).filter(Number.isFinite)
+  const anchorRows = rows.filter((r) => r.disclosed && Number.isFinite(r.disclosed.annualEur))
+  const anchorEur = anchorRows.map((r) => r.disclosed.annualEur)
   return {
     label,
-    count: rows.length,
+    // Scored (non-blocked) roles in the group.
+    count: scored.length,
     // PROXY: savings-power distribution.
     adjN: adj.length,
     adjMean: adj.length ? round2(mean(adj)) : null,
     adjMedian: adj.length ? round1(median(adj)) : null,
     compWeakShare: adj.length
-      ? Math.round((adj.filter((v) => v <= COMP_WEAK_ADJ).length / adj.length) * 100)
+      ? Math.round((adj.filter(isCompWeak).length / adj.length) * 100)
       : 0,
     compStrongShare: adj.length
-      ? Math.round((adj.filter((v) => v >= COMP_STRONG_ADJ).length / adj.length) * 100)
+      ? Math.round((adj.filter(isCompStrong).length / adj.length) * 100)
       : 0,
-    // ANCHORS: disclosed annual EUR, when any exist in the group.
+    // ANCHORS: disclosed annual EUR, when any exist in the group (Blocked rows
+    // included when the caller kept them; counted separately).
     anchorCount: anchorEur.length,
+    blockedAnchorCount: anchorRows.filter((r) => r.blocked).length,
     anchorMedianEur: anchorEur.length ? Math.round(median(anchorEur)) : null,
     anchorMinEur: anchorEur.length ? Math.min(...anchorEur) : null,
     anchorMaxEur: anchorEur.length ? Math.max(...anchorEur) : null,
@@ -416,9 +440,11 @@ export function employmentBucket(raw) {
  */
 export function targetDrift(rows, target) {
   const buckets = { fulltime: [], intern: [], other: [] }
+  let blockedAnchors = 0
   for (const r of rows) {
     if (!r.disclosed) continue
     buckets[employmentBucket(r.employment_type)].push(r.disclosed.annualEur)
+    if (r.blocked) blockedAnchors++
   }
   const summarize = (eurs) => eurs.length
     ? {
@@ -469,7 +495,7 @@ export function targetDrift(rows, target) {
     }
   }
 
-  return { target, anchorsTotal, byType, drift }
+  return { target, anchorsTotal, blockedAnchors, byType, drift }
 }
 
 /** Format an annual EUR figure compactly: 42000 → "42K", 9500 → "9.5K". */
@@ -481,18 +507,28 @@ export function fmtK(eur) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
- * Floor-risk scan — roles whose comp would actively penalize their Overall
+ * Floor-risk scan — roles whose comp actively costs them Want
  * ════════════════════════════════════════════════════════════════════════════
  *
- * The savings-power proxy connects straight to the scoring engine: a role with
- * salary_adj_city ≤ 4 takes a −0.4 Overall hit (non-intern). So a NON-intern
- * role evaluated with adj ≤ 4 is one where comp is dragging the score — worth
- * surfacing distinctly from interns (whose stipends are break-even by design and
- * exempt from the modifier).
+ * The savings-power proxy connects straight to the scoring engine: Salary is a
+ * Want hygiene factor, so a non-intern role whose salary_adj_city earns a
+ * negative hygiene term (hygieneTerm < 0) loses Want, and one below
+ * HYGIENE_VETO_BELOW has Want capped at HYGIENE_VETO_CAP. Interns are surfaced
+ * separately: their stipends are break-even by design and the engine zeroes
+ * the salary term (and its veto) for them.
+ *
+ * Blocked rows never appear (no scores). Each entry:
+ *   { company, role, archetype, city, salaryAdj, wantPenalty, vetoed,
+ *     want, ease, verdict, disclosedEur }
+ * `adjFloor` (optional) overrides the engine rule with "salary_adj ≤ adjFloor".
  */
-export function compFloorRisks(rows, { adjFloor = COMP_WEAK_ADJ, limit = 12 } = {}) {
+export function compFloorRisks(rows, { adjFloor, limit = 12 } = {}) {
+  const hit = Number.isFinite(adjFloor)
+    ? (adj) => adj <= adjFloor
+    : isCompWeak
   return rows
-    .filter((r) => Number.isFinite(r.salary_adj_city) && r.salary_adj_city <= adjFloor)
+    .filter((r) => !r.blocked && !isBlocked(r))
+    .filter((r) => Number.isFinite(r.salary_adj_city) && hit(r.salary_adj_city))
     .filter((r) => employmentBucket(r.employment_type) !== 'intern')
     .map((r) => ({
       company: r.company,
@@ -500,10 +536,14 @@ export function compFloorRisks(rows, { adjFloor = COMP_WEAK_ADJ, limit = 12 } = 
       archetype: normalizeArchetype(r.archetype),
       city: r.city,
       salaryAdj: r.salary_adj_city,
-      overall: Number.isFinite(r.overall) ? r.overall : null,
+      wantPenalty: hygieneTerm(r.salary_adj_city),
+      vetoed: r.salary_adj_city < HYGIENE_VETO_BELOW,
+      want: Number.isFinite(r.want) ? r.want : null,
+      ease: Number.isFinite(r.ease) ? r.ease : null,
+      verdict: r.verdict || null,
       disclosedEur: r.disclosed ? r.disclosed.annualEur : null,
     }))
-    .sort((a, b) => a.salaryAdj - b.salaryAdj || (a.overall ?? 99) - (b.overall ?? 99))
+    .sort((a, b) => a.salaryAdj - b.salaryAdj || (a.want ?? 99) - (b.want ?? 99))
     .slice(0, limit)
 }
 
@@ -544,8 +584,8 @@ export function compRecommendations({ archetypes, cities, drift, floorRisks }) {
     const bottom = archetypes[archetypes.length - 1]
     if (top.adjMedian != null && bottom.adjMedian != null && top.adjMedian - bottom.adjMedian >= 1.5) {
       recs.push({
-        action: `Comp competitiveness varies by archetype — "${top.label}" runs strongest (median savings-power ${top.adjMedian}/10), "${bottom.label}" weakest (${bottom.adjMedian}/10)`,
-        reasoning: `If comp is a priority, weight sourcing toward "${top.label}" roles; "${bottom.label}" roles in your landscape more often score in the comp-weak band (${bottom.compWeakShare}% at savings-power ≤ ${COMP_WEAK_ADJ}).`,
+        action: `Comp competitiveness varies by archetype — "${top.label}" runs strongest (median savings-power ${top.adjMedian}), "${bottom.label}" weakest (${bottom.adjMedian})`,
+        reasoning: `If comp is a priority, weight sourcing toward "${top.label}" roles; "${bottom.label}" roles in your landscape more often score in the comp-weak range (${bottom.compWeakShare}% at savings-power < ${COMP_NEUTRAL_MIN}, where Salary costs Want).`,
         impact: 'medium',
       })
     }
@@ -555,17 +595,19 @@ export function compRecommendations({ archetypes, cities, drift, floorRisks }) {
   const strongCities = cities.filter((c) => c.adjMedian != null && c.adjMedian >= 7).slice(0, 3)
   if (strongCities.length) {
     recs.push({
-      action: `Best savings-power cities in your landscape: ${strongCities.map((c) => `${c.label} (${c.adjMedian}/10)`).join(', ')}`,
+      action: `Best savings-power cities in your landscape: ${strongCities.map((c) => `${c.label} (median ${c.adjMedian})`).join(', ')}`,
       reasoning: `These cities pair the roles you evaluate with the strongest after-cost-of-living savings. If comp/savings is a priority, they deserve sourcing weight.`,
       impact: 'medium',
     })
   }
 
-  // 4. Comp-floor drag — non-intern roles whose comp actively penalizes Overall.
+  // 4. Comp-floor drag — non-intern roles whose comp actively costs Want.
   if (floorRisks.length >= 3) {
+    const vetoed = floorRisks.filter((f) => f.vetoed).length
     recs.push({
-      action: `${floorRisks.length} non-intern role${floorRisks.length === 1 ? '' : 's'} you evaluated score in the comp-weak band (savings-power ≤ ${COMP_WEAK_ADJ}) — each takes a −0.4 Overall penalty`,
-      reasoning: `These roles' comp is actively dragging their score. Either they're in expensive cities relative to pay, or genuinely low-paying. Filter them earlier or weight toward the stronger-comp cities/archetypes above.`,
+      action: `${floorRisks.length} non-intern role${floorRisks.length === 1 ? '' : 's'} you evaluated score in the comp-weak range (savings-power < ${COMP_NEUTRAL_MIN}) — Salary costs each of them Want` +
+        (vetoed ? `; ${vetoed} below ${HYGIENE_VETO_BELOW} have Want capped at ${HYGIENE_VETO_CAP.toFixed(1)}` : ''),
+      reasoning: `These roles' comp is actively dragging their Want (and so their verdict). Either they're in expensive cities relative to pay, or genuinely low-paying. Filter them earlier or weight toward the stronger-comp cities/archetypes above.`,
       impact: 'medium',
     })
   }
@@ -587,23 +629,36 @@ export function compRecommendations({ archetypes, cities, drift, floorRisks }) {
  * ════════════════════════════════════════════════════════════════════════════ */
 
 /**
- * @param {Array}  scoredRows  rows from parseScoreHistory, filtered to finite overall
- * @param {object} comp        the profile.yml compensation block (raw strings)
- * @param {object} [opts]      { minRoles = 3, gbpToEur = DEFAULT_GBP_TO_EUR }
+ * @param {Array}  rows    rows from parseScoreHistory — ALL of them; Blocked
+ *                         rows are split off here (anchors only, see header)
+ * @param {object} comp    the profile.yml compensation block (raw strings)
+ * @param {object} [opts]  { minRoles = 3, gbpToEur = DEFAULT_GBP_TO_EUR,
+ *                           includeBlockedAnchors = true }
  */
-export function benchmarkComp(scoredRows, comp = {}, opts = {}) {
-  const { minRoles = 3, gbpToEur = DEFAULT_GBP_TO_EUR } = opts
-  if (!scoredRows || scoredRows.length === 0) {
-    return { error: 'No scored evaluations found in score-history.tsv. Evaluate some roles first (scouting), then re-run.' }
+export function benchmarkComp(rows, comp = {}, opts = {}) {
+  const { minRoles = 3, gbpToEur = DEFAULT_GBP_TO_EUR, includeBlockedAnchors = true } = opts
+  const all = enrichRows(rows || [], { gbpToEur })
+  const scored = all.filter((r) => !r.blocked)
+  const blockedCount = all.length - scored.length
+  if (scored.length === 0) {
+    return {
+      error: 'No scored evaluations found in score-history.tsv' +
+        (blockedCount ? ` (${blockedCount} Blocked row${blockedCount === 1 ? '' : 's'} carry no scores)` : '') +
+        '. Evaluate some roles first (scouting), then re-run.',
+    }
   }
 
-  const enriched = enrichRows(scoredRows, { gbpToEur })
+  // Scored rows feed everything; Blocked rows only ride along as anchors.
+  const withAnchors = includeBlockedAnchors
+    ? [...scored, ...all.filter((r) => r.blocked && r.disclosed)]
+    : scored
   const target = parseCompTarget(comp, { gbpToEur })
-  const archetypes = benchmarkByArchetype(enriched, { minRoles })
-  const cities = benchmarkByCity(enriched, { minRoles })
-  const drift = targetDrift(enriched, target)
-  const floorRisks = compFloorRisks(enriched)
+  const archetypes = benchmarkByArchetype(withAnchors, { minRoles })
+  const cities = benchmarkByCity(withAnchors, { minRoles })
+  const drift = targetDrift(withAnchors, target)
+  const floorRisks = compFloorRisks(scored)
 
+  const enriched = scored
   const allAdj = enriched.map((r) => r.salary_adj_city).filter(Number.isFinite)
   const landscapeAdjMedian = allAdj.length ? round1(median(allAdj)) : null
   const landscapeAdjMean = allAdj.length ? round2(mean(allAdj)) : null
@@ -614,8 +669,10 @@ export function benchmarkComp(scoredRows, comp = {}, opts = {}) {
   return {
     metadata: {
       evaluated: enriched.length,
+      blocked: blockedCount,
       withSalaryAdj: allAdj.length,
       disclosedAnchors: drift.anchorsTotal,
+      blockedAnchors: drift.blockedAnchors,
       minRoles,
       gbpToEur,
       dateRange: { from: dates[0], to: dates[dates.length - 1] },

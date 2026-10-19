@@ -15,8 +15,8 @@
 # your machine.
 
 # Default evaluation mode for pasted JDs / URLs / auto-pipeline.
-#   scouting  — lightweight landscape mapping (Current Fit + Aspirational
-#               Fit, no PDF per listing). Use when you're mapping the
+#   scouting  — lightweight landscape mapping (eligibility gate + Want +
+#               Ease, no PDF per listing). Use when you're mapping the
 #               market, not actively applying.
 #   applying  — full A-H oferta evaluation with tailored PDF, ready to
 #               submit. Use when you're actively applying.
@@ -34,7 +34,7 @@ candidate:
 
 target_roles:
   # Primary archetypes — what the system optimizes for. The scoring
-  # rubric uses these to compute Skills Match and Strategic/Analytical Fit.
+  # rubric uses these to judge Skills Match and Role content.
   primary:
     - "Strategy & Operations Analyst"
     - "Business Analyst"
@@ -44,9 +44,10 @@ target_roles:
     - "Rotational / Graduate Program (any function at tech companies)"
     - "Internship — Analytics / Strategy / Operations"
 
-  # Dream companies — get a Brand Value floor of 10 and Aspirational
-  # Fit floor of 8.0 in scoring, regardless of function match. Use this
-  # for the 1-3 companies you'd take a foot-in-the-door role at.
+  # Dream companies — the 1-3 companies you'd take a foot-in-the-door
+  # role at. List the same names under `calibration.dream_companies`
+  # (below) — that's what the scorer reads: Brand Value 10 and a Want
+  # floor of 8.0, regardless of function match.
   dream_companies:
     - name: "Google"
       functions: ["Account Strategist", "Customer Engineer", "Solutions Consultant", "any Early Careers program"]
@@ -96,7 +97,7 @@ location:
   city: "New York"
   timezone: "ET"
   visa_status: "US citizen — no sponsorship needed"
-  # Ordered by preference. The scoring `Best Cities` dimension reads from
+  # Ordered by preference. The scoring `City` hygiene factor reads from
   # this list — top of list = highest score, bottom = workable but not
   # preferred, missing = penalty.
   preferred_cities:
@@ -107,3 +108,32 @@ location:
     - "Seattle"
     - "London"
     - "Dublin"
+
+# Eligibility gate — checked before any listing is scored (docs/scoring-v2.md § 1).
+# A failed check makes the listing "Blocked" (logged with its reason, no score).
+eligibility:
+  available_from: "2027-01-15"
+  blocked_windows:
+    - { from: "2027-09-01", to: "2027-12-20", reason: "final study term" }
+  graduations:
+    - { degree: "BA", date: "2027-05" }
+  languages:
+    - { language: "English", level: "native" }
+    - { language: "Spanish", level: "C1" }
+    - { language: "French", level: "B1" }
+  work_authorisation: ["US"]
+  duration_months: { min: 3, max: 12 }
+  permanent_start_ok_before_block: false
+
+# Calibration — applied deterministically by scripts/score-listing.mjs.
+calibration:
+  dream_companies: ["Google"]
+  lower_tier_dream_companies: []
+  brand_affinity_companies: []
+  extra_brand_bonuses: []
+  has_structured_onboarding: false
+
+# Optional scoring weights (defaults shown — delete to use them).
+# scoring:
+#   want_weights: { growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1 }
+#   ease_weights: { skills_match: 0.35, experience_bar: 0.35, competition: 0.30 }

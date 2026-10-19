@@ -29,10 +29,11 @@
 //
 // Reuses (imports, never modifies):
 //   - extractKeywords / stemLite / htmlToText from ./ats-keywords.mjs
-//   - dimensionDrag (+ DIMENSIONS) from ./targeting-core.mjs
+//   - dimensionDrag from ./targeting-core.mjs (v2 dimensions; Blocked rows
+//     — eligibility red, empty score cells — are excluded there)
 
 import { extractKeywords, stemLite, htmlToText } from './ats-keywords.mjs';
-import { dimensionDrag } from './targeting-core.mjs';
+import { dimensionDrag, isBlocked } from './targeting-core.mjs';
 
 export { htmlToText };
 
@@ -254,23 +255,38 @@ export function weakProofPoints(cvText, opts = {}) {
 
 /* ───── Dimension gaps — systematically low scoring dimensions ───────────────
  *
- * Lifted straight from targeting-core's dimensionDrag: the dimensions that most
- * consistently drag the user's Overall down across the evaluated landscape. We
- * surface only the genuinely low ones (avg below `avgThreshold` OR low in a
- * meaningful share of evals) and attach a CV-oriented hint where the drag is
- * something the CV itself can influence (skills_match) vs. a sourcing/targeting
- * fix the CV can't (ease_of_entry, brand_value).
+ * Lifted straight from targeting-core's dimensionDrag (v2 dimensions; Blocked
+ * rows never enter it): the dimensions that most consistently score low across
+ * the evaluated landscape. We surface only the genuinely low ones (avg below
+ * `avgThreshold` OR low in a meaningful share of evals) and attach a
+ * CV-oriented hint. Each gap carries the rollup it drags (`want` | `ease`) so
+ * the reader can tell an Ease problem (getting in) from a Want problem (the
+ * roles being evaluated aren't wanted).
+ *
+ * CV-actionable dimensions are the Ease-side ones the CV itself moves:
+ * skills_match (surface the skills you have in the landscape's vocabulary) and
+ * experience_bar (surface the prior internships / projects / YoE that count).
+ * competition is Ease too, but it's about the brand's pool — the CV can't move
+ * it (a referral or a school/language edge does). Everything on the Want side
+ * is a targeting/sourcing fix.
  */
+export const CV_LEVER_DIMS = Object.freeze(['skills_match', 'experience_bar']);
+
 const DIM_CV_HINT = {
   skills_match:
     'Closest CV lever — surface the in-demand skills you actually have in your CV vocabulary; if the skill is genuinely absent, this is a learn-it gap, not a wording gap.',
-  ease_of_entry:
-    'Mostly a targeting signal (seniority/qualification mismatch), not a CV-wording fix — tighten which roles you evaluate.',
-  strategic_fit:
-    'Re-check your scan keywords against your target archetypes; the CV can reinforce the narrative but the drift is in sourcing.',
+  experience_bar:
+    'Partly a CV lever — make prior internships, projects and part-time work read as relevant experience (dates, scope, outcomes). If roles keep asking for years you don’t have, it’s a targeting signal: evaluate earlier-career roles.',
+  competition:
+    'Not a CV-wording fix — the pool is crowded at these brands. A warm referral (data/network.md) or a school/language edge moves it; so does targeting less contested companies.',
+  role_content:
+    'Re-check your scan keywords against your target archetypes; the CV can reinforce the narrative, but the drift (sales/ops-heavy roles surfacing) is in sourcing.',
   growth_mobility: 'Weight sourcing toward higher-growth companies — not a CV fix.',
   optionality_exit: 'Favor roles/companies with broader downstream paths — not a CV fix.',
   brand_value: 'Add stronger target companies to your portals — not a CV fix.',
+  best_cities: 'Filter your scans toward your preferred cities — not a CV fix.',
+  salary_adj_city: 'Comp vs. cost of living in the cities you evaluate — a targeting fix, not a CV fix.',
+  work_life_balance: 'Screen out roles/companies with poor work-life balance — not a CV fix.',
 };
 
 export function dimensionGaps(scoreRows, opts = {}) {
@@ -281,10 +297,12 @@ export function dimensionGaps(scoreRows, opts = {}) {
     .map((d) => ({
       key: d.key,
       label: d.label,
+      group: d.group,
+      rollup: d.rollup,
       avg: d.avg,
       lowShare: d.lowShare,
       count: d.count,
-      cvActionable: d.key === 'skills_match',
+      cvActionable: CV_LEVER_DIMS.includes(d.key),
       hint: DIM_CV_HINT[d.key] || 'Consistently drags your scores down.',
     }));
 }
@@ -321,13 +339,14 @@ export function gapRecommendations(report, opts = {}) {
     });
   }
 
-  // 3. Skills-match dimension drag (the one dimension the CV can influence).
-  const skillsDim = (dimension || []).find((d) => d.key === 'skills_match');
-  if (skillsDim) {
+  // 3. CV-lever dimension drags (the Ease-side dimensions the CV can move:
+  //    skills_match, experience_bar). Each lowers Ease, which is what moves a
+  //    listing between verdict columns.
+  for (const dim of (dimension || []).filter((d) => d.cvActionable)) {
     recs.push({
-      action: `Address the "Skills Match" drag (landscape avg ${skillsDim.avg}, low in ${skillsDim.lowShare}% of evals)`,
-      reasoning: skillsDim.hint,
-      impact: 'high',
+      action: `Address the "${dim.label}" drag on Ease (landscape avg ${dim.avg}, low in ${dim.lowShare}% of evals)`,
+      reasoning: dim.hint,
+      impact: dim.key === 'skills_match' ? 'high' : 'medium',
     });
   }
 
@@ -377,6 +396,9 @@ export function analyzeCvGap(input = {}) {
       analysisDate: new Date().toISOString().split('T')[0],
       rolesAnalyzed: keyword.totalRoles,
       scoreRows: scoreRows.length,
+      // Blocked rows (eligibility red) carry no scores; they're counted here
+      // but never enter the dimension averages.
+      blockedRows: scoreRows.filter(isBlocked).length,
     },
     keyword,
     proof,

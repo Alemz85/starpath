@@ -8,8 +8,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  CF_WEIGHT, AF_WEIGHT, CF_DIM_STEP, AF_DIM_STEP,
-  OVERALL_NOISE_FLOOR,
+  WANT_DIM_STEP, EASE_DIM_STEP,
+  WANT_NOISE_FLOOR, EASE_NOISE_FLOOR, PRIORITY_NOISE_FLOOR,
+  NOISE_FLOORS, noiseFloorFor,
   GATES,
   CONFIDENCE_TIERS,
   MECHANICAL_DIMS, JUDGMENT_DIMS, dimensionClass,
@@ -17,49 +18,74 @@ import {
   classifyMovement, isWithinNoise,
   formatSample, formatWithinNoise,
 } from './scoring-stats.mjs'
+import {
+  rollupWant, rollupEase, computePriority, WANT_DIMS, EASE_DIMS,
+} from './score-bands.mjs'
 
-/* ───── Rubric geometry + the noise-floor derivation ─────────────────────── */
+/* ───── Rubric geometry + the noise-floor derivation (spec §9) ───────────── */
 
-test('rollup weights match modes/_shared.md (CF 0.70 / AF 0.30)', () => {
-  assert.equal(CF_WEIGHT, 0.70)
-  assert.equal(AF_WEIGHT, 0.30)
-  assert.equal(CF_WEIGHT + AF_WEIGHT, 1)
+test('the v2 noise floors are exactly the spec values', () => {
+  assert.equal(WANT_NOISE_FLOOR, 0.30)
+  assert.equal(EASE_NOISE_FLOOR, 0.35)
+  assert.equal(PRIORITY_NOISE_FLOOR, 0.30)
+  assert.deepEqual({ ...NOISE_FLOORS }, { want: 0.30, ease: 0.35, priority: 0.30 })
+  assert.equal(noiseFloorFor('want'), 0.30)
+  assert.equal(noiseFloorFor('ease'), 0.35)
+  assert.equal(noiseFloorFor('priority'), 0.30)
+  assert.equal(noiseFloorFor(undefined), PRIORITY_NOISE_FLOOR)
 })
 
-test('one-step dimension moves land where the derivation says', () => {
-  assert.ok(Math.abs(CF_DIM_STEP - 0.2333) < 0.0001)
-  assert.equal(Number(AF_DIM_STEP.toFixed(4)), 0.1)
+const MID = {
+  growth_mobility: 6, optionality_exit: 6, brand_value: 6, role_content: 6,
+  best_cities: 6, salary_adj_city: 6, work_life_balance: 6,
+  skills_match: 6, experience_bar: 6, competition: 6,
+}
+
+test('one motivator step moves Want by WANT_DIM_STEP, below the Want floor', () => {
+  const base = rollupWant(MID).score
+  const moved = rollupWant({ ...MID, brand_value: 7 }).score
+  assert.equal(Number((moved - base).toFixed(2)), WANT_DIM_STEP)
+  assert.ok(WANT_DIM_STEP < WANT_NOISE_FLOOR)
+  // two motivators agreeing clear it
+  assert.ok(2 * WANT_DIM_STEP >= WANT_NOISE_FLOOR)
 })
 
-test('the noise floor is exactly 0.30, as documented', () => {
-  assert.equal(OVERALL_NOISE_FLOOR, 0.30)
+test('one step on a 0.35-weight Ease stage near 6 stays under the Ease floor', () => {
+  const base = rollupEase(MID).score
+  const up = rollupEase({ ...MID, skills_match: 7 }).score
+  const down = rollupEase({ ...MID, skills_match: 5 }).score
+  assert.ok(up - base < EASE_NOISE_FLOOR, `+1 moved Ease by ${up - base}`)
+  assert.ok(base - down < EASE_NOISE_FLOOR + 0.05, `−1 moved Ease by ${base - down}`)
+  assert.ok(Math.abs(EASE_DIM_STEP - (up - base)) < 0.05)
 })
 
-test('the noise floor sits strictly above any SINGLE-dimension wobble', () => {
-  // This is the derivation: no one dimension re-judging itself may clear it.
-  assert.ok(OVERALL_NOISE_FLOOR > CF_DIM_STEP, 'one CF dim step must not clear the floor')
-  assert.ok(OVERALL_NOISE_FLOOR > AF_DIM_STEP, 'one AF dim step must not clear the floor')
-  assert.ok(OVERALL_NOISE_FLOOR > 2 * AF_DIM_STEP, 'two AF dim steps must not clear the floor')
-})
-
-test('the noise floor sits at or below the cheapest two-dimension move', () => {
-  // ...so a genuine move that needs two dimensions to agree is still detectable.
-  assert.ok(OVERALL_NOISE_FLOOR <= CF_DIM_STEP + AF_DIM_STEP)
-  assert.ok(OVERALL_NOISE_FLOOR <= 2 * CF_DIM_STEP)
+test('a single-dimension step stays under the Priority floor at mid-scale', () => {
+  const p0 = computePriority(rollupWant(MID).score, rollupEase(MID).score)
+  for (const dim of [...WANT_DIMS.filter(d => d !== 'salary_adj_city' && d !== 'best_cities' && d !== 'work_life_balance'), ...EASE_DIMS]) {
+    const d = { ...MID, [dim]: 7 }
+    const p1 = computePriority(rollupWant(d).score, rollupEase(d).score)
+    assert.ok(Math.abs(p1 - p0) < PRIORITY_NOISE_FLOOR, `${dim} moved Priority by ${p1 - p0}`)
+  }
 })
 
 /* ───── Dimension classes ────────────────────────────────────────────────── */
 
-test('dimension classes split mechanical from judgment', () => {
+test('dimension classes split mechanical from judgment over the v2 dims', () => {
   assert.equal(dimensionClass('brand_value'), 'mechanical')
   assert.equal(dimensionClass('salary_adj_city'), 'mechanical')
+  assert.equal(dimensionClass('best_cities'), 'mechanical')
   assert.equal(dimensionClass('skills_match'), 'judgment')
-  assert.equal(dimensionClass('strategic_fit'), 'judgment')
+  assert.equal(dimensionClass('role_content'), 'judgment')
+  assert.equal(dimensionClass('experience_bar'), 'judgment')
+  assert.equal(dimensionClass('strategic_fit'), 'unknown')
   assert.equal(dimensionClass('not_a_dimension'), 'unknown')
 })
 
-test('no dimension is in both classes', () => {
+test('no dimension is in both classes, and together they cover every v2 dim', () => {
   for (const d of MECHANICAL_DIMS) assert.ok(!JUDGMENT_DIMS.includes(d), `${d} is in both classes`)
+  const all = new Set([...MECHANICAL_DIMS, ...JUDGMENT_DIMS])
+  for (const d of [...WANT_DIMS, ...EASE_DIMS]) assert.ok(all.has(d), `${d} is unclassified`)
+  assert.equal(all.size, WANT_DIMS.length + EASE_DIMS.length)
 })
 
 /* ───── Confidence tiers — boundaries at exactly g, 2g, 4g ───────────────── */
@@ -129,13 +155,17 @@ test('classifyMovement: just under the floor is within-noise, in both directions
   assert.equal(classifyMovement(0), 'within-noise')
 })
 
-test('classifyMovement: one CF dim step alone never reads as movement', () => {
-  assert.equal(classifyMovement(CF_DIM_STEP), 'within-noise')
-  assert.equal(classifyMovement(-CF_DIM_STEP), 'within-noise')
+test('classifyMovement: one Want dim step alone never reads as movement', () => {
+  assert.equal(classifyMovement(WANT_DIM_STEP, { metric: 'want' }), 'within-noise')
+  assert.equal(classifyMovement(-WANT_DIM_STEP, { metric: 'want' }), 'within-noise')
+  assert.equal(classifyMovement(2 * WANT_DIM_STEP, { metric: 'want' }), 'improving')
 })
 
-test('classifyMovement: a CF+AF dim pair moving together does read as movement', () => {
-  assert.equal(classifyMovement(CF_DIM_STEP + AF_DIM_STEP), 'improving')
+test('classifyMovement: the Ease floor is wider than the Want floor', () => {
+  assert.equal(classifyMovement(0.32, { metric: 'ease' }), 'within-noise')
+  assert.equal(classifyMovement(0.32, { metric: 'want' }), 'improving')
+  assert.equal(classifyMovement(0.35, { metric: 'ease' }), 'improving')
+  assert.equal(classifyMovement(-0.35, { metric: 'ease' }), 'declining')
 })
 
 test('classifyMovement: non-finite input is unknown, not a direction', () => {
@@ -165,6 +195,7 @@ test('formatSample always states n and pluralizes correctly', () => {
 
 test('formatWithinNoise states the delta AND the floor it failed to clear', () => {
   const s = formatWithinNoise(0.1)
+  assert.match(formatWithinNoise(0.1, { metric: 'ease' }), /0\.35/)
   assert.match(s, /flat within noise/)
   assert.match(s, /0\.10/)
   assert.match(s, /0\.30/)

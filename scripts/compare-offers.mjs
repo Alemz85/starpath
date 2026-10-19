@@ -19,13 +19,20 @@
 //   {
 //     "weights": { "comp": 3, "fit": 2, "growth": 2, "brand": 1, "location": 1, "risk": 1 },
 //     "offers": [
-//       { "label": "Stripe — Analyst", "scores": { "comp": 8, "fit": 9, "growth": 8, "brand": 9, "location": 6, "risk": 7 } },
-//       { "label": "Local Co — Ops",   "scores": { "comp": 6, "fit": 7, "growth": 5, "brand": 4, "location": 9, "risk": 8 } }
+//       { "label": "Northwind — Analyst", "want": 8.25, "ease": 6.4,
+//         "scores": { "comp": 8, "growth": 8, "brand": 9, "location": 6, "risk": 7 } },
+//       { "label": "Contoso — Ops", "want": 7.1, "ease": 7.6,
+//         "scores": { "comp": 6, "growth": 5, "brand": 4, "location": 9, "risk": 8 } }
 //     ]
 //   }
-// "weights" is optional (uniform if omitted). Each offer needs all six factor
-// scores in [1,10] — derive them up front (comp via compFactorFromSavings,
-// fit via fitFactorFromDims; growth/brand/location/risk from the report).
+// "weights" is optional (uniform if omitted). Each offer needs the comp /
+// growth / brand / location / risk factor scores in [1,10] (comp via
+// compFactorFromSavings; the others from the report). The fit factor is the
+// scouting Want — pass "want" (stored value; "ease" optional) or "dims" (the
+// ten v2 dimensions, replayed through the engine). The offer is already in
+// hand, so Ease and the verdict are shown for context only and never affect
+// the ranking. A hand-typed scores.fit is only for offers with no scouting
+// evaluation.
 
 import { readFileSync } from 'node:fs'
 import { FACTORS, FACTOR_LABELS, compareOffers } from './lib/offer-compare.mjs'
@@ -40,24 +47,42 @@ function pct(x) {
   return `${Math.round(x * 100)}%`
 }
 
+const cell = (v) => (v == null ? '—' : v)
+
 function renderTable(result) {
   const { ranking, weights } = result
   const headerFactors = FACTORS.map(f => `${f}(${pct(weights[f])})`)
   const lines = []
-  lines.push(['#', 'Offer', ...headerFactors, 'TOTAL'].join('\t'))
+  // fit(…) is the Want-based factor that ranks; Ease / Verdict are context only.
+  lines.push(['#', 'Offer', ...headerFactors, 'TOTAL', 'Ease (info)', 'Verdict (info)'].join('\t'))
   for (const r of ranking) {
     lines.push([
       r.rank,
       r.label,
       ...FACTORS.map(f => r.scores[f]),
       r.total,
+      cell(r.ease),
+      cell(r.verdictLabel),
     ].join('\t'))
   }
   return lines.join('\n')
 }
 
+const HELP = `compare-offers — weighted multi-offer comparison (ofertas mode).
+
+  node scripts/compare-offers.mjs offers.json [--json]
+  cat offers.json | node scripts/compare-offers.mjs [--json]
+
+Each offer: { label, want (or dims), ease?, scores: { comp, growth, brand,
+location, risk } }. Fit = the scouting Want (the offer is in hand, so Ease
+doesn't rank); Ease and the verdict are shown for context only.`
+
 function main() {
   const args = process.argv.slice(2)
+  if (args.includes('--help') || args.includes('-h')) {
+    console.log(HELP)
+    return
+  }
   const asJson = args.includes('--json')
 
   let input
@@ -87,13 +112,14 @@ function main() {
   console.log('')
 
   const t = result.tradeoffs
+  const factorPair = (x, a, b) => `${FACTOR_LABELS[x.factor]} (${a.scores[x.factor]} vs ${b.scores[x.factor]})`
   if (t.winnerWins.length) {
     console.log(`${result.winner.label} wins on: ` +
-      t.winnerWins.map(x => `${FACTOR_LABELS[x.factor]} (${x.winnerScore} vs ${x.runnerUpScore})`).join('; '))
+      t.winnerWins.map(x => factorPair(x, result.winner, result.runnerUp)).join('; '))
   }
   if (t.runnerUpWins.length) {
     console.log(`${result.runnerUp.label} wins on: ` +
-      t.runnerUpWins.map(x => `${FACTOR_LABELS[x.factor]} (${x.runnerUpScore} vs ${x.winnerScore})`).join('; '))
+      t.runnerUpWins.map(x => factorPair(x, result.runnerUp, result.winner)).join('; '))
   }
   console.log('')
   console.log('Recommendation:')

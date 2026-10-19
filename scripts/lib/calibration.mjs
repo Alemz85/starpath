@@ -9,11 +9,11 @@
 //
 // Calibration shape (all fields optional; missing = no effect):
 //   {
-//     "brand_affinity_companies":     ["McKinsey", "BCG", ...],   // +0.6 to Brand on match
-//     "dream_companies":              ["Google", ...],            // override Brand to 10 + AF floor 8.0
-//     "lower_tier_dream_companies":   ["Mastercard", "Glovo", ...], // +1.0 to Brand on match
+//     "brand_affinity_companies":     ["Fabrikam", ...],          // +0.6 to Brand on match
+//     "dream_companies":              ["Northwind", ...],         // override Brand to 10 + Want floor 8.0
+//     "lower_tier_dream_companies":   ["Contoso", ...],           // +1.0 to Brand on match
 //     "extra_brand_bonuses": [                                    // company-specific top-up
-//       { "company": "Google", "bonus": 1.0, "reason": "priority target" }
+//       { "company": "Northwind", "bonus": 1.0, "reason": "priority target" }
 //     ],
 //     "has_structured_onboarding":    true,                       // +1.0 to Growth
 //     "has_sink_or_swim_signal":      false                       // −1.0 to Growth
@@ -31,9 +31,16 @@
 //   - Brand:  extra_brand_bonuses entry match → +entry.bonus
 //   - Growth: has_structured_onboarding → +1.0
 //   - Growth: has_sink_or_swim_signal → −1.0
-//   - AF:     upper-tier dream_companies match → floor at 8.0 (after rollup)
+//   - Competition: referral "warm-direct" → +1.0, "warm-intro" → +0.5 (clamp 10)
+//
+// The dream-company Want floor (8.0) lives inside rollupWant
+// (score-bands.mjs) because it must run AFTER the raw rollup and BEFORE the
+// hygiene / role-content vetoes; this module only answers "is it a dream
+// company?" (isDreamCompany), still data-driven from dream_companies.
 //
 // All numbers ultimately clamped to [1, 10].
+
+import { REFERRAL_BONUS } from './score-bands.mjs'
 
 /**
  * Apply Brand calibration to the agent's raw Brand score.
@@ -94,14 +101,39 @@ export function applyGrowthCalibration(rawGrowth, calibration) {
 }
 
 /**
- * Apply Aspirational Fit floor for dream companies (after rollup).
+ * Is the company one of the candidate's upper-tier dream companies? Drives
+ * the Want floor in rollupWant (spec §2.2).
  */
-export function applyAspirationalFitFloor(af, company, calibration) {
-  const dreamList = calibration?.dream_companies ?? []
-  if (dreamList.some(c => sameCompany(c, company)) && af < 8.0) {
-    return { value: 8.0, adjustments: [{ source: 'dream-company AF floor', value: 8.0 - af }] }
+export function isDreamCompany(company, calibration) {
+  return (calibration?.dream_companies ?? []).some(c => sameCompany(c, company))
+}
+
+/**
+ * Is the company on any of the candidate's wish lists (dream, lower-tier
+ * dream, brand affinity)? A Blocked listing at such a company gets the
+ * `Revisit next cycle:` note prefix (spec §1.3).
+ */
+export function isRevisitCompany(company, calibration) {
+  const lists = [
+    calibration?.dream_companies,
+    calibration?.lower_tier_dream_companies,
+    calibration?.brand_affinity_companies ?? calibration?.cems_adjacent_companies,
+  ]
+  return lists.some(list => (list ?? []).some(c => sameCompany(c, company)))
+}
+
+/**
+ * Referral modifier on Competition (spec §3.1), applied before the Ease
+ * rollup: "warm-direct" → +1.0, "warm-intro" → +0.5, anything else → 0.
+ * Returns { value, adjustments } like the other calibrations.
+ */
+export function applyReferralAdjustment(rawCompetition, referral) {
+  const bonus = typeof referral === 'string' && Object.hasOwn(REFERRAL_BONUS, referral) ? REFERRAL_BONUS[referral] : 0
+  if (!bonus) return { value: clamp(rawCompetition), adjustments: [] }
+  return {
+    value: clamp(rawCompetition + bonus),
+    adjustments: [{ source: `${referral} referral`, value: bonus }],
   }
-  return { value: af, adjustments: [] }
 }
 
 /* ───── helpers ──────────────────────────────────────────────────── */

@@ -167,12 +167,12 @@ const APPS_MD = `# Applications
 
 | # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
 |---|------|---------|------|-------|--------|-----|----------|--------|-------|
-| 1 | 2026-05-01 | Acme | Analyst | 8.0/10 | Applied | ✅ | 2026-07-15 | — |  |
+| 1 | 2026-05-01 | Acme | Analyst | W8 E7 | Applied | ✅ | 2026-07-15 | — |  |
 | 2 | 2026-05-05 | Beta | PM | 7.5/10 | Interview | ❌ | Rolling | — |  |
 | 3 | 2026-05-10 | Gamma | Lead | 6.0/10 | Discarded | ❌ | 2026-07-01 | — |  |
 | 4 | 2026-05-12 | Delta | Intern | 7.0/10 | Evaluated | ✅ | n/d | — |  |
 | 5 | 2026-05-15 | Epsilon | SWE | 5.5/10 | SKIP | ❌ | 2026-08-01 | — |  |
-| 6 | 2026-05-20 | Zeta | Ops | 9.0/10 | Applied | ✅ | 2026-06-20 | — |  |
+| 6 | 2026-05-20 | Zeta | Ops | W9 E8 | Applied | ✅ | 2026-06-20 | — |  |
 `;
 
 test('parseApplicationsDeadlines: returns entries with known deadlines', () => {
@@ -215,13 +215,14 @@ test('parseApplicationsDeadlines: empty content returns []', () => {
 
 const SCOUTING_MD = `# Scouting
 
-| # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes |
-|---|------|---------|------|-------|------|-------|--------|----------|----------------|-------|
-| 10 | 2026-06-01 | AlphaT1 | Analyst | 9.0/10 | T1 | 8.0/9.0 | — | 2026-07-31 |  |  |
-| 11 | 2026-06-02 | BetaT2 | PM | 7.5/10 | T2 | 7.3/7.8 | — | Rolling |  |  |
-| 12 | 2026-06-03 | GammaT3 | Lead | 6.0/10 | T3 | 6.0/6.0 | — | 2026-08-01 |  |  |
-| 13 | 2026-06-04 | DeltaT4 | Intern | 5.0/10 | T4 | 5.0/5.0 | — | 2026-08-15 |  |  |
-| 14 | 2026-06-05 | EpsilonT2 | SWE | 7.0/10 | T2 | 7.0/7.0 | — | n/d |  |  |
+| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
+|---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|
+| 10 | 2026-06-01 | AlphaT1 | Analyst | 8.5 | 7.5 | T1 | green | — | 2026-07-31 | READY |  |
+| 11 | 2026-06-02 | BetaT2 | PM | 7.5 | 7.3 | T2 | amber: start date not stated | — | Rolling | MONITOR |  |
+| 12 | 2026-06-03 | GammaT3 | Lead | 8.4 | 3.0 | T3 | green | — | 2026-08-01 |  |  |
+| 13 | 2026-06-04 | DeltaT4 | Intern | 5.0 | 5.0 | T4 | green | — | 2026-08-15 |  |  |
+| 14 | 2026-06-05 | EpsilonT2 | SWE | 7.0 | 7.0 | T2 | green | — | n/d | MONITOR |  |
+| 15 | 2026-06-06 | ZetaBlocked | Grad Analyst | — | — | T4 | red: study term overlap | — | 2026-07-20 |  | Revisit next cycle |
 `;
 
 test('parseScoutingDeadlines: includes T1 and T2 with known deadlines only', () => {
@@ -231,7 +232,28 @@ test('parseScoutingDeadlines: includes T1 and T2 with known deadlines only', () 
   // Row 12: T3 → excluded
   // Row 13: T4 → excluded
   // Row 14: T2 + n/d → excluded (no deadline)
+  // Row 15: Blocked (red, T4) → excluded
   assert.equal(entries.length, 2);
+});
+
+test('parseScoutingDeadlines: carries want/ease and a W/E display label', () => {
+  const entries = parseScoutingDeadlines(SCOUTING_MD);
+  const t1 = entries.find(e => e.company === 'AlphaT1');
+  assert.equal(t1.want, 8.5);
+  assert.equal(t1.ease, 7.5);
+  assert.equal(t1.scoreLabel, 'W8.5 · E7.5');
+});
+
+test('parseScoutingDeadlines: skips Blocked rows even if hand-edited to T1/T2', () => {
+  const md = `| 20 | 2026-06-06 | OmegaBlocked | Analyst | — | — | T2 | red: work authorisation | — | 2026-07-20 |  |  |
+| 21 | 2026-06-06 | OmegaRed | Analyst | 8 | 8 | T1 | red: language | — | 2026-07-20 |  |  |`;
+  assert.deepEqual(parseScoutingDeadlines(md), []);
+  assert.equal(countMissingScoutingDeadlines(md.replace(/2026-07-20/g, 'n/d')), 0);
+});
+
+test('parseScoutingDeadlines: v1 11-column rows are not readable (no back-compat)', () => {
+  const v1 = '| 10 | 2026-06-01 | AlphaT1 | Analyst | 9.0/10 | T1 | 8.0/9.0 | — | 2026-07-31 |  |  |';
+  assert.deepEqual(parseScoutingDeadlines(v1), []);
 });
 
 test('parseScoutingDeadlines: source is "scouting"', () => {

@@ -1,84 +1,113 @@
 #!/usr/bin/env node
 
 /**
- * score-listing.mjs — Deterministic scoring entry point.
+ * score-listing.mjs — Deterministic scoring entry point (scoring v2).
  *
- * The agent does the JUDGMENT scoring (Skills Match, Ease of Entry,
- * Strategic Fit, Growth, Optionality, Brand, Sales-Trap Risk, WLB,
- * Best Cities, soft-benefits modifier) and the JD prose-reading. This
- * script does the COMPUTATION:
+ * Spec: docs/scoring-v2.md. The agent does the JUDGMENT (reads the JD,
+ * extracts the eligibility facts, scores the nine judgment dimensions and
+ * the soft-benefits modifier). This script does the COMPUTATION, in order:
  *
- *   - Build total annual comp from disclosed components (base + bonus
- *     + equity + 13th/14th month + cash benefits + amortized sign-on)
- *   - Apply the country tax rate (from the cache or a passed override)
- *     to get net
- *   - Subtract the city baseline (from the cache or a passed override)
- *     to get monthly savings
- *   - Score savings on the 10-tier band, apply the soft modifier
- *   - Roll up CF, AF, Overall (with bottom-range penalty + context modifiers)
- *   - Assign tier per the rules in modes/scouting.md
- *   - Return a structured JSON result with full math + provenance
+ *   1. Eligibility gate (scripts/lib/eligibility.mjs): JD facts vs. the
+ *      candidate's `eligibility:` profile → green / amber / red. Red stops
+ *      here: verdict `blocked`, tier T4, no Want / Ease / Priority, and no
+ *      tax / cost-of-living lookups (so no `judgment_scores` needed).
+ *   2. Salary Adj for City: total comp → tax (cache or override) → net →
+ *      minus the city baseline (cache or override; halved for interns) →
+ *      monthly savings → 10-tier band → soft-benefits modifier.
+ *   3. Calibration: Brand (dream override / affinity / lower-tier dream /
+ *      extra bonuses), Growth (onboarding ±1), Competition (referral bonus).
+ *   4. Want (motivators mean − bottom penalty + hygiene terms, dream floor,
+ *      vetoes) and Ease (weighted geometric mean, experience wall, amber
+ *      penalty).
+ *   5. Verdict grid → verdict, tier, promotion hint; Priority = √(Want·Ease).
+ *   6. Explainability bundle (scripts/lib/explain-score.mjs), which replays
+ *      the same engine.
  *
- * Caches are read-only here. Cache writes happen via a separate
- * `--write-cache` flag (see below) so the agent has a chance to verify
- * a fetched value before persisting.
+ * Caches are read-only here. Cache writes happen only with `--write-cache`
+ * (and only for values passed as overrides), so the agent can verify a
+ * fetched value before persisting it.
  *
  * Usage:
  *
  *   echo '{ ...inputs... }' | node scripts/score-listing.mjs
  *   echo '{ ...inputs... }' | node scripts/score-listing.mjs --write-cache
+ *   echo '{ "eligibility_facts": {...} }' | node scripts/score-listing.mjs --eligibility-only
  *
- * Input JSON shape — see SCHEMA below or the test fixtures in
- * test-all.mjs. Output is JSON to stdout; non-zero exit on input error.
+ * Profile: `eligibility_profile` and `scoring_weights` in the input win (the
+ * key's presence wins, even if empty). When absent, the script reads the
+ * `eligibility:` and `scoring:` blocks of user/profile.yml. A missing file
+ * or block is an empty profile:
+ *   - empty `eligibility:` → every check is "not checked" (green): no
+ *     availability date, no blocked windows, no language / work-auth /
+ *     graduation / duration constraints. The gate lets everything through.
+ *   - empty `scoring:`     → DEFAULT_WANT_WEIGHTS / DEFAULT_EASE_WEIGHTS.
  *
- * SCHEMA (input):
+ * SCHEMA (input) — fictional values:
  *   {
- *     "company": "Google",
- *     "role_archetype": "Software Engineer",
- *     "city": "Dublin",
- *     "country": "IE",
+ *     "company": "Northwind Analytics",
+ *     "role_archetype": "Strategy Analyst",
+ *     "city": "Lyon",
+ *     "country": "FR",                         // also eligibility_facts.country fallback
  *     "comp": {
- *       "base":             105000,        // annual base in EUR
- *       "bonusPct":         0.15,          // optional, decimal
- *       "equityAnnualEur":  34500,         // optional, annualized
- *       "thirteenthMonthMonths": 0,        // optional (0/1/2)
- *       "benefitsMonthlyEur": 100,         // optional, monthly cash-equiv
- *       "signOnEur":        5000,          // optional, one-off
- *       "tenureYears":      3              // optional, default 3
+ *       "base": 42000,                        // annual base in EUR
+ *       "bonusPct": 0.10,                     // optional, decimal
+ *       "equityAnnualEur": 0,                 // optional, annualized
+ *       "thirteenthMonthMonths": 2,           // optional (0/1/2)
+ *       "benefitsMonthlyEur": 100,            // optional, monthly cash-equiv
+ *       "signOnEur": 3000,                    // optional, one-off
+ *       "tenureYears": 3                      // optional, default 3
  *     },
- *     "tax_override":         { "rate": 0.27, "source": "talent.com 2026-04" },  // skip cache
- *     "col_override":         { "baseline_eur": 3050, "source": "numbeo 2026-04" }, // skip cache
+ *     "comp_source": "disclosed" | "estimate",
+ *     "tax_override": { "rate": 0.27, "source": "..." },          // skip tax cache
+ *     "col_override": { "baseline_eur": 2100, "source": "..." },  // skip COL cache
  *     "is_intern": false,
  *     "soft_benefits_modifier": 0.5,
+ *     "calibration": { ...see scripts/lib/calibration.mjs... },
+ *     "eligibility_facts": { ...docs/scoring-v2.md §1.1 (+ "other": [...]) ... },
+ *     "eligibility_profile": { ...optional, else user/profile.yml → eligibility... },
+ *     "scoring_weights": { "want": {...}, "ease": {...} },        // optional, else profile.yml → scoring.*
+ *     "referral": "warm-direct" | "warm-intro" | null,
+ *     "today": "2026-10-20",                  // optional reference date (default: now)
  *     "judgment_scores": {
- *       "skills_match": 8, "ease_of_entry": 6, "strategic_fit": 8,
- *       "growth_mobility": 9, "optionality_exit": 9, "brand_value": 9,
- *       "sales_trap_risk": 9, "work_life_balance": 7, "best_cities": 9
+ *       "growth_mobility": 8, "optionality_exit": 8, "brand_value": 9, "role_content": 7,
+ *       "best_cities": 8, "work_life_balance": 6,
+ *       "skills_match": 8, "experience_bar": 6, "competition": 5
  *     }
  *   }
  *
- * SCHEMA (output): see jsdoc on `scoreListing()` below.
+ * SCHEMA (output): docs/scoring-v2.md §6 — { eligibility, salary_adj_for_city,
+ * calibrated_dims, dims, want, ease, priority, verdict, verdict_label,
+ * verdict_action, tier, tier_reason, promotion_hint, explanation }. Blocked:
+ * { eligibility, verdict: 'blocked', tier: 'T4', want/ease/priority: null,
+ * note, explanation }. Errors: { error, message, ... } with exit 0 so the
+ * agent can read the reason.
  */
 
 import { readFile } from 'fs/promises'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
+import yaml from 'js-yaml'
 
 import {
   savingsToBaseScore, applyBenefitsModifier,
   buildTotalComp, grossToNet,
-  rollupCurrentFit, rollupAspirationalFit, rollupOverall,
-  assignTier,
+  rollupWant, rollupEase, assignVerdict, computePriority, promotionHint,
+  VERDICT_LABELS, VERDICT_ACTIONS,
 } from './lib/score-bands.mjs'
 
 import {
-  applyBrandCalibration, applyGrowthCalibration, applyAspirationalFitFloor,
+  applyBrandCalibration, applyGrowthCalibration, applyReferralAdjustment,
+  isDreamCompany, isRevisitCompany,
 } from './lib/calibration.mjs'
 
-import { explainScore } from './lib/explain-score.mjs'
+import { evaluateEligibility } from './lib/eligibility.mjs'
+import { explainScore, LEVER_DIMS } from './lib/explain-score.mjs'
 
 import * as taxCache from './lib/tax-cache.mjs'
 import * as colCache from './lib/col-cache.mjs'
 
-const writeCache = process.argv.includes('--write-cache')
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+export const DEFAULT_PROFILE_PATH = join(ROOT, 'user', 'profile.yml')
 
 async function readStdin() {
   const chunks = []
@@ -98,20 +127,107 @@ async function main() {
     process.stderr.write(`score-listing: invalid JSON on stdin — ${e.message}\n`)
     process.exit(1)
   }
-  const result = await scoreListing(input)
+  const result = await scoreListing(input, {
+    writeCache: process.argv.includes('--write-cache'),
+    eligibilityOnly: process.argv.includes('--eligibility-only'),
+  })
   process.stdout.write(JSON.stringify(result, null, 2) + '\n')
 }
 
 /**
- * Pure(-ish) function form so test-all.mjs can import + assert without
- * shelling out. Side effects: reads cache TSVs (cheap), optionally
- * writes them when --write-cache.
+ * Read the `eligibility:` and `scoring:` blocks from user/profile.yml.
+ * Missing file or block → {}. A YAML syntax error throws (caller reports it).
  */
-export async function scoreListing(input) {
-  // 1. Total comp build-up
+export async function loadProfileBlocks(path = DEFAULT_PROFILE_PATH) {
+  let text
+  try { text = await readFile(path, 'utf8') }
+  catch (e) {
+    if (e.code === 'ENOENT') return { eligibility: {}, scoring: {} }
+    throw e
+  }
+  const doc = yaml.load(text) ?? {}
+  return {
+    eligibility: doc.eligibility ?? {},
+    scoring: doc.scoring ?? {},
+  }
+}
+
+// `scoring:` in profile.yml uses want_weights / ease_weights; the input's
+// `scoring_weights` uses want / ease. Accept either spelling in both places.
+function weightsFrom(block) {
+  return {
+    want: block?.want ?? block?.want_weights,
+    ease: block?.ease ?? block?.ease_weights,
+  }
+}
+
+/**
+ * Function form so test-all.mjs can import + assert without shelling out.
+ * Side effects: reads user/profile.yml (only when the input lacks the
+ * profile keys) and the cache TSVs; writes caches only with writeCache.
+ *
+ *   opts { writeCache, eligibilityOnly, profilePath }
+ */
+export async function scoreListing(input, opts = {}) {
+  const { writeCache = false, eligibilityOnly = false, profilePath } = opts
+
+  // 0. Profile blocks: input wins over file.
+  const needFile = !('eligibility_profile' in input) || !('scoring_weights' in input)
+  let fileBlocks = { eligibility: {}, scoring: {} }
+  if (needFile) {
+    try { fileBlocks = await loadProfileBlocks(profilePath) }
+    catch (e) {
+      return { error: 'profile_unreadable', message: `Could not read user/profile.yml: ${e.message}` }
+    }
+  }
+  const eligibilityProfile = 'eligibility_profile' in input ? (input.eligibility_profile ?? {}) : fileBlocks.eligibility
+  const weights = weightsFrom('scoring_weights' in input ? input.scoring_weights : fileBlocks.scoring)
+
+  // 1. Eligibility gate — always first.
+  const facts = { ...(input.eligibility_facts ?? {}) }
+  if (facts.country == null && input.country) facts.country = input.country
+  const today = input.today ?? new Date().toISOString().slice(0, 10)
+  const eligibility = evaluateEligibility(facts, eligibilityProfile, { today })
+
+  if (eligibilityOnly) return { eligibility }
+
+  const calibration = input.calibration ?? {}
+  if (eligibility.status === 'red') {
+    const verdict = assignVerdict({ want: null, ease: null, eligibility })
+    const reason = eligibility.blocking_reason
+    return {
+      eligibility,
+      want: null,
+      ease: null,
+      priority: null,
+      verdict: verdict.verdict,
+      verdict_label: VERDICT_LABELS.blocked,
+      verdict_action: VERDICT_ACTIONS.blocked,
+      tier: verdict.tier,
+      tier_reason: verdict.reason,
+      promotion_hint: '',
+      note: isRevisitCompany(input.company, calibration) ? `Revisit next cycle: ${reason}` : reason,
+      explanation: explainScore({ dims: null, eligibility, context: {} }),
+    }
+  }
+
+  const j = input.judgment_scores ?? {}
+  const missing = LEVER_DIMS.filter(k => !Number.isFinite(j[k]))
+  if (missing.length > 0) {
+    return {
+      error: 'judgment_scores_incomplete',
+      message: `judgment_scores is missing or non-numeric for: ${missing.join(', ')}`,
+      missing,
+      eligibility,
+    }
+  }
+  if (!input.comp || !Number.isFinite(input.comp.base)) {
+    return { error: 'comp_missing', message: 'comp.base (annual EUR) is required to compute Salary Adj for City', eligibility }
+  }
+
+  // 2. Salary Adj for City. Total comp build-up → tax → net.
   const { total: totalComp, breakdown } = buildTotalComp(input.comp)
 
-  // 2. Tax rate
   let taxRate, taxSource
   if (input.tax_override) {
     taxRate   = input.tax_override.rate
@@ -124,13 +240,12 @@ export async function scoreListing(input) {
     } else {
       return { error: 'tax_rate_unresolved',
         message: `No tax rate found for country=${input.country} band=${totalComp}. Provide tax_override or run a tax-calculator WebSearch first.`,
-        totalComp, breakdown,
+        totalComp, breakdown, eligibility,
       }
     }
   }
   const { annualNet, monthlyNet } = grossToNet(totalComp, taxRate)
 
-  // 3. City baseline
   let baseline, colSource
   if (input.col_override) {
     baseline  = input.col_override.baseline_eur
@@ -143,18 +258,17 @@ export async function scoreListing(input) {
     } else {
       return { error: 'col_baseline_unresolved',
         message: `No COL baseline found for city=${input.city}. Provide col_override or run a Numbeo WebSearch first.`,
-        totalComp, breakdown, taxRate,
+        totalComp, breakdown, taxRate, eligibility,
       }
     }
   }
-  if (input.is_intern) baseline = baseline / 2  // shared housing assumed
+  const isIntern = input.is_intern === true
+  if (isIntern) baseline = baseline / 2  // shared housing assumed
 
-  // 4. Savings → score
   const savings    = Number((monthlyNet - baseline).toFixed(2))
   const baseScore  = savingsToBaseScore(savings)
   const finalSalaryAdjScore = applyBenefitsModifier(baseScore, input.soft_benefits_modifier)
 
-  // 5. Cache writes (optional, only when --write-cache and we did fetches via override)
   if (writeCache && input.tax_override) {
     await taxCache.append({
       country:        input.country,
@@ -171,61 +285,46 @@ export async function scoreListing(input) {
     })
   }
 
-  // 6. Calibration adjustments (documented in user/_profile.md)
-  // Apply BEFORE the rollups so the calibrated values flow into CF/AF.
-  const j = input.judgment_scores
-  const calibration = input.calibration ?? {}
+  // 3. Calibration, before the rollups so calibrated values flow into them.
   const brandCal  = applyBrandCalibration(j.brand_value, input.company, calibration)
   const growthCal = applyGrowthCalibration(j.growth_mobility, calibration)
-  const calibrated = {
-    ...j,
-    brand_value:     brandCal.value,
-    growth_mobility: growthCal.value,
+  const compCal   = applyReferralAdjustment(j.competition, input.referral)
+  const dims = {
+    growth_mobility:   growthCal.value,
+    optionality_exit:  j.optionality_exit,
+    brand_value:       brandCal.value,
+    role_content:      j.role_content,
+    best_cities:       j.best_cities,
+    salary_adj_city:   finalSalaryAdjScore,
+    work_life_balance: j.work_life_balance,
+    skills_match:      j.skills_match,
+    experience_bar:    j.experience_bar,
+    competition:       compCal.value,
   }
+  const dream = isDreamCompany(input.company, calibration)
 
-  // 7. Rollups using calibrated judgment scores + the computed Salary Adj
-  const cf = rollupCurrentFit(calibrated)
-  const afRaw = rollupAspirationalFit(calibrated)
-  const afFloor = applyAspirationalFitFloor(afRaw, input.company, calibration)
-  const af = afFloor.value
-  const { overall, modifiersApplied } = rollupOverall(cf, af, {
-    salary_adj_for_city: finalSalaryAdjScore,
-    work_life_balance:   j.work_life_balance,
-    is_intern:           input.is_intern === true,
-  })
-  const sixDims = {
-    skills_match:     calibrated.skills_match,
-    ease_of_entry:    calibrated.ease_of_entry,
-    strategic_fit:    calibrated.strategic_fit,
-    growth_mobility:  calibrated.growth_mobility,
-    optionality_exit: calibrated.optionality_exit,
-    brand_value:      calibrated.brand_value,
-  }
-  const tierResult = assignTier({ cf, af, sixDims })
+  // 4. Want and Ease.
+  const want = rollupWant(dims, { weights: weights.want, is_intern: isIntern, dream })
+  const ease = rollupEase(dims, { weights: weights.ease, amber_count: eligibility.amber_count })
 
-  // 7b. Explainability bundle — binding constraint, per-rollup drivers, and
-  // the smallest single-dimension lever that crosses into a better band. Pure
-  // (replays the same engine), so it can't drift from the scores above.
+  // 5. Verdict + Priority.
+  const verdict = assignVerdict({ want: want.score, ease: ease.score, eligibility })
+  const priority = computePriority(want.score, ease.score)
+
+  // 6. Explainability — replays the same engine, so it can't drift.
   const explanation = explainScore({
-    sixDims,
-    cf,
-    af,
-    tier: tierResult.tier,
-    context: {
-      salary_adj_for_city: finalSalaryAdjScore,
-      work_life_balance:   j.work_life_balance,
-      is_intern:           input.is_intern === true,
-    },
+    dims,
+    eligibility,
+    context: { is_intern: isIntern, dream, weights },
   })
 
-  // 7. Provenance string for the Salary Adj reasoning cell.
-  // When the comp comes from an estimate (Glassdoor / Levels.fyi /
-  // comp-cache lookup) instead of being disclosed in the JD, mark the
-  // gross with `**` and append `(** = estimated)` to the end of the math
-  // chain — keeps the cell tight while still surfacing provenance.
+  // Salary text. `summary` is the one plain line for the report's Salary cell
+  // ("About €150 a month left after living costs in Lyon"); `math` is the
+  // full provenance chain for the report's single `Salary math:` footer line.
+  // Both stay markdown-safe (no `**`, no [..] tokens) because the app renders
+  // report text as inline markdown.
   const compSource = input.comp_source ?? 'disclosed'
-  const compTag    = compSource === 'estimate' ? '**' : ''
-  const compFootnote = compSource === 'estimate' ? ' (** = estimated)' : ''
+  const estimated  = compSource === 'estimate'
   const componentLines = [
     `base €${input.comp.base.toLocaleString()}`,
     breakdown.bonus           != null ? `bonus €${breakdown.bonus.toFixed(0)}` : null,
@@ -235,36 +334,59 @@ export async function scoreListing(input) {
     breakdown.sign_on         != null ? `sign-on amortized €${breakdown.sign_on.toFixed(0)}` : null,
   ].filter(Boolean)
   const math =
-    `comp €${totalComp.toLocaleString()}${compTag} (= ${componentLines.join(' + ')}) ` +
+    `comp €${totalComp.toLocaleString()}${estimated ? ' (estimated)' : ''} (= ${componentLines.join(' + ')}) ` +
     `→ net €${annualNet.toLocaleString()}/yr = €${monthlyNet.toFixed(0)}/mo (tax ${(taxRate*100).toFixed(1)}%, source: ${taxSource}) ` +
-    `→ minus baseline €${baseline.toFixed(0)} (source: ${colSource})${input.is_intern ? ' [intern half-baseline]' : ''} ` +
+    `→ minus baseline €${baseline.toFixed(0)} (source: ${colSource})${isIntern ? ' (intern: shared-housing half baseline)' : ''} ` +
     `→ savings €${savings.toFixed(0)}/mo → base ${baseScore} ` +
     `→ modifier ${(input.soft_benefits_modifier ?? 0) >= 0 ? '+' : ''}${input.soft_benefits_modifier ?? 0} ` +
-    `→ final ${finalSalaryAdjScore}` +
-    compFootnote
+    `→ final ${finalSalaryAdjScore}`
+  const summary = salarySummary({ savings, city: input.city, estimated, isIntern })
 
   return {
+    eligibility,
     salary_adj_for_city: {
       score:      finalSalaryAdjScore,
       base_score: baseScore,
       modifier:   input.soft_benefits_modifier ?? 0,
+      summary,
       math,
       provenance: { tax: taxSource, col: colSource },
       computed:   { totalComp, annualNet, monthlyNet, baseline, savings },
     },
     calibrated_dims: {
-      brand_value:     { raw: j.brand_value,     final: calibrated.brand_value,     adjustments: brandCal.adjustments },
-      growth_mobility: { raw: j.growth_mobility, final: calibrated.growth_mobility, adjustments: growthCal.adjustments },
+      brand_value:     { raw: j.brand_value,     final: brandCal.value,  adjustments: brandCal.adjustments },
+      growth_mobility: { raw: j.growth_mobility, final: growthCal.value, adjustments: growthCal.adjustments },
+      competition:     { raw: j.competition,     final: compCal.value,   adjustments: compCal.adjustments },
     },
-    current_fit: cf,
-    aspirational_fit: af,
-    aspirational_fit_floor: afFloor.adjustments.length > 0 ? { raw: afRaw, floored_to: af, ...afFloor.adjustments[0] } : null,
-    overall,
-    overall_modifiers: modifiersApplied,
-    tier: tierResult.tier,
-    tier_reason: tierResult.reason,
+    dims,
+    want,
+    ease,
+    priority,
+    verdict: verdict.verdict,
+    verdict_label: VERDICT_LABELS[verdict.verdict],
+    verdict_action: VERDICT_ACTIONS[verdict.verdict],
+    tier: verdict.tier,
+    tier_reason: verdict.reason,
+    promotion_hint: promotionHint(verdict.verdict),
     explanation,
   }
+}
+
+/**
+ * One plain sentence for the report's Salary cell, rounded to the nearest
+ * €10 so it reads like advice rather than an audit:
+ *   "About €150 a month left after living costs in Lyon (estimated pay)."
+ *   "About €150 a month short of living costs in Dublin."
+ */
+export function salarySummary({ savings, city, estimated = false, isIntern = false }) {
+  const amount = Math.round(Math.abs(savings) / 10) * 10
+  const where  = city ? ` in ${city}` : ''
+  const notes  = [estimated ? 'estimated pay' : null, isIntern ? 'shared housing assumed' : null].filter(Boolean)
+  const tail   = notes.length ? ` (${notes.join(', ')})` : ''
+  if (amount === 0) return `Roughly breaks even after living costs${where}${tail}.`
+  return savings > 0
+    ? `About €${amount.toLocaleString('en-US')} a month left after living costs${where}${tail}.`
+    : `About €${amount.toLocaleString('en-US')} a month short of living costs${where}${tail}.`
 }
 
 // Run when invoked as a script (skip when imported by test-all.mjs).

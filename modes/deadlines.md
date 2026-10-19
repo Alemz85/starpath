@@ -18,8 +18,8 @@ CLI shortcut: `npm run deadlines` (markdown to stdout) or `node scripts/deadline
 
 1. **Read sources** — both `data/applications.md` and `data/scouting.md` are read in
    full. Applications are filtered to non-terminal statuses (Evaluated, Applied,
-   Responded, Interview, Offer). Scouting is filtered to T1 and T2 only — T3/T4
-   are not actionable so tracking their deadlines is noise.
+   Responded, Interview, Offer). Scouting is filtered to T1 and T2 only (`go`, plus `stretch` / `solid` / `thin`) — T3/T4
+   (growth targets, skips, Blocked listings) are not actionable so tracking their deadlines is noise.
 
 2. **Parse each Deadline cell** using the rules from `scripts/lib/deadlines-core.mjs`:
    - ISO date `YYYY-MM-DD` → compare to today

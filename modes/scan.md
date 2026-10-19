@@ -215,10 +215,10 @@ node scripts/whats-new.mjs --json     # salida estructurada
 
 Es **solo-lectura** sobre `data/scan-history.tsv` + `data/score-history.tsv`
 (nunca muta los ficheros canónicos). Une cada posting nuevo con su señal de fit
-ya disponible (el `overall` de scouting, cuando existe) y los ordena por
-prioridad: **Prioritize** (scored ≥7.0), **Worth a look** (6.0–6.9),
+ya disponible (el `verdict` de scouting, cuando existe) y los ordena por
+prioridad: **Prioritize** (`go` / `stretch` / `solid`), **Worth a look** (`thin` / `growth`),
 **Needs eval** (nuevo sin evaluar → candidato directo para `pipeline`/`scouting`),
-**Low fit** (<6.0). La lógica pura vive en `scripts/lib/whats-new-core.mjs`
+**Low fit** (`skip` / `blocked`). La lógica pura vive en `scripts/lib/whats-new-core.mjs`
 (con tests).
 
 ## Gestión de careers_url

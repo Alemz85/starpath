@@ -228,7 +228,7 @@ On red: returns eligibility + `verdict: "blocked"`, `tier: "T4"`, `want: null`, 
 ```jsonc
 {
   "eligibility": { "status": "amber", "amber_count": 1, "checks": [ { "check": "start_date", "status": "amber", "reason": "...", "question": "..." }, ... ] },
-  "salary_adj_for_city": { ...unchanged v1 shape... },
+  "salary_adj_for_city": { "score": 5.3, "base_score": 5, "modifier": 0.3, "summary": "About €260 a month left after living costs in Lyon.", "math": "comp €… → net … → savings … → final 5.3", "provenance": {...}, "computed": {...} },   // summary = the Salary cell; math = the footer line, markdown-safe
   "calibrated_dims": { "brand_value": {...}, "growth_mobility": {...}, "competition": { "raw": 5, "final": 6, "adjustments": [ { "source": "warm-direct referral", "value": 1 } ] } },
   "want": { "score": 8.25, "motivators_mean": 8.0, "motivator_penalty": 0, "hygiene": { "best_cities": 0.25, "salary_adj_city": 0, "work_life_balance": 0 }, "floor": null, "vetoes": [] },
   "ease": { "score": 5.6, "geometric": 6.1, "wall": false, "amber_penalty": 0.5 },
@@ -247,11 +247,11 @@ On red: returns eligibility + `verdict: "blocked"`, `tier: "T4"`, `want: null`, 
 
 ## 7. Explainability (`scripts/lib/explain-score.mjs`)
 
-Same purpose as v1 (binding constraint, drivers, cheapest lever, Why-this-score block), re-implemented on the v2 engine and replaying it (never re-deriving rules):
+Same purpose as v1 (binding constraint, drivers, cheapest lever), re-implemented on the v2 engine and replaying it (never re-deriving rules). The result is **not rendered as its own report section**: the worker uses `bindingConstraints[0]` and `levers[0]` to decide what the Recommendation and Gaps lead with, translated into plain words.
 
 - **Binding constraints** (kinds): `eligibility_red` (the red check), `experience_wall`, `hygiene_veto` (which factor), `role_content_veto`, `amber` (each amber check — its lever is "resolve: {question}", worth +0.5 Ease), `low_want` (Want below the next row's threshold), `low_ease` (Ease below the next column's threshold).
 - **Levers:** the smallest single-dimension integer change (or single amber resolved) that moves the verdict to a better cell. Better-cell order: `blocked < skip < thin < growth < solid < stretch < go`. Search one dimension at a time, up to +4 steps; report `{ dimension, from, to, newVerdict }` or "no single lever".
-- **Why this score** block: `Holding it back:` (binding constraint) and `Closest lever:` lines, same labels as v1 so report parsers keep working.
+- `headline` and the per-item `message` strings stay in the output for the frontend and for the worker's scratch reasoning; reports don't paste them.
 
 ---
 
@@ -305,17 +305,19 @@ Body, in order: `## Eligibility` (table: Check | Status | Reason; then an "Ask t
 | Brand Value (want) | ... |
 | Role content (want) | ... |
 | City (hygiene) | ... |
-| Salary Adj for City (hygiene) | ... |
+| Salary Adj for City (hygiene) | {salary_adj_for_city.summary} |
 | Work-Life Balance (hygiene) | ... |
-| **Want (rollup)** | **8.25/10** | M 8.0 + hygiene +0.25 ... |
+| **Want (rollup)** | **8.25/10** | carried by brand and the work itself |
 | Skills Match (ease) | ... |
 | Experience bar (ease) | ... |
 | Competition (ease) | ... |
-| **Ease (rollup)** | **5.6/10** | geometric 6.1 − 0.5 amber ... |
+| **Ease (rollup)** | **5.6/10** | held down by the open start date |
 | Best-fit Early-career Roles (context) | text | ... |
 ```
 
-then `## Why this score`.
+Reasoning cells are plain prose — no backticks, no bracketed tokens, at most an occasional bold; rollup rows give the number plus a few plain words, never the formula. The Salary cell is `salary_adj_for_city.summary`, a one-line human summary the script returns (e.g. "About €150 a month left after living costs in Lyon (estimated pay)").
+
+Then the tier's prose sections (`modes/scouting.md` § Output Behavior; there is no `## Why this score` section). The report's **last line** is the footer `Salary math: {salary_adj_for_city.math}` — the full math chain, exactly once.
 
 ### 8.6 Batch worker final JSON
 

@@ -130,7 +130,7 @@ function printSummary(res, today, totalContacts) {
     console.log('── Warm paths into pipeline companies (best first) ──');
     for (const m of res.matches) {
       const topRole = m.roles[0];
-      const roleStr = topRole ? `${topRole.role} (${topRole.score}/10)` : '(no role)';
+      const roleStr = topRole ? `${topRole.role} (${roleScore(topRole)})` : '(no role)';
       // Flag the strongest referral path's leverage so the user sees at a glance
       // whether their warmest contact here is actually a useful referrer.
       const levTag = m.bestLeverage === 'manager'
@@ -143,7 +143,7 @@ function printSummary(res, today, totalContacts) {
         console.log(`    • [${ct.warmth.toFixed(1)}] ${pathLabel(ct)}${ct.notes ? `  — ${ct.notes}` : ''}`);
       }
       if (m.roles.length > 1) {
-        console.log(`    (also targeting: ${m.roles.slice(1).map((r) => `${r.role} ${r.score}/10`).join(', ')})`);
+        console.log(`    (also targeting: ${m.roles.slice(1).map((r) => `${r.role} ${roleScore(r)}`).join(', ')})`);
       }
     }
     console.log('');
@@ -154,7 +154,7 @@ function printSummary(res, today, totalContacts) {
   if (res.gaps.length) {
     console.log('── Coverage gaps: high-value targets with nobody inside ──');
     for (const g of res.gaps.slice(0, 12)) {
-      console.log(`  ✗ ${g.company} — ${g.roles[0].role} (${g.roles[0].score}/10)  → find a contact (run /career-ops contacto ${g.company})`);
+      console.log(`  ✗ ${g.company} — ${g.roles[0].role} (${roleScore(g.roles[0])})  → find a contact (run /career-ops contacto ${g.company})`);
     }
     if (res.gaps.length > 12) console.log(`  …and ${res.gaps.length - 12} more.`);
     console.log('');
@@ -169,12 +169,18 @@ function printSummary(res, today, totalContacts) {
   }
 }
 
+// Scoring v2: show "W8.3 · E5.6" (network-core's scoreLabel); legacy rows keep
+// their "7.4/10" label. The numeric `score` is Priority, a sort key only.
+function roleScore(r) {
+  return r?.scoreLabel || 'unscored';
+}
+
 function printCompany(r) {
   console.log(`Referral paths — ${r.company}`);
   if (!r.inPipeline) {
     console.log('(not currently in your pipeline)');
   } else {
-    console.log(`Targeting: ${r.roles.map((x) => `${x.role} (${x.score}/10)`).join(', ')}`);
+    console.log(`Targeting: ${r.roles.map((x) => `${x.role} (${roleScore(x)})`).join(', ')}`);
   }
   console.log('');
   if (!r.found) {
@@ -194,7 +200,7 @@ function printGaps(gaps, today) {
   }
   console.log(`${gaps.length} pipeline ${gaps.length === 1 ? 'company has' : 'companies have'} no contact (highest-value first):\n`);
   for (const g of gaps) {
-    console.log(`  ✗ ${g.company} — ${g.roles[0].role} (${g.roles[0].score}/10)`);
+    console.log(`  ✗ ${g.company} — ${g.roles[0].role} (${roleScore(g.roles[0])})`);
   }
 }
 

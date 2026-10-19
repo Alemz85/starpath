@@ -121,8 +121,8 @@ try {
 // ── 3b. BACKEND UNIT TESTS (scoring core) ───────────────────────
 //
 // The scoring engine (scripts/lib/score-bands.mjs et al.) has a direct
-// node:test unit suite — band boundaries, the bottom-range penalty, the
-// intern carve-out, every tier branch. Section 10 below also exercises the
+// node:test unit suite — eligibility checks, Want / Ease rollups, the
+// intern carve-out, every verdict-grid cell. Section 10 below also exercises the
 // end-to-end scoring fixtures through score-listing.mjs; this catches
 // per-function regressions the fixtures don't.
 
@@ -361,259 +361,319 @@ for (const section of requiredSections) {
 }
 
 // ── 10. Scoring fixtures ────────────────────────────────────────
-// These pin known-good inputs so any future change to score-bands.mjs
-// or score-listing.mjs that breaks the math gets caught here.
+// These pin known-good inputs so any future change to score-bands.mjs,
+// eligibility.mjs or score-listing.mjs that breaks the math gets caught
+// here. Scoring v2 (docs/scoring-v2.md): eligibility gate → Want / Ease →
+// verdict grid. Companies and candidates are fictional; every fixture
+// passes its own eligibility_profile + scoring_weights so the real
+// user/profile.yml is never read.
 
 console.log('\n10. Scoring fixtures');
 
 const { scoreListing } = await import(pathToFileURL(join(SCRIPTS_DIR, 'score-listing.mjs')).href);
 
+const FX_TODAY = '2026-10-20';
+const FX_PROFILE = {
+  available_from: '2026-11-01',
+  blocked_windows: [{ from: '2027-01-01', to: '2027-05-31', reason: 'study term' }],
+  graduations: [{ degree: 'MSc', date: '2026-10' }],
+  languages: [{ language: 'English', level: 'C2' }, { language: 'Spanish', level: 'B2' }],
+  work_authorisation: ['EU'],
+  duration_months: { min: 3, max: 12 },
+  permanent_start_ok_before_block: false,
+};
+// Green facts for a permanent role that starts after the blocked window.
+const FX_GREEN_FACTS = {
+  employment: 'permanent',
+  start: { earliest: '2027-07-01', latest: null, flexible: false },
+  languages: [{ language: 'English', level: 'C1', required: true }],
+  work_auth: { requires_existing_right: false, sponsorship: 'unknown', below_sponsorship_salary_floor: false },
+};
+const FX_INTERN_FACTS = {
+  employment: 'internship',
+  start: { earliest: '2027-06-15', flexible: false },
+  duration_months: 6,
+  languages: [{ language: 'English', level: 'C1', required: true }],
+};
+const fx = (o) => ({
+  today: FX_TODAY,
+  eligibility_profile: FX_PROFILE,
+  scoring_weights: {},
+  soft_benefits_modifier: 0,
+  eligibility_facts: FX_GREEN_FACTS,
+  ...o,
+});
+const JS = (o = {}) => ({
+  growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7,
+  best_cities: 7, work_life_balance: 7,
+  skills_match: 7, experience_bar: 7, competition: 7, ...o,
+});
+
 const FIXTURES = [
   {
-    name: 'Google Dublin L4 SWE — high comp, big equity, expensive city',
-    input: {
-      company: 'Google', role_archetype: 'Software Engineer',
+    name: 'Green go — high comp, big equity, expensive city (salary math pinned)',
+    input: fx({
+      company: 'Northwind Analytics', role_archetype: 'Software Engineer',
       city: 'Dublin', country: 'IE',
       comp: { base: 105000, bonusPct: 0.15, equityAnnualEur: 34500 },
       tax_override: { rate: 0.32, source: 'fixture' },
       col_override: { baseline_eur: 3050, source: 'fixture' },
       soft_benefits_modifier: 0.5,
-      judgment_scores: {
-        skills_match: 8, ease_of_entry: 5, strategic_fit: 8,
-        growth_mobility: 9, optionality_exit: 10, brand_value: 10,
-        sales_trap_risk: 9, work_life_balance: 7, best_cities: 8,
-      },
-    },
+      judgment_scores: JS({
+        growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 8,
+        best_cities: 8, work_life_balance: 7,
+        skills_match: 8, experience_bar: 7, competition: 7,
+      }),
+    }),
     expect: {
+      'eligibility.status': 'green',
       'salary_adj_for_city.score': 10,
       'salary_adj_for_city.computed.totalComp': 155250,
-      'current_fit': 7,
-      'aspirational_fit': 9.67,
-      // 7×0.7 + 9.67×0.3 = 7.801; +0.2 modifier (Salary≥9) = 8.0 (rounded)
-      'overall': 8,
-      'tier': 'T2',
+      // M = (9+9+9+8)/4 = 8.75; hygiene: city 8 → +0.25, salary 10 → +0.25, WLB 7 → 0
+      'want.score': 9.25,
+      'want.motivators_mean': 8.75,
+      // exp(0.35·ln8 + 0.35·ln7 + 0.30·ln7) = 7.33
+      'ease.score': 7.33,
+      'priority': 8.23,
+      'verdict': 'go',
+      'tier': 'T1',
+      'promotion_hint': 'READY',
     },
   },
   {
-    name: 'Barcelona €30K base only — negative savings',
-    input: {
-      company: 'Generic', role_archetype: 'Business Analyst',
+    name: 'Amber thin — internship start not stated; negative savings (salary math pinned)',
+    input: fx({
+      company: 'Fabrikam Consulting', role_archetype: 'Business Analyst',
       city: 'Barcelona', country: 'ES',
       comp: { base: 30000 },
       tax_override: { rate: 0.22, source: 'fixture' },
       col_override: { baseline_eur: 2000, source: 'fixture' },
-      soft_benefits_modifier: 0,
-      judgment_scores: {
-        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
-        growth_mobility: 6, optionality_exit: 6, brand_value: 5,
-        sales_trap_risk: 7, work_life_balance: 7, best_cities: 10,
-      },
-    },
+      eligibility_facts: { ...FX_INTERN_FACTS, start: { earliest: null } },
+      judgment_scores: JS({
+        growth_mobility: 9, optionality_exit: 8, brand_value: 9, role_content: 8,
+        best_cities: 10, work_life_balance: 7,
+        skills_match: 8, experience_bar: 6, competition: 6,
+      }),
+    }),
     expect: {
+      'eligibility.status': 'amber',
+      'eligibility.amber_count': 1,
+      'eligibility.checks.0.check': 'start_date',
       'salary_adj_for_city.score': 3,
       'salary_adj_for_city.computed.savings': -50,
-      'current_fit': 7,
-      // 6+6+5 / 3 = 5.667
-      'aspirational_fit': 5.67,
-      // 7×0.7 + 5.67×0.3 = 6.601; -0.4 modifier (Salary≤4) = 6.2
-      'overall': 6.2,
+      // M 8.5 + city +0.25 + salary(3) −0.80 = 7.95 → just under the top row
+      'want.score': 7.95,
+      // geometric 6.64 − 0.5 amber = 6.14
+      'ease.geometric': 6.64,
+      'ease.amber_penalty': 0.5,
+      'ease.score': 6.14,
+      'verdict': 'thin',
       'tier': 'T2',
     },
   },
   {
-    name: 'Barcelona €1,200/mo intern — half baseline',
-    input: {
-      company: 'StartupX', role_archetype: 'Data Analyst Intern',
-      city: 'Barcelona', country: 'ES',
-      comp: { base: 14400 },  // €1,200/mo × 12
-      tax_override: { rate: 0.0, source: 'fixture (intern stipend, post-tax)' },
-      col_override: { baseline_eur: 2000, source: 'fixture' },
-      is_intern: true,
-      soft_benefits_modifier: 0,
-      judgment_scores: {
-        skills_match: 8, ease_of_entry: 8, strategic_fit: 6,
-        growth_mobility: 7, optionality_exit: 5, brand_value: 4,
-        sales_trap_risk: 8, work_life_balance: 7, best_cities: 10,
-      },
-    },
-    expect: {
-      // €1,200/mo - €1,000 (half of 2000 baseline for intern) = €200 → band 4
-      'salary_adj_for_city.score': 4,
-      'salary_adj_for_city.computed.savings': 200,
-      'tier': 'T2',
-    },
-  },
-  {
-    name: 'Intern carve-out — Salary Adj ≤ 4 does NOT trigger -0.4 on Overall',
-    input: {
-      company: 'BargainCo', role_archetype: 'Marketing Intern',
-      city: 'Madrid', country: 'ES',
-      comp: { base: 9600 },  // €800/mo × 12 — would normally trigger -0.4 modifier
-      tax_override: { rate: 0.0, source: 'fixture' },
-      col_override: { baseline_eur: 2000, source: 'fixture' },
-      is_intern: true,
-      soft_benefits_modifier: 0,
-      judgment_scores: {
-        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
-        growth_mobility: 7, optionality_exit: 7, brand_value: 7,
-        sales_trap_risk: 7, work_life_balance: 7, best_cities: 9,
-      },
-    },
-    expect: {
-      // €800 - €1,000 (half-baseline) = -€200 → band 2 (-€400 to -€151), would normally trigger -0.4
-      'salary_adj_for_city.score': 2,
-      // CF=7, AF=7 → base 7.0; intern carve-out suppresses the -0.4 → Overall stays 7.0
-      'current_fit': 7,
-      'aspirational_fit': 7,
-      'overall': 7,
-    },
-  },
-  {
-    name: 'Non-intern at same low Salary Adj — DOES trigger -0.4 modifier',
-    input: {
-      company: 'BargainCo', role_archetype: 'Marketing Analyst',
-      city: 'Madrid', country: 'ES',
-      comp: { base: 18000 },  // €1,500/mo full-time
-      tax_override: { rate: 0.15, source: 'fixture' },
-      col_override: { baseline_eur: 2000, source: 'fixture' },
-      // is_intern: false (default)
-      soft_benefits_modifier: 0,
-      judgment_scores: {
-        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
-        growth_mobility: 7, optionality_exit: 7, brand_value: 7,
-        sales_trap_risk: 7, work_life_balance: 7, best_cities: 9,
-      },
-    },
-    expect: {
-      // €18,000 × 0.85 / 12 = €1,275 - €2,000 = -€725 → band 1 (poverty wage)
-      'salary_adj_for_city.score': 1,
-      // CF=7, AF=7 → base 7.0; full-time SHOULD trigger -0.4 → Overall = 6.6
-      'overall': 6.6,
-    },
-  },
-  {
-    name: 'Tier 1 fingerprint override — all 6 dims ≥ 8 rolls up to T1',
-    input: {
-      company: 'Acme', role_archetype: 'Strategy Analyst',
+    name: 'Amber stretch — warm-direct referral lifts Competition',
+    input: fx({
+      company: 'Contoso Mobility', role_archetype: 'Strategy Analyst',
       city: 'Madrid', country: 'ES',
       comp: { base: 45000, bonusPct: 0.10 },
       tax_override: { rate: 0.27, source: 'fixture' },
       col_override: { baseline_eur: 2000, source: 'fixture' },
-      soft_benefits_modifier: 0.3,
-      judgment_scores: {
-        skills_match: 8, ease_of_entry: 8, strategic_fit: 8,
-        growth_mobility: 8, optionality_exit: 8, brand_value: 8,
-        sales_trap_risk: 9, work_life_balance: 8, best_cities: 9,
-      },
+      referral: 'warm-direct',
+      eligibility_facts: { ...FX_GREEN_FACTS, country: 'GB' },   // sponsorship unknown → amber
+      judgment_scores: JS({
+        growth_mobility: 8, optionality_exit: 8, brand_value: 9, role_content: 7,
+        best_cities: 8, work_life_balance: 6,
+        skills_match: 8, experience_bar: 6, competition: 5,
+      }),
+    }),
+    expect: {
+      'eligibility.status': 'amber',
+      'calibrated_dims.competition.final': 6,
+      'calibrated_dims.competition.adjustments.0.source': 'warm-direct referral',
+      'want.score': 8.25,
+      'ease.score': 6.14,
+      'verdict': 'stretch',
+      'tier': 'T2',
+      'tier_reason': 'Want 8.25 ≥ 8.0, Ease 6.14 in 5.0–7.0',
+      'promotion_hint': 'MONITOR',
+    },
+  },
+  {
+    name: 'Red blocked — required language missing; no judgment scores, no comp, no lookups',
+    input: {
+      today: FX_TODAY,
+      eligibility_profile: FX_PROFILE,
+      scoring_weights: {},
+      company: 'Northwind Analytics', role_archetype: 'Marketing Analyst',
+      city: 'Munich', country: 'DE',
+      calibration: { dream_companies: ['Northwind Analytics'] },
+      eligibility_facts: { ...FX_GREEN_FACTS, languages: [{ language: 'German', level: 'C1', required: true }] },
     },
     expect: {
-      'current_fit': 8,
-      'aspirational_fit': 8,
-      'tier': 'T1',
-      'tier_reason': 'uniform fingerprint: all 6 dims ≥ 8 AND CF/AF ≥ 8.0',
+      'eligibility.status': 'red',
+      'verdict': 'blocked',
+      'verdict_label': 'Blocked',
+      'tier': 'T4',
+      'want': null,
+      'ease': null,
+      'priority': null,
+      'salary_adj_for_city': undefined,
+      'explanation.verdict': 'blocked',
+    },
+    check: (r) => typeof r.note === 'string' && r.note.startsWith('Revisit next cycle: language:'),
+  },
+  {
+    name: 'Intern — €1,200/mo stipend at half baseline; salary term is 0 for Want',
+    input: fx({
+      company: 'Litware Labs', role_archetype: 'Data Analyst Intern',
+      city: 'Barcelona', country: 'ES',
+      comp: { base: 14400 },   // €1,200/mo × 12
+      tax_override: { rate: 0.0, source: 'fixture (intern stipend, post-tax)' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      is_intern: true,
+      eligibility_facts: FX_INTERN_FACTS,
+      judgment_scores: JS({ best_cities: 10 }),
+    }),
+    expect: {
+      // €1,200 − €1,000 (half of the 2000 baseline) = €200 → band 4
+      'salary_adj_for_city.score': 4,
+      'salary_adj_for_city.computed.savings': 200,
+      'want.hygiene.salary_adj_city': 0,
+      // M 7 + city +0.25 (salary ignored)
+      'want.score': 7.25,
+      'verdict': 'solid',
+    },
+  },
+  {
+    name: 'Intern carve-out — €800/mo stipend (salary 2) does not veto Want',
+    input: fx({
+      company: 'Litware Labs', role_archetype: 'Marketing Intern',
+      city: 'Madrid', country: 'ES',
+      comp: { base: 9600 },
+      tax_override: { rate: 0.0, source: 'fixture' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      is_intern: true,
+      eligibility_facts: FX_INTERN_FACTS,
+      judgment_scores: JS({ best_cities: 9 }),
+    }),
+    expect: {
+      // €800 − €1,000 = −€200 → band 2
+      'salary_adj_for_city.score': 2,
+      'want.score': 7.25,
+      'want.vetoes.length': 0,
+    },
+  },
+  {
+    name: 'Hygiene veto — non-intern at poverty salary (score 1) caps Want at 5.0',
+    input: fx({
+      company: 'Litware Labs', role_archetype: 'Marketing Analyst',
+      city: 'Madrid', country: 'ES',
+      comp: { base: 18000 },
+      tax_override: { rate: 0.15, source: 'fixture' },
+      col_override: { baseline_eur: 2000, source: 'fixture' },
+      judgment_scores: JS({ best_cities: 9 }),
+    }),
+    expect: {
+      // €18,000 × 0.85 / 12 = €1,275 − €2,000 = −€725 → band 1
+      'salary_adj_for_city.score': 1,
+      'want.raw': 6.05,
+      'want.score': 5,
+      'want.vetoes.0.dimension': 'salary_adj_city',
+      'verdict': 'skip',
+      'tier': 'T4',
+    },
+  },
+  {
+    name: 'Dream-company floor — Brand → 10 and Want floored to 8.0',
+    input: fx({
+      company: 'Northwind Analytics', role_archetype: 'Solutions Consultant',
+      city: 'Lyon', country: 'FR',
+      comp: { base: 40000 },
+      tax_override: { rate: 0.25, source: 'fixture' },
+      col_override: { baseline_eur: 1800, source: 'fixture' },
+      calibration: { dream_companies: ['Northwind Analytics'] },
+      judgment_scores: JS({
+        growth_mobility: 6, optionality_exit: 6, brand_value: 5, role_content: 6,
+        best_cities: 6, work_life_balance: 6,
+      }),
+    }),
+    expect: {
+      'calibrated_dims.brand_value.final': 10,
+      // M = (6+6+10+6)/4 = 7.0; salary 6 → 0
+      'want.raw': 7,
+      'want.floor.to': 8,
+      'want.score': 8,
+      'verdict': 'go',
+    },
+  },
+  {
+    name: 'Dream floor loses to the role-content veto',
+    input: fx({
+      company: 'Northwind Analytics', role_archetype: 'Account Executive',
+      city: 'Lyon', country: 'FR',
+      comp: { base: 40000 },
+      tax_override: { rate: 0.25, source: 'fixture' },
+      col_override: { baseline_eur: 1800, source: 'fixture' },
+      calibration: { dream_companies: ['Northwind Analytics'] },
+      judgment_scores: JS({ role_content: 3 }),
+    }),
+    expect: {
+      'want.uncapped': 8,
+      'want.score': 6,
+      'want.vetoes.0.kind': 'role_content_veto',
+      'verdict': 'skip',
     },
   },
   {
     name: 'Brand calibration stack — affinity +0.6 + extra_brand_bonus +1.0',
-    input: {
-      company: 'Google', role_archetype: 'Account Strategist',
+    input: fx({
+      company: 'Contoso Mobility', role_archetype: 'Account Strategist',
       city: 'Dublin', country: 'IE',
       comp: { base: 60000, bonusPct: 0.10 },
       tax_override: { rate: 0.30, source: 'fixture' },
       col_override: { baseline_eur: 3000, source: 'fixture' },
-      soft_benefits_modifier: 0.5,
       calibration: {
-        brand_affinity_companies: ['Google', 'McKinsey', 'BCG', 'EY', 'Accenture', 'Spotify', 'Wise'],
-        extra_brand_bonuses: [{ company: 'Google', bonus: 1.0, reason: 'priority target' }],
-        dream_companies: [],  // intentionally empty so we test pure +0.6 + +1.0 stacking, not the dream override
-        has_structured_onboarding: false,
+        brand_affinity_companies: ['Contoso Mobility', 'Fabrikam Consulting'],
+        extra_brand_bonuses: [{ company: 'Contoso Mobility', bonus: 1.0, reason: 'priority target' }],
+        dream_companies: [],
       },
-      judgment_scores: {
-        skills_match: 7, ease_of_entry: 5, strategic_fit: 7,
-        growth_mobility: 7, optionality_exit: 9, brand_value: 8,
-        sales_trap_risk: 6, work_life_balance: 8, best_cities: 8,
-      },
-    },
+      judgment_scores: JS({ brand_value: 8 }),
+    }),
     expect: {
-      // Brand: raw 8 + 0.6 (affinity) + 1.0 (Google extra_bonus) = 9.6
       'calibrated_dims.brand_value.final': 9.6,
     },
   },
   {
-    name: 'Dream-company override — Brand floored to 10 + AF floor to 8',
-    input: {
-      company: 'Google', role_archetype: 'AI Solutions Consultant',
+    name: 'Lower-tier dream — Brand +1.0, no override, no Want floor',
+    input: fx({
+      company: 'Litware Labs', role_archetype: 'Operations Analyst',
       city: 'Dublin', country: 'IE',
-      comp: { base: 55000 },
-      tax_override: { rate: 0.30, source: 'fixture' },
+      comp: { base: 45000 },
+      tax_override: { rate: 0.25, source: 'fixture' },
       col_override: { baseline_eur: 3000, source: 'fixture' },
-      soft_benefits_modifier: 0,
-      calibration: {
-        dream_companies: ['Google'],
-        has_structured_onboarding: false,
-      },
-      judgment_scores: {
-        skills_match: 6, ease_of_entry: 5, strategic_fit: 6,
-        growth_mobility: 6, optionality_exit: 7, brand_value: 5,  // raw 5 to verify dream-company floor to 10
-        sales_trap_risk: 6, work_life_balance: 7, best_cities: 8,
-      },
-    },
+      calibration: { dream_companies: ['Northwind Analytics'], lower_tier_dream_companies: ['Litware Labs'] },
+      judgment_scores: JS({ growth_mobility: 6, optionality_exit: 6, brand_value: 6, role_content: 6 }),
+    }),
     expect: {
-      'calibrated_dims.brand_value.final': 10,
-      // AF = (6 + 7 + 10) / 3 = 7.67 → dream floor lifts to 8.0
-      'aspirational_fit': 8,
-    },
-  },
-  {
-    name: 'Lower-tier dream — Brand +1.0 bonus, no override, no AF floor',
-    input: {
-      company: 'Microsoft', role_archetype: 'Sales Operations Intern',
-      city: 'Dublin', country: 'IE',
-      comp: { base: 25200 },
-      tax_override: { rate: 0.12, source: 'fixture' },
-      col_override: { baseline_eur: 3000, source: 'fixture' },
-      is_intern: true,
-      soft_benefits_modifier: 0,
-      calibration: {
-        dream_companies: ['Google'],
-        lower_tier_dream_companies: ['Mastercard', 'Glovo', 'Celonis', 'Amazon', 'Microsoft'],
-        has_structured_onboarding: false,
-      },
-      judgment_scores: {
-        skills_match: 8, ease_of_entry: 5, strategic_fit: 8,
-        growth_mobility: 8, optionality_exit: 9, brand_value: 8,  // raw 8 → +1.0 → 9
-        sales_trap_risk: 8, work_life_balance: 7, best_cities: 8,
-      },
-    },
-    expect: {
-      // Brand: 8 + 1.0 (lower-tier dream) = 9 — stacks but no override to 10
-      'calibrated_dims.brand_value.final': 9,
-      // AF = (8 + 9 + 9) / 3 = 8.67 — no dream-company AF floor (lower tier doesn't floor)
-      'aspirational_fit': 8.67,
-      'aspirational_fit_floor': null,
+      'calibrated_dims.brand_value.final': 7,
+      'want.floor': null,
     },
   },
   {
     name: 'Structured onboarding calibration — Growth raw 7 → final 8',
-    input: {
-      company: 'Acme', role_archetype: 'Data Analyst',
+    input: fx({
+      company: 'Fabrikam Consulting', role_archetype: 'Data Analyst',
       city: 'Berlin', country: 'DE',
       comp: { base: 45000 },
       tax_override: { rate: 0.36, source: 'fixture' },
       col_override: { baseline_eur: 2200, source: 'fixture' },
-      soft_benefits_modifier: 0,
-      calibration: {
-        has_structured_onboarding: true,
-        has_sink_or_swim_signal: false,
-      },
-      judgment_scores: {
-        skills_match: 7, ease_of_entry: 7, strategic_fit: 7,
-        growth_mobility: 7, optionality_exit: 7, brand_value: 6,
-        sales_trap_risk: 7, work_life_balance: 7, best_cities: 8,
-      },
-    },
+      calibration: { has_structured_onboarding: true, has_sink_or_swim_signal: false },
+      judgment_scores: JS(),
+    }),
     expect: {
-      'calibrated_dims.growth_mobility.final': 8,  // raw 7 + 1.0 onboarding
+      'calibrated_dims.growth_mobility.final': 8,
+      'dims.growth_mobility': 8,
     },
   },
 ];
@@ -622,20 +682,33 @@ function getDeep(obj, path) {
   return path.split('.').reduce((o, k) => o?.[k], obj);
 }
 
-for (const fx of FIXTURES) {
+for (const fixture of FIXTURES) {
   try {
-    const result = await scoreListing(fx.input);
-    let ok = true;
-    const mismatches = [];
-    for (const [path, expected] of Object.entries(fx.expect)) {
+    const result = await scoreListing(fixture.input);
+    let ok = !result.error;
+    const mismatches = result.error ? [`error: ${result.error} — ${result.message}`] : [];
+    for (const [path, expected] of Object.entries(fixture.expect)) {
       const actual = getDeep(result, path);
-      if (actual !== expected) { ok = false; mismatches.push(`${path}: got ${actual}, want ${expected}`); }
+      if (actual !== expected) { ok = false; mismatches.push(`${path}: got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`); }
     }
-    if (ok) pass(fx.name);
-    else    fail(`${fx.name} — ${mismatches.join('; ')}`);
+    if (fixture.check && !fixture.check(result)) { ok = false; mismatches.push('custom check failed'); }
+    if (ok) pass(fixture.name);
+    else    fail(`${fixture.name} — ${mismatches.join('; ')}`);
   } catch (e) {
-    fail(`${fx.name} — threw: ${e.message}`);
+    fail(`${fixture.name} — threw: ${e.message}`);
   }
+}
+
+// --eligibility-only returns just the gate, with no comp / scores needed.
+try {
+  const r = await scoreListing(
+    { today: FX_TODAY, eligibility_profile: FX_PROFILE, scoring_weights: {}, country: 'DE', eligibility_facts: FX_INTERN_FACTS },
+    { eligibilityOnly: true },
+  );
+  if (Object.keys(r).join(',') === 'eligibility' && r.eligibility.status === 'green') pass('--eligibility-only returns only { eligibility }');
+  else fail(`--eligibility-only — got keys ${Object.keys(r).join(',')}, status ${r.eligibility?.status}`);
+} catch (e) {
+  fail(`--eligibility-only — threw: ${e.message}`);
 }
 
 // ── SUMMARY ─────────────────────────────────────────────────────

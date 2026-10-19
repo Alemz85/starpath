@@ -9,9 +9,14 @@
  * (so positioning trajectory is not disrupted), with the Promotion Hint column
  * flipped to PROMOTED-{num}.
  *
+ * The Score cell on the new applications row is the v2 "W8.3 E5.6" form built
+ * from the scouting row's Want / Ease; tier + eligibility go into the Notes text.
+ * A Blocked row (red eligibility, Want/Ease "—") is refused — a blocked listing
+ * has nothing to apply to. A `skip` verdict is allowed but warned about
+ * (docs/scoring-v2.md §4 ethical-use rule).
+ *
  * Scouting-row parsing lives in lib/scouting-core.mjs (pure + unit-tested) —
- * which is deadline-column-aware, so the Report / Deadline / Hint / Notes cells
- * map correctly on the current 11-column scouting.md format.
+ * the 12-column v2 scouting.md format.
  *
  * Run: node career-ops/promote-to-applications.mjs <scouting-num> [--dry-run]
  *
@@ -24,9 +29,10 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { companyKey, parseScoutingRow, formatScoutingRow } from './lib/scouting-core.mjs';
+import { companyKey, parseScoutingRow, formatScoutingRow, verdictFromCells, VERDICT_TIERS } from './lib/scouting-core.mjs';
+import { formatScoreCell } from './lib/tracker-core.mjs';
 
-const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
+const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
 const APPS_FILE = join(CAREER_OPS, 'data/applications.md');
 const DRY_RUN = process.argv.includes('--dry-run');
@@ -72,7 +78,19 @@ if (!scoutingRow) {
 }
 
 console.log(`📋 Found scouting entry #${targetNum}: ${scoutingRow.company} — ${scoutingRow.role}`);
-console.log(`   Score: ${scoutingRow.score} (${scoutingRow.tier}, CF/AF ${scoutingRow.cfAf})`);
+console.log(`   Want ${scoutingRow.want} · Ease ${scoutingRow.ease} (${scoutingRow.tier}, eligibility ${scoutingRow.eligibility})`);
+
+// Blocked listings are never promoted: no Want/Ease, nothing to apply to.
+const { verdict } = verdictFromCells({
+  want: scoutingRow.wantNum, ease: scoutingRow.easeNum, eligibility: scoutingRow.eligibility,
+});
+if (verdict === 'blocked' || scoutingRow.wantNum === null || scoutingRow.easeNum === null) {
+  console.error(`⛔ Scouting entry #${targetNum} is Blocked (${scoutingRow.eligibility}). Blocked listings are not promoted.`);
+  process.exit(1);
+}
+if (verdict === 'skip') {
+  console.warn(`⚠️  Verdict is "skip" (${VERDICT_TIERS.skip}) — the model recommends against applying. Proceeding only because you asked.`);
+}
 
 // Find max applications.md number
 let maxAppNum = 0;
@@ -98,11 +116,12 @@ for (const line of appsLines) {
 
 const newAppNum = maxAppNum + 1;
 const today = new Date().toISOString().slice(0, 10);
-const promotionNote = `Promoted from scouting #${targetNum} (${scoutingRow.tier}, CF/AF ${scoutingRow.cfAf}). ${scoutingRow.notes}`.trim();
+const scoreCell = formatScoreCell(scoutingRow.wantNum, scoutingRow.easeNum);
+const promotionNote = `Promoted from scouting #${targetNum} (${scoutingRow.tier}, ${scoutingRow.eligibility}). ${scoutingRow.notes}`.trim().replace(/\|/g, '/');
 
 // applications.md is 10-column: # date company role score status pdf deadline report notes
 // (matches what merge-tracker writes). Carry the posting's deadline forward.
-const newAppLine = `| ${newAppNum} | ${today} | ${scoutingRow.company} | ${scoutingRow.role} | ${scoutingRow.score} | Evaluated | ❌ | ${scoutingRow.deadline || 'n/d'} | ${scoutingRow.report} | ${promotionNote} |`;
+const newAppLine = `| ${newAppNum} | ${today} | ${scoutingRow.company} | ${scoutingRow.role} | ${scoreCell} | Evaluated | ❌ | ${scoutingRow.deadline || 'n/d'} | ${scoutingRow.report} | ${promotionNote} |`;
 
 console.log(`\n➕ New applications.md entry #${newAppNum}:`);
 console.log(`   ${newAppLine}`);

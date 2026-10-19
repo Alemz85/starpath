@@ -4,7 +4,7 @@
 
 Decide whether a course or certification is **worth it for your actual targeting** — not in the abstract. The honest question is never "is this a good course?" but "does this close a gap that's dragging *my* evaluations down, for roles *I'm* actually targeting, at a cost proportionate to the payoff?"
 
-This mode answers that by grounding the verdict in `data/score-history.tsv` — the accumulated fingerprint of every scouting evaluation. A cert that lifts a dimension already scoring well is a vanity purchase; one that attacks the dimension most often holding Overall down (the systemic **dimension drag**) has real leverage.
+This mode answers that by grounding the verdict in `data/score-history.tsv` — the accumulated fingerprint of every scouting evaluation. A cert that lifts a dimension already scoring well is a vanity purchase; one that attacks the dimension most often holding Want or Ease down (the systemic **dimension drag**) has real leverage — and since most trainings move Ease dimensions, the Ease drag is usually where the verdict lives.
 
 **When to use:** the user pastes or describes a course / cert / bootcamp / degree module and asks "should I do this?", "is X worth it?", "will this help me get hired?".
 
@@ -40,18 +40,19 @@ Before reasoning about the specific course, look at where the user's systemic dr
 node scripts/training-roi.mjs --drag --summary
 ```
 
-This prints the 6 scoring dimensions weakest-first. The top of that list is the gap with the most cross-archetype leverage — the thing a training is *worth* closing. Hold it in mind: if the course the user is asking about doesn't touch the top drag(s), that's the first thing to surface.
+This prints the judgment dimensions weakest-first (Blocked rows excluded). The top of that list is the gap with the most cross-archetype leverage — the thing a training is *worth* closing. Hold it in mind: if the course the user is asking about doesn't touch the top drag(s), that's the first thing to surface.
 
 ### Step 2 — Translate the course into a structured offer
 
 Read the course description (and WebFetch/WebSearch its syllabus if a URL is given) and derive — **using your judgment, grounded in `user/cv.md` and `_profile.md`** — these fields:
 
-- **`targetDimensions`** — which of the 6 scored dimensions the training would actually lift, in canonical terms. Map honestly:
+- **`targetDimensions`** — which of the scored dimensions the training would actually lift, in canonical terms. Map honestly:
   - A hands-on course that teaches a tool/stack the user lacks → `skills_match`.
-  - A recognized credential or a structured program that clears an experience/credential gate → `ease_of_entry`.
-  - Training that deepens analytical/strategic capability for the day-to-day work → `strategic_fit`.
+  - A recognized credential or a structured program that clears an experience / prior-background bar → `experience_bar`.
+  - A credential or programme that makes the candidate stand out in a crowded pool (a recognized cert recruiters screen for, a partner-school track) → `competition`.
   - A prestigious brand-name credential (top university cert, marquee program) → `brand_value`.
-  - (Aliases like "ease of entry", "skills", "brand", "analytical" are accepted by the script.)
+  - (Aliases like "experience", "skills", "brand", "competition" are accepted by the script.)
+  - Training cannot fix Role content (that's the role, not the candidate) or an eligibility wall — except a language course that closes a `language` amber/red, which is worth naming explicitly.
   - Be skeptical: most courses claim to lift everything. Name the **1–2** dimensions it genuinely moves for *this* user given what's already on their CV. A course teaching a tool the CV already lists lifts nothing.
 - **`mappedArchetypes`** — the archetype(s) from `_profile.md` this training serves. Use the exact archetype strings the user is evaluated under in `score-history.tsv` so the script can match them.
 - **`weeks`, `hoursPerWeek`, `costEur`** — the real time + money commitment (from the syllabus or the user's estimate).
@@ -69,7 +70,7 @@ Example offer JSON (illustrative — substitute the user's real values, do not c
 ```json
 {
   "name": "<course name>",
-  "targetDimensions": ["skills_match", "ease_of_entry"],
+  "targetDimensions": ["skills_match", "experience_bar"],
   "mappedArchetypes": ["<archetype from _profile.md>"],
   "weeks": 6,
   "hoursPerWeek": 8,
@@ -79,7 +80,7 @@ Example offer JSON (illustrative — substitute the user's real values, do not c
 }
 ```
 
-The script returns a deterministic verdict (`WORTH_IT` / `TIMEBOX` / `SKIP`), a one-line headline, and an ordered reasoning **trace**. The trace is computed from the same drag/archetype math as `positioning` and `patterns`, so it can't contradict them. **Render the trace lines verbatim** — they're the audit trail, exactly like the scouting `## Why this score` block.
+The script returns a deterministic verdict (`WORTH_IT` / `TIMEBOX` / `SKIP`), a one-line headline, and an ordered reasoning **trace**. The trace is computed from the same drag/archetype math as `positioning` and `patterns`, so it can't contradict them. **Render the trace lines verbatim** — they're the audit trail, the way the scouting tables are the audit trail for a report.
 
 ### Step 4 — Write the verdict to the user
 
