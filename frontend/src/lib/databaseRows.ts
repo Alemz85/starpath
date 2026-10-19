@@ -18,16 +18,25 @@ import { canonicalizeArchetype } from './archetype'
 import { parseCities, entityId } from './entityId'
 import { matchesTokenQuery, type TokenFilters } from './databaseQuery'
 import { livenessKey, type Liveness } from './scanHistory'
+import { isBlocked, isScored, priorityOf, verdictOf } from './scoreBands'
 
 export interface DbFilters {
   companies: Set<string>
   locations: Set<string>
   archetypes: Set<string>
   tiers: Set<string>
+  /** Verdict keys (go / stretch / … / blocked). */
+  verdicts: Set<string>
+  /** green / amber / red. */
+  eligibilities: Set<string>
   employmentTypes: Set<string>
   liveness: Set<Liveness>
-  scoreMin: number
-  scoreMax: number
+  /** Per-axis ranges (scoring v2 has no Overall). A narrowed range keeps
+   *  scored rows only — a blocked row has no Want/Ease to range over. */
+  wantMin: number
+  wantMax: number
+  easeMin: number
+  easeMax: number
 }
 
 export interface DbFacetOptions {
@@ -35,6 +44,8 @@ export interface DbFacetOptions {
   locations: string[]
   archetypes: string[]
   tiers: string[]
+  verdicts: string[]
+  eligibilities: string[]
   employmentTypes: string[]
 }
 
@@ -43,14 +54,42 @@ export interface DbFacetCounts {
   locations: Record<string, number>
   archetypes: Record<string, number>
   tiers: Record<string, number>
+  verdicts: Record<string, number>
+  eligibilities: Record<string, number>
   employmentTypes: Record<string, number>
   liveness: Record<string, number>
 }
 
+/** Verdict facet order: best cell first, Blocked last. */
+export const VERDICT_FACET_ORDER = ['go', 'stretch', 'solid', 'growth', 'thin', 'skip', 'blocked']
+export const ELIGIBILITY_FACET_ORDER = ['green', 'amber', 'red']
+
+/** True when a range filter is narrowed from its 0–10 default. */
+export function rangeActive(f: Pick<DbFilters, 'wantMin' | 'wantMax' | 'easeMin' | 'easeMax'>): boolean {
+  return f.wantMin > 0 || f.wantMax < 10 || f.easeMin > 0 || f.easeMax < 10
+}
+
+function inRanges(r: ScoreEntry, f: DbFilters): boolean {
+  if (!rangeActive(f)) return true
+  if (!isScored(r)) return false
+  const w = r.want as number
+  const e = r.ease as number
+  return w >= f.wantMin && w <= f.wantMax && e >= f.easeMin && e <= f.easeMax
+}
+
+/** A real evaluation: scored, or blocked (shown with its reason). Rows with
+ *  neither (placeholders) are hidden unless the zero-score toggle is on. */
+export function isEvaluated(r: ScoreEntry): boolean {
+  return isScored(r) || isBlocked(r)
+}
+
+const verdictKey = (r: ScoreEntry): string => verdictOf(r) ?? ''
+const eligKey = (r: ScoreEntry): string => r.eligibility ?? ''
+
 // Global constraints that gate every facet dimension AND the rendered rows:
-// the search tokens, free text, zero-score toggle, score range (inside
-// `filters`), and the raw company|role → liveness map. `liveness` is resolved
-// per row via livenessOf (defaulting to 'active' for unseen listings).
+// the search tokens, free text, unevaluated-row toggle, Want/Ease ranges
+// (inside `filters`), and the raw company|role → liveness map. `liveness` is
+// resolved per row via livenessOf (defaulting to 'active' for unseen listings).
 export interface DbGlobalContext {
   filters: DbFilters
   tokenFilters: TokenFilters
@@ -95,7 +134,9 @@ export function buildFacetOptions(scoreHistory: ScoreEntry[]): DbFacetOptions {
     companies:       [...new Set(scoreHistory.map(s => s.company))].sort(),
     locations:       [...new Set(scoreHistory.flatMap(s => parseCities(s.location).cities))].sort(),
     archetypes:      [...new Set(scoreHistory.map(s => canonicalizeArchetype(s.archetype)).filter(Boolean))].sort(),
-    tiers:           ['T1', 'T2-high', 'T2', 'T3', 'T4'],
+    tiers:           ['T1', 'T2', 'T3', 'T4'],
+    verdicts:        VERDICT_FACET_ORDER,
+    eligibilities:   ELIGIBILITY_FACET_ORDER,
     employmentTypes: [...new Set(scoreHistory.map(s => s.employment_type).filter(Boolean))].sort(),
   }
 }
@@ -114,7 +155,8 @@ export function buildActedKeys(applications: ApplicationEntry[]): Set<string> {
 // Apply every entity-level filter and group siblings into parent rows. Output
 // is one row per (company, role-canonical) group; each parent carries its
 // `siblings` array (undefined when the group is a single entity) and its
-// resolved `livenessState`, sorted by overall desc. Liveness is applied at the
+// resolved `livenessState`, sorted by Priority desc (the v2 sort key; blocked
+// rows have none and sort last). Liveness is applied at the
 // GROUP level — a group is visible if ANY sibling's state is in the filter set
 // — so a role with one closed and one active city still shows.
 export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterContext): ScoreEntry[] {
@@ -123,7 +165,7 @@ export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterCont
 
   let rows: ScoreEntry[] = entities
 
-  if (!showClosed) rows = rows.filter(r => r.overall > 0)
+  if (!showClosed) rows = rows.filter(isEvaluated)
   if (untappedOnly) rows = rows.filter(r => !actedKeys.has(livenessKey(r.company, r.role)))
   if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
   if (filters.locations.size) {
@@ -134,13 +176,11 @@ export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterCont
     })
   }
   if (filters.archetypes.size) rows = rows.filter(r => filters.archetypes.has(canonicalizeArchetype(r.archetype)))
-  if (filters.tiers.size) {
-    rows = rows.filter(r => filters.tiers.has(r.tier) || (r.tier === 'T2-high' && filters.tiers.has('T2')))
-  }
+  if (filters.tiers.size) rows = rows.filter(r => filters.tiers.has(r.tier))
+  if (filters.verdicts.size) rows = rows.filter(r => filters.verdicts.has(verdictKey(r)))
+  if (filters.eligibilities.size) rows = rows.filter(r => filters.eligibilities.has(eligKey(r)))
   if (filters.employmentTypes.size) rows = rows.filter(r => filters.employmentTypes.has(r.employment_type))
-  if (filters.scoreMin > 0 || filters.scoreMax < 10) {
-    rows = rows.filter(r => r.overall >= filters.scoreMin && r.overall <= filters.scoreMax)
-  }
+  rows = rows.filter(r => inRanges(r, filters))
   // Token search + free text via the shared matcher so this and the facet-count
   // predicate can't drift.
   rows = rows.filter(r => matchesTokenQuery(r, tokenFilters, freeText))
@@ -160,11 +200,11 @@ export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterCont
     const visible = members.some(m => filters.liveness.has(lvOf(m)))
     if (!visible) continue
 
-    // Primary = best active sibling (highest overall). If no active siblings,
-    // fall back to most recent historical.
+    // Primary = best active sibling (highest Priority). If no active
+    // siblings, fall back to most recent historical.
     const active = members.filter(m => lvOf(m) === 'active')
     const primary = active.length > 0
-      ? [...active].sort((a, b) => b.overall - a.overall)[0]
+      ? [...active].sort((a, b) => prio(b) - prio(a))[0]
       : [...members].sort((a, b) => b.date.localeCompare(a.date))[0]
 
     const others = members.filter(m => m !== primary)
@@ -175,14 +215,19 @@ export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterCont
     })
   }
 
-  return grouped.sort((a, b) => b.overall - a.overall)
+  return grouped.sort((a, b) => prio(b) - prio(a))
+}
+
+/** Priority as a sort number; blocked/unscored rows sort below every score. */
+function prio(e: ScoreEntry): number {
+  return priorityOf(e) ?? -1
 }
 
 // Per-option facet counts (Amazon-style): each dimension is counted with every
 // OTHER active facet applied but its own selection ignored, so a count answers
 // "if I toggle this option, how many entities land?". Counted at the entity
 // level to match the option universe. Global constraints (search tokens, free
-// text, zero-score toggle, score range) gate every dimension.
+// text, unevaluated toggle, Want/Ease ranges) gate every dimension.
 //
 // The "Untapped only" lens gates these counts too — like every faceted-search
 // UI, a count must agree with the rows the user actually sees, so an already-
@@ -194,44 +239,45 @@ export function computeFacetCounts(entities: ScoreEntry[], ctx: DbFilterContext)
   const lvOf = (e: ScoreEntry) => livenessOf(e, liveness)
 
   const passGlobal = (r: ScoreEntry): boolean => {
-    if (!showClosed && !(r.overall > 0)) return false
+    if (!showClosed && !isEvaluated(r)) return false
     if (untappedOnly && actedKeys.has(livenessKey(r.company, r.role))) return false
-    if (r.overall < filters.scoreMin || r.overall > filters.scoreMax) return false
+    if (!inRanges(r, filters)) return false
     return matchesTokenQuery(r, tokenFilters, freeText)
   }
 
-  const passCompany   = (r: ScoreEntry) => !filters.companies.size || filters.companies.has(r.company)
-  const passLocation  = (r: ScoreEntry) => {
-    if (!filters.locations.size) return true
-    const cities = parseCities(r.location).cities
-    return cities.length === 0 ? filters.locations.has(r.location) : cities.some(c => filters.locations.has(c))
+  // One predicate + one bucketing per facet dimension. A dimension's count is
+  // taken with every OTHER dimension's selection applied, its own ignored.
+  type Dim = { pass: (r: ScoreEntry) => boolean; keys: (r: ScoreEntry) => string[]; out: Record<string, number> }
+  const set = (sel: Set<string>, k: string) => !sel.size || sel.has(k)
+  const dims: Record<keyof DbFacetCounts, Dim> = {
+    companies: { pass: r => set(filters.companies, r.company), keys: r => [r.company], out: {} },
+    locations: {
+      pass: r => {
+        if (!filters.locations.size) return true
+        const cities = parseCities(r.location).cities
+        return cities.length === 0 ? filters.locations.has(r.location) : cities.some(c => filters.locations.has(c))
+      },
+      keys: r => { const c = parseCities(r.location).cities; return c.length ? c : [r.location] },
+      out: {},
+    },
+    archetypes: { pass: r => set(filters.archetypes, canonicalizeArchetype(r.archetype)), keys: r => [canonicalizeArchetype(r.archetype)], out: {} },
+    tiers: { pass: r => set(filters.tiers, r.tier), keys: r => [r.tier], out: {} },
+    verdicts: { pass: r => set(filters.verdicts, verdictKey(r)), keys: r => [verdictKey(r)], out: {} },
+    eligibilities: { pass: r => set(filters.eligibilities, eligKey(r)), keys: r => [eligKey(r)], out: {} },
+    employmentTypes: { pass: r => set(filters.employmentTypes, r.employment_type), keys: r => [r.employment_type], out: {} },
+    liveness: { pass: r => (filters.liveness as Set<string>).has(lvOf(r)), keys: r => [lvOf(r)], out: {} },
   }
-  const passArchetype = (r: ScoreEntry) => !filters.archetypes.size || filters.archetypes.has(canonicalizeArchetype(r.archetype))
-  const passTier      = (r: ScoreEntry) => !filters.tiers.size || filters.tiers.has(r.tier) || (r.tier === 'T2-high' && filters.tiers.has('T2'))
-  const passType      = (r: ScoreEntry) => !filters.employmentTypes.size || filters.employmentTypes.has(r.employment_type)
-  const passLiveness  = (r: ScoreEntry) => filters.liveness.has(lvOf(r))
-
-  const companies: Record<string, number> = {}
-  const locations: Record<string, number> = {}
-  const archetypes: Record<string, number> = {}
-  const tiers: Record<string, number> = {}
-  const employmentTypes: Record<string, number> = {}
-  const liv: Record<string, number> = {}
-  const bump = (m: Record<string, number>, k: string) => { if (k) m[k] = (m[k] ?? 0) + 1 }
+  const names = Object.keys(dims) as Array<keyof DbFacetCounts>
 
   for (const r of entities) {
     if (!passGlobal(r)) continue
-    if (passLocation(r) && passArchetype(r) && passTier(r) && passType(r) && passLiveness(r)) bump(companies, r.company)
-    if (passCompany(r) && passArchetype(r) && passTier(r) && passType(r) && passLiveness(r)) {
-      const cities = parseCities(r.location).cities
-      for (const c of (cities.length ? cities : [r.location])) bump(locations, c)
-    }
-    if (passCompany(r) && passLocation(r) && passTier(r) && passType(r) && passLiveness(r)) bump(archetypes, canonicalizeArchetype(r.archetype))
-    if (passCompany(r) && passLocation(r) && passArchetype(r) && passType(r) && passLiveness(r)) bump(tiers, r.tier === 'T2-high' ? 'T2' : r.tier)
-    if (passCompany(r) && passLocation(r) && passArchetype(r) && passTier(r) && passLiveness(r)) bump(employmentTypes, r.employment_type)
-    if (passCompany(r) && passLocation(r) && passArchetype(r) && passTier(r) && passType(r)) bump(liv, lvOf(r))
+    const passes = names.map(n => dims[n].pass(r))
+    names.forEach((n, i) => {
+      if (!passes.every((p, j) => j === i || p)) return
+      for (const k of dims[n].keys(r)) if (k) dims[n].out[k] = (dims[n].out[k] ?? 0) + 1
+    })
   }
-  return { companies, locations, archetypes, tiers, employmentTypes, liveness: liv }
+  return Object.fromEntries(names.map(n => [n, dims[n].out])) as unknown as DbFacetCounts
 }
 
 // Flatten grouped rows back to one entity per line for export — the table

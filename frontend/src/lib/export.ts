@@ -5,17 +5,30 @@
 
 import type { ScoreEntry } from '@/types'
 import { canonicalizeArchetype } from './archetype'
+import { parseEligibilityFlags, verdictOf } from './scoreBands'
 
 export interface ExportColumn {
   header: string
   value: (e: ScoreEntry) => string
 }
 
-// One-decimal score, or blank when the dimension is unscored (≤0). Blank
-// rather than "0.0" so the spreadsheet treats it as missing, not as a
-// real zero that would skew any averages the user computes downstream.
-const score = (n: number | undefined): string =>
-  typeof n === 'number' && n > 0 ? n.toFixed(1) : ''
+// Two-decimal score (Want / Ease are stored to 2dp), or blank when missing
+// (blocked / unscored). Blank rather than "0.00" so the spreadsheet treats it
+// as missing, not as a real zero that would skew downstream averages.
+const score = (n: number | null | undefined): string =>
+  typeof n === 'number' && n > 0 ? String(Math.round(n * 100) / 100) : ''
+
+// The scouting.md Eligibility cell form (docs/scoring-v2.md §8.2): `green`,
+// `amber: <reasons ;-joined>`, `red: <reason>`.
+const eligibilityCell = (e: ScoreEntry): string => {
+  if (!e.eligibility) return ''
+  if (e.eligibility === 'green') return 'green'
+  const reasons = parseEligibilityFlags(e.eligibility_flags)
+    .filter(f => f.status === e.eligibility)
+    .map(f => f.reason)
+    .filter(Boolean)
+  return reasons.length ? `${e.eligibility}: ${reasons.join('; ')}` : e.eligibility
+}
 
 // Mirrors the columns a user actually reads in the OffersTable, plus the
 // raw URL (the table only shows it as an icon). Archetype is canonicalized
@@ -23,9 +36,10 @@ const score = (n: number | undefined): string =>
 export const DATABASE_EXPORT_COLUMNS: ExportColumn[] = [
   { header: 'Company',          value: e => e.company },
   { header: 'Role',             value: e => e.role },
-  { header: 'Score',            value: e => score(e.overall) },
-  { header: 'Current Fit',      value: e => score(e.current_fit) },
-  { header: 'Aspirational Fit', value: e => score(e.aspirational_fit) },
+  { header: 'Want',             value: e => score(e.want) },
+  { header: 'Ease',             value: e => score(e.ease) },
+  { header: 'Eligibility',      value: eligibilityCell },
+  { header: 'Verdict',          value: e => verdictOf(e) ?? '' },
   { header: 'Tier',             value: e => e.tier || '' },
   { header: 'Location',         value: e => e.location || '' },
   { header: 'Archetype',        value: e => canonicalizeArchetype(e.archetype) },

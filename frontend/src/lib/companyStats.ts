@@ -1,43 +1,49 @@
 // Aggregate stats for the per-company dossier (CompanyView). Pure over the
 // company's score-history rows so the numbers are testable in isolation —
 // the view layers application status + the roles table on top.
+//
+// Scoring v2: Want and Ease are reported separately (no Overall); "best" is
+// the row with the highest Priority (the sort key) and its verdict; blocked
+// rows count as evaluations but never as scored.
 
-import type { ScoreEntry } from '@/types'
+import type { ScoreEntry, Verdict } from '@/types'
 import { parseCities } from './entityId'
+import { isScored, normalizeTier, priorityOf, verdictOf, VERDICT_RANK } from './scoreBands'
 
 export interface CompanyStats {
   /** Total score-history rows on disk for this company. */
   evalCount: number
   /** Distinct roles evaluated (case-insensitive). */
   roleCount: number
-  /** Rows carrying a real score (> 0) — the denominator for averages. */
+  /** Rows carrying Want and Ease (blocked excluded) — the average base. */
   scoredCount: number
-  /** Highest overall seen (0 when nothing is scored yet). */
-  bestScore: number
-  /** Mean overall across scored rows (0 when none). */
-  avgScore: number
-  /** Strongest tier present, normalized (T2-high → T2). null when none. */
+  /** Blocked (eligibility red) evaluations. */
+  blockedCount: number
+  /** Want / Ease of the highest-Priority row (null when nothing is scored). */
+  best: { want: number; ease: number; verdict: Verdict | null } | null
+  /** Mean Want / Ease across scored rows (null when none). */
+  avgWant: number | null
+  avgEase: number | null
+  /** Best verdict present (blocked counts — it is a verdict). null when none. */
+  bestVerdict: Verdict | null
+  /** Strongest storage tier present. null when none. */
   bestTier: string | null
   /** Distinct cities across every evaluation, sorted. */
   cities: string[]
 }
 
-// T1 is strongest; T2-high sits just under T1 in the backend scoring math
-// but collapses to T2 for display (matches the ingest normalization).
-const TIER_RANK: Record<string, number> = {
-  'T1': 4, 'T2-high': 3, 'T2': 2, 'T3': 1, 'T4': 0,
-}
-
-function normalizeTier(tier: string): string {
-  return tier === 'T2-high' ? 'T2' : tier
-}
+const TIER_RANK: Record<string, number> = { T1: 4, T2: 2, T3: 1, T4: 0 }
 
 export function computeCompanyStats(history: ScoreEntry[]): CompanyStats {
   const roles = new Set<string>()
   const cities = new Set<string>()
-  let bestScore = 0
-  let scoreSum = 0
+  let wantSum = 0
+  let easeSum = 0
   let scoredCount = 0
+  let blockedCount = 0
+  let best: CompanyStats['best'] = null
+  let bestPriority = -1
+  let bestVerdict: Verdict | null = null
   let bestTier: string | null = null
   let bestTierRank = -1
 
@@ -45,16 +51,26 @@ export function computeCompanyStats(history: ScoreEntry[]): CompanyStats {
     if (e.role.trim()) roles.add(e.role.trim().toLowerCase())
     for (const c of parseCities(e.location).cities) cities.add(c)
 
-    if (e.overall > 0) {
+    const v = verdictOf(e)
+    if (v && (bestVerdict == null || VERDICT_RANK[v] > VERDICT_RANK[bestVerdict])) bestVerdict = v
+    if (v === 'blocked') blockedCount += 1
+
+    if (isScored(e)) {
       scoredCount += 1
-      scoreSum += e.overall
-      if (e.overall > bestScore) bestScore = e.overall
+      wantSum += e.want as number
+      easeSum += e.ease as number
+      const p = priorityOf(e) ?? 0
+      if (p > bestPriority) {
+        bestPriority = p
+        best = { want: e.want as number, ease: e.ease as number, verdict: v }
+      }
     }
 
-    const rank = TIER_RANK[e.tier] ?? -1
-    if (rank > bestTierRank) {
+    const tier = normalizeTier(e.tier)
+    const rank = tier ? TIER_RANK[tier] : -1
+    if (tier && rank > bestTierRank) {
       bestTierRank = rank
-      bestTier = normalizeTier(e.tier)
+      bestTier = tier
     }
   }
 
@@ -62,8 +78,11 @@ export function computeCompanyStats(history: ScoreEntry[]): CompanyStats {
     evalCount: history.length,
     roleCount: roles.size,
     scoredCount,
-    bestScore,
-    avgScore: scoredCount > 0 ? scoreSum / scoredCount : 0,
+    blockedCount,
+    best,
+    avgWant: scoredCount > 0 ? wantSum / scoredCount : null,
+    avgEase: scoredCount > 0 ? easeSum / scoredCount : null,
+    bestVerdict,
     bestTier,
     cities: [...cities].sort(),
   }

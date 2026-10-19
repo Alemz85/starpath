@@ -67,7 +67,7 @@ export const ipc = {
     reports:                (f?: { tier?: string; search?: string }) =>
                               api().dbReports(f) as Promise<DbReportRow[]>,
     applicationsWithScores: () =>
-                              api().dbApplicationsWithScores() as Promise<Array<DbApplicationRow & { overall: number | null; current_fit: number | null; aspirational_fit: number | null; archetype: string | null }>>,
+                              api().dbApplicationsWithScores() as Promise<DbApplicationWithScoreRow[]>,
     trends:                 () =>
                               api().dbTrends() as Promise<DbTrends>,
     resync:                 () => api().dbResync() as Promise<unknown>,
@@ -131,7 +131,10 @@ export const ipc = {
 
 export interface DbApplicationRow {
   num: number; date: string; company: string; role: string
-  score_raw: string; score_num: number | null
+  /** Raw Score cell — `W8.3 E5.6` (v2) or a legacy `7.4/10`. */
+  score_raw: string
+  /** Parsed from score_raw (docs/scoring-v2.md §8.3); null when absent. */
+  want: number | null; ease: number | null; legacy_score: number | null
   status: string; pdf: number; deadline: string; report: string; notes: string
   tier: string
   /** Computed at sync time from (company, role, latest location). Stable
@@ -145,20 +148,32 @@ export interface DbApplicationRow {
 
 export interface DbScoutingRow {
   num: number; date: string; company: string; role: string
-  score_raw: string; score_num: number | null
-  tier: string; cfaf: string; report: string
+  want: number | null; ease: number | null
+  tier: string; eligibility: string | null; eligibility_reason: string; report: string
   deadline: string; promotion_hint: string; notes: string
   entity_id: string
   cities: string
 }
 
+export interface DbApplicationWithScoreRow extends DbApplicationRow {
+  /** Latest score-history evaluation for the same (company, role). */
+  sh_want: number | null; sh_ease: number | null
+  priority: number | null; verdict: string | null; eligibility: string | null
+  archetype: string | null; sh_date: string | null
+}
+
+/** v2 score_history row (docs/scoring-v2.md §8.1). Numeric columns are NULL
+ *  on blocked rows — never 0. */
 export interface DbScoreHistoryRow {
   id: number; date: string; archetype: string
-  skills_match: number; ease_of_entry: number; strategic_fit: number
-  current_fit: number; growth_mobility: number; optionality_exit: number
-  brand_value: number; sales_trap_risk: number; aspirational_fit: number
-  overall: number; best_cities: number; salary_adj_city: number
-  work_life_balance: number; best_fit_roles: string
+  skills_match: number | null; experience_bar: number | null; competition: number | null
+  ease: number | null
+  growth_mobility: number | null; optionality_exit: number | null
+  brand_value: number | null; role_content: number | null
+  best_cities: number | null; salary_adj_city: number | null; work_life_balance: number | null
+  want: number | null; priority: number | null
+  eligibility: string | null; eligibility_flags: string; verdict: string | null
+  best_fit_roles: string
   mode: string; company: string; role: string; tier: string
   source: string; location: string; employment_type: string
   duration: string; salary_raw: string
@@ -174,17 +189,24 @@ export interface DbPipelineRow {
 export interface DbReportRow {
   path: string; company: string; role: string; tier: string; mtime: number
   url: string
-  overall: number | null; current_fit: number | null; aspirational_fit: number | null
+  /** Latest matching evaluation; all null for an orphan report or a blocked
+   *  row's scores. */
+  want: number | null; ease: number | null; priority: number | null
+  verdict: string | null; eligibility: string | null; eligibility_flags: string | null
 }
 
+/** Score averages exclude blocked rows; `blocked` counts them. */
 export interface DbTrendBucket {
-  label: string; count: number
-  avg_overall: number; avg_current_fit: number; avg_aspirational_fit: number
-  avg_skills_match: number; avg_brand_value: number; avg_growth: number; avg_wlb: number
+  label: string; count: number; blocked: number
+  avg_want: number | null; avg_ease: number | null; avg_priority: number | null
+  avg_skills_match: number | null; avg_brand_value: number | null
+  avg_growth: number | null; avg_wlb: number | null
 }
 
 export interface DbTrends {
   byDate: DbTrendBucket[]
   byArchetype: DbTrendBucket[]
   tierDistribution: Array<{ tier: string; count: number }>
+  verdictDistribution: Array<{ verdict: string; count: number }>
+  eligibilityDistribution: Array<{ eligibility: string; count: number }>
 }

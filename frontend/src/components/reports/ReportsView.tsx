@@ -9,23 +9,24 @@ import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
   Search, FileText, X, ExternalLink, Sparkles, Square,
   ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp, Target,
-  Copy, Folder, Check, Compass, Wrench, ArrowUpRight, Gauge
+  Copy, Folder, Check, Compass, Wrench, ArrowUpRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { TIER_COLORS, type TierKey } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import type { ReportFile, ScoreEntry } from '@/types'
 import { ReportSlideOver } from './ReportSlideOver'
-import { scoreColor } from '@/lib/tier'
 import {
   getScoreBand, BAND_DETAILS, type ScoreBand,
   filterReportRows, sortReportRows,
   corpusBands as computeCorpusBands, bandCounts as computeBandCounts,
   buildScoreIndex, matchScore,
-  distanceToNextBand, isNearMiss, reportRowFixability,
-  type Fixability, type FixabilityRow,
+  isNearMiss, reportEngineLever, nextBandUp,
+  type FixabilityRow,
 } from '@/lib/reportsList'
-import { parseWhyThisScore } from '@/lib/reportMarkdown'
+import { leverSentence } from '@/lib/tierLevers'
+import { normalizeEligibility, normalizeTier, parseEligibilityFlags, VERDICT_LABELS } from '@/lib/scoreBands'
+import { WantEase } from '@/components/shared/WantEase'
+import { EligibilityChip } from '@/components/shared/EligibilityChip'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -174,15 +175,6 @@ export function ReportsView() {
   // / a small gap from the next tier up.
   const [nearMissOnly, setNearMissOnly] = useState(false)
 
-  // Per-report fixability, keyed by report path. The list rows from db.reports()
-  // carry the Overall score but NOT the report body, so the binding-constraint
-  // and cheapest-lever signals must be parsed from each report's `## Why this
-  // score` block on disk. We fetch lazily, parse once, and cache — the badge +
-  // the "fixable" sort/filter read from this map. Paths that resolve to a body
-  // with no Why block parse to `{ hasLever: false }` and are still cached so we
-  // don't re-fetch them every render.
-  const [fixByPath, setFixByPath] = useState<Record<string, Fixability>>({})
-
   const loadPositioningReports = async () => {
     try {
       setLoadingPositioning(true)
@@ -262,52 +254,6 @@ export function ReportsView() {
     return () => { cancelled = true }
   }, [scoreHistory.length])
 
-  // Parse the `## Why this score` block for every report we haven't seen yet.
-  // Bounded concurrency keeps the disk reads from stampeding when the corpus is
-  // large; results land in `fixByPath` incrementally so cards light up their
-  // badges as soon as each parse completes rather than waiting for the batch.
-  // Re-runs when reportRows changes but only fetches paths not already cached,
-  // so a sync (new report on disk) costs one read, not a full re-scan.
-  useEffect(() => {
-    let cancelled = false
-    const pending = reportRows.map(r => r.path).filter(p => !(p in fixByPath))
-    if (pending.length === 0) return
-
-    const run = async () => {
-      const CONCURRENCY = 6
-      for (let i = 0; i < pending.length; i += CONCURRENCY) {
-        if (cancelled) return
-        const slice = pending.slice(i, i + CONCURRENCY)
-        const parsed = await Promise.all(slice.map(async (path): Promise<[string, Fixability]> => {
-          try {
-            const text = await ipc.readFile(path)
-            if (!text) return [path, { hasLever: false }]
-            const why = parseWhyThisScore(text)
-            return [path, {
-              hasLever: why.lever !== null,
-              bindingConstraint: why.bindingConstraint,
-              lever: why.lever,
-            }]
-          } catch {
-            return [path, { hasLever: false }]
-          }
-        }))
-        if (cancelled) return
-        setFixByPath(prev => {
-          const next = { ...prev }
-          for (const [path, fix] of parsed) next[path] = fix
-          return next
-        })
-      }
-    }
-    void run()
-    return () => { cancelled = true }
-    // fixByPath intentionally omitted — including it would re-fire the effect on
-    // every incremental setState. We snapshot it for the `pending` diff; new
-    // paths from a reportRows change are still picked up.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportRows])
-
   useEffect(() => {
     loadPositioningReports()
   }, [])
@@ -354,19 +300,16 @@ export function ReportsView() {
   const scoreFor = (r: { company: string; role: string }): ScoreEntry | null =>
     matchScore(scoreIndex, r)
 
-  // Decorate each list row with its parsed fixability AND its resolved
-  // score-history entry, so the unified near-miss/lever logic (lib/tierLevers §
-  // reportFixability, via reportsList) can run the SAME engine math the
-  // Database uses whenever the report matches an entry carrying real dims —
-  // falling back to the parsed `## Why this score` lever only for orphan
-  // reports. `DbReportRow & { fixability, scoreEntry }` satisfies FixabilityRow.
+  // Decorate each list row with its resolved score-history entry, so the
+  // near-miss / lever logic (lib/tierLevers § reportFixability, via
+  // reportsList) runs the SAME engine math the Database uses. Reports no
+  // longer carry a Why-this-score block, so there is no body parse here.
   const rowsWithFix = useMemo<Array<DbReportRow & FixabilityRow>>(
     () => reportRows.map(r => ({
       ...r,
-      fixability: fixByPath[r.path] ?? null,
       scoreEntry: matchScore(scoreIndex, r),
     })),
-    [reportRows, fixByPath, scoreIndex],
+    [reportRows, scoreIndex],
   )
 
   const filteredFiles = useMemo(
@@ -664,7 +607,7 @@ export function ReportsView() {
                   muted && 'opacity-40',
                 )}
               >
-                <span>{details.label.split(' ')[0]}</span>
+                <span>{details.label}</span>
                 <span className="text-[10px] font-mono tabular-nums text-text-4">{count}</span>
               </button>
             )
@@ -681,7 +624,7 @@ export function ReportsView() {
           disabled={!repoPath}
           title={top5Running
             ? 'Stop the run (live log on the Activity tab)'
-            : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-scoring entries. Uses Claude tokens; live log on the Activity tab.'}
+            : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-Priority (√(Want × Ease)) entries. Uses Claude tokens; live log on the Activity tab.'}
           className={cn(
             'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-label border transition-colors',
             top5Running
@@ -736,15 +679,12 @@ export function ReportsView() {
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
             {filteredFiles.map(report => {
-              const score = scoreFor(report)
-              const overall = report.overall ?? score?.overall ?? null
+              const score = report.scoreEntry ?? scoreFor(report)
               const url = report.url || score?.url || ''
               return (
                 <ReportCard
                   key={report.path}
                   report={report}
-                  overall={overall}
-                  fixability={fixByPath[report.path] ?? null}
                   scoreEntry={score}
                   url={url && /^https?:\/\//i.test(url) ? url : null}
                   isSelected={selected?.path === report.path}
@@ -774,7 +714,7 @@ export function ReportsView() {
               .sort((a, b) => b.date.localeCompare(a.date))[0]
             if (!match) return
             const tierDir = match.tier === 'T1' ? 'tier-1'
-              : (match.tier === 'T2' || match.tier === 'T2-high') ? 'tier-2'
+              : match.tier === 'T2' ? 'tier-2'
               : match.tier === 'T3' ? 'tier-3' : 'tier-4'
             setSelected({
               path:    `reports/${tierDir}/${match.company} - ${match.role}.md`,
@@ -791,14 +731,7 @@ export function ReportsView() {
         <ReportSlideOver
           company={selected.company}
           role={selected.role}
-          scoreEntry={{
-            company: selected.company,
-            role: selected.role,
-            tier: selected.tier.replace('tier-', 'T') as TierKey,
-            overall: 0,
-            current_fit: 0,
-            aspirational_fit: 0,
-          } as ScoreEntry}
+          scoreEntry={orphanScoreEntry(selected)}
           onClose={() => setSelected(null)}
         />
       )}
@@ -814,69 +747,52 @@ export function ReportsView() {
   )
 }
 
-function ScoreBadge({ value }: { value: number }) {
-  const color = scoreColor(value)
-  return (
-    <span
-      className="inline-flex items-center justify-center px-1.5 py-0.5 rounded font-mono font-semibold tabular-nums text-[11px] shrink-0"
-      style={{
-        color,
-        background: `${color}14`,
-        border: `1px solid ${color}33`,
-      }}
-    >
-      {value.toFixed(1)}
-    </span>
-  )
-}
-
-// "T3 → T2 in +0.1" style upgrade label. The next-band target uses the same
-// thresholds the banding logic uses; we phrase the gap in points-to-go so the
-// user reads effort, not a raw score. Null when there's no upgrade target
-// (top-band) or no usable score.
-function upgradeHint(overall: number | null, tier: string): { label: string; gap: number } | null {
-  const gap = distanceToNextBand(overall, tier)
-  if (gap === null) return null
-  const band = getScoreBand(overall, tier)
-  const nextLabel =
-    band === 'skip'   ? 'Pass' :
-    band === 'pass'   ? 'Decent' :
-    band === 'decent' ? 'Strong' :
-    band === 'strong' ? 'Stellar' : null
-  if (!nextLabel) return null
-  return { label: nextLabel, gap }
+// A report with no score-history row (orphan) still opens the slide-over:
+// a blank v2 entry — every score null, never 0 — keyed on its folder tier.
+function orphanScoreEntry(r: ReportFile): ScoreEntry {
+  return {
+    date: '', archetype: '',
+    skills_match: null, experience_bar: null, competition: null, ease: null,
+    growth_mobility: null, optionality_exit: null, brand_value: null, role_content: null,
+    best_cities: null, salary_adj_city: null, work_life_balance: null,
+    want: null, priority: null, eligibility: null, eligibility_flags: '', verdict: null,
+    best_fit_roles: '', mode: 'scouting',
+    company: r.company, role: r.role,
+    tier: normalizeTier(r.tier) ?? '',
+    source: '', location: '', employment_type: '', duration: '', salary_raw: '',
+    url: r.url ?? '',
+  }
 }
 
 function ReportCard({
   report,
-  overall,
-  fixability,
   scoreEntry,
   url,
   isSelected,
   onClick,
 }: {
-  report: { path: string; company: string; role: string; tier: string }
-  overall: number | null
-  fixability: Fixability | null
+  report: DbReportRow & FixabilityRow
   scoreEntry: ScoreEntry | null
   url: string | null
   isSelected: boolean
   onClick: () => void
 }) {
-  const hint = upgradeHint(overall, report.tier)
-  const lever = fixability?.lever ?? null
-  const binding = fixability?.bindingConstraint ?? null
-  // A card earns the fixability footer when it's a genuine near-miss. The
-  // verdict comes from the ONE unified authority (lib/reportsList §
-  // reportRowFixability → tierLevers § reportFixability): the engine's
-  // lift-≤-threshold rule when this report resolved to real dims (identical to
-  // the Database "Near upgrade"), else the Overall-gap + parsed-lever fallback.
-  // Cards with no upgrade target (top-band) or no signal stay clean — no chrome.
-  const showFixability = reportRowFixability({
-    company: report.company, role: report.role, tier: report.tier,
-    overall, fixability, scoreEntry,
-  }).nearMiss && hint !== null
+  // Scores come from the joined report row (latest evaluation for the URL);
+  // the resolved score-history entry fills a gap.
+  const eligibility = normalizeEligibility(report.eligibility) ?? scoreEntry?.eligibility ?? null
+  const blocked = eligibility === 'red' || report.verdict === 'blocked'
+  const want = report.want ?? scoreEntry?.want ?? null
+  const ease = report.ease ?? scoreEntry?.ease ?? null
+  const flags = parseEligibilityFlags(report.eligibility_flags ?? scoreEntry?.eligibility_flags ?? '')
+  const red = flags.find(f => f.status === 'red')
+  const amberReasons = flags.filter(f => f.status === 'amber').map(f => f.reason).filter(Boolean).join('; ')
+  // A card earns the upgrade footer when it's a genuine near-miss — the
+  // engine's one-step rule (lib/reportsList § isNearMiss), identical to the
+  // Database "Near upgrade". `go`, blocked and unscored cards stay clean.
+  const row = { ...report, scoreEntry }
+  const nearMiss = isNearMiss(row)
+  const engineLever = nearMiss ? reportEngineLever(row) : null
+  const next = nearMiss ? nextBandUp(getScoreBand(row)) : null
   return (
     <div className="relative">
       <button
@@ -893,7 +809,15 @@ function ReportCard({
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="text-[13px] text-text-1 font-semibold leading-snug truncate min-w-0">{report.company}</div>
-              {overall != null && overall > 0 && <ScoreBadge value={overall} />}
+              <span className="flex items-center gap-1.5 shrink-0">
+                <EligibilityChip status={eligibility} reason={red?.reason ?? (amberReasons || null)} compact />
+                <WantEase
+                  want={want}
+                  ease={ease}
+                  blockedReason={blocked ? (red?.reason || 'Blocked') : null}
+                  className="max-w-[120px]"
+                />
+              </span>
             </div>
             <div className={cn(
               'text-[12px] text-text-3 truncate mt-1 leading-snug',
@@ -902,44 +826,29 @@ function ReportCard({
               {report.role}
             </div>
 
-            {/* Fixability footer — only for near-misses. The upgrade pill shows
-                the cheapest band-crossing target ("→ Strong +0.2"); the lever
-                line (when the engine found one) names the single dimension to
-                raise. This is the "spend effort where it converts" surface: a
-                glanceable answer to "is this report worth upgrading, and how?".
-                Binding constraint is the fallback caption when no lever exists
-                but the gap is still small. */}
-            {showFixability && (
+            {/* Upgrade footer — only for near-misses. The pill names the next
+                verdict cell up; the line under it is the engine's cheapest
+                single change (one dimension raised, or one amber resolved). */}
+            {nearMiss && engineLever && (
               <div className="mt-2 flex flex-col gap-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {hint && (
+                  {next && (
                     <span
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold tabular-nums bg-accent/12 text-accent-text border border-accent/30"
-                      title={`One band from ${hint.label} — needs +${hint.gap.toFixed(1)} on Overall`}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent/12 text-accent-text border border-accent/30"
+                      title={`One change from ${VERDICT_LABELS[engineLever.toVerdict]}`}
                     >
                       <ArrowUpRight size={9} className="shrink-0" />
-                      {hint.label}
-                      <span className="text-text-4">+{hint.gap.toFixed(1)}</span>
-                    </span>
-                  )}
-                  {lever && (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-[#2EB8A8]/12 text-[#2EB8A8] border border-[#2EB8A8]/30">
-                      <Wrench size={9} className="shrink-0" />
-                      lever
+                      {VERDICT_LABELS[engineLever.toVerdict]}
                     </span>
                   )}
                 </div>
-                {(lever || binding) && (
-                  <div
-                    className="flex items-start gap-1 text-[11px] leading-snug text-text-3 line-clamp-2"
-                    title={lever ?? binding ?? undefined}
-                  >
-                    {lever
-                      ? <Wrench size={10} className="shrink-0 mt-0.5 text-[#2EB8A8]" aria-hidden />
-                      : <Gauge size={10} className="shrink-0 mt-0.5 text-text-4" aria-hidden />}
-                    <span className="min-w-0">{lever ?? binding}</span>
-                  </div>
-                )}
+                <div
+                  className="flex items-start gap-1 text-[11px] leading-snug text-text-3 line-clamp-2"
+                  title={leverSentence(engineLever)}
+                >
+                  <Wrench size={10} className="shrink-0 mt-0.5 text-accent" aria-hidden />
+                  <span className="min-w-0">{leverSentence(engineLever)}</span>
+                </div>
               </div>
             )}
           </div>

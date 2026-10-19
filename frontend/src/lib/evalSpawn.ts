@@ -103,11 +103,13 @@ const RELEVANCE_GATE =
   'pure finance/audit all count as off-archetype unless named in the archetypes); ' +
   '(b) wrong seniority: 5+ YoE required, or Senior/Lead/Principal/Director/Manager-with-reports title ' +
   '(internships, graduate programmes, and 0-3 YoE roles stay in); ' +
-  '(c) geo-locked outside the candidate’s reachable set; ' +
-  '(d) excluded domain (defense, oil & gas, gambling, adult, MLM, predatory lending, tobacco — unless opted in via user/_profile.md); ' +
-  '(e) visa-locked (hard citizenship/clearance walls; soft visa friction is an Ease of Entry penalty, not a discard); ' +
-  '(f) disclosed poverty wage (would score 1 on savings power); ' +
-  '(g) matches a stated red flag in user/_profile.md. ' +
+  '(c) excluded domain (defense, oil & gas, gambling, adult, MLM, predatory lending, tobacco — unless opted in via user/_profile.md); ' +
+  '(d) disclosed poverty wage (would score 1 on savings power); ' +
+  '(e) matches a stated red flag in user/_profile.md. ' +
+  'Work-authorisation, location, language, start-date, duration and graduation walls are NOT discards: ' +
+  'they are the eligibility gate. Run it first (`node scripts/score-listing.mjs --eligibility-only`); ' +
+  'a red listing is still logged — as Blocked, with its reason and no Want/Ease — and an amber one is ' +
+  'scored normally with its recruiter question recorded. ' +
   'Borderline = DISCARD: the bar for inclusion is a one-sentence, JD-cited reason why the role fits an archetype. ' +
   'Move each discard to the "## Filtered Out" section of data/pipeline.md as ' +
   '`- [!] FILTERED | URL | Company | Role | reason` — never score it, never write score-history/scouting rows for it. ' +
@@ -172,7 +174,8 @@ export function filterAllPrompt(today: string = todayISO()): string {
     NO_REPORT_DEVIATION +
     '(4) mark each scored URL [x] in data/pipeline.md. ' +
     MERGE_STEP +
-    'Survivors land in the Database with a meaningful 1-10 score; discards stay auditable in Filtered Out.'
+    'Survivors land in the Database with an eligibility status and a Want · Ease pair (Blocked rows show their ' +
+    'reason instead); discards stay auditable in Filtered Out.'
   )
 }
 
@@ -189,7 +192,8 @@ export function top5ReportsPrompt(today: string = todayISO()): string {
     '(2) ' + RELEVANCE_GATE +
     '(3) evaluate each SURVIVING listing through the system-prompt pipeline, but DEFER Step 5: ' +
     'write the score-history + report-summaries rows and the scouting TSV for ALL survivors first. ' +
-    '(4) Identify the 5 highest-scoring survivors by Overall; for those 5 ONLY, write the per-listing report ' +
+    '(4) Identify the 5 highest-Priority survivors (Priority = sqrt(Want × Ease); never a Blocked listing); ' +
+    'for those 5 ONLY, write the per-listing report ' +
     'under reports/tier-{N}/{Company} - {Role}.md at FULL T1 depth (Role summary + Gaps and opportunities + ' +
     'Comp & demand + Recommendation + Career path impact) regardless of the entry’s actual tier — ' +
     'the user chose 5 deep, defensible reports over many shallow ones. ' +

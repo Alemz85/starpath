@@ -6,13 +6,41 @@
 //   • the time-window filter takes an injectable `now` (defaulting to the
 //     real clock) so tests pin an exact cutoff — same pattern as
 //     lib/profileStats.ts and lib/scanHistory.ts;
-//   • the "is this a real, scored evaluation" guard (`overall > 0`, noise
-//     labels) lives in one place so the distribution, top-X panels, and any
-//     future view agree on what counts.
+//   • the "is this a real, scored evaluation" guard (`isScored` — Want and
+//     Ease present, not blocked — plus noise labels) lives in one place so the
+//     distribution, top-X panels, and any future view agree on what counts.
+//
+// Scoring v2 (docs/scoring-v2.md §9): there is no Overall. Score analytics
+// are stated on Want and Ease separately; bands come from the VERDICT, never
+// from cut-offs on a number; blocked (red) rows are excluded from every score
+// analytic but counted in the eligibility analytics.
 
-import type { ScoreEntry, ApplicationEntry, AppStatus } from '@/types'
-import { scoreColor } from '@/lib/tier'
-import { GATES, OVERALL_NOISE_FLOOR } from '@/lib/scoringStats'
+import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict, Eligibility } from '@/types'
+import { TIER_COLORS } from '@/types'
+import { tierHex } from '@/lib/tier'
+import { GATES, NOISE_FLOORS } from '@/lib/scoringStats'
+import { isScored, priorityOf, verdictOf, VERDICT_LABELS, VERDICT_TIER } from '@/lib/scoreBands'
+
+/** Rows a score analytic may use: Want and Ease present, not blocked. */
+export function scoredOnly(rows: ScoreEntry[]): ScoreEntry[] {
+  return rows.filter(isScored)
+}
+
+/** Verdicts the ethical-use rule allows applying to (spec §4) — the v2
+ *  "apply-worthy" set that replaces v1's Overall ≥ 7.0. */
+export const APPLY_WORTHY_VERDICTS: ReadonlySet<Verdict> = new Set<Verdict>(['go', 'stretch', 'solid'])
+
+export function isApplyWorthy(e: ScoreEntry): boolean {
+  const v = verdictOf(e)
+  return v != null && APPLY_WORTHY_VERDICTS.has(v)
+}
+
+/** Mean Priority (the sort key) over rows that have one. */
+function avgPriority(rows: ScoreEntry[]): number {
+  let sum = 0, n = 0
+  for (const r of rows) { const p = priorityOf(r); if (p != null) { sum += p; n++ } }
+  return n === 0 ? 0 : sum / n
+}
 
 // ─── Time range ──────────────────────────────────────────────────────────────
 
@@ -71,9 +99,11 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 
 // ─── Time-series (one bucket per calendar day) ───────────────────────────────
 
+/** One calendar day. `count` is every evaluation that day; `blocked` the red
+ *  ones; every average is over the SCORED rows only. */
 export interface DateBucket {
-  label: string; count: number
-  avg_overall: number; avg_current_fit: number; avg_aspirational_fit: number
+  label: string; count: number; blocked: number
+  avg_want: number; avg_ease: number
   avg_skills_match: number; avg_brand_value: number
   avg_growth: number; avg_wlb: number
 }
@@ -89,22 +119,27 @@ export function buildByDate(rows: ScoreEntry[]): DateBucket[] {
   }
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, entries]) => ({
-      label: date,
-      count: entries.length,
-      avg_overall:          avg(entries, 'overall'),
-      avg_current_fit:      avg(entries, 'current_fit'),
-      avg_aspirational_fit: avg(entries, 'aspirational_fit'),
-      avg_skills_match:     avg(entries, 'skills_match'),
-      avg_brand_value:      avg(entries, 'brand_value'),
-      avg_growth:           avg(entries, 'growth_mobility'),
-      avg_wlb:              avg(entries, 'work_life_balance'),
-    }))
+    .map(([date, entries]) => {
+      const scored = scoredOnly(entries)
+      return {
+        label: date,
+        count: entries.length,
+        blocked: entries.length - scored.length,
+        avg_want:         avg(scored, 'want'),
+        avg_ease:         avg(scored, 'ease'),
+        avg_skills_match: avg(scored, 'skills_match'),
+        avg_brand_value:  avg(scored, 'brand_value'),
+        avg_growth:       avg(scored, 'growth_mobility'),
+        avg_wlb:          avg(scored, 'work_life_balance'),
+      }
+    })
 }
 
 // ─── Top-X ranking ───────────────────────────────────────────────────────────
 
-export interface TopRow { label: string; count: number; avgScore: number }
+/** A top-X row: Want and Ease shown side by side; ranked by mean Priority
+ *  (the sort key — never rendered as the headline). */
+export interface TopRow { label: string; count: number; avgWant: number; avgEase: number; avgPriority: number }
 
 // Skip useless labels — the score-history TSV uses "n/d" for unstated values
 // and most files have a few legacy rows with empty / dash entries.
@@ -115,7 +150,7 @@ export const isNoiseLabel = (s: string): boolean => {
 
 export function buildTopBy(rows: ScoreEntry[], key: (e: ScoreEntry) => string, limit: number): TopRow[] {
   const map = new Map<string, ScoreEntry[]>()
-  for (const e of rows) {
+  for (const e of scoredOnly(rows)) {
     const k = (key(e) ?? '').trim()
     if (isNoiseLabel(k)) continue
     const list = map.get(k)
@@ -123,67 +158,82 @@ export function buildTopBy(rows: ScoreEntry[], key: (e: ScoreEntry) => string, l
     else map.set(k, [e])
   }
   return [...map.entries()]
-    .map(([label, entries]) => ({ label, count: entries.length, avgScore: avg(entries, 'overall') }))
-    // Rank by avg score primarily — the user wants "what scored high",
-    // not "what showed up the most." Count is the tiebreaker.
-    .filter(r => r.avgScore > 0)
-    .sort((a, b) => b.avgScore - a.avgScore || b.count - a.count)
+    .map(([label, entries]) => ({
+      label,
+      count: entries.length,
+      avgWant: avg(entries, 'want'),
+      avgEase: avg(entries, 'ease'),
+      avgPriority: avgPriority(entries),
+    }))
+    // Rank by mean Priority — the user wants "what scored high", not "what
+    // showed up the most." Count is the tiebreaker.
+    .filter(r => r.avgPriority > 0)
+    .sort((a, b) => b.avgPriority - a.avgPriority || b.count - a.count)
     .slice(0, limit)
 }
 
-// ─── Score distribution ──────────────────────────────────────────────────────
+// ─── Verdict distribution ────────────────────────────────────────────────────
 //
-// Five bands matched 1:1 to the documented score-interpretation scale and the
-// `scoreColor()` ordinal palette (lib/tier.ts): everything ≥7.0 is the brand-
-// violet "apply-worthy" group, below that fades to slate. Coloring each band
-// by scoreColor(midpoint) keeps the histogram in lockstep with the same number
-// → color mapping used by the Database dial and the top-X panels.
+// v2 bands are the verdict cells (spec §4), coloured by their storage tier's
+// tokens (DESIGN-meta § Tier and Status Sections) — no number cut-offs.
+// Blocked is a band of its own; the apply-worthy share is stated over the
+// SCORED rows, and the eligibility split is stated over every row.
 
 export interface ScoreBand {
-  key: string
+  key: Verdict
   label: string
-  range: string
-  lo: number          // inclusive lower bound
-  hi: number          // exclusive upper bound (Infinity for the top band)
   color: string
+  /** Tailwind chip classes for the band (the tier's TIER_COLORS). */
+  chip: { bg: string; text: string; border: string }
   applyWorthy: boolean
 }
 
-export const SCORE_BANDS: ScoreBand[] = [
-  { key: 'subfloor', label: 'Sub-floor', range: '< 5', lo: -Infinity, hi: 5,        color: scoreColor(4),   applyWorthy: false },
-  { key: 'belowbar', label: 'Below bar', range: '5–7', lo: 5,         hi: 7,        color: scoreColor(6),   applyWorthy: false },
-  { key: 'decent',   label: 'Decent',    range: '7–8', lo: 7,         hi: 8,        color: scoreColor(7.5), applyWorthy: true },
-  { key: 'good',     label: 'Good',      range: '8–9', lo: 8,         hi: 9,        color: scoreColor(8.5), applyWorthy: true },
-  { key: 'stellar',  label: 'Stellar',   range: '≥ 9', lo: 9,         hi: Infinity, color: scoreColor(9.5), applyWorthy: true },
-]
+export const SCORE_BANDS: ScoreBand[] = (['go', 'stretch', 'solid', 'growth', 'thin', 'skip', 'blocked'] as Verdict[])
+  .map(v => ({
+    key: v,
+    label: VERDICT_LABELS[v],
+    color: tierHex(VERDICT_TIER[v]),
+    chip: TIER_COLORS[VERDICT_TIER[v]],
+    applyWorthy: APPLY_WORTHY_VERDICTS.has(v),
+  }))
 
 export interface Distribution {
   bands: Array<ScoreBand & { count: number }>
-  total: number       // count of scored rows (overall > 0)
+  /** Rows with a verdict (blocked included). */
+  total: number
+  /** Scored rows (blocked excluded) — the base for applyPct and the medians. */
+  scored: number
   max: number         // tallest band, for bar scaling (min 1 to avoid /0)
-  applyPct: number    // % of scored rows in an apply-worthy band
-  median: number
+  applyPct: number    // % of scored rows with an apply-worthy verdict
+  medianWant: number
+  medianEase: number
+  /** Eligibility split over every row that has a gate status. */
+  eligibility: Record<Eligibility, number>
 }
 
 export function buildDistribution(rows: ScoreEntry[]): Distribution {
-  const counts = SCORE_BANDS.map(() => 0)
-  const scored: ScoreEntry[] = []
+  const counts = new Map<Verdict, number>(SCORE_BANDS.map(b => [b.key, 0]))
+  const eligibility: Record<Eligibility, number> = { green: 0, amber: 0, red: 0 }
+  let total = 0
   for (const r of rows) {
-    const v = r.overall
-    // Mirror the top-X panels' `avgScore > 0` rule — score-history carries a
-    // few legacy rows with 0 / n-d overalls that aren't real evaluations.
-    if (typeof v !== 'number' || v <= 0) continue
-    const idx = SCORE_BANDS.findIndex(b => v >= b.lo && v < b.hi)
-    if (idx >= 0) { counts[idx]++; scored.push(r) }
+    if (r.eligibility) eligibility[r.eligibility]++
+    const v = verdictOf(r)
+    if (!v) continue
+    counts.set(v, (counts.get(v) ?? 0) + 1)
+    total++
   }
-  const bands = SCORE_BANDS.map((b, i) => ({ ...b, count: counts[i] }))
-  const applyWorthy = bands.reduce((s, b) => s + (b.applyWorthy ? b.count : 0), 0)
+  const scored = scoredOnly(rows)
+  const bands = SCORE_BANDS.map(b => ({ ...b, count: counts.get(b.key) ?? 0 }))
+  const applyWorthy = scored.filter(isApplyWorthy).length
   return {
     bands,
-    total: scored.length,
-    max: Math.max(1, ...counts),
+    total,
+    scored: scored.length,
+    max: Math.max(1, ...bands.map(b => b.count)),
     applyPct: scored.length ? Math.round((applyWorthy / scored.length) * 100) : 0,
-    median: median(scored, 'overall'),
+    medianWant: median(scored, 'want'),
+    medianEase: median(scored, 'ease'),
+    eligibility,
   }
 }
 
@@ -194,9 +244,9 @@ export function buildDistribution(rows: ScoreEntry[]): Distribution {
 // which scoring dimensions are my market's strengths, and which actually
 // separate an apply-worthy role from a dud?".
 //
-// For each of the 7 dimensions we compute two averages over the scored corpus
-// (overall > 0): the average across ALL scored rows, and the average across the
-// apply-worthy subset (overall >= 7.0). The DELTA between them is the signal —
+// For each dimension we compute two averages over the scored corpus: the
+// average across ALL scored rows, and the average across the apply-worthy
+// subset (verdict go / stretch / solid). The DELTA between them is the signal —
 // a dimension with a large positive delta is one that high-scoring roles have
 // and low-scoring roles lack, i.e. a *driver* of fit. A dimension that's flat
 // across both groups doesn't discriminate (it's noise for targeting), and a
@@ -211,30 +261,28 @@ export function buildDistribution(rows: ScoreEntry[]): Distribution {
 export interface DimensionDef { field: keyof ScoreEntry; label: string }
 
 export const PROFILE_DIMENSIONS: DimensionDef[] = [
-  { field: 'current_fit',       label: 'Current Fit'      },
-  { field: 'aspirational_fit',  label: 'Aspirational Fit' },
-  { field: 'skills_match',      label: 'Skills Match'     },
-  { field: 'brand_value',       label: 'Brand Value'      },
-  { field: 'growth_mobility',   label: 'Growth'           },
-  { field: 'work_life_balance', label: 'Work-Life'        },
+  { field: 'want',              label: 'Want'           },
+  { field: 'ease',              label: 'Ease'           },
+  { field: 'skills_match',      label: 'Skills Match'   },
+  { field: 'experience_bar',    label: 'Experience bar' },
+  { field: 'brand_value',       label: 'Brand Value'    },
+  { field: 'growth_mobility',   label: 'Growth'         },
+  { field: 'role_content',      label: 'Role content'   },
+  { field: 'work_life_balance', label: 'Work-Life'      },
 ]
-
-// The overall score that splits "apply-worthy" from the rest — mirrors the
-// 7.0 apply threshold used by SCORE_BANDS / `_shared.md` § Score interpretation.
-export const APPLY_THRESHOLD = 7.0
 
 export interface DimensionStat {
   field: keyof ScoreEntry
   label: string
   avgAll: number        // mean over every scored row
-  avgWinners: number    // mean over the apply-worthy subset (overall >= 7)
+  avgWinners: number    // mean over the apply-worthy subset (go / stretch / solid)
   delta: number         // avgWinners - avgAll; the discriminating signal
 }
 
 export interface DimensionProfile {
   dims: DimensionStat[]      // sorted by delta desc (strongest driver first)
-  scoredCount: number        // rows with overall > 0
-  winnerCount: number        // rows with overall >= APPLY_THRESHOLD
+  scoredCount: number        // scored rows (blocked excluded)
+  winnerCount: number        // rows with an apply-worthy verdict
   /** True when there aren't enough winners to make the delta meaningful.
    *  The component greys the delta column and shows a hint instead of
    *  reading noise as signal. */
@@ -247,8 +295,8 @@ export interface DimensionProfile {
 export const MIN_WINNERS_FOR_DELTA = 4
 
 export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
-  const scored = rows.filter(r => typeof r.overall === 'number' && r.overall > 0)
-  const winners = scored.filter(r => r.overall >= APPLY_THRESHOLD)
+  const scored = scoredOnly(rows)
+  const winners = scored.filter(isApplyWorthy)
 
   const dims: DimensionStat[] = PROFILE_DIMENSIONS.map(({ field, label }) => {
     const avgAll = avg(scored, field)
@@ -281,8 +329,8 @@ export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
 //
 // This splits the date-windowed, scored corpus in chronological order into two
 // consecutive halves — an EARLIER half and a RECENT half — and contrasts them on
-// the metrics that define "good targeting": the typical (median) overall score,
-// the share that clears the apply bar, and the per-dimension averages. A rising
+// the metrics that define "good targeting": the typical (median) Want and Ease,
+// the share with an apply-worthy verdict, and the per-dimension averages. A rising
 // recent half means the user is finding better-fit roles than they used to; a
 // falling one is an early warning that the funnel is drifting (broader keywords,
 // staler sources, scope creep) before it shows up as rejections downstream.
@@ -295,8 +343,8 @@ export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
 //   • below a per-half floor the comparison is sampling noise, so we report
 //     `lowSignal` and the card shows a "keep evaluating" hint instead of a
 //     verdict;
-//   • the verdict has a deadband (`MOMENTUM_DEADBAND`) so a trivial wobble reads
-//     as "steady", not a trend.
+//   • each metric's direction has a deadband (its v2 noise floor) so a trivial
+//     wobble reads as "steady", not a trend.
 
 // Minimum scored rows IN EACH HALF before the recent-vs-earlier delta is worth
 // a verdict. This surface is declared in docs/scoring-statistical-design.md
@@ -306,19 +354,20 @@ export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
 // card and its tests keep one import site.
 export const MIN_PER_HALF_FOR_MOMENTUM = GATES.momentumMinPerHalf
 
-// A median-overall swing smaller than the contract's Overall noise floor reads
-// as flat — scoring is dimension-summed and rounded, so a sub-floor wobble
-// between two small samples is noise, not a trend. Above it in either
-// direction earns a verdict. Same constant every other scoring surface uses.
-export const MOMENTUM_DEADBAND = OVERALL_NOISE_FLOOR
+// A median swing smaller than the metric's noise floor reads as flat — a
+// sub-floor wobble between two small samples is noise, not a trend. Want and
+// Ease each use their own floor (docs/scoring-v2.md §9).
+export const MOMENTUM_DEADBANDS = { want: NOISE_FLOORS.want, ease: NOISE_FLOORS.ease } as const
 
 export type MomentumDirection = 'improving' | 'steady' | 'declining'
 
 export interface MomentumHalf {
   count: number
-  medianOverall: number
-  avgOverall: number
-  applyPct: number       // % of this half clearing APPLY_THRESHOLD
+  medianWant: number
+  medianEase: number
+  avgWant: number
+  avgEase: number
+  applyPct: number       // % of this half with an apply-worthy verdict
   dateFrom: string       // earliest dated row in the half ('' if none dated)
   dateTo: string         // latest dated row in the half
 }
@@ -334,11 +383,13 @@ export interface MomentumDimShift {
 export interface TargetingMomentum {
   earlier: MomentumHalf
   recent: MomentumHalf
-  /** recent.medianOverall - earlier.medianOverall — the headline movement. */
-  medianDelta: number
+  /** recent − earlier median Want / Ease — the two headline movements. */
+  wantMedianDelta: number
+  easeMedianDelta: number
   /** recent.applyPct - earlier.applyPct, in percentage points. */
   applyPctDelta: number
-  direction: MomentumDirection
+  wantDirection: MomentumDirection
+  easeDirection: MomentumDirection
   /** Per-dimension recent-minus-earlier means, sorted by |delta| desc so the
    *  biggest movers (good or bad) lead. Only meaningful when !lowSignal. */
   dimShifts: MomentumDimShift[]
@@ -350,11 +401,13 @@ export interface TargetingMomentum {
 
 function summarizeHalf(rows: ScoreEntry[]): MomentumHalf {
   const dated = rows.map(r => r.date?.slice(0, 10) ?? '').filter(Boolean).sort()
-  const winners = rows.filter(r => r.overall >= APPLY_THRESHOLD).length
+  const winners = rows.filter(isApplyWorthy).length
   return {
     count: rows.length,
-    medianOverall: median(rows, 'overall'),
-    avgOverall: avg(rows, 'overall'),
+    medianWant: median(rows, 'want'),
+    medianEase: median(rows, 'ease'),
+    avgWant: avg(rows, 'want'),
+    avgEase: avg(rows, 'ease'),
     applyPct: rows.length ? Math.round((winners / rows.length) * 100) : 0,
     dateFrom: dated[0] ?? '',
     dateTo: dated[dated.length - 1] ?? '',
@@ -363,12 +416,12 @@ function summarizeHalf(rows: ScoreEntry[]): MomentumHalf {
 
 // Pre-sort the scored corpus by date ascending, then split at the midpoint so
 // the two halves carry equal n (the earlier half takes the extra row on an odd
-// count). Rows are scored-only (overall > 0, mirroring the distribution/profile
-// guard). Undated rows can't be placed on the timeline, so they're dropped from
+// count). Rows are scored-only (blocked excluded, mirroring the
+// distribution/profile guard). Undated rows can't be placed on the timeline, so they're dropped from
 // the split rather than silently anchored to one end.
 export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
-  const scored = rows
-    .filter(r => typeof r.overall === 'number' && r.overall > 0 && !!r.date)
+  const scored = scoredOnly(rows)
+    .filter(r => !!r.date)
     .slice()
     .sort((a, b) => a.date.slice(0, 10).localeCompare(b.date.slice(0, 10)))
 
@@ -383,16 +436,18 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
     earlierRows.length < MIN_PER_HALF_FOR_MOMENTUM ||
     recentRows.length < MIN_PER_HALF_FOR_MOMENTUM
 
-  const medianDelta = recent.medianOverall - earlier.medianOverall
+  const wantMedianDelta = recent.medianWant - earlier.medianWant
+  const easeMedianDelta = recent.medianEase - earlier.medianEase
   const applyPctDelta = recent.applyPct - earlier.applyPct
 
-  // Verdict off the median (robust to a single outlier listing), with a
-  // deadband so noise reads as steady. Forced to 'steady' under low signal so
-  // a thin corpus never asserts a direction it can't support.
-  let direction: MomentumDirection = 'steady'
-  if (!lowSignal) {
-    if (medianDelta >= MOMENTUM_DEADBAND) direction = 'improving'
-    else if (medianDelta <= -MOMENTUM_DEADBAND) direction = 'declining'
+  // Direction off the median (robust to a single outlier listing), with the
+  // metric's deadband so noise reads as steady. Forced to 'steady' under low
+  // signal so a thin corpus never asserts a direction it can't support.
+  const directionOf = (delta: number, band: number): MomentumDirection => {
+    if (lowSignal) return 'steady'
+    if (delta >= band) return 'improving'
+    if (delta <= -band) return 'declining'
+    return 'steady'
   }
 
   const dimShifts: MomentumDimShift[] = PROFILE_DIMENSIONS.map(({ field, label }) => {
@@ -403,7 +458,10 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
 
   return {
     earlier, recent,
-    medianDelta, applyPctDelta, direction, dimShifts,
+    wantMedianDelta, easeMedianDelta, applyPctDelta,
+    wantDirection: directionOf(wantMedianDelta, MOMENTUM_DEADBANDS.want),
+    easeDirection: directionOf(easeMedianDelta, MOMENTUM_DEADBANDS.ease),
+    dimShifts,
     scoredCount: scored.length, lowSignal,
   }
 }
@@ -428,7 +486,7 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
 //   • canonicalization is injected (the rules live in lib/archetype.ts, which is
 //     UI-adjacent), so this module stays React-free and the math is testable in
 //     isolation with a trivial stub — same pattern as the `now`-injection above;
-//   • only real scored rows count (overall > 0), and noise archetype labels are
+//   • only real scored rows count (blocked excluded), and noise archetype labels are
 //     dropped via the shared `isNoiseLabel` guard;
 //   • the earlier/recent split is chronological (equal-n halves), mirroring
 //     buildTargetingMomentum, so two lopsided activity bursts still produce
@@ -447,7 +505,9 @@ export interface ArchetypeSlice {
   label: string
   count: number          // scored rows in this archetype over the whole window
   sharePct: number       // count / total scored, 0–100 (rounded for display)
-  avgScore: number       // mean overall for this archetype
+  avgWant: number        // mean Want for this archetype
+  avgEase: number        // mean Ease for this archetype
+  avgPriority: number    // mean Priority — the sort key
   earlierCount: number   // scored rows in the earlier (chronological) half
   recentCount: number    // scored rows in the recent half
   earlierSharePct: number // share of the earlier half (0–100, rounded)
@@ -459,7 +519,7 @@ export interface ArchetypeSlice {
 }
 
 export interface ArchetypeMix {
-  /** Slices sorted by overall count desc (biggest focus first), then avgScore. */
+  /** Slices sorted by count desc (biggest focus first), then avgPriority. */
   slices: ArchetypeSlice[]
   scoredCount: number    // total scored rows feeding the mix
   distinct: number       // number of distinct archetypes (concentration cue)
@@ -486,8 +546,8 @@ export function buildArchetypeMix(
   // Scored, dated-or-not but timeline-placeable rows. We need a date to assign a
   // row to the earlier/recent half; undated rows still count toward the static
   // mix but can't carry a share-shift, so — to keep the two halves honest — we
-  // split only the dated subset and let undated rows ride in the overall totals.
-  const scored = rows.filter(r => typeof r.overall === 'number' && r.overall > 0)
+  // split only the dated subset and let undated rows ride in the totals.
+  const scored = scoredOnly(rows)
 
   // Chronological split of the *dated* scored rows (equal-n halves, earlier
   // takes the extra on odd n) — identical scheme to buildTargetingMomentum so
@@ -550,7 +610,9 @@ export function buildArchetypeMix(
       label,
       count: b.entries.length,
       sharePct: pct(b.entries.length, total),
-      avgScore: avg(b.entries, 'overall'),
+      avgWant: avg(b.entries, 'want'),
+      avgEase: avg(b.entries, 'ease'),
+      avgPriority: avgPriority(b.entries),
       earlierCount: b.earlier,
       recentCount: b.recent,
       earlierSharePct,
@@ -560,7 +622,7 @@ export function buildArchetypeMix(
   })
   // Biggest focus first; ties broken by quality so a high-scoring archetype
   // leads a same-count low-scoring one.
-  slices.sort((a, b) => b.count - a.count || b.avgScore - a.avgScore || a.label.localeCompare(b.label))
+  slices.sort((a, b) => b.count - a.count || b.avgPriority - a.avgPriority || a.label.localeCompare(b.label))
 
   return {
     slices,

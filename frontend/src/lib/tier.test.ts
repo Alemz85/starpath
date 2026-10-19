@@ -6,6 +6,7 @@ import {
   tierHex,
   TIER_HEX,
   NEUTRAL_SCORE_COLOR,
+  verdictDisplay,
 } from '@/lib/tier'
 
 test('scoreColor maps each band at its documented threshold', () => {
@@ -29,7 +30,7 @@ test('scoreColorLight stays in the cosmic family per band', () => {
 
 test('tierHex resolves known tiers and falls back to T4', () => {
   assert.equal(tierHex('T1'), TIER_HEX.T1)
-  assert.equal(tierHex('T2-high'), TIER_HEX['T2-high'])
+  assert.equal(tierHex('T2'), TIER_HEX.T2)
   assert.equal(tierHex('T4'), TIER_HEX.T4)
   assert.equal(tierHex('not-a-tier'), TIER_HEX.T4)
   assert.equal(tierHex(undefined), TIER_HEX.T4)
@@ -38,4 +39,17 @@ test('tierHex resolves known tiers and falls back to T4', () => {
 
 test('NEUTRAL_SCORE_COLOR is the slate secondary token', () => {
   assert.equal(NEUTRAL_SCORE_COLOR, '#5D6C7B')
+})
+
+test('verdictDisplay: label + action from the spec, colour from the verdict tier', () => {
+  const s = verdictDisplay('stretch')!
+  assert.equal(s.label, 'Stretch')
+  assert.equal(s.action, 'apply with prep')
+  assert.equal(s.headline, 'Stretch — apply with prep')
+  assert.equal(s.tier, 'T2')
+  assert.equal(s.color, TIER_HEX.T2)
+  assert.equal(verdictDisplay('go')!.color, TIER_HEX.T1)
+  assert.equal(verdictDisplay('growth')!.tier, 'T3')
+  assert.equal(verdictDisplay('blocked')!.color, TIER_HEX.T4)
+  assert.equal(verdictDisplay(null), null)
 })

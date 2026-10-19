@@ -1,22 +1,24 @@
 import type { ScoreEntry } from '@/types'
+import {
+  assignVerdict,
+  computePriority,
+  normalizeEligibility,
+  normalizeTier,
+  normalizeVerdict,
+  VERDICT_TIER,
+} from '../scoreBands'
 
-function num(v: string): number {
-  const n = parseFloat(v)
-  return isNaN(n) ? 0 : n
-}
+// data/score-history.tsv, v2 header (docs/scoring-v2.md §8.1). Parsed BY
+// HEADER NAME — column order is not load-bearing. v1 history was archived on
+// the switch (data/archive/scoring-v1/), so no v1 compatibility here.
 
-function normalizeTier(raw: string): ScoreEntry['tier'] {
-  const t = raw.toLowerCase().trim()
-  if (t === 't1' || t === 'tier-1') return 'T1'
-  if (t === 't2-high' || t === 'short-high') return 'T2-high'
-  if (t === 't2' || t === 'short') return 'T2'
-  // `growth` is the legacy name for the Pass / Growth Target band = T3 (see
-  // modes/_shared.md § score-history logging + score-bands.mjs assignTier).
-  // It previously fell through to T4, mis-badging every historical growth-band
-  // row (verified: all such rows score in the 5.0–6.9 T3 range, none < 5.0).
-  if (t === 't3' || t === 'gap' || t === 'growth') return 'T3'
-  if (t === 't4' || t === 'skip' || t === 'pipeline') return 'T4'
-  return raw
+/** Empty / non-numeric cell → null. Blocked rows leave every dimension,
+ *  Want, Ease and Priority empty — those must read as missing, never as 0. */
+function num(v: string | undefined): number | null {
+  const t = (v ?? '').trim()
+  if (!t) return null
+  const n = parseFloat(t)
+  return Number.isFinite(n) ? n : null
 }
 
 export function parseScoreHistory(tsv: string): ScoreEntry[] {
@@ -27,42 +29,54 @@ export function parseScoreHistory(tsv: string): ScoreEntry[] {
 
   return lines.slice(1).flatMap(line => {
     const cols = line.split('\t').map(c => c.trim())
-    // Pad short rows with '' so a header column added later (e.g. `url`)
-    // doesn't silently skip the entire pre-existing dataset.
     if (cols.length === 0) return []
+    // Pad short rows with '' so a header column added later doesn't silently
+    // drop the whole pre-existing dataset.
     const row: Record<string, string> = {}
     headers.forEach((h, i) => { row[h] = cols[i] ?? '' })
 
-    // Skip rows with no meaningful data
     if (!row.company || !row.role) return []
 
+    const eligibility = normalizeEligibility(row.eligibility)
+    const want = num(row.want)
+    const ease = num(row.ease)
+    // Verdict cell first; replay the grid only when it's empty.
+    const verdict = normalizeVerdict(row.verdict)
+      ?? assignVerdict({ want, ease, eligibility })?.verdict
+      ?? null
+    const tier = normalizeTier(row.tier) ?? (verdict ? VERDICT_TIER[verdict] : (row.tier ?? ''))
+    const blocked = eligibility === 'red' || verdict === 'blocked'
+
     return [{
-      date:            row.date ?? '',
-      archetype:       row.archetype ?? '',
-      skills_match:    num(row.skills_match),
-      ease_of_entry:   num(row.ease_of_entry),
-      strategic_fit:   num(row.strategic_fit),
-      current_fit:     num(row.current_fit),
-      growth_mobility: num(row.growth_mobility),
-      optionality_exit:num(row.optionality_exit),
-      brand_value:     num(row.brand_value),
-      sales_trap_risk: num(row.sales_trap_risk),
-      aspirational_fit:num(row.aspirational_fit),
-      overall:         num(row.overall),
-      best_cities:     num(row.best_cities),
-      salary_adj_city: num(row.salary_adj_city),
-      work_life_balance:num(row.work_life_balance),
-      best_fit_roles:  row.best_fit_roles ?? '',
-      mode:            (row.mode === 'oferta' ? 'oferta' : 'scouting') as ScoreEntry['mode'],
-      company:         row.company,
-      role:            row.role,
-      tier:            normalizeTier(row.tier ?? ''),
-      source:          row.source ?? '',
-      location:        row.location ?? '',
-      employment_type: row.employment_type ?? '',
-      duration:        row.duration ?? '',
-      salary_raw:      row.salary_raw ?? '',
-      url:             row.url ?? '',
+      date:              row.date ?? '',
+      archetype:         row.archetype ?? '',
+      skills_match:      num(row.skills_match),
+      experience_bar:    num(row.experience_bar),
+      competition:       num(row.competition),
+      ease,
+      growth_mobility:   num(row.growth_mobility),
+      optionality_exit:  num(row.optionality_exit),
+      brand_value:       num(row.brand_value),
+      role_content:      num(row.role_content),
+      best_cities:       num(row.best_cities),
+      salary_adj_city:   num(row.salary_adj_city),
+      work_life_balance: num(row.work_life_balance),
+      want,
+      priority:          blocked ? null : (num(row.priority) ?? computePriority(want, ease)),
+      eligibility,
+      eligibility_flags: row.eligibility_flags ?? '',
+      verdict,
+      best_fit_roles:    row.best_fit_roles ?? '',
+      mode:              (row.mode === 'oferta' ? 'oferta' : 'scouting') as ScoreEntry['mode'],
+      company:           row.company,
+      role:              row.role,
+      tier,
+      source:            row.source ?? '',
+      location:          row.location ?? '',
+      employment_type:   row.employment_type ?? '',
+      duration:          row.duration ?? '',
+      salary_raw:        row.salary_raw ?? '',
+      url:               row.url ?? '',
     } satisfies ScoreEntry]
   })
 }

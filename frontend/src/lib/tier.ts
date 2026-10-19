@@ -11,12 +11,13 @@
 // source of truth for tier chips; this file owns the raw hexes for SVG
 // strokes / inline `style` props / canvas-confetti palettes.
 
-import type { TierKey } from '@/types'
+import type { TierKey, Verdict } from '@/types'
+import { TIER_COLORS } from '@/types'
+import { VERDICT_ACTIONS, VERDICT_LABELS, VERDICT_TIER } from './scoreBands'
 export type { TierKey }
 
 export const TIER_HEX: Record<TierKey, string> = {
   T1:        '#3D2BB5', // tier-1 — deep galaxy indigo
-  'T2-high': '#5B3FE8', // accent-hover — sits between T1 and T2 in the wordmark gradient
   T2:        '#7C5CFF', // tier-2 — galaxy violet (matches accent)
   T3:        '#A89CD9', // tier-3 — muted lavender
   T4:        '#94A3B8', // tier-4 — faded slate
@@ -26,7 +27,6 @@ export const TIER_HEX: Record<TierKey, string> = {
 // where the dial or bar needs depth without leaving the tier hue.
 export const TIER_HEX_LIGHT: Record<TierKey, string> = {
   T1:        '#7C5CFF', // tier-2 (T1 dial fades into the brand violet)
-  'T2-high': '#7C5CFF',
   T2:        '#B5A3FF', // accent-light
   T3:        '#C8BEEC',
   T4:        '#C9D2DD',
@@ -39,8 +39,10 @@ export const TIER_BG_HEX: Partial<Record<TierKey, string>> = {
 }
 
 // Numeric score → display color. Used everywhere a single number needs
-// a galaxy color (Database dial, Trends top-X, slide-over rollups,
-// Reports list scores).
+// a galaxy color — in scoring v2 that is the Want and the Ease numbers
+// (Database Want · Ease pair, slide-over hero, Reports list, Trends). Each
+// number is coloured on its own; Priority is never rendered as a coloured
+// headline (docs/scoring-v2.md §5).
 //
 // Why this diverges from TIER_HEX directly: tier chips are a 4-state
 // discrete badge (T1/T2/T3/T4) where the lavender (#A89CD9) reads fine
@@ -91,7 +93,7 @@ export function scoreColorLight(v: number): string {
 
 export function tierHex(tier: TierKey | string | undefined | null): string {
   if (!tier) return TIER_HEX.T4
-  if (tier === 'T1' || tier === 'T2-high' || tier === 'T2' || tier === 'T3' || tier === 'T4') {
+  if (tier === 'T1' || tier === 'T2' || tier === 'T3' || tier === 'T4') {
     return TIER_HEX[tier]
   }
   return TIER_HEX.T4
@@ -101,3 +103,40 @@ export function tierHex(tier: TierKey | string | undefined | null): string {
 // (Slate Gray) so the cell reads as "secondary metadata" rather than a
 // muted-disabled state.
 export const NEUTRAL_SCORE_COLOR = '#5D6C7B' // text-3
+
+// ─── Verdict display (scoring v2) ────────────────────────────────────────────
+//
+// The ONE place a verdict key becomes copy + colour. A verdict has no palette
+// of its own: it borrows its storage tier's hex / chip classes through the
+// spec's verdict → tier map (docs/scoring-v2.md §4, DESIGN-meta § Tier and
+// Status Sections). Labels and actions come from lib/scoreBands, which
+// mirrors score-bands.mjs `VERDICT_LABELS`.
+
+export interface VerdictDisplay {
+  verdict: Verdict
+  /** Short label — "Go", "Stretch", "Growth target", … */
+  label: string
+  /** The action that goes with the cell — "apply with prep", … */
+  action: string
+  /** "Stretch — apply with prep" (the report header form). */
+  headline: string
+  tier: TierKey
+  /** Tier hex for SVG / inline styles. */
+  color: string
+  /** Tier chip classes (bg / text / border). */
+  chip: { bg: string; text: string; border: string }
+}
+
+export function verdictDisplay(v: Verdict | null | undefined): VerdictDisplay | null {
+  if (!v) return null
+  const tier = VERDICT_TIER[v]
+  return {
+    verdict: v,
+    label: VERDICT_LABELS[v],
+    action: VERDICT_ACTIONS[v],
+    headline: `${VERDICT_LABELS[v]} — ${VERDICT_ACTIONS[v]}`,
+    tier,
+    color: TIER_HEX[tier],
+    chip: TIER_COLORS[tier],
+  }
+}

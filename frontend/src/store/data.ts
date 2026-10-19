@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
 import { upsertApplicationRow, updateApplicationStatus } from '@/lib/applicationsDoc'
 import { livenessKey, parseDiscarded, deriveLiveness, countScansThisMonth } from '@/lib/scanHistory'
-import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus, ScoutingTier } from '@/types'
+import { normalizeEligibility, normalizeTier, normalizeVerdict } from '@/lib/scoreBands'
+import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus } from '@/types'
 
 interface DataState {
   scoreHistory: ScoreEntry[]
@@ -29,7 +30,9 @@ interface DataState {
   promoteToApplication: (args: {
     company: string
     role: string
-    overall: number
+    /** Want / Ease written as the `W8.3 E5.6` Score cell (scoring v2 §8.3). */
+    want: number | null
+    ease: number | null
     tier: string
     reportPath?: string
   }) => Promise<void>
@@ -82,11 +85,11 @@ export const useDataStore = create<DataState>((set) => ({
     return refreshInFlight
   },
 
-  promoteToApplication: async ({ company, role, overall, tier, reportPath }) => {
+  promoteToApplication: async ({ company, role, want, ease, tier, reportPath }) => {
     const path = 'data/applications.md'
     const raw = await ipc.readFile(path) ?? ''
     const next = upsertApplicationRow(raw, {
-      company, role, overall, tier, reportPath,
+      company, role, want, ease, tier, reportPath,
     })
     // Only touch disk when something actually changed (the listing was new,
     // or its score/report moved). When it's already tracked and unchanged we
@@ -242,18 +245,16 @@ function toApplicationEntry(row: DbApplicationRow): ApplicationEntry {
 }
 
 function toScoutingEntry(row: DbScoutingRow): ScoutingEntry {
-  // T2-high collapses to T2 at the ingest boundary so the UI never sees it.
-  // Backend mode files / scouting.md still use T2-high in their scoring math —
-  // this is a display-layer normalization only.
-  const tierMap: Record<string, ScoutingTier> = { 'T1':'T1','T2-high':'T2','T2':'T2','T3':'T3','T4':'T4' }
   return {
     num:           row.num,
     date:          row.date,
     company:       row.company,
     role:          row.role,
-    score:         row.score_raw,
-    tier:          tierMap[row.tier] ?? 'T4',
-    cfaf:          row.cfaf,
+    want:          row.want ?? null,
+    ease:          row.ease ?? null,
+    tier:          normalizeTier(row.tier) ?? 'T4',
+    eligibility:   normalizeEligibility(row.eligibility),
+    eligibilityReason: row.eligibility_reason ?? '',
     report:        row.report,
     deadline:      row.deadline,
     promotionHint: row.promotion_hint,
@@ -267,24 +268,27 @@ function toScoreEntry(row: DbScoreHistoryRow): ScoreEntry {
   return {
     date:              row.date,
     archetype:         row.archetype,
-    skills_match:      row.skills_match,
-    ease_of_entry:     row.ease_of_entry,
-    strategic_fit:     row.strategic_fit,
-    current_fit:       row.current_fit,
-    growth_mobility:   row.growth_mobility,
-    optionality_exit:  row.optionality_exit,
-    brand_value:       row.brand_value,
-    sales_trap_risk:   row.sales_trap_risk,
-    aspirational_fit:  row.aspirational_fit,
-    overall:           row.overall,
-    best_cities:       row.best_cities,
-    salary_adj_city:   row.salary_adj_city,
-    work_life_balance: row.work_life_balance,
+    skills_match:      row.skills_match ?? null,
+    experience_bar:    row.experience_bar ?? null,
+    competition:       row.competition ?? null,
+    ease:              row.ease ?? null,
+    growth_mobility:   row.growth_mobility ?? null,
+    optionality_exit:  row.optionality_exit ?? null,
+    brand_value:       row.brand_value ?? null,
+    role_content:      row.role_content ?? null,
+    best_cities:       row.best_cities ?? null,
+    salary_adj_city:   row.salary_adj_city ?? null,
+    work_life_balance: row.work_life_balance ?? null,
+    want:              row.want ?? null,
+    priority:          row.priority ?? null,
+    eligibility:       normalizeEligibility(row.eligibility),
+    eligibility_flags: row.eligibility_flags ?? '',
+    verdict:           normalizeVerdict(row.verdict),
     best_fit_roles:    row.best_fit_roles,
     mode:              (row.mode === 'oferta' ? 'oferta' : 'scouting'),
     company:           row.company,
     role:              row.role,
-    tier:              row.tier === 'T2-high' ? 'T2' : row.tier,
+    tier:              row.tier,
     source:            row.source,
     location:          row.location,
     employment_type:   row.employment_type,
@@ -311,7 +315,7 @@ function toReportFile(row: DbReportRow): ReportFile {
     path:    row.path,
     company: row.company,
     role:    row.role,
-    tier:    row.tier === 'T2-high' ? 'T2' : row.tier,
+    tier:    row.tier,
     url:     row.url ?? '',
   }
 }

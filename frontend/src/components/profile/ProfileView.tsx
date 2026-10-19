@@ -201,18 +201,20 @@ export function ProfileView() {
   const stats = useMemo(() => {
     const total = scoreHistory.length
     const byTier = (t: string) => scoreHistory.filter(e => e.tier === t).length
-    const t1 = byTier('T1'); const t2h = byTier('T2-high'); const t2 = byTier('T2')
+    const t1 = byTier('T1'); const t2 = byTier('T2')
     const t3 = byTier('T3'); const t4 = byTier('T4')
-    const avg = total > 0 ? scoreHistory.reduce((s, e) => s + e.overall, 0) / total : 0
+    // Mean Want over scored rows (blocked rows carry no scores).
+    const wants = scoreHistory.map(e => e.want).filter((w): w is number => w != null && Number.isFinite(w))
+    const avg = wants.length > 0 ? wants.reduce((s, w) => s + w, 0) / wants.length : 0
     const applied    = applications.filter(a => ['Applied','Responded','Interview','Offer'].includes(a.status)).length
     const interviews = applications.filter(a => ['Interview','Offer'].includes(a.status)).length
     const streak = computeStreak(scoreHistory)
-    return { total, t1, t2h, t2, t3, t4, avg, applied, interviews, streak }
+    return { total, t1, t2, t3, t4, avg, applied, interviews, streak }
   }, [scoreHistory, applications])
 
   const heatWeeks = useMemo(() => buildHeatmap(scoreHistory), [scoreHistory])
   const sparkValues = useMemo(() =>
-    [...scoreHistory].sort((a, b) => a.date.localeCompare(b.date)).slice(-20).map(e => e.overall),
+    [...scoreHistory].filter(e => e.want != null).sort((a, b) => a.date.localeCompare(b.date)).slice(-20).map(e => e.want as number),
     [scoreHistory])
   const badgeList = useMemo(() => badges(scoreHistory, applications), [scoreHistory, applications])
   const highlights = useMemo(() => buildHighlights(scoreHistory), [scoreHistory])
@@ -300,7 +302,7 @@ export function ProfileView() {
                       </>
                     )}
                     {stats.applied === 0 && stats.avg > 0 && (
-                      <>Average score <span className="text-text-1 font-medium tabular-nums">{stats.avg.toFixed(1)}</span>.</>
+                      <>Average Want <span className="text-text-1 font-medium tabular-nums">{stats.avg.toFixed(1)}</span>.</>
                     )}
                   </p>
                 ) : (
@@ -374,7 +376,6 @@ export function ProfileView() {
                   { color: TIER_HEX.T4,         label: 'T4'   },
                   { color: TIER_HEX.T3,         label: 'T3'   },
                   { color: TIER_HEX.T2,         label: 'T2'   },
-                  { color: TIER_HEX['T2-high'], label: 'T2+'  },
                   { color: TIER_HEX.T1,         label: 'T1'   },
                 ].map(({ color, label }) => (
                   <span key={label} className="flex items-center gap-1">
@@ -399,13 +400,11 @@ export function ProfileView() {
 
               <Card>
                 <SectionHeading icon={Target} label="Tier breakdown" />
-                {/* T2-high uses accent-hover (the gradient stop between T1 and T2)
-                    — bg-success is reserved for offer/positive status, not tier
-                    strength. Gradient runs T1 indigo → T2-high → T2 → T3 → T4. */}
+                {/* Gradient runs T1 indigo → T2 → T3 → T4 (bg-success stays reserved
+                    for offer/positive status, not tier strength). */}
                 <div className="space-y-2.5" role="list" aria-label="Evaluations by tier">
                   {[
                     { label: 'T1',  n: stats.t1,  bar: 'bg-tier-1',      txt: 'text-tier-1'      },
-                    { label: 'T2+', n: stats.t2h, bar: 'bg-accent-hover', txt: 'text-accent-hover' },
                     { label: 'T2',  n: stats.t2,  bar: 'bg-accent',       txt: 'text-accent'       },
                     { label: 'T3',  n: stats.t3,  bar: 'bg-tier-3',       txt: 'text-tier-3'       },
                     { label: 'T4',  n: stats.t4,  bar: 'bg-tier-4',       txt: 'text-tier-4'       },

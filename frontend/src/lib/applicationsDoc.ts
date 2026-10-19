@@ -4,7 +4,7 @@
 //
 //   | # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
 //   |---|------|---------|------|-------|--------|-----|----------|--------|-------|
-//   | 1 | 2026-04-27 | Acme | ML Eng | 8.4/10 | Evaluated | ❌ | n/d | [#1](…) | … |
+//   | 1 | 2026-04-27 | Acme | ML Eng | W8.3 E5.6 | Evaluated | ❌ | n/d | [#1](…) | … |
 //
 // These helpers were extracted out of `store/data.ts` so the table-mutation
 // logic — which writes directly to the user's on-disk applications.md and is
@@ -19,6 +19,7 @@
 // rewrites the Status cell of matching rows. Neither touches unrelated cells.
 
 import type { AppStatus } from '@/types'
+import { formatScoreCell } from './scoreBands'
 
 export function isTableSeparator(line: string): boolean {
   return /^\|\s*-+/.test(line)
@@ -55,7 +56,7 @@ export function findApplicationRowIndex(lines: string[], company: string, role: 
 
 export function tierFolder(tier: string): string {
   if (tier === 'T1') return 'tier-1'
-  if (tier === 'T2' || tier === 'T2-high') return 'tier-2'
+  if (tier === 'T2') return 'tier-2'
   if (tier === 'T3') return 'tier-3'
   return 'tier-4'
 }
@@ -103,7 +104,11 @@ export function ensureDeadlineColumn(raw: string): string {
 export function upsertApplicationRow(raw: string, args: {
   company: string
   role: string
-  overall: number
+  /** Want / Ease of the listing (docs/scoring-v2.md §8.3). Null leaves the
+   *  Score cell alone on refresh and writes `—` on append (blocked listings
+   *  are never promoted). */
+  want: number | null
+  ease: number | null
   tier: string
   reportPath?: string
 }): string {
@@ -119,10 +124,14 @@ export function upsertApplicationRow(raw: string, args: {
   // path used to append blindly, which is the documented source of same-listing
   // dupes (CLAUDE.md "Pipeline Integrity"); `node scripts/dedup-tracker.mjs`
   // cleans up any that already slipped in.
+  // v2 Score cell `W8.3 E5.6`; legacy `X.X/10` cells on untouched rows stay.
+  const score = args.want != null && args.ease != null && args.want > 0 && args.ease > 0
+    ? formatScoreCell(args.want, args.ease)
+    : null
   const existingIdx = findApplicationRowIndex(lines, args.company, args.role)
   if (existingIdx !== -1) {
     const cells = splitRow(lines[existingIdx])
-    if (args.overall > 0 && cells.length > 4) cells[4] = `${args.overall.toFixed(1)}/10`
+    if (score && cells.length > 4) cells[4] = score
     if (args.reportPath && cells.length > 8) cells[8] = `[#${cells[0] || ''}](${args.reportPath})`
     lines[existingIdx] = joinRow(cells)
     return lines.join('\n')
@@ -139,7 +148,6 @@ export function upsertApplicationRow(raw: string, args: {
 
   const num = maxNum + 1
   const today = new Date().toISOString().slice(0, 10)
-  const score = args.overall > 0 ? `${args.overall.toFixed(1)}/10` : '—'
   const reportLink = args.reportPath
     ? `[#${num}](${args.reportPath})`
     : `[#${num}](reports/${tierFolder(args.tier)}/${args.company} - ${args.role}.md)`
@@ -148,7 +156,7 @@ export function upsertApplicationRow(raw: string, args: {
     today,
     args.company,
     args.role,
-    score,
+    score ?? '—',
     'Evaluated',
     '❌',
     'n/d',

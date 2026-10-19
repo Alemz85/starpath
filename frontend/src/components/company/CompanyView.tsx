@@ -19,6 +19,8 @@ import {
   type TimelineEvent,
 } from '@/lib/companyTimeline'
 import { scoreColor, tierHex } from '@/lib/tier'
+import { formatWantEase } from '@/lib/scoreBands'
+import { WantEase } from '@/components/shared/WantEase'
 import { cn } from '@/lib/utils'
 import { STATUS_COLORS } from '@/types'
 import type { ScoreEntry, ApplicationEntry, AppStatus } from '@/types'
@@ -230,15 +232,15 @@ function LoadingSkeleton() {
 function StatStrip({ stats, appCount }: { stats: CompanyStats; appCount: number }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* Scoring v2: Want · Ease pairs, never one combined number. "Best"
+          is the highest-Priority listing; Average is over scored rows. */}
       <StatTile
-        label="Best score"
-        value={stats.bestScore > 0 ? stats.bestScore.toFixed(1) : '—'}
-        color={stats.bestScore > 0 ? scoreColor(stats.bestScore) : undefined}
+        label="Best · Want · Ease"
+        value={stats.best ? formatWantEase(stats.best.want, stats.best.ease) : '—'}
       />
       <StatTile
-        label="Average"
-        value={stats.avgScore > 0 ? stats.avgScore.toFixed(1) : '—'}
-        color={stats.avgScore > 0 ? scoreColor(stats.avgScore) : undefined}
+        label="Average · Want · Ease"
+        value={formatWantEase(stats.avgWant, stats.avgEase)}
       />
       <StatTile
         label="Top tier"
@@ -307,7 +309,7 @@ function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
   return (
     <div className="rounded-lg border border-border-default bg-bg-elevated p-4 flex flex-col">
       <div className="flex items-center justify-between">
-        <h3 className="text-micro text-text-4 uppercase">Score trajectory</h3>
+        <h3 className="text-micro text-text-4 uppercase">Want trajectory</h3>
         <span
           className={cn('inline-flex items-center gap-1 text-label font-medium', meta.tone)}
           aria-label={`${trajectoryLabel(direction)}${delta !== 0 ? `, ${deltaSign}${delta.toFixed(1)} since first evaluation` : ''}`}
@@ -418,13 +420,11 @@ function TimelineRow({ ev, last }: { ev: TimelineEvent; last: boolean }) {
       <div className="min-w-0 flex-1 -mt-0.5">
         <div className="flex items-baseline gap-2">
           <span className="text-body text-text-1 truncate">{ev.role || '—'}</span>
-          {ev.score != null && (
-            <span
-              className="text-label font-mono tabular-nums shrink-0"
-              style={{ color: scoreColor(ev.score) }}
-            >
-              {ev.score.toFixed(1)}
-            </span>
+          {(ev.want != null || ev.blocked) && (
+            <WantEase want={ev.want} ease={ev.ease} blockedReason={ev.blocked ? 'Blocked' : null} className="shrink-0" />
+          )}
+          {ev.legacyScore != null && (
+            <span className="text-label font-mono tabular-nums shrink-0 text-text-3">{ev.legacyScore.toFixed(1)}/10</span>
           )}
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-label text-text-4">

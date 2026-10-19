@@ -10,7 +10,15 @@ import type Database from 'better-sqlite3'
 // applications.md's optional Deadline column) instead of by header name, so a
 // cache built before the fix can hold rows with Report/Notes shifted one cell;
 // force a rebuild since those mtime stamps are current-yet-stale.
-export const SCHEMA_VERSION = 6
+// v7: reserved (Redesign branch bumps to 7 independently).
+// v8: scoring v2 (docs/scoring-v2.md §8). score_history drops the v1 rollups
+// (current_fit / aspirational_fit / overall / ease_of_entry / strategic_fit /
+// sales_trap_risk) for experience_bar / competition / ease / role_content /
+// want / priority / eligibility / eligibility_flags / verdict, and every
+// numeric column is a NULLABLE REAL (blocked rows carry no scores). scouting
+// swaps score/cfaf for want / ease / eligibility; applications swaps score_num
+// for want / ease / legacy_score parsed from the Score cell (§8.3).
+export const SCHEMA_VERSION = 8
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (
@@ -24,7 +32,11 @@ const TABLES = [
     company     TEXT NOT NULL,
     role        TEXT NOT NULL,
     score_raw   TEXT NOT NULL,
-    score_num   REAL,
+    -- Parsed from score_raw (spec §8.3): 'W8.3 E5.6' → want/ease; a legacy
+    -- '7.4/10' cell → legacy_score. NULL when the cell doesn't carry it.
+    want         REAL,
+    ease         REAL,
+    legacy_score REAL,
     status      TEXT NOT NULL,
     pdf         INTEGER NOT NULL DEFAULT 0,
     deadline    TEXT NOT NULL DEFAULT '',
@@ -44,10 +56,11 @@ const TABLES = [
     date           TEXT NOT NULL,
     company        TEXT NOT NULL,
     role           TEXT NOT NULL,
-    score_raw      TEXT NOT NULL,
-    score_num      REAL,
+    want           REAL,
+    ease           REAL,
     tier           TEXT NOT NULL,
-    cfaf           TEXT NOT NULL DEFAULT '',
+    eligibility    TEXT,
+    eligibility_reason TEXT NOT NULL DEFAULT '',
     report         TEXT NOT NULL DEFAULT '',
     deadline       TEXT NOT NULL DEFAULT '',
     promotion_hint TEXT NOT NULL DEFAULT '',
@@ -60,19 +73,22 @@ const TABLES = [
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     date              TEXT NOT NULL,
     archetype         TEXT NOT NULL DEFAULT '',
-    skills_match      REAL NOT NULL DEFAULT 0,
-    ease_of_entry     REAL NOT NULL DEFAULT 0,
-    strategic_fit     REAL NOT NULL DEFAULT 0,
-    current_fit       REAL NOT NULL DEFAULT 0,
-    growth_mobility   REAL NOT NULL DEFAULT 0,
-    optionality_exit  REAL NOT NULL DEFAULT 0,
-    brand_value       REAL NOT NULL DEFAULT 0,
-    sales_trap_risk   REAL NOT NULL DEFAULT 0,
-    aspirational_fit  REAL NOT NULL DEFAULT 0,
-    overall           REAL NOT NULL DEFAULT 0,
-    best_cities       REAL NOT NULL DEFAULT 0,
-    salary_adj_city   REAL NOT NULL DEFAULT 0,
-    work_life_balance REAL NOT NULL DEFAULT 0,
+    skills_match      REAL,
+    experience_bar    REAL,
+    competition       REAL,
+    ease              REAL,
+    growth_mobility   REAL,
+    optionality_exit  REAL,
+    brand_value       REAL,
+    role_content      REAL,
+    best_cities       REAL,
+    salary_adj_city   REAL,
+    work_life_balance REAL,
+    want              REAL,
+    priority          REAL,
+    eligibility       TEXT,
+    eligibility_flags TEXT NOT NULL DEFAULT '',
+    verdict           TEXT,
     best_fit_roles    TEXT NOT NULL DEFAULT '',
     mode              TEXT NOT NULL DEFAULT 'scouting',
     company           TEXT NOT NULL,
@@ -117,6 +133,7 @@ const INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_score_date        ON score_history(date)`,
   `CREATE INDEX IF NOT EXISTS idx_score_tier        ON score_history(tier)`,
   `CREATE INDEX IF NOT EXISTS idx_score_archetype   ON score_history(archetype)`,
+  `CREATE INDEX IF NOT EXISTS idx_score_verdict     ON score_history(verdict)`,
   `CREATE INDEX IF NOT EXISTS idx_reports_tier      ON reports_index(tier)`,
   `CREATE INDEX IF NOT EXISTS idx_reports_company_role ON reports_index(company, role)`,
   `CREATE INDEX IF NOT EXISTS idx_reports_url       ON reports_index(url)`,

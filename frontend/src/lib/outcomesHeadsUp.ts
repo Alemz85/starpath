@@ -11,8 +11,13 @@
 // that path spawns a Claude/Node run; the cockpit needs something it can show
 // instantly from data already in the store. This module is that: a pure,
 // token-free synthesis over the renderer view-models — applications (the only
-// place outcomes live) joined to score-history (for the archetype + the score
+// place outcomes live) joined to score-history (for the archetype + the Ease
 // each application carried) — that distills ONE honest targeting lesson.
+//
+// Scoring v2: the score-gap lesson contrasts EASE — the "how realistic is it
+// to get in" axis, i.e. the one that should predict conversion. A legacy
+// `X.X/10` application cell carries no Ease, so it falls back to the matched
+// score-history row (or drops out of the contrast).
 //
 // Honesty rules, carried over from lib/trendsAnalytics.ts and lib/todayCockpit:
 //   • only DECIDED applications count (a win or a loss) — pending rows can't
@@ -25,6 +30,7 @@
 //     exhaustively unit-testable.
 
 import type { ApplicationEntry, ScoreEntry, AppStatus } from '@/types'
+import { isScored, parseScoreCell } from './scoreBands'
 
 // ─── Outcome taxonomy ─────────────────────────────────────────────────────────
 
@@ -58,7 +64,7 @@ export const MIN_DECIDED = 5
 // be a real contrast and not "the 4 wins vs the 1 loss".
 export const MIN_PER_GROUP = 2
 
-// A score gap (on the 0–10 scale) below this between winners' and losers' mean
+// An Ease gap (on the 1–10 scale) below this between winners' and losers' mean
 // reads as flat — scoring is coarse, so sub-0.5 wobble between two small groups
 // is noise, not a lesson.
 export const SCORE_GAP_DEADBAND = 0.5
@@ -89,20 +95,17 @@ export interface OutcomesHeadsUp {
 export interface OutcomesInput {
   applications: ApplicationEntry[]
   /** Score-history rows — used to recover each application's archetype + the
-   *  numeric overall it carried (applications.md stores score as a string). */
+   *  Ease it carried (applications.md stores the score as a string). */
   scoreHistory: ScoreEntry[]
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// applications.md stores the score as "7.2/10"; recover the number. Returns
-// null for non-/10 or unparseable values so a legacy row never mis-ranks a
-// lesson by an order of magnitude.
-export function parseAppScore(raw: string): number | null {
-  const m = (raw ?? '').trim().match(/^(\d+(?:\.\d+)?)\s*\/\s*10$/)
-  if (!m) return null
-  const v = Number(m[1])
-  return Number.isFinite(v) ? v : null
+// applications.md stores the v2 score as `W8.3 E5.6`; recover the Ease.
+// A legacy `X.X/10` cell (or anything unparseable) carries no Ease → null.
+export function parseAppEase(raw: string): number | null {
+  const cell = parseScoreCell(raw)
+  return cell && 'ease' in cell ? cell.ease : null
 }
 
 const norm = (s: string): string => (s ?? '').trim().toLowerCase()
@@ -153,7 +156,7 @@ export function buildOutcomesHeadsUp(input: OutcomesInput): OutcomesHeadsUp | nu
     const outcome = classifyOutcome(a.status)
     if (!outcome) continue
     const match = idx.get(`${norm(a.company)}|${norm(a.role)}`)
-    const score = parseAppScore(a.score) ?? (match ? match.overall : null) ?? null
+    const score = parseAppEase(a.score) ?? (match && isScored(match) ? match.ease : null) ?? null
     const archetype = (match?.archetype ?? '').trim()
     decided.push({ outcome, score, archetype })
   }
@@ -219,7 +222,7 @@ function archetypeDrag(losses: DecidedRow[], wins: DecidedRow[]): OutcomesHeadsU
   }
 }
 
-// ── 2. Score gap ──
+// ── 2. Ease gap ──
 function scoreGap(wins: DecidedRow[], losses: DecidedRow[]): OutcomesHeadsUp | null {
   const winScores = wins.map(w => w.score).filter((x): x is number => x !== null)
   const lossScores = losses.map(l => l.score).filter((x): x is number => x !== null)
@@ -233,20 +236,20 @@ function scoreGap(wins: DecidedRow[], losses: DecidedRow[]): OutcomesHeadsUp | n
     return {
       kind: 'score-gap',
       tone: 'positive',
-      title: 'Your score is predicting your wins',
-      detail: `Applications that converted scored ${winMean.toFixed(1)} on average vs ${lossMean.toFixed(1)} for the ones that didn't — a ${gap.toFixed(1)}-point edge. Trust the bar; reaching below it has been costing you.`,
+      title: 'Ease is predicting your wins',
+      detail: `Applications that converted had an Ease of ${winMean.toFixed(1)} on average vs ${lossMean.toFixed(1)} for the ones that didn't — a ${gap.toFixed(1)}-point edge. Trust the Ease read; reaching well above it has been costing you.`,
       wins: wins.length,
       losses: losses.length,
     }
   }
   if (gap <= -SCORE_GAP_DEADBAND) {
-    // Counter-signal: losers scored *higher* than winners. The score isn't
-    // tracking conversion — a caution that fit ≠ landability for this user.
+    // Counter-signal: losers had *higher* Ease than winners. Ease isn't
+    // tracking conversion — a caution that the Ease read is off for this user.
     return {
       kind: 'score-gap',
       tone: 'caution',
-      title: 'High scores aren’t converting',
-      detail: `The applications that didn't convert actually scored higher (${lossMean.toFixed(1)} vs ${winMean.toFixed(1)}) — fit isn't predicting landability here. The gap may be brand reach or timing, not match quality.`,
+      title: 'High-Ease roles aren’t converting',
+      detail: `The applications that didn't convert actually had higher Ease (${lossMean.toFixed(1)} vs ${winMean.toFixed(1)}) — Ease isn't predicting landability here. The gap may be brand reach or timing, not the experience bar.`,
       wins: wins.length,
       losses: losses.length,
     }

@@ -11,21 +11,19 @@
 
 import { TIER_HEX } from './tier'
 import type { ScoreEntry, ApplicationEntry } from '@/types'
+import { formatWantEase, isScored, priorityOf } from './scoreBands'
 
-const TIER_RANK: Record<string, number> = { T1: 5, 'T2-high': 4, T2: 3, T3: 2, T4: 1 }
+const TIER_RANK: Record<string, number> = { T1: 5, T2: 3, T3: 2, T4: 1 }
 
 // ─── Activity heatmap ────────────────────────────────────────────────────────
 
 // Heatmap cell color — maps the day's best tier onto the galaxy-violet
 // tier scale. Empty days fall back to bg-panel so the grid reads as a
-// quiet surface, not a default-T4 wash. T2-high uses accent-hover, the
-// stop between T1 and T2 in the wordmark gradient (the design system
-// doesn't formally define a T2-high color).
+// quiet surface, not a default-T4 wash.
 export function tierHeatColor(tier: string, count: number): string {
   if (count === 0) return '#F1F4F7' // bg-panel
   const map: Record<string, string> = {
     T1:        TIER_HEX.T1,
-    'T2-high': TIER_HEX['T2-high'],
     T2:        TIER_HEX.T2,
     T3:        TIER_HEX.T3,
     T4:        TIER_HEX.T4,
@@ -160,10 +158,11 @@ export interface Highlight { label: string; value: string; sub: string }
 // score-history rows (re-evaluations included) so "most explored" reflects
 // actual digging, not deduped entities.
 export function buildHighlights(history: ScoreEntry[]): Highlight[] | null {
-  const scored = history.filter(e => typeof e.overall === 'number' && e.overall > 0)
+  const scored = history.filter(isScored)
   if (scored.length < 3) return null  // too thin to celebrate
 
-  const top = scored.reduce((best, e) => (e.overall > best.overall ? e : best))
+  // The best find = highest Priority (the v2 sort key); shown as Want · Ease.
+  const top = scored.reduce((best, e) => ((priorityOf(e) ?? 0) > (priorityOf(best) ?? 0) ? e : best))
 
   const byCompany = new Map<string, number>()
   for (const e of history) if (e.company) byCompany.set(e.company, (byCompany.get(e.company) ?? 0) + 1)
@@ -181,7 +180,7 @@ export function buildHighlights(history: ScoreEntry[]): Highlight[] | null {
   }
 
   return [
-    { label: 'Top score',     value: top.overall.toFixed(1), sub: top.company || 'a listing' },
+    { label: 'Top match',     value: formatWantEase(top.want, top.ease), sub: top.company || 'a listing' },
     { label: 'Most explored', value: topCompany || '—',      sub: `${topCompanyN} evaluation${topCompanyN === 1 ? '' : 's'}` },
     { label: 'Busiest day',   value: shortDate(peakDay),     sub: `${peakN} in one day` },
   ]

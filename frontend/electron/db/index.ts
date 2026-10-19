@@ -202,7 +202,9 @@ export function queryPipeline() {
 }
 
 // Reports listing joined with the latest matching score_history row, so the
-// frontend can render the tier badge and overall score without a second pass.
+// frontend can render the tier/verdict badge and the Want · Ease pair without
+// a second pass. Blocked rows carry NULL want/ease/priority — the renderer
+// shows their eligibility reason instead (docs/scoring-v2.md §1.3).
 export function queryReports(f: ReportFilters = {}) {
   const where: string[] = []
   const params: Record<string, unknown> = {}
@@ -214,16 +216,15 @@ export function queryReports(f: ReportFilters = {}) {
   // Join strategy:
   //  1. Primary: match on `url` — the listing URL is the only stable join
   //     key that survives filename sanitization and multi-city
-  //     disambiguation. Reports written under the current pipeline always
-  //     have a URL; the sync extracts it from the markdown body.
-  //  2. Fallback: for legacy reports that pre-date URL tracking, fall back
-  //     to (company, role) matching — exact → prefix → "same company,
-  //     highest overall" so the badge isn't blank for the historic ~35
-  //     orphan reports.
+  //     disambiguation. The latest evaluation per URL wins (SQLite returns
+  //     the bare columns from the MAX(date) row).
+  //  2. Fallback: for reports without a URL header, fall back to
+  //     (company, role) matching — exact → prefix → "same company, highest
+  //     priority" so the badge isn't blank for orphan reports.
   // Most rows hit (1); (2) only fires when reports_index.url is empty.
   const sql = `
     WITH score_by_url AS (
-      SELECT url, overall, current_fit, aspirational_fit
+      SELECT url, MAX(date) AS d, want, ease, priority, verdict, eligibility, eligibility_flags
       FROM score_history
       WHERE url <> ''
       GROUP BY url
@@ -231,9 +232,12 @@ export function queryReports(f: ReportFilters = {}) {
     fallback AS (
       SELECT
         r.path,
-        s.overall,
-        s.current_fit,
-        s.aspirational_fit,
+        s.want,
+        s.ease,
+        s.priority,
+        s.verdict,
+        s.eligibility,
+        s.eligibility_flags,
         ROW_NUMBER() OVER (
           PARTITION BY r.path
           ORDER BY
@@ -243,7 +247,8 @@ export function queryReports(f: ReportFilters = {}) {
               WHEN LOWER(TRIM(r.role)) LIKE LOWER(TRIM(s.role)) || '%' THEN 1
               ELSE 2
             END,
-            s.overall DESC
+            s.priority DESC NULLS LAST,
+            s.date DESC
         ) AS rn
       FROM reports_index r
       LEFT JOIN score_history s
@@ -257,9 +262,12 @@ export function queryReports(f: ReportFilters = {}) {
       r.tier     AS tier,
       r.url      AS url,
       r.mtime    AS mtime,
-      COALESCE(u.overall,          f.overall)          AS overall,
-      COALESCE(u.current_fit,      f.current_fit)      AS current_fit,
-      COALESCE(u.aspirational_fit, f.aspirational_fit) AS aspirational_fit
+      CASE WHEN u.url IS NOT NULL THEN u.want              ELSE f.want              END AS want,
+      CASE WHEN u.url IS NOT NULL THEN u.ease              ELSE f.ease              END AS ease,
+      CASE WHEN u.url IS NOT NULL THEN u.priority          ELSE f.priority          END AS priority,
+      CASE WHEN u.url IS NOT NULL THEN u.verdict           ELSE f.verdict           END AS verdict,
+      CASE WHEN u.url IS NOT NULL THEN u.eligibility       ELSE f.eligibility       END AS eligibility,
+      CASE WHEN u.url IS NOT NULL THEN u.eligibility_flags ELSE f.eligibility_flags END AS eligibility_flags
     FROM reports_index r
     LEFT JOIN score_by_url u ON r.url <> '' AND u.url = r.url
     LEFT JOIN fallback    f ON f.path = r.path AND f.rn = 1
@@ -270,15 +278,18 @@ export function queryReports(f: ReportFilters = {}) {
   return need().prepare(sql).all(params)
 }
 
-// applications joined with their evaluation score (from score_history).
+// applications joined with their latest evaluation (from score_history).
 export function queryApplicationsWithScores() {
   return need().prepare(`
     SELECT
       a.*,
-      s.overall AS overall,
-      s.current_fit AS current_fit,
-      s.aspirational_fit AS aspirational_fit,
-      s.archetype AS archetype
+      s.want        AS sh_want,
+      s.ease        AS sh_ease,
+      s.priority    AS priority,
+      s.verdict     AS verdict,
+      s.eligibility AS eligibility,
+      s.archetype   AS archetype,
+      MAX(s.date)   AS sh_date
     FROM applications a
     LEFT JOIN score_history s
       ON s.company = a.company AND s.role = a.role
@@ -287,22 +298,25 @@ export function queryApplicationsWithScores() {
   `).all()
 }
 
-// Pre-aggregated trends for TrendsView. Buckets by full date (matches the
-// pre-DB grouping behaviour) and by archetype, plus a tier histogram.
-// Bucketing by month is left to the renderer if needed — collapsing in JS
-// over a few dozen day rows is essentially free.
+// Pre-aggregated trends. Buckets by full date and by archetype, plus tier,
+// verdict and eligibility histograms. Score averages are over SCORED rows
+// only — blocked (red) rows have no Want/Ease and are excluded from every
+// score average, but they are counted in the eligibility distribution
+// (docs/scoring-v2.md §9).
+const TREND_COLUMNS = `
+      COUNT(*)                                                    AS count,
+      SUM(CASE WHEN eligibility = 'red' THEN 1 ELSE 0 END)        AS blocked,
+      AVG(CASE WHEN eligibility = 'red' THEN NULL ELSE want END)  AS avg_want,
+      AVG(CASE WHEN eligibility = 'red' THEN NULL ELSE ease END)  AS avg_ease,
+      AVG(CASE WHEN eligibility = 'red' THEN NULL ELSE priority END) AS avg_priority,
+      AVG(skills_match)      AS avg_skills_match,
+      AVG(brand_value)       AS avg_brand_value,
+      AVG(growth_mobility)   AS avg_growth,
+      AVG(work_life_balance) AS avg_wlb`
+
 export function queryTrends() {
   const byDate = need().prepare(`
-    SELECT
-      substr(date, 1, 10) AS label,
-      COUNT(*)            AS count,
-      AVG(overall)        AS avg_overall,
-      AVG(current_fit)    AS avg_current_fit,
-      AVG(aspirational_fit) AS avg_aspirational_fit,
-      AVG(skills_match)   AS avg_skills_match,
-      AVG(brand_value)    AS avg_brand_value,
-      AVG(growth_mobility) AS avg_growth,
-      AVG(work_life_balance) AS avg_wlb
+    SELECT substr(date, 1, 10) AS label, ${TREND_COLUMNS}
     FROM score_history
     WHERE date != ''
     GROUP BY label
@@ -310,16 +324,7 @@ export function queryTrends() {
   `).all()
 
   const byArchetype = need().prepare(`
-    SELECT
-      archetype          AS label,
-      COUNT(*)           AS count,
-      AVG(overall)       AS avg_overall,
-      AVG(current_fit)   AS avg_current_fit,
-      AVG(aspirational_fit) AS avg_aspirational_fit,
-      AVG(skills_match)  AS avg_skills_match,
-      AVG(brand_value)   AS avg_brand_value,
-      AVG(growth_mobility) AS avg_growth,
-      AVG(work_life_balance) AS avg_wlb
+    SELECT archetype AS label, ${TREND_COLUMNS}
     FROM score_history
     WHERE archetype != ''
     GROUP BY archetype
@@ -333,7 +338,21 @@ export function queryTrends() {
     GROUP BY tier
   `).all()
 
-  return { byDate, byArchetype, tierDistribution }
+  const verdictDistribution = need().prepare(`
+    SELECT verdict, COUNT(*) AS count
+    FROM score_history
+    WHERE verdict IS NOT NULL AND verdict != ''
+    GROUP BY verdict
+  `).all()
+
+  const eligibilityDistribution = need().prepare(`
+    SELECT eligibility, COUNT(*) AS count
+    FROM score_history
+    WHERE eligibility IS NOT NULL AND eligibility != ''
+    GROUP BY eligibility
+  `).all()
+
+  return { byDate, byArchetype, tierDistribution, verdictDistribution, eligibilityDistribution }
 }
 
 export function resync(repoPath: string) {

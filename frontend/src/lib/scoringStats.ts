@@ -1,6 +1,7 @@
 // scoringStats.ts — the renderer-side mirror of scripts/lib/scoring-stats.mjs.
 //
-// CONTRACT: docs/scoring-statistical-design.md
+// CONTRACT: docs/scoring-statistical-design.md, re-derived for v2 in
+// docs/scoring-v2.md § 9 (WANT / EASE / PRIORITY noise floors by exact name).
 //
 // Every analytic the app derives from data/score-history.tsv (peer rank in
 // lib/peerRank.ts, re-evaluation movement in lib/scoreTrend.ts, and the
@@ -14,31 +15,30 @@
 // If a number needs to change, change the doc, scripts/lib/scoring-stats.mjs,
 // and this file in the same commit.
 
-/* ───── 1. Rubric geometry (docs § 1) ─────────────────────────────────────── */
+/* ───── 1. Rubric geometry (docs/scoring-v2.md § 9) ─────────────────────── */
+//
+// v2 has no Overall. Want and Ease move on different scales, so each carries
+// its own noise floor, and Priority (the sort key) a third. A delta below the
+// floor of ITS metric is "flat within noise" — never a direction.
 
-/** Overall = CF × 0.70 + AF × 0.30 (modes/_shared.md § Overall). */
-export const CF_WEIGHT = 0.70
-export const AF_WEIGHT = 0.30
+/** One integer step on one motivator at equal weights moves Want by 0.25;
+ *  the floor is that, rounded up. */
+export const WANT_NOISE_FLOOR = 0.30
 
-/** Each rollup is the mean of three integer dimensions, so one dimension
- *  moving one integer step moves Overall by a fixed amount. */
-export const CF_DIM_STEP = CF_WEIGHT / 3   // 0.2333… — one Current Fit dim, one step
-export const AF_DIM_STEP = AF_WEIGHT / 3   // 0.1000  — one Aspirational Fit dim, one step
+/** One step on a 0.35-weight Ease dimension near 6 moves the geometric mean
+ *  by ≈ 0.32; the floor is that, rounded up. */
+export const EASE_NOISE_FLOOR = 0.35
 
-/**
- * OVERALL_NOISE_FLOOR — the minimum detectable difference in Overall.
- *
- * Derivation (docs § 1 "The noise floor"): strictly greater than the largest
- * Overall move a SINGLE dimension can produce by wobbling one integer step
- * (0.2333, one Current Fit dim — a re-evaluation does that for free), and no
- * greater than the smallest move that needs TWO dimensions to agree (0.3333).
- * 0.30 is the round value inside (0.2333, 0.3333].
- *
- * A delta below this is NOT a small change — it is the resolution limit of the
- * instrument. Surfaces render it as "flat within noise": no arrow, no sign, no
- * directional colour.
- */
-export const OVERALL_NOISE_FLOOR = 0.30
+/** Priority = sqrt(Want × Ease) — floor for sort-key movement. */
+export const PRIORITY_NOISE_FLOOR = 0.30
+
+export type ScoreMetric = 'want' | 'ease' | 'priority'
+
+export const NOISE_FLOORS: Record<ScoreMetric, number> = {
+  want: WANT_NOISE_FLOOR,
+  ease: EASE_NOISE_FLOOR,
+  priority: PRIORITY_NOISE_FLOOR,
+}
 
 /* ───── 2. Dimension classes (docs § 2) ───────────────────────────────────── */
 
@@ -55,12 +55,12 @@ export const MECHANICAL_DIMS = [
  *  NEVER read as precise to a decimal across re-evaluations. */
 export const JUDGMENT_DIMS = [
   'skills_match',
-  'ease_of_entry',
-  'strategic_fit',
+  'experience_bar',
+  'competition',
   'growth_mobility',
   'optionality_exit',
+  'role_content',
   'work_life_balance',
-  'sales_trap_risk',
 ] as const
 
 export type DimensionClass = 'mechanical' | 'judgment' | 'unknown'
@@ -88,7 +88,7 @@ export const GATES = {
   trendMinEvals: 2,
 
   /** score-trend corpus verdict: ≥10 scored evals in EACH calendar window —
-   *  a single extreme role deviates by up to ≈3.0 Overall, and 3.0/k ≤ 0.30
+   *  a single extreme role deviates by up to ≈3.0 points, and 3.0/k ≤ 0.30
    *  gives k ≥ 10. */
   trendMinPerWindowForVerdict: 10,
 
@@ -165,7 +165,9 @@ export function describeSample(n: number | null | undefined, gate: number): Samp
 export type MovementClass = 'within-noise' | 'improving' | 'declining' | 'unknown'
 
 /**
- * Classify a signed Overall delta against the noise floor.
+ * Classify a signed delta against the noise floor of ITS metric — pass
+ * `{ floor: NOISE_FLOORS.ease }` for an Ease delta. Defaults to the Priority
+ * floor (the sort-key comparison most callers make).
  *
  * 'within-noise' for |Δ| < floor is a first-class reported outcome, NOT the
  * absence of a result and NOT a hedged direction. A delta EXACTLY at the floor
@@ -174,7 +176,7 @@ export type MovementClass = 'within-noise' | 'improving' | 'declining' | 'unknow
  */
 export function classifyMovement(
   delta: number | null | undefined,
-  { floor = OVERALL_NOISE_FLOOR }: { floor?: number } = {},
+  { floor = PRIORITY_NOISE_FLOOR }: { floor?: number } = {},
 ): MovementClass {
   const d = Number(delta)
   if (!Number.isFinite(d)) return 'unknown'
@@ -185,7 +187,7 @@ export function classifyMovement(
 /** True when |Δ| is under the resolution limit — i.e. not evidence of change. */
 export function isWithinNoise(
   delta: number | null | undefined,
-  { floor = OVERALL_NOISE_FLOOR }: { floor?: number } = {},
+  { floor = PRIORITY_NOISE_FLOOR }: { floor?: number } = {},
 ): boolean {
   return classifyMovement(delta, { floor }) === 'within-noise'
 }
@@ -201,7 +203,7 @@ export function formatSample(n: number | null | undefined, noun = 'observation')
 /** "flat within noise (|Δ| 0.10 < 0.30 floor)" — the first-class flat result. */
 export function formatWithinNoise(
   delta: number | null | undefined,
-  { floor = OVERALL_NOISE_FLOOR }: { floor?: number } = {},
+  { floor = PRIORITY_NOISE_FLOOR }: { floor?: number } = {},
 ): string {
   const d = Math.abs(Number(delta) || 0)
   return `flat within noise (|Δ| ${d.toFixed(2)} < ${floor.toFixed(2)} floor)`

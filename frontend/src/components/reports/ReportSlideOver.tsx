@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   X, FileText, Database as DatabaseIcon, ExternalLink, BookOpen, Clock, ChevronLeft,
   Target, Sparkles, Compass, ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp,
-  AlertTriangle, Gauge, Anchor, Wrench,
+  AlertTriangle, ShieldCheck, HelpCircle, Calculator,
 } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useNavStore } from '@/store/nav'
@@ -12,8 +12,13 @@ import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { cn, formatRelative } from '@/lib/utils'
 import { TIER_COLORS, type TierKey } from '@/types'
-import type { ScoreEntry } from '@/types'
-import { tierHex, scoreColor, NEUTRAL_SCORE_COLOR } from '@/lib/tier'
+import type { EligibilityFlag, ScoreEntry, Verdict, Eligibility } from '@/types'
+import { tierHex, scoreColor, NEUTRAL_SCORE_COLOR, verdictDisplay } from '@/lib/tier'
+import {
+  blockedReason, eligibilityCheckLabel, isBlocked, isScored, parseEligibilityFlags, verdictOf,
+} from '@/lib/scoreBands'
+import { WantEase } from '@/components/shared/WantEase'
+import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
@@ -21,13 +26,14 @@ import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { parseCities, entityId } from '@/lib/entityId'
 import {
-  extractMetadata, parseDimensionalScoring, splitWhyThisScore, splitPeerBlock,
-  type ParsedDimensions, type DimensionRow, type WhyThisScore,
+  extractMetadata, parseDimensionalScoring, splitPeerBlock, parseReportHeader,
+  splitEligibility, splitSalaryMath,
+  type ParsedDimensions, type DimensionRow, type ParsedEligibility,
 } from '@/lib/reportMarkdown'
 import { peerContext, type PeerContext } from '@/lib/peerRank'
 import { PeerContextCard } from '@/components/reports/PeerContextCard'
 import {
-  GATES, classifyMovement, confidenceTier, formatWithinNoise, OVERALL_NOISE_FLOOR,
+  GATES, classifyMovement, confidenceTier, formatWithinNoise, NOISE_FLOORS,
 } from '@/lib/scoringStats'
 
 type Tab = 'scouting' | 'application' | 'history'
@@ -36,13 +42,16 @@ interface SiblingInfo {
   company: string
   role: string
   city: string                // primary city of the sibling
-  score: number
+  want: number | null
+  ease: number | null
 }
 
 interface HistoryEntry {
   date: string         // full YYYY-MM-DD (for snapshot filename)
   monthLabel: string   // YYYY-MM (for display)
-  overall: number
+  want: number | null  // null when that evaluation was blocked
+  ease: number | null
+  verdict: Verdict | null
   tier: string
 }
 
@@ -91,15 +100,17 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       .map(r => ({
         date: r.date,
         monthLabel: r.date.slice(0, 7),
-        overall: r.overall,
-        tier: r.tier === 'T2-high' ? 'T2' : r.tier,
+        want: isScored(r) ? r.want : null,
+        ease: isScored(r) ? r.ease : null,
+        verdict: verdictOf(r),
+        tier: r.tier,
       }))
       .sort((a, b) => b.date.localeCompare(a.date))
   }, [scoreHistory, company, role])
 
   const historyAvailable = history.length >= 2
 
-  // Live peer context — this entity's overall + dims vs. every other
+  // Live peer context — this entity's Priority + dims vs. every other
   // evaluated entity sharing its primary archetype, computed fresh from
   // score-history (see lib/peerRank.ts). Null when the cohort is under the
   // 5-peer gate (docs/scoring-statistical-design.md § 3.2), in which case the
@@ -148,7 +159,8 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           company:  r.company,
           role:     r.role,
           city:     parsed.isMulti ? `Multi (${parsed.cities.length})` : (parsed.primary ?? '?'),
-          score:    r.overall,
+          want:     isScored(r) ? r.want : null,
+          ease:     isScored(r) ? r.ease : null,
           date:     r.date,
         })
       }
@@ -261,8 +273,9 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   }, [company, role, repoPath])
 
   const tierKey = (scoreEntry.tier as TierKey) in TIER_COLORS ? (scoreEntry.tier as TierKey) : 'T4'
-  const { text: tierText } = TIER_COLORS[tierKey]
   const tierColor = tierHex(tierKey)
+  const entryVerdict = verdictOf(scoreEntry)
+  const entryBlocked = isBlocked(scoreEntry)
   const evaluatedRel = scoreEntry.date ? formatRelative(scoreEntry.date) : null
 
   return (
@@ -315,18 +328,17 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               {role}
             </p>
             <div className="flex items-center gap-2 mt-2 flex-wrap text-label">
-              <span
-                className={cn('inline-flex items-center px-1.5 py-0.5 rounded font-mono font-semibold tabular-nums text-[10.5px]', tierText)}
-                style={{ background: `${tierColor}14`, border: `1px solid ${tierColor}33` }}
-              >
-                {tierKey === 'T2-high' ? 'T2+' : tierKey}
-              </span>
-              {scoreEntry.overall > 0 && (
-                <span className="font-mono tabular-nums text-text-3">
-                  <span className="text-text-1 font-semibold">{scoreEntry.overall.toFixed(1)}</span>
-                  <span className="text-text-4"> / 10</span>
-                </span>
-              )}
+              {/* Scoring v2 header: eligibility chip, verdict chip (tier
+                  colour), then the Want · Ease pair — or the blocked reason. */}
+              <EligibilityChip status={scoreEntry.eligibility} />
+              <VerdictChip verdict={entryVerdict} />
+              <WantEase
+                want={scoreEntry.want}
+                ease={scoreEntry.ease}
+                blockedReason={entryBlocked ? blockedReason(scoreEntry) : null}
+                size="md"
+                className="max-w-[260px]"
+              />
               {scoreEntry.location && (
                 <>
                   <span className="text-text-4">·</span>
@@ -419,7 +431,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               <button
                 key={`${s.company}|${s.role}`}
                 onClick={() => onSwitchEntity?.(s.company, s.role)}
-                title={`${s.role} · ${s.city} · ${s.score > 0 ? s.score.toFixed(1) : '—'}/10`}
+                title={`${s.role} · ${s.city} · Want ${s.want?.toFixed(1) ?? '—'} · Ease ${s.ease?.toFixed(1) ?? '—'}`}
                 className="inline-flex items-center gap-1 text-accent-text hover:underline transition-colors"
               >
                 <span className="text-text-4">·</span>
@@ -460,7 +472,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         {/* Score mini-bar — only when the scouting tab is active and we
             have real score data. The application-prep tab doesn't carry
             a score on its own; it inherits from the scouting evaluation. */}
-        {activeTab === 'scouting' && scoreEntry.overall > 0 && <ScoreMiniBar entry={scoreEntry} />}
+        {activeTab === 'scouting' && isScored(scoreEntry) && <ScoreMiniBar entry={scoreEntry} />}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -479,7 +491,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           )}
           {!loading && !error && activeTab === 'scouting' && (
             scoutingContent
-              ? <ReportBody content={scoutingContent} tier={tierKey} peer={peer} onOpenComparable={onSwitchEntity} />
+              ? <ReportBody content={scoutingContent} scoreEntry={scoreEntry} peer={peer} onOpenComparable={onSwitchEntity} />
               : <EmptyTab message="No scouting report yet — click Generate report from the Database popover to create one." />
           )}
           {!loading && !error && activeTab === 'application' && (
@@ -505,52 +517,58 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   )
 }
 
-// Movement across this entity's own re-evaluations, classified against the
-// 0.30 Overall noise floor (docs/scoring-statistical-design.md § 1 + § 3.3).
-// A sub-floor first→latest gap is stated as "flat within noise" with its
-// evidence — never as a small improvement, never with an arrow — because that
-// gap is what one dimension re-judging itself produces for free.
+// Movement across this entity's own re-evaluations, stated on Want and Ease
+// SEPARATELY, each against its own noise floor (docs/scoring-v2.md §9 +
+// docs/scoring-statistical-design.md § 1). A sub-floor first→latest gap is
+// "flat within noise" — never a small improvement, never an arrow. Blocked
+// evaluations carry no scores and drop out of the comparison.
 function HistoryMovement({ rows }: { rows: HistoryEntry[] }) {
   // Same-date rows are duplicate writes, not re-evaluations over time, so they
-  // collapse to one — the rule lib/scoreTrend.ts uses to build a trajectory.
-  // `rows` arrives newest-first; walk it oldest-first so the surviving row per
-  // date is the last one written that day.
+  // collapse to one. `rows` arrives newest-first; walk it oldest-first so the
+  // surviving row per date is the last one written that day.
   const byDate = new Map<string, HistoryEntry>()
   for (const r of [...rows].reverse()) {
-    if (!Number.isFinite(r.overall) || r.overall <= 0 || !r.date) continue
+    if (r.want == null || r.ease == null || !r.date) continue
     byDate.set(r.date, r)
   }
   const scored = [...byDate.values()]   // oldest → newest
   if (scored.length < GATES.trendMinEvals) return null
   const first = scored[0]
   const latest = scored[scored.length - 1]
-  const delta = Math.round((latest.overall - first.overall) * 100) / 100
-  const movement = classifyMovement(delta)
   const confidence = confidenceTier(scored.length, GATES.trendMinEvals)
-  const flat = movement === 'within-noise'
-  const color = flat ? '#8595A4' : movement === 'improving' ? '#007D1E' : '#C80A28'
 
   return (
-    <div className="flex items-baseline flex-wrap gap-x-2 gap-y-1 mb-3 pb-2.5 border-b border-border-default">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4">
-        First → latest
+    <div className="flex flex-col gap-1 mb-3 pb-2.5 border-b border-border-default">
+      <MetricMovement label="Want" from={first.want as number} to={latest.want as number} floor={NOISE_FLOORS.want} />
+      <MetricMovement label="Ease" from={first.ease as number} to={latest.ease as number} floor={NOISE_FLOORS.ease} />
+      <span className="text-[11px] text-text-4 font-mono">
+        {scored.length} evals · {confidence} confidence
       </span>
+    </div>
+  )
+}
+
+function MetricMovement({ label, from, to, floor }: { label: string; from: number; to: number; floor: number }) {
+  const delta = Math.round((to - from) * 100) / 100
+  const movement = classifyMovement(delta, { floor })
+  const flat = movement === 'within-noise'
+  const color = flat ? '#8595A4' : movement === 'improving' ? '#007D1E' : '#C80A28'
+  return (
+    <div className="flex items-baseline flex-wrap gap-x-2">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4 w-10">{label}</span>
       <span className="font-mono tabular-nums text-[12px] text-text-2">
-        {first.overall.toFixed(1)} → {latest.overall.toFixed(1)}
+        {from.toFixed(1)} → {to.toFixed(1)}
       </span>
       <span
         className="font-mono tabular-nums text-[12px] font-semibold"
         style={{ color }}
         title={flat
-          ? `${formatWithinNoise(delta)} — below the resolution of the rubric, so no direction is claimed`
-          : `Moved ${delta > 0 ? 'up' : 'down'} by at least the ${OVERALL_NOISE_FLOOR} Overall noise floor`}
+          ? `${formatWithinNoise(delta, { floor })} — below the resolution of the rubric, so no direction is claimed`
+          : `Moved ${delta > 0 ? 'up' : 'down'} by at least the ${floor} ${label} noise floor`}
       >
         {flat
-          ? `flat within noise (|Δ| ${Math.abs(delta).toFixed(2)} < ${OVERALL_NOISE_FLOOR.toFixed(2)})`
+          ? `flat within noise (|Δ| ${Math.abs(delta).toFixed(2)} < ${floor.toFixed(2)})`
           : `${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(2)}`}
-      </span>
-      <span className="text-[11px] text-text-4 font-mono">
-        {scored.length} evals · {confidence} confidence
       </span>
     </div>
   )
@@ -568,8 +586,8 @@ function HistoryTable({ rows, onPick }: { rows: HistoryEntry[]; onPick: (date: s
           <thead>
             <tr className="bg-bg-elevated/50 text-[11px] uppercase tracking-[0.06em] text-text-4">
               <th className="text-left px-3 py-2 font-medium">Month</th>
-              <th className="text-right px-3 py-2 font-medium">Score</th>
-              <th className="text-right px-3 py-2 font-medium">Tier</th>
+              <th className="text-right px-3 py-2 font-medium">Want · Ease</th>
+              <th className="text-right px-3 py-2 font-medium">Verdict</th>
               <th className="text-right px-3 py-2 font-medium" />
             </tr>
           </thead>
@@ -584,10 +602,10 @@ function HistoryTable({ rows, onPick }: { rows: HistoryEntry[]; onPick: (date: s
                 onClick={() => onPick(r.date)}
               >
                 <td className="px-3 py-2 font-mono text-text-2">{r.monthLabel}</td>
-                <td className="px-3 py-2 text-right font-mono tabular-nums text-text-1">
-                  {r.overall > 0 ? r.overall.toFixed(1) : '—'}
+                <td className="px-3 py-2 text-right">
+                  <WantEase want={r.want} ease={r.ease} blockedReason={r.verdict === 'blocked' ? 'Blocked' : null} />
                 </td>
-                <td className="px-3 py-2 text-right font-mono text-text-3">{r.tier || '—'}</td>
+                <td className="px-3 py-2 text-right"><VerdictChip verdict={r.verdict} /></td>
                 <td className="px-3 py-2 text-right text-text-4 text-[11px]">view ↗</td>
               </tr>
             ))}
@@ -680,10 +698,12 @@ function EmptyTab({ message }: { message: string }) {
 // older / custom report formats still render readably. ──────────────────────
 
 function ReportBody({
-  content, tier, peer, onOpenComparable,
+  content, scoreEntry, peer, onOpenComparable,
 }: {
   content: string
-  tier: TierKey
+  /** The listing's live score-history row — preferred over the report's
+   *  frozen header for the hero numbers. */
+  scoreEntry: ScoreEntry
   /** Live peer context (lib/peerRank.ts). When present, the static at-eval-
    *  time peer block in the markdown is stripped and the PeerContextCard
    *  renders in its place; when null the markdown is left untouched. */
@@ -694,124 +714,237 @@ function ReportBody({
   // re-renders frequently (animation flag, parent state) and the regex /
   // line-walk parsers were running every time, causing a visible flicker.
   const parsed = useMemo(() => {
-    const { before, dims, after } = parseDimensionalScoring(content)
+    const header = parseReportHeader(content)
+    // Carve the v2 blocks the slide-over renders structurally: the
+    // `## Eligibility` section and the closing `Salary math:` footer.
+    const { eligibility, rest: noElig } = splitEligibility(content)
+    const { salaryMath, rest: body } = splitSalaryMath(noElig)
+    const { before, dims, after } = parseDimensionalScoring(body)
     if (!dims) {
       // Fallback (unparseable / older format): still strip the frozen peer
       // block when the live panel will render, so we never show two
       // conflicting rank claims.
-      const fallback = peer ? splitPeerBlock(content).rest : content
-      return { dims: null as ParsedDimensions | null, after: '', meta: [] as Array<{ key: string; value: string }>, beforeWithoutMeta: fallback, why: null as WhyThisScore | null }
+      const fallback = peer ? splitPeerBlock(body).rest : body
+      return { header, eligibility, salaryMath, dims: null as ParsedDimensions | null, after: '', meta: [] as Array<{ key: string; value: string }>, beforeWithoutMeta: fallback }
     }
     const { meta, rest: beforeWithoutMeta } = extractMetadata(before)
-    // Carve the "Why this score" block out of the trailing prose so it can be
-    // promoted to a structured callout right under the score table — its
-    // binding-constraint + lever shape is the report's most actionable signal
-    // and reads poorly as loose markdown bullets.
-    const { why, rest: afterWithoutWhy } = splitWhyThisScore(after)
     // Same carve for the static peer-ranking lines (only when the live panel
     // supersedes them — otherwise the frozen block stays as the fallback).
-    const afterFinal = peer ? splitPeerBlock(afterWithoutWhy).rest : afterWithoutWhy
-    return { dims, after: afterFinal, meta, beforeWithoutMeta, why: why.present ? why : null }
+    // A legacy `## Why this score` section (retired) stays in `after` and
+    // renders as an ordinary prose section.
+    const afterFinal = peer ? splitPeerBlock(after).rest : after
+    return { header, eligibility, salaryMath, dims, after: afterFinal, meta, beforeWithoutMeta }
   }, [content, peer])
+
+  // Hero values: live score-history row first, the report's header second.
+  const blocked = isBlocked(scoreEntry) || parsed.header.eligibility === 'red'
+  const want = scoreEntry.want ?? parsed.header.want
+  const ease = scoreEntry.ease ?? parsed.header.ease
+  const verdict = verdictOf(scoreEntry) ?? parsed.header.verdict
+  const eligibility: Eligibility | null = scoreEntry.eligibility ?? parsed.header.eligibility
+  const checks: EligibilityFlag[] = parsed.eligibility?.checks.length
+    ? parsed.eligibility.checks
+    : parseEligibilityFlags(scoreEntry.eligibility_flags)
+  const questions = parsed.eligibility?.questions ?? []
+  const reason = blocked
+    ? (isBlocked(scoreEntry) ? blockedReason(scoreEntry) : (parsed.header.eligibilityReason || 'Not eligible'))
+    : null
+
+  const hero = (
+    <ScoreHero
+      want={want}
+      ease={ease}
+      verdict={verdict}
+      blockedReason={reason}
+    />
+  )
+  const eligBlock = (
+    <EligibilityBlock status={eligibility} checks={checks} questions={questions} />
+  )
 
   if (!parsed.dims) {
     return (
       <>
+        {hero}
+        {eligBlock}
         <div className="prose-report">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{parsed.beforeWithoutMeta}</ReactMarkdown>
         </div>
         {peer && <PeerContextCard peer={peer} onOpenComparable={onOpenComparable} />}
+        {parsed.salaryMath && <SalaryMathFooter text={parsed.salaryMath} />}
       </>
     )
   }
-  const { dims, after, meta, beforeWithoutMeta, why } = parsed
+  const { dims, after, meta, beforeWithoutMeta } = parsed
   return (
     <>
       <div className="prose-report">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{beforeWithoutMeta}</ReactMarkdown>
       </div>
       {meta.length > 0 && <ReportMeta items={meta} />}
-      <DimensionalScoring dims={dims} tier={tier} />
+      {hero}
+      {eligBlock}
+      <DimensionalScoring dims={dims} />
       {peer && <PeerContextCard peer={peer} onOpenComparable={onOpenComparable} />}
-      {why && <WhyThisScoreCard why={why} tier={tier} />}
       {after && (
         <div className="prose-report">
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{after}</ReactMarkdown>
         </div>
       )}
+      {parsed.salaryMath && <SalaryMathFooter text={parsed.salaryMath} />}
     </>
   )
 }
 
-// "Why this score" — the report's explainability block, promoted from loose
-// markdown bullets into a structured callout. The headline lede reads as the
-// verdict; the two rows below carry the load-bearing fixability signal:
-//   - Holding it back (binding constraint) → the dimension/gate capping the tier
-//   - Closest lever  → the cheapest single raise that crosses into a better band
-// The lever row is tinted accent (it's actionable); the constraint row stays
-// neutral-warning (it's a diagnosis). Both degrade gracefully — a terse report
-// with only a headline renders just the lede plate.
-function WhyThisScoreCard({ why, tier }: { why: WhyThisScore; tier: TierKey }) {
-  const accent = tierHex(tier)
+// Scoring v2 hero plate: Want and Ease side by side (shared WantEase, lg),
+// the verdict label + its action, tinted by the verdict's storage tier. A
+// blocked listing shows its red reason in place of the numbers.
+function ScoreHero({
+  want, ease, verdict, blockedReason: reason,
+}: {
+  want: number | null
+  ease: number | null
+  verdict: Verdict | null
+  blockedReason: string | null
+}) {
+  const v = verdictDisplay(reason ? 'blocked' : verdict)
+  if (!v && want == null && ease == null && !reason) return null
+  const heroColor = v?.color ?? NEUTRAL_SCORE_COLOR
   return (
-    <section className="my-5">
-      <div className="flex items-center gap-2 pb-2.5 mb-3.5 border-b border-border-default">
-        <Gauge size={14} className="shrink-0 text-accent" aria-hidden />
-        <h3 className="text-[16px] font-semibold text-text-1 leading-none tracking-[-0.005em]">
-          Why this score
-        </h3>
+    <div
+      className="relative flex items-center justify-between gap-4 my-5 px-5 py-4 rounded-xl overflow-hidden"
+      style={{
+        background: `linear-gradient(135deg, ${heroColor}14 0%, ${heroColor}06 100%)`,
+        border: `1px solid ${heroColor}33`,
+      }}
+    >
+      <div className="min-w-0">
+        <div className="text-micro text-text-4 uppercase tracking-[0.12em] mb-1">Verdict</div>
+        {v && (
+          <div className="text-section font-medium" style={{ color: v.color }}>{v.label}</div>
+        )}
+        {v && <div className="text-[12px] text-text-3">{v.action}</div>}
       </div>
-
-      {why.headline && (
-        <p className="text-[13px] text-text-2 leading-[1.55] mb-3">
-          {why.headline}
-        </p>
+      {reason ? (
+        <WantEase want={null} ease={null} blockedReason={reason} size="lg" className="max-w-[320px] text-right" />
+      ) : (
+        <WantEase want={want} ease={ease} size="lg" className="shrink-0" />
       )}
+    </div>
+  )
+}
 
-      <div className="space-y-2">
-        {/* Binding constraint — the diagnosis. Amber-warning rail because it's
-            the thing capping the tier, not an action. */}
-        {why.bindingConstraint && (
-          <div className="flex gap-3 px-3.5 py-3 rounded-lg bg-bg-elevated/60 border border-border-default">
-            <Anchor size={15} className="shrink-0 mt-0.5 text-warning" aria-hidden />
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4 mb-1">
-                Holding it back
-              </div>
-              <div className="text-[13px] text-text-1 leading-[1.5]">
-                {why.bindingConstraint}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Closest lever — the actionable fix. Accent-tinted plate so the one
-            move that upgrades the tier stands out as "do this". When the
-            report states no single lever exists, we render a quiet note
-            instead of dropping the row silently. */}
-        {why.lever ? (
-          <div
-            className="flex gap-3 px-3.5 py-3 rounded-lg"
-            style={{ background: `${accent}0F`, border: `1px solid ${accent}33` }}
-          >
-            <Wrench size={15} className="shrink-0 mt-0.5" style={{ color: accent }} aria-hidden />
-            <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4 mb-1">
-                Closest lever
-              </div>
-              <div className="text-[13px] text-text-1 leading-[1.5]">
-                {why.lever}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 px-3.5 py-2.5 text-[12px] text-text-4 italic">
-            <Wrench size={13} className="shrink-0 opacity-50" aria-hidden />
-            No single dimension crosses into a better band on its own.
-          </div>
-        )}
+// `## Eligibility` (spec §8.5): the gate status, the non-green checks with
+// their reasons, and the "Ask the recruiter" questions that resolve the
+// amber ones. The check list renders generically — a label map plus a
+// humanised fallback — so a new check key (e.g. `other`) never breaks it.
+// Carries data-slug / data-label for the slide-over scroll-spy.
+function EligibilityBlock({
+  status, checks, questions,
+}: {
+  status: Eligibility | null
+  checks: EligibilityFlag[]
+  questions: string[]
+}) {
+  if (!status && checks.length === 0) return null
+  const nonGreen = checks.filter(c => c.status !== 'green')
+  const green = checks.filter(c => c.status === 'green')
+  // Questions the parser could not attach to a check still render below.
+  const attached = new Set(checks.map(c => c.question).filter(Boolean))
+  const loose = questions.filter(q => !attached.has(q))
+  return (
+    <section className="my-5" data-slug="eligibility" data-label="Eligibility">
+      <div className="flex items-center justify-between gap-2 pb-2.5 mb-3.5 border-b border-border-default">
+        <h3 className="flex items-center gap-2 text-[16px] font-semibold text-text-1 leading-none tracking-[-0.005em]">
+          <ShieldCheck size={14} className="shrink-0 text-accent" aria-hidden />
+          <span>Eligibility</span>
+        </h3>
+        <EligibilityChip status={status} />
       </div>
+      {nonGreen.length === 0 ? (
+        <p className="text-[13px] text-text-3">
+          {green.length > 0
+            ? `All ${green.length} checks clear (${green.map(c => eligibilityCheckLabel(c.check).toLowerCase()).join(', ')}).`
+            : 'No eligibility issues found.'}
+        </p>
+      ) : (
+        <div className="divide-y divide-border-default/40">
+          {nonGreen.map((c, i) => (
+            <div key={`${c.check}-${i}`} className="grid grid-cols-[140px_1fr] gap-5 py-2.5 items-start">
+              <div className="flex flex-col gap-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.05em] text-text-3 leading-tight">
+                  {eligibilityCheckLabel(c.check)}
+                </span>
+                <EligibilityChip status={c.status} />
+              </div>
+              <div className="text-[13px] text-text-2 leading-[1.55]">
+                {c.reason ? <InlineMarkdown text={c.reason} /> : <span className="text-text-4 italic">No reason given.</span>}
+                {c.question && (
+                  <div className="mt-1 flex gap-1.5 text-text-3">
+                    <HelpCircle size={13} className="shrink-0 mt-0.5 text-warning" aria-hidden />
+                    <span>{c.question}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {loose.length > 0 && (
+        <div className="mt-3 px-3.5 py-3 rounded-lg bg-warning/15 border border-warning/30">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4 mb-1.5">
+            Ask the recruiter
+          </div>
+          <ul className="space-y-1">
+            {loose.map((q, i) => (
+              <li key={i} className="flex gap-1.5 text-[13px] text-text-1 leading-[1.5]">
+                <HelpCircle size={13} className="shrink-0 mt-1 text-warning" aria-hidden />
+                <span>{q}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
+  )
+}
+
+// The report's closing `Salary math:` line — the full comp → tax → COL →
+// savings chain. Quiet small text: it is the audit trail behind the Salary
+// row's one-line summary, not a headline.
+function SalaryMathFooter({ text }: { text: string }) {
+  return (
+    <div className="mt-6 pt-3 border-t border-border-default flex gap-2 text-[11px] text-text-4 leading-[1.5]">
+      <Calculator size={12} className="shrink-0 mt-0.5" aria-hidden />
+      <span>
+        <span className="font-semibold uppercase tracking-[0.06em] text-[10px] mr-1.5">Salary math</span>
+        <InlineMarkdown text={text} />
+      </span>
+    </div>
+  )
+}
+
+// Reasoning cells and check reasons render as INLINE markdown (an occasional
+// **bold**). Only inline emphasis survives — links, images and block nodes
+// are unwrapped to their text, so a stray `[..]` or backtick token in an old
+// report renders as plain text / inline code, never as a live link.
+const INLINE_ELEMENTS = ['p', 'strong', 'em', 'code', 'del']
+const INLINE_COMPONENTS = {
+  p: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+  code: ({ children }: { children?: React.ReactNode }) => (
+    <code className="font-mono text-[0.92em] text-text-2">{children}</code>
+  ),
+}
+function InlineMarkdown({ text }: { text: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      allowedElements={INLINE_ELEMENTS}
+      unwrapDisallowed
+      components={INLINE_COMPONENTS}
+    >
+      {text}
+    </ReactMarkdown>
   )
 }
 
@@ -854,7 +987,7 @@ function flattenChildrenText(node: React.ReactNode): string {
 function sectionIcon(label: string): React.ElementType | null {
   const l = label.toLowerCase()
   if (l.includes('role summary') || l === 'summary')          return ClipboardList
-  if (l.includes('why this score') || l.includes('why-this-score')) return Gauge
+  if (l.includes('eligibility'))                               return ShieldCheck
   if (l.includes('gap'))                                       return Lightbulb
   if (l.includes('comp') && !l.includes('recommend'))          return Coins
   if (l.includes('recommendation') || l.includes('verdict'))   return CheckCircle2
@@ -899,60 +1032,30 @@ function ReportMeta({ items }: { items: Array<{ key: string; value: string }> })
   )
 }
 
-function DimensionalScoring({ dims, tier }: { dims: ParsedDimensions; tier: TierKey }) {
-  const heroColor = tierHex(tier)
+// v2 dimensional table, grouped by its row tags (spec §8.5): Want
+// (motivators, with the hygiene factors as a sub-group), Ease, Context. The
+// Want / Ease rollups ride in each group header; the hero above carries the
+// headline pair.
+function DimensionalScoring({ dims }: { dims: ParsedDimensions }) {
   return (
     <div className="my-5 space-y-7">
-      {dims.overall && (
-        // Overall band — full-width hero. The most important number in
-        // the report gets actual presence: 48px tier-colored score with
-        // an "Overall fit" eyebrow. Subtle galaxy-tinted backdrop wash
-        // behind it so it reads as a plate, not a thin pill.
-        <div
-          className="relative flex items-center justify-between gap-4 px-5 py-4 rounded-xl overflow-hidden"
-          style={{
-            background: `linear-gradient(135deg, ${heroColor}14 0%, ${heroColor}06 100%)`,
-            border: `1px solid ${heroColor}33`,
-          }}
-        >
-          <div>
-            <div className="text-micro text-text-4 uppercase tracking-[0.12em] mb-1">
-              Overall fit
-            </div>
-            <div className="text-[12px] text-text-3">
-              {tier === 'T1'      ? 'Apply now — top-tier match' :
-               tier === 'T2-high' ? 'Apply with prep' :
-               tier === 'T2'      ? 'Apply if pipeline thin' :
-               tier === 'T3'      ? 'Growth target — gap & build' :
-                                    'Below threshold'}
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1 shrink-0">
-            <span
-              className="font-mono font-semibold tabular-nums leading-none text-[44px]"
-              style={{ color: heroColor }}
-            >
-              {dims.overall.score}
-            </span>
-            <span className="font-mono tabular-nums text-[15px] text-text-4">/10</span>
-          </div>
-        </div>
-      )}
-
-      {dims.currentFit.rows.length > 0 && (
+      {(dims.want.motivators.length > 0 || dims.want.hygiene.length > 0) && (
         <DimensionGroup
-          title="Current Fit"
-          icon={Target}
-          rollup={dims.currentFit.rollup}
-          rows={dims.currentFit.rows}
+          title="Want"
+          icon={Sparkles}
+          rollup={dims.want.rollup}
+          rollupNote={dims.want.reasoning}
+          rows={dims.want.motivators}
+          subRows={dims.want.hygiene.length > 0 ? { title: 'Hygiene', rows: dims.want.hygiene } : undefined}
         />
       )}
-      {dims.aspirationalFit.rows.length > 0 && (
+      {dims.ease.rows.length > 0 && (
         <DimensionGroup
-          title="Aspirational Fit"
-          icon={Sparkles}
-          rollup={dims.aspirationalFit.rollup}
-          rows={dims.aspirationalFit.rows}
+          title="Ease"
+          icon={Target}
+          rollup={dims.ease.rollup}
+          rollupNote={dims.ease.reasoning}
+          rows={dims.ease.rows}
         />
       )}
       {dims.context.rows.length > 0 && (
@@ -966,12 +1069,18 @@ function DimensionGroup({
   title,
   icon: Icon,
   rollup,
+  rollupNote,
   rows,
+  subRows,
 }: {
   title: string
   icon?: React.ElementType
   rollup?: string
+  /** The rollup row's arithmetic ("M 8.0 + hygiene +0.25") — quiet caption. */
+  rollupNote?: string
   rows: DimensionRow[]
+  /** A tagged sub-group rendered under the main rows (Want › Hygiene). */
+  subRows?: { title: string; rows: DimensionRow[] }
 }) {
   const rollupNum = rollup ? parseFloat(rollup) : NaN
   const rollupColor = !Number.isNaN(rollupNum) ? scoreColor(rollupNum) : NEUTRAL_SCORE_COLOR
@@ -980,8 +1089,8 @@ function DimensionGroup({
       {/* Group header — same visual rhythm as the prose-report h2 so the
           slide-over reads with one type system. Optional lucide icon
           tints to the rollup color so the header carries semantic
-          identification at a glance (Target = Current Fit, Sparkles =
-          Aspirational, Compass = Context). */}
+          identification at a glance (Sparkles = Want, Target = Ease,
+          Compass = Context). */}
       <div className="flex items-baseline justify-between gap-3 pb-2.5 mb-3.5 border-b border-border-default">
         <h3 className="flex items-center gap-2 text-[16px] font-semibold text-text-1 leading-none tracking-[-0.005em]">
           {Icon && (
@@ -1003,6 +1112,23 @@ function DimensionGroup({
           </span>
         )}
       </div>
+      {rollupNote && rollupNote !== '—' && (
+        <div className="-mt-2 mb-2 text-[11px] text-text-4 font-mono">{rollupNote}</div>
+      )}
+      <DimensionRows rows={rows} />
+      {subRows && subRows.rows.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-text-4 mb-1">{subRows.title}</div>
+          <DimensionRows rows={subRows.rows} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DimensionRows({ rows }: { rows: DimensionRow[] }) {
+  return (
+    <>
       <div className="divide-y divide-border-default/40">
         {rows.map((row, i) => {
           const numScore = parseFloat(row.score)
@@ -1048,7 +1174,7 @@ function DimensionGroup({
               {/* Right col: reasoning at body-text size (was 11.5px — too
                   small to read comfortably; now 13px with relaxed leading). */}
               <div className="text-[13px] text-text-2 leading-[1.55] pt-0.5">
-                {row.reasoning && row.reasoning !== '—' ? row.reasoning : (
+                {row.reasoning && row.reasoning !== '—' ? <InlineMarkdown text={row.reasoning} /> : (
                   <span className="text-text-4 italic">No reasoning provided.</span>
                 )}
               </div>
@@ -1056,7 +1182,7 @@ function DimensionGroup({
           )
         })}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -1065,12 +1191,13 @@ function DimensionGroup({
 
 function ScoreMiniBar({ entry }: { entry: ScoreEntry }) {
   const dims: Array<{ key: keyof ScoreEntry; label: string }> = [
-    { key: 'skills_match',     label: 'Skills' },
-    { key: 'strategic_fit',    label: 'Strategy' },
     { key: 'growth_mobility',  label: 'Growth' },
+    { key: 'role_content',     label: 'Role' },
     { key: 'brand_value',      label: 'Brand' },
-    { key: 'work_life_balance', label: 'WLB' },
     { key: 'salary_adj_city',  label: 'Comp' },
+    { key: 'skills_match',     label: 'Skills' },
+    { key: 'experience_bar',   label: 'Exp.' },
+    { key: 'competition',      label: 'Compet.' },
   ]
 
   return (

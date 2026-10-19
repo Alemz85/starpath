@@ -174,7 +174,7 @@ export function DatabaseView() {
               onChange={e => setShowClosed(e.target.checked)}
               className="accent-accent"
             />
-            Show zero-score
+            Show unscored
           </label>
         </div>
 

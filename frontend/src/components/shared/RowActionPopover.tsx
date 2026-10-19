@@ -8,6 +8,9 @@ import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { WantEase } from '@/components/shared/WantEase'
+import { VerdictChip } from '@/components/shared/EligibilityChip'
+import { blockedReason, isBlocked, verdictOf } from '@/lib/scoreBands'
 import type { ScoreEntry } from '@/types'
 
 const POPOVER_WIDTH = 280
@@ -81,8 +84,8 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
           <div className="text-label text-text-1 font-medium truncate">{entry.company}</div>
           <div className="text-[11px] text-text-3 truncate">{entry.role}</div>
           <div className="flex items-center gap-1.5 mt-1 text-[10px] text-text-4 font-mono">
-            <span>{entry.tier === 'T2-high' ? 'T2+' : entry.tier}</span>
-            {entry.overall > 0 && <><span>·</span><span>{entry.overall.toFixed(1)}/10</span></>}
+            <VerdictChip verdict={verdictOf(entry)} />
+            <WantEase want={entry.want} ease={entry.ease} blockedReason={isBlocked(entry) ? blockedReason(entry) : null} className="max-w-[160px]" />
             {liveness && <><span>·</span><span className={cn(
               liveness === 'active' ? 'text-success' :
               liveness === 'stale'  ? 'text-warning' : 'text-text-4',

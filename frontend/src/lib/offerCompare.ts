@@ -1,8 +1,12 @@
 // offerCompare.ts — pure multi-offer comparison math for the cockpit.
 //
 // This is a faithful TypeScript port of `scripts/lib/offer-compare.mjs` (the
-// backend `compare-offers` engine) PLUS the slice of `scripts/lib/score-bands.mjs`
-// it depends on. The lane requires the GUI mirror the backend logic in a tested
+// backend `compare-offers` engine) PLUS the savings band from
+// `scripts/lib/score-bands.mjs` it depends on. Scoring v2: the `fit` factor
+// is the role's WANT (lib/scoreBands mirrors the §2 formula) — an offer has
+// already cleared the Ease funnel, so the open question is how much you want
+// it. The v1 CF/AF rollup copies are retired. The lane requires the GUI
+// mirror the backend logic in a tested
 // `frontend/src/lib/` module rather than shelling out — so the Offer-comparison
 // view computes the exact same weighted ranking, tradeoffs, and recommendation
 // the CLI would, with no IPC round-trip and no drift.
@@ -13,6 +17,8 @@
 // own suite (scripts/lib/*.test.mjs). Nothing about a specific candidate,
 // company, city, school, or comp target is hardcoded here; weights and factor
 // scores flow in from the caller, sourced from the user's data at use time.
+
+import { computeWant, type WantDims, type WantOptions } from './scoreBands'
 
 /* ───── Canonical savings band (ported from score-bands.mjs) ────── */
 
@@ -34,81 +40,6 @@ export function savingsToBaseScore(monthlySavingsEur: number): number {
   if (s >= -150) return 3
   if (s >= -400) return 2
   return 1
-}
-
-/* ───── Canonical CF/AF rollups (ported from score-bands.mjs) ───── */
-
-const BOTTOM_RANGE_PENALTY = 0.3 // per dimension scoring 1 or 2
-
-function bottomRangePenalty(scores: number[]): number {
-  const lowCount = scores.filter((s) => s >= 1 && s <= 2).length
-  return lowCount * BOTTOM_RANGE_PENALTY
-}
-
-export interface SixDims {
-  skills_match: number
-  ease_of_entry: number
-  strategic_fit: number
-  growth_mobility: number
-  optionality_exit: number
-  brand_value: number
-}
-
-/** Roll up Current Fit (Skills + Ease + Strategic) with bottom-range penalty. */
-export function rollupCurrentFit({ skills_match, ease_of_entry, strategic_fit }: SixDims): number {
-  const dims = [skills_match, ease_of_entry, strategic_fit]
-  const avg = dims.reduce((a, b) => a + b, 0) / 3
-  return Number((avg - bottomRangePenalty(dims)).toFixed(2))
-}
-
-/** Roll up Aspirational Fit (Growth + Optionality + Brand) with penalty. */
-export function rollupAspirationalFit({ growth_mobility, optionality_exit, brand_value }: SixDims): number {
-  const dims = [growth_mobility, optionality_exit, brand_value]
-  const avg = dims.reduce((a, b) => a + b, 0) / 3
-  return Number((avg - bottomRangePenalty(dims)).toFixed(2))
-}
-
-export interface RollupContext {
-  salary_adj_for_city?: number
-  work_life_balance?: number
-  is_intern?: boolean
-}
-
-export interface Modifier {
-  source: string
-  value: number
-}
-
-/**
- * Overall = CF × 0.70 + AF × 0.30 + context modifiers, identical to
- * `rollupOverall` in score-bands.mjs (same intern carve-out, same deltas).
- */
-export function rollupOverall(
-  cf: number,
-  af: number,
-  { salary_adj_for_city = 6, work_life_balance = 6, is_intern = false }: RollupContext,
-): { overall: number; modifiersApplied: Modifier[] } {
-  const base = cf * 0.7 + af * 0.3
-  const modifiers: Modifier[] = []
-  let delta = 0
-  if (!is_intern) {
-    if (salary_adj_for_city <= 4) {
-      delta -= 0.4
-      modifiers.push({ source: 'Salary Adj ≤ 4', value: -0.4 })
-    }
-    if (salary_adj_for_city >= 9) {
-      delta += 0.2
-      modifiers.push({ source: 'Salary Adj ≥ 9', value: +0.2 })
-    }
-  } else if (salary_adj_for_city <= 4 || salary_adj_for_city >= 9) {
-    modifiers.push({ source: 'Salary Adj modifier skipped (intern role)', value: 0 })
-  }
-  if (work_life_balance <= 4) {
-    delta -= 0.2
-    modifiers.push({ source: 'WLB ≤ 4', value: -0.2 })
-  }
-  const overall = Number((base + delta).toFixed(2))
-  return { overall, modifiersApplied: modifiers }
 }
 
 /* ───── Factors & default weights ───────────────────────────────── */
@@ -133,7 +64,7 @@ export const FACTOR_LABELS: Record<Factor, string> = {
 // the backend mode (modes/ofertas.md) uses.
 export const FACTOR_HELP: Record<Factor, string> = {
   comp: 'Cost-of-living-adjusted savings power — what the take-home leaves after a comfortable life in that city.',
-  fit: 'The scouting Overall for this role (CF×0.70 + AF×0.30). Prefills from the evaluation if the role was scored.',
+  fit: 'How much you want this role — its scouting Want score. Prefills from the evaluation if the role was scored.',
   growth: 'Does it lead somewhere — promotion velocity, skill compounding, internal mobility.',
   brand: 'Signalling value on your CV for the next move.',
   location: 'How well the location fits your preferences — top-preference city + no visa friction scores high.',
@@ -173,22 +104,23 @@ export function compFactorFromSavings(
 }
 
 /**
- * Derive the `fit` factor (1-10) from the six scouting dimensions, replaying
- * the canonical CF/AF rollup → Overall. The Overall an offer carried out of the
- * scouting evaluation IS its fit factor — no re-derivation, no drift.
+ * Derive the `fit` factor (1-10) from a scouting evaluation. v2: fit = Want
+ * (spec §2) — no re-derivation when the evaluation already carries it; when
+ * only the dimensions are known, the Want formula is replayed at the default
+ * weights. Ease is deliberately not part of fit: an offer in hand has already
+ * cleared the hiring funnel Ease measures.
  */
-export function fitFactorFromDims(
-  sixDims: SixDims,
-  context: RollupContext = {},
-): { score: number; cf: number; af: number; modifiersApplied: Modifier[] } {
-  const cf = rollupCurrentFit(sixDims)
-  const af = rollupAspirationalFit(sixDims)
-  const { overall, modifiersApplied } = rollupOverall(cf, af, {
-    salary_adj_for_city: context.salary_adj_for_city ?? 6,
-    work_life_balance: context.work_life_balance ?? 6,
-    is_intern: context.is_intern === true,
-  })
-  return { score: overall, cf, af, modifiersApplied }
+export function fitFactorFromScores(
+  scores: { want?: number | null; dims?: WantDims | null },
+  context: WantOptions = {},
+): { score: number; source: 'want' | 'replay' | 'neutral' } {
+  if (scores.want != null && Number.isFinite(scores.want)) return { score: clampFit(scores.want), source: 'want' }
+  if (scores.dims) return { score: clampFit(computeWant(scores.dims, context).score), source: 'replay' }
+  return { score: 5, source: 'neutral' }
+}
+
+function clampFit(n: number): number {
+  return Math.min(10, Math.max(1, Math.round(n * 100) / 100))
 }
 
 /* ───── Weight normalization ────────────────────────────────────── */

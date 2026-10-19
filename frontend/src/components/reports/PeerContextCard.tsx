@@ -2,19 +2,23 @@
 
 import { Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { scoreColor } from '@/lib/tier'
+import { NEUTRAL_SCORE_COLOR } from '@/lib/tier'
+import { WantEase } from '@/components/shared/WantEase'
 import type { PeerContext } from '@/lib/peerRank'
 import { type ConfidenceTier } from '@/lib/scoringStats'
 
 // Peer context — the live "how does this score sit vs. the archetype
-// landscape" panel, rendered between the dimensional-scoring table and the
-// Why-this-score callout. Everything here is computed fresh from
+// landscape" panel, rendered after the dimensional-scoring table. Everything
+// here is computed fresh from
 // data/score-history.tsv (via lib/peerRank.ts), NOT read from the report —
 // a role evaluated months ago is ranked against everything scored since.
 //
 // Three reads, top to bottom:
-//   1. Rank plate + distribution strip — where this overall score sits in
-//      the cohort (every tick is a peer role; the dot is this one).
+//   1. Rank plate + distribution strip — where this role's Priority
+//      (√(Want × Ease), the v2 sort key) sits in the cohort (every tick is a
+//      peer role; the dot is this one). Priority is a RANK axis here, never a
+//      headline score — so the strip is drawn in neutral slate, not the score
+//      colour scale, and comparables show their Want · Ease pair.
 //   2. Dimension deltas — this role vs. the cohort average, dim by dim,
 //      sorted strongest advantage → biggest lag. Outliers (|Δ| ≥ 1.5, same
 //      threshold as scripts/peer-rank.mjs) carry the semantic color.
@@ -39,7 +43,8 @@ interface PeerContextCardProps {
 }
 
 export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps) {
-  const selfColor = scoreColor(peer.overall)
+  // Neutral, not scoreColor: Priority must never read as a headline score.
+  const selfColor = NEUTRAL_SCORE_COLOR
 
   return (
     <section className="my-5">
@@ -72,8 +77,8 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
           </div>
         </div>
         <DistributionStrip
-          overall={peer.overall}
-          peerOveralls={peer.peerOveralls}
+          priority={peer.priority}
+          peerPriorities={peer.peerPriorities}
           selfColor={selfColor}
         />
         {peer.confidence === 'low' && (
@@ -132,7 +137,7 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
             const label = (
               <>
                 <span>{c.company}</span>
-                <span className="font-mono tabular-nums text-text-3 ml-1">{c.overall.toFixed(2)}</span>
+                <WantEase want={c.want} ease={c.ease} className="ml-1" />
               </>
             )
             return (
@@ -179,13 +184,13 @@ function ConfidenceChip({ confidence, n, gate }: { confidence: ConfidenceTier; n
 // cohort min/max (padded), not 0–10 — peers cluster within ~2 points and a
 // fixed axis would compress every strip into an unreadable clump.
 function DistributionStrip({
-  overall, peerOveralls, selfColor,
+  priority, peerPriorities, selfColor,
 }: {
-  overall: number
-  peerOveralls: number[]
+  priority: number
+  peerPriorities: number[]
   selfColor: string
 }) {
-  const all = [...peerOveralls, overall]
+  const all = [...peerPriorities, priority]
   const lo = Math.min(...all)
   const hi = Math.max(...all)
   const pad = Math.max((hi - lo) * 0.08, 0.15)
@@ -197,13 +202,14 @@ function DistributionStrip({
   return (
     <div
       role="img"
-      aria-label={`Score distribution: this role at ${overall.toFixed(1)}, ${peerOveralls.length} peers between ${lo.toFixed(1)} and ${hi.toFixed(1)}`}
+      aria-label={`Priority distribution (√(Want × Ease)): this role at ${priority.toFixed(1)}, ${peerPriorities.length} peers between ${lo.toFixed(1)} and ${hi.toFixed(1)}`}
+      title="Rank axis: Priority = √(Want × Ease), the sort key — not a score"
     >
       <div className="relative h-5 mt-2">
         {/* baseline */}
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-border-default" aria-hidden />
         {/* peer ticks */}
-        {peerOveralls.map((v, i) => (
+        {peerPriorities.map((v, i) => (
           <div
             key={i}
             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-px h-2.5 bg-text-4 opacity-50"
@@ -214,7 +220,7 @@ function DistributionStrip({
         {/* self marker */}
         <div
           className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rounded-full ring-2 ring-bg-base"
-          style={{ left: pos(overall), background: selfColor }}
+          style={{ left: pos(priority), background: selfColor }}
           aria-hidden
         />
       </div>
@@ -224,9 +230,9 @@ function DistributionStrip({
             with the min/max labels at the edges */}
         <span
           className="absolute -translate-x-1/2 font-semibold whitespace-nowrap"
-          style={{ color: selfColor, left: `clamp(14%, ${((overall - min) / span) * 100}%, 86%)` }}
+          style={{ color: selfColor, left: `clamp(14%, ${((priority - min) / span) * 100}%, 86%)` }}
         >
-          {overall.toFixed(1)} this role
+          {priority.toFixed(1)} this role
         </span>
         <span className="absolute right-0">{max.toFixed(1)}</span>
       </div>

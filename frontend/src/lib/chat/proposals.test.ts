@@ -62,7 +62,7 @@ test('isCanonicalStatus rejects near-misses and non-strings', () => {
 
 test('a full apply proposal validates every optional field', () => {
   const result = validateProposal('starpath:apply', {
-    company: 'Acme', role: 'ML Engineer', score: '7.8/10', status: 'Evaluated',
+    company: 'Acme', role: 'ML Engineer', score: 'W7.8 E7.2', status: 'Evaluated',
     deadline: '2026-09-30', url: 'https://jobs.acme.test/ml', notes: 'referred by Jane',
   })
   assert.equal(result.ok, true)
@@ -70,8 +70,9 @@ test('a full apply proposal validates every optional field', () => {
     kind: 'apply',
     company: 'Acme',
     role: 'ML Engineer',
-    score: '7.8/10',
-    scoreValue: 7.8,
+    score: 'W7.8 E7.2',
+    want: 7.8,
+    ease: 7.2,
     status: 'Evaluated',
     deadline: '2026-09-30',
     url: 'https://jobs.acme.test/ml',
@@ -106,20 +107,21 @@ test('apply rejects a non-canonical status', () => {
   assert.match(result.ok ? '' : result.reason, /status must be one of/)
 })
 
-test('apply rejects a malformed score but accepts the tracker format', () => {
-  for (const score of ['7.8', '78/10', 'high', '11.0/10', '7.85/10']) {
+test('apply rejects a malformed score (incl. the retired X.X/10 form) but accepts W/E', () => {
+  for (const score of ['7.8', '7.8/10', 'high', 'W11 E5', 'W8 E0', 'E5 W8', 'W8']) {
     const r = validateProposal('starpath:apply', { company: 'A', role: 'B', score })
     assert.equal(r.ok, false, `expected score ${score} to be rejected`)
   }
-  const ok = validateProposal('starpath:apply', { company: 'A', role: 'B', score: '10.0/10' })
+  const ok = validateProposal('starpath:apply', { company: 'A', role: 'B', score: 'W10 E9.5' })
   assert.equal(ok.ok, true)
-  assert.equal(ok.ok && (ok.proposal as ApplyProposal).scoreValue, 10)
+  assert.equal(ok.ok && (ok.proposal as ApplyProposal).want, 10)
+  assert.equal(ok.ok && (ok.proposal as ApplyProposal).ease, 9.5)
 })
 
-test('apply normalizes an integer score into the X.X/10 form', () => {
-  const r = validateProposal('starpath:apply', { company: 'A', role: 'B', score: '8/10' })
+test('apply normalizes the score into the canonical W8.0 E7.0 form', () => {
+  const r = validateProposal('starpath:apply', { company: 'A', role: 'B', score: 'w8  e7' })
   assert.equal(r.ok, true)
-  assert.equal(r.ok && (r.proposal as ApplyProposal).score, '8.0/10')
+  assert.equal(r.ok && (r.proposal as ApplyProposal).score, 'W8.0 E7.0')
 })
 
 test('deadline accepts YYYY-MM-DD, Rolling and n/d and rejects the rest', () => {
@@ -361,12 +363,12 @@ test('an indented fence inside a list still parses', () => {
 test('describeProposal summarizes an apply proposal in tracker column order', () => {
   const summary = describeProposal({
     kind: 'apply', company: 'Acme', role: 'Analyst',
-    score: '7.8/10', scoreValue: 7.8, status: 'Applied', deadline: 'Rolling', notes: 'via Jane',
+    score: 'W7.8 E7.2', want: 7.8, ease: 7.2, status: 'Applied', deadline: 'Rolling', notes: 'via Jane',
   })
   assert.equal(summary.kindLabel, 'Add to applications')
   assert.equal(summary.subject, 'Acme — Analyst')
   assert.deepEqual(summary.changes, [
-    { label: 'Score', value: '7.8/10' },
+    { label: 'Score', value: 'W7.8 E7.2' },
     { label: 'Status', value: 'Applied' },
     { label: 'Deadline', value: 'Rolling' },
     { label: 'Notes', value: 'via Jane' },
@@ -409,7 +411,7 @@ function apply(raw: string, proposal: ChatProposal): string {
   }
   const upserted = upsertApplicationRow(raw, {
     company: proposal.company, role: proposal.role,
-    overall: proposal.scoreValue ?? 0, tier: tierForProposal(proposal),
+    want: proposal.want ?? null, ease: proposal.ease ?? null, tier: tierForProposal(proposal),
   })
   return updateApplicationFields(upserted, proposal.company, proposal.role, {
     status: proposal.status, deadline: proposal.deadline, notes: proposal.notes,
@@ -421,7 +423,7 @@ test('a chat reply with an apply fence becomes exactly one tracker row', () => {
     'That one is worth tracking — the ops scope matches your last two evaluations.',
     '',
     '```starpath:apply',
-    '{"company": "Initech", "role": "Data Analyst", "score": "7.8/10", "status": "Evaluated",',
+    '{"company": "Initech", "role": "Data Analyst", "score": "W7.8 E7.2", "status": "Evaluated",',
     ' "deadline": "2026-09-30", "url": "https://jobs.initech.test/da", "notes": "ops-heavy JD"}',
     '```',
     '',
@@ -437,11 +439,11 @@ test('a chat reply with an apply fence becomes exactly one tracker row', () => {
   assert.equal(rows.length, 2)
   const added = rows.find(r => r.company === 'Initech')!
   assert.equal(added.role, 'Data Analyst')
-  assert.equal(added.score, '7.8/10')
+  assert.equal(added.score, 'W7.8 E7.2')
   assert.equal(added.status, 'Evaluated')
   assert.equal(added.deadline, '2026-09-30')
   assert.equal(added.notes, 'ops-heavy JD')
-  assert.match(added.report, /tier-2/)   // 7.8 lands in the T2 band
+  assert.match(added.report, /tier-2/)   // W7.8 × E7.2 → solid → T2
 
   // The listing that was already tracked keeps every cell.
   const acme = rows.find(r => r.company === 'Acme')!
@@ -464,14 +466,15 @@ test('a status fence moves an existing row and refuses an untracked one', () => 
   assert.throws(() => apply(TRACKER, missing), /not tracked/)
 })
 
-test('tierForProposal mirrors the DB score bands', () => {
-  const at = (scoreValue?: number, status?: ApplyProposal['status']): string =>
-    tierForProposal({ kind: 'apply', company: 'A', role: 'B', scoreValue, status })
-  assert.equal(at(9.4), 'T1')
-  assert.equal(at(9.0), 'T1')
-  assert.equal(at(8.9), 'T2')
-  assert.equal(at(7.0), 'T2')
-  assert.equal(at(6.9), 'T3')
-  assert.equal(at(undefined), 'T4')
-  assert.equal(at(9.5, 'SKIP'), 'T4')
+test('tierForProposal replays the verdict grid', () => {
+  const at = (want?: number, ease?: number, status?: ApplyProposal['status']): string =>
+    tierForProposal({ kind: 'apply', company: 'A', role: 'B', want, ease, status })
+  assert.equal(at(8, 7), 'T1')      // go
+  assert.equal(at(8, 6.9), 'T2')    // stretch
+  assert.equal(at(7, 7), 'T2')      // solid
+  assert.equal(at(7, 5), 'T2')      // thin
+  assert.equal(at(9, 4), 'T3')      // growth
+  assert.equal(at(6, 9), 'T4')      // skip
+  assert.equal(at(undefined, undefined), 'T4')
+  assert.equal(at(9.5, 9.5, 'SKIP'), 'T4')
 })

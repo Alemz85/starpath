@@ -35,7 +35,9 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
         await promote({
           company,
           role,
-          overall: scoreEntry?.overall ?? 0,
+          // Score cell is written as `W8.3 E5.6` (scoring v2 §8.3).
+          want: scoreEntry?.want ?? null,
+          ease: scoreEntry?.ease ?? null,
           tier: scoreEntry?.tier ?? 'T4',
         })
       } finally {

@@ -28,31 +28,28 @@ test('the canonical scripts/lib/scoring-stats.mjs is importable from the rendere
   assert.ok(mjs.GATES, 'canonical GATES table must be present')
 })
 
-/* ───── Rubric geometry ──────────────────────────────────────────────────── */
+/* ───── v2 noise floors (docs/scoring-v2.md § 9) ─────────────────────── */
 
-test('rollup weights and dimension steps are identical across runtimes', () => {
-  assert.equal(ts.CF_WEIGHT, mjs.CF_WEIGHT)
-  assert.equal(ts.AF_WEIGHT, mjs.AF_WEIGHT)
-  assert.equal(ts.CF_DIM_STEP, mjs.CF_DIM_STEP)
-  assert.equal(ts.AF_DIM_STEP, mjs.AF_DIM_STEP)
-  // …and match the documented values, so a matched pair of wrong numbers still fails.
-  assert.equal(ts.CF_WEIGHT, 0.70)
-  assert.equal(ts.AF_WEIGHT, 0.30)
-  assert.ok(Math.abs(ts.CF_DIM_STEP - 0.2333) < 0.0001)
-  assert.equal(Number(ts.AF_DIM_STEP.toFixed(4)), 0.1)
+test('the v2 noise floors carry the spec values', () => {
+  assert.equal(ts.WANT_NOISE_FLOOR, 0.30)
+  assert.equal(ts.EASE_NOISE_FLOOR, 0.35)
+  assert.equal(ts.PRIORITY_NOISE_FLOOR, 0.30)
+  assert.deepEqual(ts.NOISE_FLOORS, { want: 0.30, ease: 0.35, priority: 0.30 })
 })
 
-test('the noise floor is 0.30 in both runtimes and in the doc', () => {
-  assert.equal(ts.OVERALL_NOISE_FLOOR, mjs.OVERALL_NOISE_FLOOR)
-  assert.equal(ts.OVERALL_NOISE_FLOOR, 0.30)
+test('the v2 noise floors are identical across runtimes (needs the v2 scoring-stats.mjs)', () => {
+  assert.equal(ts.WANT_NOISE_FLOOR, (mjs as Record<string, unknown>).WANT_NOISE_FLOOR)
+  assert.equal(ts.EASE_NOISE_FLOOR, (mjs as Record<string, unknown>).EASE_NOISE_FLOOR)
+  assert.equal(ts.PRIORITY_NOISE_FLOOR, (mjs as Record<string, unknown>).PRIORITY_NOISE_FLOOR)
 })
 
-test('the floor clears every single-dimension wobble and admits the cheapest two-dim move', () => {
-  assert.ok(ts.OVERALL_NOISE_FLOOR > ts.CF_DIM_STEP)
-  assert.ok(ts.OVERALL_NOISE_FLOOR > ts.AF_DIM_STEP)
-  assert.ok(ts.OVERALL_NOISE_FLOOR > 2 * ts.AF_DIM_STEP)
-  assert.ok(ts.OVERALL_NOISE_FLOOR <= ts.CF_DIM_STEP + ts.AF_DIM_STEP)
-  assert.ok(ts.OVERALL_NOISE_FLOOR <= 2 * ts.CF_DIM_STEP)
+test('the Want floor clears one motivator step at equal weights (0.25)', () => {
+  assert.ok(ts.WANT_NOISE_FLOOR > 0.25)
+})
+
+test('the Ease floor clears one step on a 0.35-weight dimension near 6', () => {
+  const near6 = Math.exp(0.35 * Math.log(7 / 6)) * 6 - 6 // ≈ 0.33
+  assert.ok(ts.EASE_NOISE_FLOOR > near6)
 })
 
 /* ───── Gate table ───────────────────────────────────────────────────────── */
@@ -76,12 +73,20 @@ test('the gate table matches the values documented in the contract', () => {
 
 /* ───── Dimension classes ────────────────────────────────────────────────── */
 
-test('dimension class lists are identical across runtimes', () => {
+test('the v2 dimension classes cover all ten v2 dims', () => {
+  assert.deepEqual([...ts.MECHANICAL_DIMS], ['brand_value', 'salary_adj_city', 'best_cities'])
+  assert.deepEqual([...ts.JUDGMENT_DIMS], [
+    'skills_match', 'experience_bar', 'competition',
+    'growth_mobility', 'optionality_exit', 'role_content', 'work_life_balance',
+  ])
+})
+
+test('dimension class lists are identical across runtimes (needs the v2 scoring-stats.mjs)', () => {
   assert.deepEqual([...ts.MECHANICAL_DIMS], [...mjs.MECHANICAL_DIMS])
   assert.deepEqual([...ts.JUDGMENT_DIMS], [...mjs.JUDGMENT_DIMS])
 })
 
-test('dimensionClass agrees on every known key and on an unknown one', () => {
+test('dimensionClass agrees on every known key and on an unknown one (needs the v2 scoring-stats.mjs)', () => {
   for (const key of [...ts.MECHANICAL_DIMS, ...ts.JUDGMENT_DIMS, 'not_a_dimension']) {
     assert.equal(ts.dimensionClass(key), mjs.dimensionClass(key), key)
   }
@@ -184,10 +189,16 @@ test('classifyMovement: just under the floor is within-noise, in both directions
   assert.equal(ts.classifyMovement(0), 'within-noise')
 })
 
-test('classifyMovement: one CF dim step alone never reads as movement; CF+AF does', () => {
-  assert.equal(ts.classifyMovement(ts.CF_DIM_STEP), 'within-noise')
-  assert.equal(ts.classifyMovement(-ts.CF_DIM_STEP), 'within-noise')
-  assert.equal(ts.classifyMovement(ts.CF_DIM_STEP + ts.AF_DIM_STEP), 'improving')
+test('classifyMovement: one motivator step never reads as Want movement; two do', () => {
+  const floor = ts.NOISE_FLOORS.want
+  assert.equal(ts.classifyMovement(0.25, { floor }), 'within-noise')
+  assert.equal(ts.classifyMovement(-0.25, { floor }), 'within-noise')
+  assert.equal(ts.classifyMovement(0.5, { floor }), 'improving')
+})
+
+test('classifyMovement: an Ease delta is read against the Ease floor', () => {
+  assert.equal(ts.classifyMovement(0.32, { floor: ts.NOISE_FLOORS.ease }), 'within-noise')
+  assert.equal(ts.classifyMovement(0.35, { floor: ts.NOISE_FLOORS.ease }), 'improving')
 })
 
 test('classifyMovement: non-finite input is unknown, not a direction', () => {

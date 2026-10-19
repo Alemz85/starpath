@@ -5,16 +5,16 @@ import {
   exportFilename,
   DATABASE_EXPORT_COLUMNS,
 } from '@/lib/export'
-import { makeScoreEntry } from '@/test-utils/fixtures'
+import { makeScoreEntry, makeBlockedEntry } from '@/test-utils/fixtures'
 
-const HEADERS = ['Company', 'Role', 'Score', 'Current Fit', 'Aspirational Fit', 'Tier', 'Location', 'Archetype', 'Liveness', 'Added', 'URL']
+const HEADERS = ['Company', 'Role', 'Want', 'Ease', 'Eligibility', 'Verdict', 'Tier', 'Location', 'Archetype', 'Liveness', 'Added', 'URL']
 
 test('the export column set matches the documented headers', () => {
   assert.deepEqual(DATABASE_EXPORT_COLUMNS.map(c => c.header), HEADERS)
 })
 
 test('CSV quotes fields with commas/quotes and uses CRLF line endings', () => {
-  const e = makeScoreEntry({ company: 'Acme, Inc.', role: 'ML "Lead"', overall: 8.4, current_fit: 7.0, location: 'Berlin' })
+  const e = makeScoreEntry({ company: 'Acme, Inc.', role: 'ML "Lead"', want: 8.4, ease: 7.0, location: 'Berlin' })
   const out = serializeRows([e], 'csv')
   const [header, body] = out.split('\r\n')
   assert.equal(header, HEADERS.join(','))
@@ -23,17 +23,25 @@ test('CSV quotes fields with commas/quotes and uses CRLF line endings', () => {
   assert.ok(out.includes('\r\n'))                   // Excel-friendly CRLF
 })
 
-test('unscored dimensions serialize blank, not 0.0', () => {
-  const e = makeScoreEntry({ company: 'Acme', role: 'PM', overall: 0, current_fit: 0, aspirational_fit: 6.2 })
-  const [, body] = serializeRows([e], 'csv').split('\r\n')
-  const cells = body.split(',')
-  assert.equal(cells[2], '')       // Score (overall 0 → blank)
-  assert.equal(cells[3], '')       // Current Fit (0 → blank)
-  assert.equal(cells[4], '6.2')    // Aspirational Fit
+test('Want / Ease / Eligibility / Verdict columns; a blocked row has blank scores and its reason', () => {
+  const scored = makeScoreEntry({ company: 'Acme', role: 'PM', want: 8.25, ease: 5.6, eligibility: 'amber', eligibility_flags: 'start_date:amber:start not stated;language:amber:B2 vs C1' })
+  const blocked = makeBlockedEntry('German C1 required', { company: 'Globex', role: 'Intern' })
+  const [, a, b] = serializeRows([scored, blocked], 'tsv').split('\n')
+  const ca = a.split('\t')
+  assert.equal(ca[2], '8.25')
+  assert.equal(ca[3], '5.6')
+  assert.equal(ca[4], 'amber: start not stated; B2 vs C1')
+  assert.equal(ca[5], 'stretch')
+  const cb = b.split('\t')
+  assert.equal(cb[2], '')          // blank, not 0
+  assert.equal(cb[3], '')
+  assert.equal(cb[4], 'red: German C1 required')
+  assert.equal(cb[5], 'blocked')
+  assert.equal(cb[6], 'T4')
 })
 
 test('TSV has no quoting and collapses interior tabs/newlines to a space', () => {
-  const e = makeScoreEntry({ company: 'Acme, Inc.', role: 'Data\tAnalyst', overall: 7.1 })
+  const e = makeScoreEntry({ company: 'Acme, Inc.', role: 'Data\tAnalyst', want: 7.1, ease: 7 })
   const out = serializeRows([e], 'tsv')
   const [header, body] = out.split('\n')
   assert.equal(header, HEADERS.join('\t'))

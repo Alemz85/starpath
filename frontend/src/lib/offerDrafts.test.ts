@@ -20,38 +20,11 @@ import {
 } from '@/lib/offerDrafts'
 import { compareOffers } from '@/lib/offerCompare'
 import type { ScoreEntry } from '@/types'
+import { makeScoreEntry } from '@/test-utils/fixtures'
 
 // Minimal ScoreEntry factory — only the fields offerDrafts reads matter.
 function entry(over: Partial<ScoreEntry>): ScoreEntry {
-  return {
-    date: '2026-06-01',
-    archetype: '',
-    skills_match: 0,
-    ease_of_entry: 0,
-    strategic_fit: 0,
-    current_fit: 0,
-    growth_mobility: 0,
-    optionality_exit: 0,
-    brand_value: 0,
-    sales_trap_risk: 0,
-    aspirational_fit: 0,
-    overall: 0,
-    best_cities: 0,
-    salary_adj_city: 0,
-    work_life_balance: 0,
-    best_fit_roles: '',
-    mode: 'scouting',
-    company: 'Acme',
-    role: 'Analyst',
-    tier: 'T2',
-    source: '',
-    location: '',
-    employment_type: '',
-    duration: '',
-    salary_raw: '',
-    url: '',
-    ...over,
-  }
+  return makeScoreEntry({ date: '2026-06-01', archetype: '', tier: 'T2', ...over })
 }
 
 // ─── clampFactor ─────────────────────────────────────────────────────────────
@@ -86,14 +59,15 @@ test('draftFromScoreEntry maps evaluation dims to the right factors', () => {
     entry({
       company: 'Stripe',
       role: 'BizOps',
-      overall: 8.4,
+      want: 8.4,
+      ease: 6,
       growth_mobility: 9,
       brand_value: 10,
       salary_adj_city: 6,
     }),
   )
   assert.equal(d.label, 'Stripe — BizOps')
-  assert.equal(d.scores.fit, 8) // overall 8.4 → rounded 8
+  assert.equal(d.scores.fit, 8) // Want 8.4 → rounded 8
   assert.equal(d.scores.growth, 9)
   assert.equal(d.scores.brand, 10)
   assert.equal(d.scores.comp, 6)
@@ -104,10 +78,10 @@ test('draftFromScoreEntry maps evaluation dims to the right factors', () => {
   assert.ok(d.id)
 })
 
-test('draftFromScoreEntry survives legacy rows with 0/missing dims (no out-of-range)', () => {
+test('draftFromScoreEntry survives blocked/unscored rows with missing dims (no out-of-range)', () => {
   // A legacy score-history row with zeros must not produce a 0 factor that
   // would make compareOffers throw — clampFactor floors it to neutral/1.
-  const d = draftFromScoreEntry(entry({ overall: 0, growth_mobility: 0, brand_value: 0, salary_adj_city: 0 }))
+  const d = draftFromScoreEntry(entry({ want: null, growth_mobility: null, brand_value: null, salary_adj_city: null }))
   for (const f of ['comp', 'fit', 'growth', 'brand', 'location', 'risk'] as const) {
     assert.ok(d.scores[f] >= 1 && d.scores[f] <= 10)
   }
@@ -127,18 +101,19 @@ test('scoreEntryKey prefers url, falls back to company|role (case-insensitive)',
   assert.equal(scoreEntryKey(entry({ company: 'Acme', role: 'Analyst', url: '' })), 'cr:acme|analyst')
 })
 
-test('pickableRoles dedups by entity, keeps latest, ranks by overall desc', () => {
+test('pickableRoles dedups by entity, keeps latest, ranks by Priority desc', () => {
   const rows = [
-    entry({ company: 'Acme', role: 'Analyst', overall: 7, date: '2026-01-01' }),
-    entry({ company: 'Acme', role: 'Analyst', overall: 8.5, date: '2026-05-01' }), // newer, same entity
-    entry({ company: 'Beta', role: 'PM', overall: 9.1, date: '2026-03-01' }),
-    entry({ company: '', role: 'orphan', overall: 9.9 }), // dropped: no company
+    entry({ company: 'Acme', role: 'Analyst', want: 7, ease: 7, date: '2026-01-01' }),
+    entry({ company: 'Acme', role: 'Analyst', want: 8.5, ease: 8.5, date: '2026-05-01' }), // newer, same entity
+    entry({ company: 'Beta', role: 'PM', want: 9.1, ease: 9.1, date: '2026-03-01' }),
+    entry({ company: '', role: 'orphan', want: 9.9, ease: 9.9 }), // dropped: no company
   ]
   const picks = pickableRoles(rows)
   assert.equal(picks.length, 2)
   // Beta (9.1) ranks above Acme; Acme uses the NEWER evaluation (8.5, not 7).
   assert.deepEqual(picks.map((p) => p.company), ['Beta', 'Acme'])
-  assert.equal(picks[1].overall, 8.5)
+  assert.equal(picks[1].want, 8.5)
+  assert.equal(picks[1].priority, 8.5)
 })
 
 // ─── draftsReadiness: mirrors compareOffers preconditions ────────────────────

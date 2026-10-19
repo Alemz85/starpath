@@ -6,15 +6,15 @@ import {
   buildEngagementTimeline,
   trajectoryLabel,
 } from '@/lib/companyTimeline'
-import { makeScoreEntry, makeApplication } from '@/test-utils/fixtures'
+import { makeScoreEntry, makeApplication, makeBlockedEntry } from '@/test-utils/fixtures'
 
 // ─── computeScoreTrajectory ─────────────────────────────────────────────────────
 
 test('trajectory: rising scores read as improving', () => {
   const t = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-03-01', overall: 6.0 }),
-    makeScoreEntry({ date: '2026-04-01', overall: 7.5 }),
-    makeScoreEntry({ date: '2026-05-01', overall: 8.5 }),
+    makeScoreEntry({ date: '2026-03-01', want: 6.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-04-01', want: 7.5, ease: 7 }),
+    makeScoreEntry({ date: '2026-05-01', want: 8.5, ease: 7 }),
   ])
   assert.equal(t.direction, 'improving')
   assert.equal(t.firstScore, 6.0)
@@ -26,8 +26,8 @@ test('trajectory: rising scores read as improving', () => {
 
 test('trajectory: falling scores read as declining', () => {
   const t = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-03-01', overall: 9.0 }),
-    makeScoreEntry({ date: '2026-05-01', overall: 6.0 }),
+    makeScoreEntry({ date: '2026-03-01', want: 9.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-05-01', want: 6.0, ease: 7 }),
   ])
   assert.equal(t.direction, 'declining')
   assert.equal(t.delta, -3.0)
@@ -40,9 +40,9 @@ test('trajectory: a noisy middle does not flip the verdict (slope, not endpoints
   // move with a near-zero slope should read as steady. Construct a genuinely
   // flat-ish series: equal endpoints, a spike in the middle → slope ≈ 0.
   const t = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-01-01', overall: 7.0 }),
-    makeScoreEntry({ date: '2026-02-01', overall: 9.0 }),
-    makeScoreEntry({ date: '2026-03-01', overall: 7.0 }),
+    makeScoreEntry({ date: '2026-01-01', want: 7.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-02-01', want: 9.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-03-01', want: 7.0, ease: 7 }),
   ])
   assert.equal(t.direction, 'steady')   // slope is 0 despite the spike
   assert.equal(t.delta, 0)
@@ -50,17 +50,17 @@ test('trajectory: a noisy middle does not flip the verdict (slope, not endpoints
 
 test('trajectory: a tiny drift stays steady (inside the noise band)', () => {
   const t = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-01-01', overall: 7.0 }),
-    makeScoreEntry({ date: '2026-02-01', overall: 7.05 }),
+    makeScoreEntry({ date: '2026-01-01', want: 7.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-02-01', want: 7.05, ease: 7 }),
   ])
   assert.equal(t.direction, 'steady')
 })
 
 test('trajectory: unscored / SKIP rows are excluded from the trend', () => {
   const t = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-03-01', overall: 6.0 }),
-    makeScoreEntry({ date: '2026-04-01', overall: 0 }),    // unscored — ignored
-    makeScoreEntry({ date: '2026-05-01', overall: 8.0 }),
+    makeScoreEntry({ date: '2026-03-01', want: 6.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-04-01', want: null }),    // unscored — ignored
+    makeScoreEntry({ date: '2026-05-01', want: 8.0, ease: 7 }),
   ])
   assert.equal(t.points.length, 2)
   assert.equal(t.direction, 'improving')
@@ -69,7 +69,7 @@ test('trajectory: unscored / SKIP rows are excluded from the trend', () => {
 })
 
 test('trajectory: a single scored point is flat with no delta', () => {
-  const t = computeScoreTrajectory([makeScoreEntry({ overall: 7.5 })])
+  const t = computeScoreTrajectory([makeScoreEntry({ want: 7.5, ease: 7 })])
   assert.equal(t.direction, 'flat')
   assert.equal(t.delta, 0)
   assert.equal(t.slope, 0)
@@ -86,8 +86,8 @@ test('trajectory: empty history is flat and safe', () => {
 
 test('trajectory: re-sorts to oldest→newest regardless of input order', () => {
   const t = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-05-01', overall: 8.0 }),   // newest first (store order)
-    makeScoreEntry({ date: '2026-03-01', overall: 6.0 }),
+    makeScoreEntry({ date: '2026-05-01', want: 8.0, ease: 7 }),   // newest first (store order)
+    makeScoreEntry({ date: '2026-03-01', want: 6.0, ease: 7 }),
   ])
   assert.equal(t.points[0].date, '2026-03-01')
   assert.equal(t.points[0].score, 6.0)
@@ -99,8 +99,8 @@ test('trajectory: re-sorts to oldest→newest regardless of input order', () => 
 
 test('sparkline: maps points into the box, higher score sits higher (smaller y)', () => {
   const pts = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-03-01', overall: 4.0 }),
-    makeScoreEntry({ date: '2026-04-01', overall: 8.0 }),
+    makeScoreEntry({ date: '2026-03-01', want: 4.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-04-01', want: 8.0, ease: 7 }),
   ]).points
   const path = sparklinePath(pts, 100, 20, 2)
   const coords = path.split(' ').map(s => s.split(',').map(Number))
@@ -114,8 +114,8 @@ test('sparkline: maps points into the box, higher score sits higher (smaller y)'
 
 test('sparkline: a flat series rides the midline', () => {
   const pts = computeScoreTrajectory([
-    makeScoreEntry({ date: '2026-03-01', overall: 7.0 }),
-    makeScoreEntry({ date: '2026-04-01', overall: 7.0 }),
+    makeScoreEntry({ date: '2026-03-01', want: 7.0, ease: 7 }),
+    makeScoreEntry({ date: '2026-04-01', want: 7.0, ease: 7 }),
   ]).points
   const path = sparklinePath(pts, 100, 20, 2)
   const ys = path.split(' ').map(s => Number(s.split(',')[1]))
@@ -134,8 +134,8 @@ test('sparkline: single point centers, empty draws nothing', () => {
 test('timeline: merges evaluations + applications newest-first', () => {
   const events = buildEngagementTimeline(
     [
-      makeScoreEntry({ date: '2026-03-01', role: 'Analyst', overall: 7.0 }),
-      makeScoreEntry({ date: '2026-05-01', role: 'PM', overall: 8.0 }),
+      makeScoreEntry({ date: '2026-03-01', role: 'Analyst', want: 7.0, ease: 7 }),
+      makeScoreEntry({ date: '2026-05-01', role: 'PM', want: 8.0, ease: 7 }),
     ],
     [
       makeApplication({ date: '2026-04-15', role: 'Analyst', status: 'Applied', score: '7.0/10' }),
@@ -144,12 +144,12 @@ test('timeline: merges evaluations + applications newest-first', () => {
   assert.deepEqual(events.map(e => e.date), ['2026-05-01', '2026-04-15', '2026-03-01'])
   assert.deepEqual(events.map(e => e.kind), ['evaluation', 'application', 'evaluation'])
   assert.equal(events[1].status, 'Applied')
-  assert.equal(events[1].score, 7.0)
+  assert.equal(events[1].legacyScore, 7.0)   // legacy X.X/10 cell shown as-is
 })
 
 test('timeline: an "Evaluated" application mirroring its evaluation is suppressed', () => {
   const events = buildEngagementTimeline(
-    [makeScoreEntry({ date: '2026-03-01', role: 'Analyst', overall: 7.0 })],
+    [makeScoreEntry({ date: '2026-03-01', role: 'Analyst', want: 7.0, ease: 7 })],
     [makeApplication({ date: '2026-03-01', role: 'analyst', status: 'Evaluated', score: '7.0/10' })],
   )
   // Only the evaluation survives — the case-insensitive duplicate is dropped.
@@ -159,7 +159,7 @@ test('timeline: an "Evaluated" application mirroring its evaluation is suppresse
 
 test('timeline: an application past "Evaluated" is kept even on a matching date/role', () => {
   const events = buildEngagementTimeline(
-    [makeScoreEntry({ date: '2026-03-01', role: 'Analyst', overall: 7.0 })],
+    [makeScoreEntry({ date: '2026-03-01', role: 'Analyst', want: 7.0, ease: 7 })],
     [makeApplication({ date: '2026-03-01', role: 'Analyst', status: 'Interview' })],
   )
   assert.equal(events.length, 2)
@@ -171,12 +171,13 @@ test('timeline: non-numeric application score becomes null, never 0', () => {
     [],
     [makeApplication({ date: '2026-03-01', role: 'Analyst', status: 'Applied', score: '—' })],
   )
-  assert.equal(events[0].score, null)
+  assert.equal(events[0].want, null)
+  assert.equal(events[0].legacyScore, null)
 })
 
 test('timeline: same-day evaluation sorts above its application (causal order)', () => {
   const events = buildEngagementTimeline(
-    [makeScoreEntry({ date: '2026-03-01', role: 'Analyst', overall: 7.0 })],
+    [makeScoreEntry({ date: '2026-03-01', role: 'Analyst', want: 7.0, ease: 7 })],
     [makeApplication({ date: '2026-03-01', role: 'PM', status: 'Applied' })],
   )
   // Same date → evaluation keeps its input precedence before the application.
@@ -195,4 +196,27 @@ test('trajectoryLabel maps every direction to copy', () => {
   assert.equal(trajectoryLabel('declining'), 'Trending down')
   assert.equal(trajectoryLabel('steady'), 'Holding steady')
   assert.equal(trajectoryLabel('flat'), 'Single evaluation')
+})
+
+test('timeline: v2 W/E application cells and blocked evaluations', () => {
+  const events = buildEngagementTimeline(
+    [makeBlockedEntry('x', { date: '2026-03-01', role: 'Intern' })],
+    [makeApplication({ date: '2026-04-01', role: 'Analyst', status: 'Applied', score: 'W8.3 E5.6' })],
+  )
+  assert.equal(events[0].want, 8.3)
+  assert.equal(events[0].ease, 5.6)
+  assert.equal(events[0].legacyScore, null)
+  assert.equal(events[1].blocked, true)
+  assert.equal(events[1].want, null)
+})
+
+test('trajectory: Ease is its own series; blocked rows never join', () => {
+  const t = computeScoreTrajectory([
+    makeScoreEntry({ date: '2026-03-01', want: 8, ease: 4 }),
+    makeBlockedEntry('x', { date: '2026-04-01' }),
+    makeScoreEntry({ date: '2026-05-01', want: 8, ease: 7 }),
+  ], 'ease')
+  assert.deepEqual(t.points.map(p => p.score), [4, 7])
+  assert.equal(t.direction, 'improving')
+  assert.equal(computeScoreTrajectory(t.points.map(() => makeScoreEntry({ want: 8, ease: 4 })), 'want').direction, 'steady')
 })

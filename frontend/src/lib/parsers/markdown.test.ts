@@ -5,6 +5,7 @@ import {
   parseScouting,
   parsePipeline,
   parseReportPath,
+  parseScoreCell,
 } from '@/lib/parsers/markdown'
 // Cross-parser pin (F4): the scripts-side triage parser, imported straight from
 // scripts/lib (plain .mjs, no @/ alias) so both implementations are exercised in
@@ -76,18 +77,61 @@ test('parseApplications: canonical 10-col header + 10-col rows', () => {
   assert.equal(rows[0].notes, 'called Jane')
 })
 
+// v2 scouting table (docs/scoring-v2.md §8.2) — 12 columns.
 const SCOUTING = [
-  '| # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes |',
-  '|---|------|---------|------|-------|------|-------|--------|----------|----------------|-------|',
-  '| 7 | 2026-05-01 | Stripe | Strategy | 3.6/5 | T2+ | 3.7/3.0 | — | Rolling | promote | x |',
+  '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |',
+  '|---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|',
+  '| 7 | 2026-10-01 | Acme | Strategy | 8.25 | 5.6 | T2 | amber: start date not stated; duration 14 months | [7](reports/tier-2/x.md) | Rolling | MONITOR | x |',
+  '| 8 | 2026-10-02 | Globex | Analyst | — | — | T4 | red: German C1 required | — | n/d |  | Revisit next cycle: dream |',
+  '| 9 | 2026-10-03 | Initech | Ops | 7.0 | 8.1 | t2 | green | — | n/d |  | |',
 ].join('\n')
 
-test('parseScouting normalizes the display tier (T2+ → T2-high)', () => {
+test('parseScouting reads the 12-column v2 table by header name', () => {
   const rows = parseScouting(SCOUTING)
-  assert.equal(rows.length, 1)
+  assert.equal(rows.length, 3)
   assert.equal(rows[0].num, 7)
-  assert.equal(rows[0].company, 'Stripe')
-  assert.equal(rows[0].tier, 'T2-high')
+  assert.equal(rows[0].company, 'Acme')
+  assert.equal(rows[0].want, 8.25)
+  assert.equal(rows[0].ease, 5.6)
+  assert.equal(rows[0].tier, 'T2')
+  assert.equal(rows[0].eligibility, 'amber')
+  assert.equal(rows[0].eligibilityReason, 'start date not stated; duration 14 months')
+  assert.equal(rows[0].promotionHint, 'MONITOR')
+  assert.equal(rows[0].report, '[7](reports/tier-2/x.md)')
+})
+
+test('parseScouting: blocked rows carry null scores and the red reason', () => {
+  const [, blocked, green] = parseScouting(SCOUTING)
+  assert.equal(blocked.want, null)
+  assert.equal(blocked.ease, null)
+  assert.equal(blocked.eligibility, 'red')
+  assert.equal(blocked.eligibilityReason, 'German C1 required')
+  assert.equal(blocked.tier, 'T4')
+  assert.equal(green.eligibility, 'green')
+  assert.equal(green.eligibilityReason, '')
+  assert.equal(green.tier, 'T2')   // lower-case tier normalised
+})
+
+test('parseScouting tolerates a shuffled column order', () => {
+  const md = [
+    '| # | Company | Role | Tier | Ease | Want | Eligibility | Date | Report | Deadline | Promotion Hint | Notes |',
+    '|---|---|---|---|---|---|---|---|---|---|---|---|',
+    '| 3 | Acme | PM | T1 | 7.5 | 8.6 | green | 2026-10-04 | — | n/d | READY | |',
+  ].join('\n')
+  const [r] = parseScouting(md)
+  assert.equal(r.want, 8.6)
+  assert.equal(r.ease, 7.5)
+  assert.equal(r.tier, 'T1')
+})
+
+test('parseScoreCell: v2 W/E cells, legacy X.X/10 cells, junk', () => {
+  assert.deepEqual(parseScoreCell('W8.3 E5.6'), { want: 8.3, ease: 5.6 })
+  assert.deepEqual(parseScoreCell('**W8 E7**'), { want: 8, ease: 7 })
+  assert.deepEqual(parseScoreCell('7.4/10'), { legacy: 7.4 })
+  assert.deepEqual(parseScoreCell('7.4'), { legacy: 7.4 })
+  assert.equal(parseScoreCell('—'), null)
+  assert.equal(parseScoreCell(''), null)
+  assert.equal(parseScoreCell('n/a'), null)
 })
 
 test('parsePipeline reads bare, bulleted and local: URLs, flags stale, skips checked', () => {

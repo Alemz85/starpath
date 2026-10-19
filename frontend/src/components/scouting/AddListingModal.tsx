@@ -20,6 +20,8 @@ import { useSpawnsStore } from '@/store/spawns'
 import { claudeEvalArgs, refreshCvSummary, scoreOnlyEvalPrompt } from '@/lib/evalSpawn'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
+import { WantEase } from '@/components/shared/WantEase'
+import { blockedReason, isBlocked } from '@/lib/scoreBands'
 import { guessCompanyFromUrl, isValidHttpUrl, normalizeUrl } from '@/lib/listingUrl'
 import type { ScoreEntry, PipelineUrl } from '@/types'
 
@@ -505,8 +507,8 @@ export function AddListingModal() {
                 <div className="leading-snug space-y-0.5">
                   <span className="text-text-1 font-medium">Already in the Database</span>
                   <span className="text-text-3"> · {duplicate.company} · {duplicate.role}</span>
-                  {duplicate.overall > 0 && (
-                    <span className="text-text-3"> · {duplicate.overall.toFixed(1)}/10</span>
+                  {(duplicate.want != null || isBlocked(duplicate)) && (
+                    <span className="text-text-3"> · <WantEase want={duplicate.want} ease={duplicate.ease} blockedReason={isBlocked(duplicate) ? blockedReason(duplicate) : null} /></span>
                   )}
                   <br />
                   <span className="text-text-4">

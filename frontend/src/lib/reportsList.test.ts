@@ -1,490 +1,225 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  getScoreBand, ALL_BANDS, BAND_DETAILS,
+  getScoreBand, ALL_BANDS, BAND_DETAILS, nextBandUp,
   filterReportRows, sortReportRows, corpusBands, bandCounts,
   buildScoreIndex, matchScore,
-  distanceToNextBand, fixabilityScore, isNearMiss,
+  fixabilityScore, isNearMiss,
   reportRowFixability, reportEngineLever,
   type ScoreBand, type ReportRowLike, type FixabilityRow,
 } from '@/lib/reportsList'
-import { rowLever } from '@/lib/tierLevers'
-import { makeScoreEntry } from '@/test-utils/fixtures'
+import { rowLever, replay, leverContextOf, type V2Dims } from '@/lib/tierLevers'
+import { makeScoreEntry, makeBlockedEntry } from '@/test-utils/fixtures'
+import { TIER_COLORS } from '@/types'
+import type { ScoreEntry } from '@/types'
 
 // A report row carries only the handful of fields the grid reads.
 function row(over: Partial<ReportRowLike> = {}): ReportRowLike {
-  return { company: 'Acme', role: 'Analyst', tier: 'T2', overall: 7.5, mtime: 0, ...over }
+  return { company: 'Acme', role: 'Analyst', tier: 'T2', want: 7.5, ease: 7.5, mtime: 0, ...over }
 }
 
-// ─── getScoreBand ────────────────────────────────────────────────────────────
+// ─── getScoreBand: verdict, never a number cut-off ───────────────────────────
 
-test('getScoreBand bins by overall score across every boundary', () => {
-  assert.equal(getScoreBand(9.0, 'T3'), 'stellar')   // ≥9 wins regardless of tier
-  assert.equal(getScoreBand(8.9, 'T3'), 'strong')
-  assert.equal(getScoreBand(8.0, 'T3'), 'strong')
-  assert.equal(getScoreBand(7.9, 'T3'), 'decent')
-  assert.equal(getScoreBand(7.0, 'T3'), 'decent')
-  assert.equal(getScoreBand(6.9, 'T1'), 'pass')      // score present → tier ignored
-  assert.equal(getScoreBand(5.0, 'T1'), 'pass')
-  assert.equal(getScoreBand(4.9, 'T1'), 'skip')
+test('getScoreBand prefers the stored verdict', () => {
+  assert.equal(getScoreBand(row({ verdict: 'thin', want: 9, ease: 9 })), 'thin')
+  assert.equal(getScoreBand(row({ verdict: 'Stretch' })), 'stretch')
 })
 
-test('getScoreBand falls back to tier when score is null/zero/missing', () => {
-  for (const noScore of [null, undefined, 0] as const) {
-    assert.equal(getScoreBand(noScore, 'T1'), 'stellar')
-    assert.equal(getScoreBand(noScore, 't2-high'), 'strong')   // case-insensitive
-    assert.equal(getScoreBand(noScore, 'T2'), 'decent')
-    assert.equal(getScoreBand(noScore, 'T3'), 'pass')
-    assert.equal(getScoreBand(noScore, 'T4'), 'skip')
-    assert.equal(getScoreBand(noScore, ''), 'skip')            // unknown tier
-  }
+test('getScoreBand replays the grid from Want / Ease when the verdict is missing', () => {
+  assert.equal(getScoreBand(row({ want: 8, ease: 7 })), 'go')
+  assert.equal(getScoreBand(row({ want: 8, ease: 6.99 })), 'stretch')
+  assert.equal(getScoreBand(row({ want: 8, ease: 4.99 })), 'growth')
+  assert.equal(getScoreBand(row({ want: 7.99, ease: 7 })), 'solid')
+  assert.equal(getScoreBand(row({ want: 6.5, ease: 5 })), 'thin')
+  assert.equal(getScoreBand(row({ want: 6.49, ease: 10 })), 'skip')
 })
 
-test('every band has display details and ALL_BANDS lists them high→low', () => {
-  assert.deepEqual([...ALL_BANDS], ['stellar', 'strong', 'decent', 'pass', 'skip'])
+test('getScoreBand: red eligibility is blocked', () => {
+  assert.equal(getScoreBand(row({ want: null, ease: null, eligibility: 'red' })), 'blocked')
+})
+
+test('getScoreBand falls back to the folder tier for an orphan report', () => {
+  const orphan = (tier: string) => row({ tier, want: null, ease: null })
+  assert.equal(getScoreBand(orphan('T1')), 'go')
+  assert.equal(getScoreBand(orphan('t2')), 'solid')
+  assert.equal(getScoreBand(orphan('T3')), 'growth')
+  assert.equal(getScoreBand(orphan('T4')), 'skip')
+  assert.equal(getScoreBand(orphan('')), 'skip')
+})
+
+test('every band has display details from its tier tokens; ALL_BANDS is best → worst', () => {
+  assert.deepEqual([...ALL_BANDS], ['go', 'stretch', 'solid', 'growth', 'thin', 'skip', 'blocked'])
+  assert.equal(BAND_DETAILS.go.label, 'Go')
+  assert.equal(BAND_DETAILS.go.text, TIER_COLORS.T1.text)
+  assert.equal(BAND_DETAILS.stretch.bg, TIER_COLORS.T2.bg)
+  assert.equal(BAND_DETAILS.growth.border, TIER_COLORS.T3.border)
+  assert.equal(BAND_DETAILS.blocked.text, TIER_COLORS.T4.text)
   for (const b of ALL_BANDS) assert.ok(BAND_DETAILS[b]?.label, `${b} has a label`)
+})
+
+test('nextBandUp walks the better-cell order; go and blocked have none', () => {
+  assert.equal(nextBandUp('skip'), 'thin')
+  assert.equal(nextBandUp('thin'), 'growth')
+  assert.equal(nextBandUp('stretch'), 'go')
+  assert.equal(nextBandUp('go'), null)
+  assert.equal(nextBandUp('blocked'), null)
 })
 
 // ─── filterReportRows ────────────────────────────────────────────────────────
 
 test('filterReportRows with no query and no bands returns the input untouched', () => {
   const rows = [row(), row({ company: 'Beta' })]
-  const out = filterReportRows(rows, {})
-  assert.equal(out, rows)        // same reference — no needless copy
+  assert.equal(filterReportRows(rows, {}), rows)
 })
 
-test('filterReportRows matches the query against company OR role, case-insensitively', () => {
+test('filterReportRows matches the query against company OR role, case-insensitively, trimmed', () => {
   const rows = [
-    row({ company: 'Stripe', role: 'Risk Analyst' }),
+    row({ company: 'Initech', role: 'Risk Analyst' }),
     row({ company: 'Acme', role: 'ML Engineer' }),
-    row({ company: 'Wise', role: 'Data Analyst' }),
+    row({ company: 'Globex', role: 'Data Analyst' }),
   ]
-  assert.deepEqual(filterReportRows(rows, { query: 'analyst' }).map(r => r.company), ['Stripe', 'Wise'])
-  assert.deepEqual(filterReportRows(rows, { query: 'STRIPE' }).map(r => r.company), ['Stripe'])
+  assert.deepEqual(filterReportRows(rows, { query: '  ANALYST ' }).map(r => r.company), ['Initech', 'Globex'])
+  assert.deepEqual(filterReportRows(rows, { query: 'acme' }).map(r => r.company), ['Acme'])
 })
 
-test('filterReportRows treats the band set as an OR multi-select', () => {
+test('filterReportRows treats the band set as an OR multi-select and ANDs the query', () => {
   const rows = [
-    row({ overall: 9.2 }),  // stellar
-    row({ overall: 8.1 }),  // strong
-    row({ overall: 7.2 }),  // decent
-    row({ overall: 4.0 }),  // skip
+    row({ company: 'A', want: 9, ease: 9 }),       // go
+    row({ company: 'B', want: 8, ease: 6 }),       // stretch
+    row({ company: 'C', want: 5, ease: 5 }),       // skip
   ]
-  const bands = new Set<ScoreBand>(['stellar', 'decent'])
-  assert.deepEqual(filterReportRows(rows, { bands }).map(r => r.overall), [9.2, 7.2])
-})
-
-test('filterReportRows ANDs the query with the band set', () => {
-  const rows = [
-    row({ company: 'Stripe', overall: 9.2 }),  // stellar + matches
-    row({ company: 'Acme', overall: 9.1 }),    // stellar but no match
-    row({ company: 'Stripe', overall: 6.0 }),  // matches but wrong band
-  ]
-  const out = filterReportRows(rows, { query: 'stripe', bands: new Set<ScoreBand>(['stellar']) })
-  assert.deepEqual(out.map(r => r.overall), [9.2])
+  const both = filterReportRows(rows, { bands: new Set<ScoreBand>(['go', 'skip']) })
+  assert.deepEqual(both.map(r => r.company), ['A', 'C'])
+  assert.deepEqual(filterReportRows(rows, { bands: new Set<ScoreBand>(['go', 'skip']), query: 'c' }).map(r => r.company), ['C'])
+  assert.equal(filterReportRows(rows, { bands: new Set() }).length, 3)
+  assert.deepEqual(filterReportRows([], { query: 'x' }), [])
 })
 
 // ─── sortReportRows ──────────────────────────────────────────────────────────
 
-test('sortReportRows by score desc/asc, treating missing scores as 0', () => {
-  const rows = [row({ overall: 7 }), row({ overall: null }), row({ overall: 9 })]
-  assert.deepEqual(sortReportRows(rows, 'score', 'desc').map(r => r.overall), [9, 7, null])
-  assert.deepEqual(sortReportRows(rows, 'score', 'asc').map(r => r.overall), [null, 7, 9])
-})
-
-test('sortReportRows by date keys off mtime (newest first on desc)', () => {
-  const rows = [row({ mtime: 100 }), row({ mtime: 300 }), row({ mtime: 200 })]
-  assert.deepEqual(sortReportRows(rows, 'date', 'desc').map(r => r.mtime), [300, 200, 100])
-})
-
-test('sortReportRows by tier uses the canonical order, unknown tiers last', () => {
+test('sortReportRows by score sorts on Priority; blocked/unscored rows last', () => {
   const rows = [
-    row({ tier: 'T3' }), row({ tier: 'T1' }), row({ tier: 'T2-high' }), row({ tier: 'Tx' }),
+    row({ company: 'Low', want: 6, ease: 6 }),            // 6.0
+    row({ company: 'Blocked', want: null, ease: null, eligibility: 'red' }),
+    row({ company: 'High', want: 9, ease: 8 }),           // 8.49
+    row({ company: 'Mid', want: 8, ease: 6, priority: 6.93 }),
   ]
-  assert.deepEqual(sortReportRows(rows, 'tier', 'desc').map(r => r.tier), ['T1', 'T2-high', 'T3', 'Tx'])
+  assert.deepEqual(sortReportRows(rows, 'score', 'desc').map(r => r.company), ['High', 'Mid', 'Low', 'Blocked'])
+  assert.deepEqual(sortReportRows(rows, 'score', 'asc').map(r => r.company), ['Blocked', 'Low', 'Mid', 'High'])
+})
+
+test('sortReportRows by date keys off mtime', () => {
+  const rows = [row({ company: 'Old', mtime: 1 }), row({ company: 'New', mtime: 9 })]
+  assert.deepEqual(sortReportRows(rows, 'date', 'desc').map(r => r.company), ['New', 'Old'])
+  assert.deepEqual(sortReportRows(rows, 'date', 'asc').map(r => r.company), ['Old', 'New'])
+})
+
+test('sortReportRows by tier: T1→T4, unknown last, better verdict first within a tier', () => {
+  const rows = [
+    row({ company: 'T4', tier: 'T4', want: 5, ease: 5 }),
+    row({ company: 'X', tier: 'weird' }),
+    row({ company: 'T2thin', tier: 'T2', want: 7, ease: 6 }),
+    row({ company: 'T2stretch', tier: 'T2', want: 8.5, ease: 6 }),
+    row({ company: 'T1', tier: 'T1', want: 9, ease: 9 }),
+  ]
+  assert.deepEqual(sortReportRows(rows, 'tier', 'desc').map(r => r.company), ['T1', 'T2stretch', 'T2thin', 'T4', 'X'])
 })
 
 test('sortReportRows does not mutate its input', () => {
-  const rows = [row({ overall: 1 }), row({ overall: 9 })]
-  const before = rows.map(r => r.overall)
+  const rows = [row({ company: 'B', want: 6, ease: 6 }), row({ company: 'A', want: 9, ease: 9 })]
+  const copy = [...rows]
   sortReportRows(rows, 'score', 'desc')
-  assert.deepEqual(rows.map(r => r.overall), before)
+  assert.deepEqual(rows, copy)
 })
 
 // ─── corpusBands / bandCounts ────────────────────────────────────────────────
 
-test('corpusBands lists only the bands actually present, in canonical order', () => {
-  const rows = [row({ overall: 7.5 }), row({ overall: 9.5 })]  // decent + stellar
-  assert.deepEqual(corpusBands(rows), ['stellar', 'decent'])
-  assert.deepEqual(corpusBands([]), [])
+test('corpusBands lists only the bands actually present, in canonical order, deduped', () => {
+  const rows = [row({ want: 5, ease: 5 }), row({ want: 9, ease: 9 }), row({ want: 9, ease: 9 }), row({ eligibility: 'red', want: null, ease: null })]
+  assert.deepEqual(corpusBands(rows), ['go', 'skip', 'blocked'])
 })
 
 test('bandCounts tallies per band and respects the query', () => {
   const rows = [
-    row({ company: 'Stripe', overall: 9.5 }),  // stellar
-    row({ company: 'Stripe', overall: 7.5 }),  // decent
-    row({ company: 'Acme', overall: 9.1 }),    // stellar (filtered out by query)
+    row({ company: 'Acme', want: 9, ease: 9 }),
+    row({ company: 'Acme', want: 8, ease: 6 }),
+    row({ company: 'Globex', want: 9, ease: 9 }),
   ]
   const all = bandCounts(rows)
-  assert.equal(all.stellar, 2)
-  assert.equal(all.decent, 1)
-  assert.equal(all.skip, 0)
-
-  const scoped = bandCounts(rows, 'stripe')
-  assert.equal(scoped.stellar, 1)
-  assert.equal(scoped.decent, 1)
+  assert.equal(all.go, 2)
+  assert.equal(all.stretch, 1)
+  assert.equal(all.blocked, 0)
+  assert.equal(bandCounts(rows, 'globex').go, 1)
+  assert.equal(bandCounts(rows, 'globex').stretch, 0)
+  assert.ok(Object.values(bandCounts([])).every(n => n === 0))
 })
 
 // ─── buildScoreIndex / matchScore ────────────────────────────────────────────
 
-test('matchScore resolves an exact company|role hit first', () => {
-  const exact = makeScoreEntry({ company: 'Stripe', role: 'Risk Analyst', overall: 8 })
-  const other = makeScoreEntry({ company: 'Stripe', role: 'ML Engineer', overall: 9 })
-  const idx = buildScoreIndex([exact, other])
-  const hit = matchScore(idx, { company: 'stripe', role: 'RISK ANALYST' })  // trims+lowers
-  assert.equal(hit?.role, 'Risk Analyst')
-})
-
-test('matchScore falls back to a prefix role within the same company', () => {
-  const entry = makeScoreEntry({ company: 'Stripe', role: 'Risk Analyst', overall: 8 })
-  const idx = buildScoreIndex([entry])
-  // report role is a longer form of the score-history role (or vice versa)
-  const hit = matchScore(idx, { company: 'Stripe', role: 'Risk Analyst II' })
-  assert.equal(hit?.role, 'Risk Analyst')
-})
-
-test('matchScore falls back to the highest-overall entry for the company', () => {
-  const lo = makeScoreEntry({ company: 'Stripe', role: 'Ops', overall: 6 })
-  const hi = makeScoreEntry({ company: 'Stripe', role: 'Strategy', overall: 9 })
-  const idx = buildScoreIndex([lo, hi])
-  const hit = matchScore(idx, { company: 'Stripe', role: 'Totally Unrelated Title' })
-  assert.equal(hit?.overall, 9)
-})
-
-test('matchScore returns null when the company is absent from score history', () => {
-  const idx = buildScoreIndex([makeScoreEntry({ company: 'Stripe', role: 'Ops' })])
-  assert.equal(matchScore(idx, { company: 'Nobody', role: 'X' }), null)
+test('matchScore: exact → prefix (both directions) → highest-priority fallback → null', () => {
+  const entries = [
+    makeScoreEntry({ company: 'Acme', role: 'Analyst', want: 6, ease: 6 }),
+    makeScoreEntry({ company: 'Acme', role: 'Senior Strategy Associate', want: 7, ease: 7 }),
+    makeScoreEntry({ company: 'Globex', role: 'PM', want: 6, ease: 6 }),
+    makeScoreEntry({ company: 'Globex', role: 'Data Lead', want: 9, ease: 8 }),
+    makeBlockedEntry('x', { company: 'Globex', role: 'Intern' }),
+  ]
+  const idx = buildScoreIndex(entries)
+  assert.equal(matchScore(idx, { company: ' acme ', role: 'ANALYST' })?.role, 'Analyst')
+  assert.equal(matchScore(idx, { company: 'Acme', role: 'Senior Strategy' })?.role, 'Senior Strategy Associate')
+  assert.equal(matchScore(idx, { company: 'Acme', role: 'Senior Strategy Associate II' })?.role, 'Senior Strategy Associate')
+  assert.equal(matchScore(idx, { company: 'Globex', role: 'Something else' })?.role, 'Data Lead')
+  assert.equal(matchScore(idx, { company: 'Nope', role: 'x' }), null)
+  assert.equal(buildScoreIndex([]).byExact.size, 0)
 })
 
 // ─── fixability / near-miss ──────────────────────────────────────────────────
 
-function fixRow(over: Partial<FixabilityRow> = {}): FixabilityRow {
-  return { company: 'Acme', role: 'Analyst', tier: 'T3', overall: 6.9, mtime: 0, ...over }
-}
-
-test('distanceToNextBand measures points to the next band floor', () => {
-  assert.equal(distanceToNextBand(6.9, 'T3'), 0.1)   // decent floor 7.0
-  assert.equal(distanceToNextBand(7.0, 'T2'), 1.0)   // strong floor 8.0
-  assert.equal(distanceToNextBand(5.1, 'T3'), 1.9)   // decent floor 7.0
-})
-
-test('distanceToNextBand returns null for the top band and for unscored rows', () => {
-  assert.equal(distanceToNextBand(9.2, 'T1'), null)   // stellar — no band above
-  assert.equal(distanceToNextBand(null, 'T3'), null)
-  assert.equal(distanceToNextBand(0, 'T3'), null)
-})
-
-test('fixabilityScore: a lever-backed near-miss outranks a closer lever-less one', () => {
-  const withLever  = fixRow({ overall: 6.5, fixability: { hasLever: true } })
-  const noLever     = fixRow({ overall: 6.9, fixability: { hasLever: false } })   // closer, but no lever
-  assert.ok(fixabilityScore(withLever) > fixabilityScore(noLever))
-})
-
-test('fixabilityScore is 0 for top-band and unscored rows (not in the ranking)', () => {
-  assert.equal(fixabilityScore(fixRow({ overall: 9.3, tier: 'T1', fixability: { hasLever: true } })), 0)
-  assert.equal(fixabilityScore(fixRow({ overall: null, fixability: { hasLever: true } })), 0)
-})
-
-test('fixabilityScore rises as the gap to the next band shrinks (lever-less)', () => {
-  const far   = fixRow({ overall: 5.2, fixability: { hasLever: false } })
-  const near  = fixRow({ overall: 6.8, fixability: { hasLever: false } })
-  assert.ok(fixabilityScore(near) > fixabilityScore(far))
-})
-
-test('isNearMiss: small gap OR a concrete lever qualifies; top-band never does', () => {
-  assert.equal(isNearMiss(fixRow({ overall: 6.9, fixability: { hasLever: false } })), true)  // 0.1 gap
-  assert.equal(isNearMiss(fixRow({ overall: 5.5, fixability: { hasLever: false } })), false) // 1.5 gap, no lever
-  assert.equal(isNearMiss(fixRow({ overall: 5.5, fixability: { hasLever: true } })), true)   // lever overrides gap
-  assert.equal(isNearMiss(fixRow({ overall: 9.4, tier: 'T1', fixability: { hasLever: true } })), false)
-})
-
-test('filterReportRows nearMissOnly keeps only near-miss rows', () => {
-  const rows = [
-    fixRow({ company: 'Close',  overall: 6.95, fixability: { hasLever: false } }),  // 0.05 gap
-    fixRow({ company: 'Lever',  overall: 5.4,  fixability: { hasLever: true } }),   // lever
-    fixRow({ company: 'Far',    overall: 5.4,  fixability: { hasLever: false } }),  // out
-    fixRow({ company: 'Top',    overall: 9.2, tier: 'T1', fixability: { hasLever: true } }), // out
-  ]
-  assert.deepEqual(
-    filterReportRows(rows, { nearMissOnly: true }).map(r => r.company).sort(),
-    ['Close', 'Lever'],
-  )
-})
-
-test('sortReportRows by fixable puts the cheapest upgrade first under desc', () => {
-  const rows = [
-    fixRow({ company: 'Far',   overall: 5.3, fixability: { hasLever: false } }),
-    fixRow({ company: 'Lever', overall: 6.4, fixability: { hasLever: true } }),
-    fixRow({ company: 'Close', overall: 6.95, fixability: { hasLever: false } }),
-    fixRow({ company: 'Top',   overall: 9.3, tier: 'T1', fixability: { hasLever: true } }),
-  ]
-  const order = sortReportRows(rows, 'fixable', 'desc').map(r => r.company)
-  // Lever-backed near-miss leads; the closer lever-less row follows; the two
-  // zero-fixability rows (Far = too far, Top = no upgrade target) trail, and
-  // among equal fixability the higher raw overall wins the tie-break.
-  assert.equal(order[0], 'Lever')
-  assert.equal(order[1], 'Close')
-  assert.deepEqual(order.slice(2), ['Top', 'Far'])   // both fixability 0, tie-break by overall desc
+test('without a scored entry a report is never a near-miss', () => {
+  assert.equal(isNearMiss({ ...row() }), false)
+  assert.equal(fixabilityScore({ ...row() }), 0)
+  const blocked: FixabilityRow = { ...row({ want: null, ease: null, eligibility: 'red' }), scoreEntry: makeBlockedEntry() }
+  assert.equal(isNearMiss(blocked), false)
+  assert.equal(fixabilityScore(blocked), 0)
 })
 
 // ─── Unified engine path (reportsList ↔ tierLevers) ──────────────────────────
-//
-// Before the unification the Reports lens computed its own near-miss verdict
-// from the Overall score + the parsed lever sentence, independent of the
-// engine the Database used on the same listing. The two could disagree. These
-// tests pin the contract that, when a report row carries the real dims (its
-// matched score-history entry), the Reports verdict is the engine's verdict —
-// the same one the Database "Near upgrade" filter computes.
+
+const near: V2Dims = {
+  growth_mobility: 8, optionality_exit: 8, brand_value: 9, role_content: 7,
+  best_cities: 8, salary_adj_city: 6, work_life_balance: 6,
+  skills_match: 7, experience_bar: 7, competition: 6,
+}
+function scored(d: V2Dims, over: Partial<ScoreEntry> = {}): ScoreEntry {
+  const base = makeScoreEntry({ ...d, employment_type: 'full-time', ...over })
+  const r = replay(d, leverContextOf(base, d))
+  return { ...base, want: r.want, ease: r.ease, verdict: r.verdict, ...over }
+}
 
 test('DRIFT GUARD: a report row carrying real dims reads identically to the Database', () => {
-  // The canonical EoE-gate near-miss listing.
-  const dims = {
-    skills_match: 8, ease_of_entry: 4, strategic_fit: 8,
-    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
-  }
-  const scoreEntry = makeScoreEntry({ ...dims, tier: 'T3', overall: 6.6 })
-
-  // Database side (the engine source of truth).
-  const dbVerdict = rowLever(scoreEntry)
-
-  // Reports side, decorated with the same matched entry. Give it a deliberately
-  // wrong parse signal to prove the engine — not the report text — decides.
-  const reportRow: FixabilityRow = {
-    company: scoreEntry.company, role: scoreEntry.role, tier: 'T3', overall: 6.6,
-    fixability: { hasLever: false, lever: null },   // body says "no lever"
-    scoreEntry,
-  }
-
-  // Same near-miss verdict.
-  assert.equal(isNearMiss(reportRow), dbVerdict.nearMiss)
-  assert.equal(isNearMiss(reportRow), true)
-  // Same structured lever surfaced to the Reports UI.
-  assert.deepEqual(reportEngineLever(reportRow), dbVerdict.best)
-  assert.equal(reportEngineLever(reportRow)?.dimension, 'ease_of_entry')
-  // And the engine source is recorded.
-  assert.equal(reportRowFixability(reportRow).source, 'engine')
+  const entry = scored(near) // stretch, one step from go
+  const fr: FixabilityRow = { ...row({ want: entry.want, ease: entry.ease, verdict: entry.verdict }), scoreEntry: entry }
+  const db = rowLever(entry)
+  const rep = reportRowFixability(fr)
+  assert.equal(rep.nearMiss, db.nearMiss)
+  assert.deepEqual(rep.engineLever, db.best)
+  assert.deepEqual(reportEngineLever(fr), db.best)
+  assert.equal(isNearMiss(fr), true)
 })
 
-test('engine path overrides a contradictory parse near-miss for a T1 row', () => {
-  // Database says T1 (no lever). The report body claims a lever + the row sits
-  // 0.4 below the next band — both would say "near-miss" on the parse path.
-  const scoreEntry = makeScoreEntry({
-    skills_match: 9, ease_of_entry: 8, strategic_fit: 8,
-    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
-    tier: 'T1', overall: 8.6,
-  })
-  const reportRow: FixabilityRow = {
-    company: 'Acme', role: 'Analyst', tier: 'T1', overall: 8.6,
-    fixability: { hasLever: true, lever: 'Brand 8 → 10 crosses the band.' },
-    scoreEntry,
-  }
-  assert.equal(rowLever(scoreEntry).nearMiss, false)
-  assert.equal(isNearMiss(reportRow), false)          // engine wins
-  assert.equal(reportEngineLever(reportRow), null)
-  assert.equal(fixabilityScore(reportRow), 0)
+test('a far row (needs +2) is not a near-miss, and a go row never is', () => {
+  const far = scored({ ...near, growth_mobility: 6, optionality_exit: 6, brand_value: 6, role_content: 6, best_cities: 6, skills_match: 6, experience_bar: 6 })
+  assert.equal(isNearMiss({ ...row(), scoreEntry: far }), false)
+  assert.equal(isNearMiss({ ...row({ want: 9, ease: 9 }), scoreEntry: far }), false)
 })
 
-test('rows WITHOUT a matched entry keep the historical parse-based verdict', () => {
-  // No scoreEntry → the legacy Overall-gap + parsed-lever heuristic still drives
-  // the verdict, unchanged. (This is the same case the pre-unification tests
-  // above already pin; restated here to make the fallback contract explicit.)
-  const close: FixabilityRow = { company: 'Close', role: 'r', tier: 'T3', overall: 6.9, fixability: { hasLever: false } }
-  const lever: FixabilityRow = { company: 'Lever', role: 'r', tier: 'T3', overall: 5.4, fixability: { hasLever: true } }
-  const far:   FixabilityRow = { company: 'Far',   role: 'r', tier: 'T3', overall: 5.4, fixability: { hasLever: false } }
-  assert.equal(reportRowFixability(close).source, 'parse')
-  assert.equal(isNearMiss(close), true)    // 0.1 gap
-  assert.equal(isNearMiss(lever), true)    // lever overrides gap
-  assert.equal(isNearMiss(far), false)     // wide gap, no lever
-  assert.equal(reportEngineLever(close), null)   // no engine lever on the parse path
-})
-
-test('reportEngineLever returns the structured lever only on the engine path', () => {
-  const scoreEntry = makeScoreEntry({
-    skills_match: 8, ease_of_entry: 4, strategic_fit: 8,
-    growth_mobility: 8, optionality_exit: 8, brand_value: 8,
-    tier: 'T3', overall: 6.6,
-  })
-  const withDims: FixabilityRow = { company: 'A', role: 'r', tier: 'T3', overall: 6.6, scoreEntry, fixability: { hasLever: false } }
-  const noDims:   FixabilityRow = { company: 'A', role: 'r', tier: 'T3', overall: 6.6, fixability: { hasLever: true, lever: 'Skills 7 → 8' } }
-  assert.ok(reportEngineLever(withDims))            // engine lever present
-  assert.equal(reportEngineLever(noDims), null)     // parse path → no structured lever
-})
-
-// ─── filterReportRows edge cases ─────────────────────────────────────────────
-
-test('filterReportRows with an empty bands set passes all rows through (OR semantics)', () => {
-  const rows = [row({ overall: 9.5 }), row({ overall: 4.0 })]
-  // Empty Set means "no band filter" — not "matches zero"
-  const out = filterReportRows(rows, { bands: new Set() })
-  assert.equal(out.length, 2)
-})
-
-test('filterReportRows with an empty input returns an empty array', () => {
-  const out = filterReportRows([], { query: 'stripe', bands: new Set<ScoreBand>(['stellar']) })
-  assert.deepEqual(out, [])
-})
-
-test('filterReportRows nearMissOnly=false (explicit) passes all rows through', () => {
-  const rows = [
-    row({ overall: 9.5 }),    // top-band, not near-miss
-    row({ overall: 5.0 }),    // far from next band
+test('sortReportRows by fixable puts the cheapest upgrade first under desc', () => {
+  const far = scored({ ...near, growth_mobility: 6, optionality_exit: 6, brand_value: 6, role_content: 6, best_cities: 6, skills_match: 6, experience_bar: 6 })
+  const rows: FixabilityRow[] = [
+    { ...row({ company: 'None', want: 6, ease: 6 }) },
+    { ...row({ company: 'Near' }), scoreEntry: scored(near) },
+    { ...row({ company: 'Far' }), scoreEntry: far },
   ]
-  const out = filterReportRows(rows, { nearMissOnly: false })
-  assert.equal(out.length, 2)
-})
-
-test('filterReportRows trims and lowercases the query', () => {
-  const rows = [
-    row({ company: '  Stripe  ', role: 'Analyst' }),
-    row({ company: 'Acme', role: 'STRIPE Manager' }),
-  ]
-  // Query with leading/trailing spaces and mixed case
-  const out = filterReportRows(rows, { query: '  STRIPE  ' })
-  assert.equal(out.length, 2)
-})
-
-// ─── sortReportRows edge cases ────────────────────────────────────────────────
-
-test('sortReportRows by tier asc reverses the canonical order (T4 first)', () => {
-  const rows = [
-    row({ tier: 'T1' }), row({ tier: 'T3' }), row({ tier: 'T2' }),
-  ]
-  assert.deepEqual(
-    sortReportRows(rows, 'tier', 'asc').map(r => r.tier),
-    ['T3', 'T2', 'T1'],
-  )
-})
-
-test('sortReportRows by date asc puts the oldest mtime first', () => {
-  const rows = [row({ mtime: 100 }), row({ mtime: 300 }), row({ mtime: 200 })]
-  assert.deepEqual(sortReportRows(rows, 'date', 'asc').map(r => r.mtime), [100, 200, 300])
-})
-
-test('sortReportRows by fixable asc reverses fixability (least fixable first)', () => {
-  const rows = [
-    { company: 'Close', role: 'r', tier: 'T3', overall: 6.9, fixability: { hasLever: false } },
-    { company: 'Far',   role: 'r', tier: 'T3', overall: 5.0, fixability: { hasLever: false } },
-  ] as FixabilityRow[]
-  const order = sortReportRows(rows, 'fixable', 'asc').map(r => r.company)
-  // asc = reverse of desc → Far (less fixable, lower score) comes first
-  assert.equal(order[0], 'Far')
-  assert.equal(order[1], 'Close')
-})
-
-test('sortReportRows by score asc places tied nulls together at the front', () => {
-  const rows = [
-    row({ overall: null }), row({ overall: null }), row({ overall: 7 }),
-  ]
-  const sorted = sortReportRows(rows, 'score', 'asc')
-  assert.equal(sorted[0].overall, null)
-  assert.equal(sorted[1].overall, null)
-  assert.equal(sorted[2].overall, 7)
-})
-
-// ─── corpusBands edge cases ───────────────────────────────────────────────────
-
-test('corpusBands deduplicates: many stellar rows yield one "stellar" entry', () => {
-  const rows = [row({ overall: 9.1 }), row({ overall: 9.2 }), row({ overall: 9.5 })]
-  assert.deepEqual(corpusBands(rows), ['stellar'])
-})
-
-test('corpusBands respects the tier fallback for unscored rows', () => {
-  const rows = [
-    row({ overall: 0, tier: 'T1' }),    // stellar via tier
-    row({ overall: 0, tier: 'T3' }),    // pass via tier
-  ]
-  const bands = corpusBands(rows)
-  assert.ok(bands.includes('stellar'))
-  assert.ok(bands.includes('pass'))
-})
-
-// ─── bandCounts edge cases ────────────────────────────────────────────────────
-
-test('bandCounts on an empty input returns all-zero counts', () => {
-  const counts = bandCounts([])
-  for (const band of ['stellar', 'strong', 'decent', 'pass', 'skip'] as const) {
-    assert.equal(counts[band], 0)
-  }
-})
-
-test('bandCounts with a query that matches nothing returns all-zero counts', () => {
-  const rows = [row({ company: 'Stripe', overall: 9.0 })]
-  const counts = bandCounts(rows, 'zzz-no-match')
-  for (const band of ['stellar', 'strong', 'decent', 'pass', 'skip'] as const) {
-    assert.equal(counts[band], 0)
-  }
-})
-
-// ─── buildScoreIndex / matchScore edge cases ──────────────────────────────────
-
-test('buildScoreIndex with an empty array returns empty maps', () => {
-  const idx = buildScoreIndex([])
-  assert.equal(idx.byExact.size, 0)
-  assert.equal(idx.byCompany.size, 0)
-})
-
-test('matchScore: prefix match is bidirectional (report role shorter than score entry)', () => {
-  // score-history has "Risk Analyst II"; report has the shorter "Risk Analyst"
-  const entry = makeScoreEntry({ company: 'Stripe', role: 'Risk Analyst II', overall: 8 })
-  const idx = buildScoreIndex([entry])
-  const hit = matchScore(idx, { company: 'Stripe', role: 'Risk Analyst' })
-  assert.equal(hit?.role, 'Risk Analyst II')
-})
-
-test('matchScore: best-overall fallback picks the single entry when there is only one', () => {
-  const entry = makeScoreEntry({ company: 'Stripe', role: 'Strategy', overall: 7 })
-  const idx = buildScoreIndex([entry])
-  // No prefix match (completely different role)
-  const hit = matchScore(idx, { company: 'Stripe', role: 'Totally Unrelated' })
-  assert.equal(hit?.overall, 7)
-})
-
-test('matchScore trims and lowercases for the exact key lookup', () => {
-  const entry = makeScoreEntry({ company: '  Stripe ', role: ' Risk Analyst ' })
-  const idx = buildScoreIndex([entry])
-  const hit = matchScore(idx, { company: 'stripe', role: 'risk analyst' })
-  assert.ok(hit)
-  assert.equal(hit?.company, '  Stripe ')
-})
-
-// ─── distanceToNextBand edge cases ────────────────────────────────────────────
-
-test('distanceToNextBand: score exactly at a band floor has distance to the NEXT floor', () => {
-  // 7.0 is the floor of 'decent'; next band is 'strong' (floor 8.0)
-  assert.equal(distanceToNextBand(7.0, 'T2'), 1.0)
-  // 8.0 is the floor of 'strong'; next band is 'stellar' (floor 9.0)
-  assert.equal(distanceToNextBand(8.0, 'T2'), 1.0)
-  // 5.0 is the floor of 'pass'; next band is 'decent' (floor 7.0)
-  assert.equal(distanceToNextBand(5.0, 'T3'), 2.0)
-})
-
-test('distanceToNextBand: a score just below 5.0 (skip band) measures to decent floor (7.0)', () => {
-  // skip floor is 0; next is pass (5.0)... wait, 'pass' has floor 5.0
-  // A skip-band score (e.g. 4.0) → next is pass at 5.0 → distance 1.0
-  assert.equal(distanceToNextBand(4.0, 'T4'), 1.0)
-})
-
-// ─── isNearMiss edge cases ────────────────────────────────────────────────────
-
-test('isNearMiss: a row at exactly the band floor (distance=0) is NOT near-miss', () => {
-  // 7.0 = bottom of 'decent'; still 1.0 from 'strong'. Not near-miss without a lever.
-  const r: FixabilityRow = { company: 'A', role: 'r', tier: 'T2', overall: 7.0, fixability: { hasLever: false } }
-  // 1.0 gap → too far; isNearMiss should be false
-  assert.equal(isNearMiss(r), false)
-})
-
-test('isNearMiss: a row with no fixability field (undefined) is treated as no lever', () => {
-  const r: FixabilityRow = { company: 'A', role: 'r', tier: 'T3', overall: 6.95 }
-  // 0.05 gap → near-miss even with no lever (small gap qualifies)
-  assert.equal(isNearMiss(r), true)
+  assert.deepEqual(sortReportRows(rows, 'fixable', 'desc').map(r => r.company), ['Near', 'Far', 'None'])
+  assert.deepEqual(sortReportRows(rows, 'fixable', 'asc').map(r => r.company), ['None', 'Far', 'Near'])
 })

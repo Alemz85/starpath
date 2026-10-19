@@ -9,25 +9,30 @@
 // (`flattenChildrenText`, `sectionIcon`, the rendering components) stay in the
 // component — only the string parsing lives here.
 
+import type { Eligibility, EligibilityFlag, Verdict } from '@/types'
+import { normalizeEligibility, normalizeTier, normalizeVerdict, ELIGIBILITY_CHECK_LABELS } from './scoreBands'
+
 export interface DimensionRow {
   label: string
   score: string
   reasoning: string
 }
 
+/** The v2 `## Dimensional scoring` table, split by its row tags
+ *  (docs/scoring-v2.md §8.5): `(want)` motivators, `(hygiene)` factors, the
+ *  `Want (rollup)` row, `(ease)` dimensions, the `Ease (rollup)` row, and
+ *  `(context)` rows. */
 export interface ParsedDimensions {
-  overall: { score: string } | null
-  currentFit: { rollup: string; rows: DimensionRow[] }
-  aspirationalFit: { rollup: string; rows: DimensionRow[] }
+  want: { rollup: string; reasoning: string; motivators: DimensionRow[]; hygiene: DimensionRow[] }
+  ease: { rollup: string; reasoning: string; rows: DimensionRow[] }
   context: { rows: DimensionRow[] }
 }
 
 // Header metadata: keep contextual fields (Date / Mode / Location /
-// Archetype / Verification) and drop the duplicated ones — URL has its
-// own pill, the score fields are now visually prominent in the hero +
-// section rollups, and Tier is in the slide-over header. Verification
-// is kept because batch-mode reports need a visible "unconfirmed"
-// caveat — see ReportMeta for the warning treatment.
+// Archetype / Verification) and drop the duplicated ones — URL has its own
+// pill, Want / Ease / Eligibility / Verdict / Tier are parsed by
+// parseReportHeader and rendered in the hero. Verification is kept because
+// batch-mode reports need a visible "unconfirmed" caveat — see ReportMeta.
 const META_KEEP = new Set(['date', 'mode', 'location', 'archetype', 'verification'])
 
 export function extractMetadata(text: string): {
@@ -59,12 +64,155 @@ export function extractMetadata(text: string): {
   return { meta: kept, rest }
 }
 
+// ─── v2 report header (spec §8.5) ────────────────────────────────────────────
+//
+//   **Want:** 8.25/10 · **Ease:** 5.6/10
+//   **Eligibility:** amber — start date not stated
+//   **Verdict:** Stretch — apply with prep
+//   **Tier:** T2
+
+export interface ReportHeader {
+  want: number | null
+  ease: number | null
+  eligibility: Eligibility | null
+  /** Text after the status (`— start date not stated`), dash stripped. */
+  eligibilityReason: string
+  verdict: Verdict | null
+  /** The verdict line's action text (`apply with prep`), dash stripped. */
+  verdictAction: string
+  tier: string | null
+}
+
+const VERDICT_BY_LABEL: Record<string, Verdict> = {
+  'go': 'go', 'stretch': 'stretch', 'growth target': 'growth', 'growth': 'growth',
+  'solid': 'solid', 'if pipeline thin': 'thin', 'thin': 'thin', 'only if your pipeline is thin': 'thin',
+  'skip': 'skip', 'blocked': 'blocked',
+}
+
+function headerValue(md: string, key: string): string | null {
+  const re = new RegExp(`\\*\\*${key}:\\*\\*\\s*([^\\n]*)`, 'i')
+  const m = re.exec(md)
+  return m ? m[1].trim() : null
+}
+
+function leadingNumber(v: string | null): number | null {
+  if (!v) return null
+  const m = v.replace(/\*\*/g, '').match(/^\s*(\d+(?:\.\d+)?)/)
+  if (!m) return null
+  const n = parseFloat(m[1])
+  return Number.isFinite(n) ? n : null
+}
+
+function splitDash(v: string): [string, string] {
+  const m = v.match(/^(.*?)\s+[—–-]\s+(.*)$/)
+  return m ? [m[1].trim(), m[2].trim()] : [v.trim(), '']
+}
+
+export function parseReportHeader(md: string): ReportHeader {
+  const want = leadingNumber(headerValue(md, 'Want'))
+  const ease = leadingNumber(headerValue(md, 'Ease'))
+  const eligRaw = headerValue(md, 'Eligibility') ?? ''
+  const [eligHead, eligReason] = splitDash(eligRaw)
+  const eligibility = normalizeEligibility(eligHead)
+  const verdictRaw = headerValue(md, 'Verdict') ?? ''
+  const [verdictHead, verdictAction] = splitDash(verdictRaw.replace(/\*\*/g, ''))
+  const verdict = normalizeVerdict(verdictHead)
+    ?? VERDICT_BY_LABEL[verdictHead.toLowerCase().replace(/[:.]$/, '')]
+    ?? null
+  const tier = normalizeTier(headerValue(md, 'Tier'))
+  return {
+    want: eligibility === 'red' ? null : want,
+    ease: eligibility === 'red' ? null : ease,
+    eligibility,
+    eligibilityReason: eligibility ? eligReason : '',
+    verdict: eligibility === 'red' ? 'blocked' : verdict,
+    verdictAction,
+    tier,
+  }
+}
+
+// ─── `## Eligibility` section (spec §8.5) ────────────────────────────────────
+//
+//   ## Eligibility
+//   | Check | Status | Reason |
+//   | Start date | amber | start date not stated |
+//   ...
+//   **Ask the recruiter**
+//   - When does the internship start?
+
+export interface ParsedEligibility {
+  checks: EligibilityFlag[]
+  questions: string[]
+}
+
+const CHECK_BY_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(ELIGIBILITY_CHECK_LABELS).map(([k, label]) => [label.toLowerCase(), k]),
+)
+
+/** A Check cell → its check key (`Start date` / `start_date` → start_date).
+ *  An unknown label is kept as written so the renderer's fallback can show
+ *  it — never dropped. */
+function checkKey(cell: string): string {
+  const t = cell.replace(/`/g, '').trim()
+  const lower = t.toLowerCase()
+  if (ELIGIBILITY_CHECK_LABELS[lower]) return lower
+  if (CHECK_BY_LABEL[lower]) return CHECK_BY_LABEL[lower]
+  const snake = lower.replace(/[\s-]+/g, '_')
+  if (ELIGIBILITY_CHECK_LABELS[snake]) return snake
+  if (lower.startsWith('work auth') || lower.startsWith('work-auth') || lower.includes('visa')) return 'work_auth'
+  if (lower.startsWith('other')) return 'other'
+  return t
+}
+
+/** Split the `## Eligibility` section out of a report body. */
+export function splitEligibility(md: string): { eligibility: ParsedEligibility | null; rest: string } {
+  const headingRe = /^##\s+Eligibility\s*$/im
+  const m = headingRe.exec(md)
+  if (!m) return { eligibility: null, rest: md }
+  const head = md.slice(0, m.index)
+  const tail = md.slice(m.index + m[0].length)
+  const next = /\n##\s+\S/m.exec(tail)
+  const section = next ? tail.slice(0, next.index) : tail
+  const afterBlock = next ? tail.slice(next.index + 1) : ''
+
+  const checks: EligibilityFlag[] = []
+  const questions: string[] = []
+  let inQuestions = false
+  let sawHeader = false
+  for (const raw of section.split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    if (line.startsWith('|')) {
+      if (/^\|[\s|:-]+\|$/.test(line)) continue // separator
+      const cells = line.split('|').slice(1, -1).map(c => c.replace(/^\*\*(.+)\*\*$/, '$1').trim())
+      if (!sawHeader) { sawHeader = true; if (/^check$/i.test(cells[0] ?? '')) continue }
+      if (cells.length < 2) continue
+      const status = normalizeEligibility((cells[1] ?? '').replace(/[^a-z]/gi, ' ').trim().split(/\s+/).find(w => normalizeEligibility(w)) ?? '')
+      if (!status) continue
+      checks.push({ check: checkKey(cells[0] ?? ''), status, reason: cells[2] ?? '' })
+      continue
+    }
+    if (/ask the recruiter/i.test(line)) { inQuestions = true; continue }
+    if (inQuestions) {
+      const q = line.match(/^(?:[-*]|\d+[.)])\s+(.*)$/)
+      if (q) questions.push(q[1].replace(/^\*\*(.+)\*\*$/, '$1').trim())
+    }
+  }
+
+  // Attach each question to the amber check it resolves when the counts line
+  // up (the engine writes one question per amber, in table order).
+  const ambers = checks.filter(c => c.status === 'amber')
+  if (ambers.length === questions.length) ambers.forEach((c, i) => { c.question = questions[i] })
+
+  const rest = `${head.trimEnd()}\n\n${afterBlock}`.replace(/\n{3,}/g, '\n\n').trim()
+  return { eligibility: { checks, questions }, rest }
+}
+
 // Split the markdown around the "## Dimensional scoring" section, parse the
-// table inside it, and categorise the rows. Phase walks: rows before the
-// Current Fit rollup → CF dimensions; between CF rollup and AF rollup → AF
-// dimensions; after Overall → context. Rows tagged `(context)` are routed
-// to the context group regardless of position. The arithmetic on rollup /
-// Overall rows is intentionally discarded — section grouping replaces it.
+// table inside it, and group the rows by their v2 tag. Rows are routed by tag
+// first; an untagged dimension row falls back to its position (before the
+// Want rollup → a Want motivator; after it → an Ease dimension; after the
+// Ease rollup → context). The rollup arithmetic text is kept as `reasoning`.
 export function parseDimensionalScoring(md: string): {
   before: string
   dims: ParsedDimensions | null
@@ -89,56 +237,38 @@ export function parseDimensionalScoring(md: string): {
 
   if (tableLines.length < 2) return { before: md, dims: null, after: '' }
 
-  const rows = tableLines.slice(1).map(parseRow).filter(Boolean) as Array<{
-    label: string
-    score: string
-    reasoning: string
-    tag: 'rollup' | 'signal' | 'context' | null
-  }>
+  const rows = tableLines.slice(1).map(parseRow).filter(Boolean) as Array<NonNullable<ReturnType<typeof parseRow>>>
 
   const dims: ParsedDimensions = {
-    overall: null,
-    currentFit:      { rollup: '', rows: [] },
-    aspirationalFit: { rollup: '', rows: [] },
-    context:         { rows: [] },
+    want:    { rollup: '', reasoning: '', motivators: [], hygiene: [] },
+    ease:    { rollup: '', reasoning: '', rows: [] },
+    context: { rows: [] },
   }
 
-  type Phase = 'cf' | 'af' | 'post-overall'
-  let phase: Phase = 'cf'
+  type Phase = 'want' | 'ease' | 'post'
+  let phase: Phase = 'want'
 
   for (const row of rows) {
     const labelLower = row.label.toLowerCase()
+    const r: DimensionRow = { label: row.label, score: row.score, reasoning: row.reasoning }
 
-    if (labelLower === 'overall' || labelLower.startsWith('overall ')) {
-      dims.overall = { score: row.score }
-      phase = 'post-overall'
-      continue
+    if (row.tag === 'rollup' || ((labelLower === 'want' || labelLower === 'ease') && !row.tag)) {
+      if (labelLower.startsWith('want')) { dims.want.rollup = row.score; dims.want.reasoning = row.reasoning; phase = 'ease'; continue }
+      if (labelLower.startsWith('ease')) { dims.ease.rollup = row.score; dims.ease.reasoning = row.reasoning; phase = 'post'; continue }
     }
-    if (row.tag === 'rollup' && labelLower.startsWith('current fit')) {
-      dims.currentFit.rollup = row.score
-      phase = 'af'
-      continue
-    }
-    if (row.tag === 'rollup' && labelLower.startsWith('aspirational fit')) {
-      dims.aspirationalFit.rollup = row.score
-      continue
-    }
-    if (row.tag === 'context' || phase === 'post-overall') {
-      dims.context.rows.push({ label: row.label, score: row.score, reasoning: row.reasoning })
-      continue
-    }
-
-    const dimRow: DimensionRow = { label: row.label, score: row.score, reasoning: row.reasoning }
-    if (phase === 'cf') dims.currentFit.rows.push(dimRow)
-    else                dims.aspirationalFit.rows.push(dimRow)
+    if (row.tag === 'want')    { dims.want.motivators.push(r); continue }
+    if (row.tag === 'hygiene') { dims.want.hygiene.push(r); continue }
+    if (row.tag === 'ease')    { dims.ease.rows.push(r); continue }
+    if (row.tag === 'context' || phase === 'post') { dims.context.rows.push(r); continue }
+    if (phase === 'want') dims.want.motivators.push(r)
+    else dims.ease.rows.push(r)
   }
 
   // Sanity: if we found no group rows at all, abort and fall back.
   if (
-    !dims.overall &&
-    dims.currentFit.rows.length === 0 &&
-    dims.aspirationalFit.rows.length === 0 &&
-    dims.context.rows.length === 0
+    !dims.want.rollup && !dims.ease.rollup &&
+    dims.want.motivators.length === 0 && dims.want.hygiene.length === 0 &&
+    dims.ease.rows.length === 0 && dims.context.rows.length === 0
   ) {
     return { before: md, dims: null, after: '' }
   }
@@ -146,140 +276,34 @@ export function parseDimensionalScoring(md: string): {
   return { before, dims, after }
 }
 
-// ─── "Why this score" block (explainability / fixability) ────────────────────
+// ─── `Salary math:` footer ───────────────────────────────────────────────────
 //
-// Every report written by the current scouting template carries a
-// `## Why this score` block immediately after the dimensional table. Its shape
-// (see modes/_shared.md § Why-this-score block) is:
+// Reports end with ONE footer line carrying the full salary computation chain
+// (comp → tax → cost of living → savings power). The Salary reasoning cell in
+// the dimensional table is a one-line human summary; the chain lives here.
 //
-//   ## Why this score
-//   {headline sentence}
+//   Salary math: €42k gross → €29.8k net (City, Country) → …
 //
-//   - **Holding it back:** {binding constraint message}
-//   - **Closest lever:** {cheapest band-crossing lever}   ← omitted when none
-//
-// We parse it into structured pieces so the Reports LIST can surface each
-// report's binding constraint + cheapest lever as a badge and rank by "easiest
-// near-miss to upgrade" — without the user having to open every slide-over.
-//
-// The block is deterministic (computed by scripts/score-listing.mjs), so a
-// brittle exact-string parse would be fine; we keep the matchers forgiving
-// anyway (bold optional, label synonyms, em-dash/colon variants) so a
-// hand-tweaked or older report still yields what it can rather than nothing.
+// The label may be bold (`**Salary math:**`). We carve the line out of the
+// prose so the slide-over renders it as quiet small text instead of a
+// paragraph.
 
-export interface WhyThisScore {
-  /** The lede sentence under the heading (may be empty for terse reports). */
-  headline: string
-  /** The dimension/gate actually capping the tier — the "Holding it back" line. */
-  bindingConstraint: string | null
-  /** The cheapest single-dimension raise that crosses into a better band.
-   *  Null when the report states no single lever exists (already top-band, or
-   *  no dimension crosses alone). This is the load-bearing "fixability" signal. */
-  lever: string | null
-  /** True when the block is present at all (vs. an older report with no block).
-   *  Distinguishes "parsed, no lever" from "never had a Why-this-score block". */
-  present: boolean
-}
-
-const EMPTY_WHY: WhyThisScore = { headline: '', bindingConstraint: null, lever: null, present: false }
-
-// Pull the body of the `## Why this score` section — from the heading to the
-// next `## ` heading (or end of doc). Returns null when the section is absent.
-export function extractWhyThisScoreSection(md: string): string | null {
-  const headingRe = /^##\s+Why\s+this\s+score\s*$/im
-  const m = headingRe.exec(md)
-  if (!m) return null
-  const rest = md.slice(m.index + m[0].length)
-  const nextHeading = /\n##\s+\S/m.exec(rest)
-  return (nextHeading ? rest.slice(0, nextHeading.index) : rest).trim()
-}
-
-// Strip a leading "- **Label:** " (or "* Label: ") bullet prefix and return the
-// remaining value, or null if the line doesn't match this label. `labels` are
-// matched case-insensitively and allow internal whitespace/hyphen variation.
-function matchBulletLabel(line: string, labels: string[]): string | null {
-  const labelAlt = labels
-    .map(l => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'))
-    .join('|')
-  // Optional list marker, optional bold around the label. The colon may sit
-  // inside the bold ("**Label:**") or outside ("**Label**:"), so we allow
-  // `[:：]` and `*` to interleave between the label text and the value. The
-  // value side then strips any leftover leading bold/colon.
-  const re = new RegExp(`^\\s*(?:[-*]\\s*)?\\*{0,2}\\s*(?:${labelAlt})\\s*[:：*]+\\s*(.+?)\\s*$`, 'i')
-  const m = re.exec(line)
-  if (!m) return null
-  // Clean the value: drop a leftover leading colon (when the bold closed after
-  // the colon), then strip a whole-value bold wrap. Keeps inline emphasis.
-  return m[1]
-    .replace(/^[:：*\s]+/, '')
-    .replace(/^\*\*(.+)\*\*$/, '$1')
+export function splitSalaryMath(md: string): { salaryMath: string | null; rest: string } {
+  const re = /^\s*(?:[-*]\s+)?\*{0,2}Salary math\s*:\s*\*{0,2}\s*(.+?)\s*$/im
+  const m = re.exec(md)
+  if (!m) return { salaryMath: null, rest: md }
+  const value = m[1].replace(/^\*\*(.+)\*\*$/, '$1').trim()
+  const rest = (md.slice(0, m.index) + md.slice(m.index + m[0].length))
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
+  return { salaryMath: value || null, rest }
 }
 
-// Phrases the template uses when there is genuinely no single-dimension lever.
-// We treat a lever line carrying one of these as "no lever" (null) rather than
-// surfacing the disclaimer as if it were an actionable fix.
-const NO_LEVER_RE = /\b(no single (?:dim|dimension)|already (?:top|the top)[- ]band|none\b|no lever|cannot cross alone)\b/i
-
-export function parseWhyThisScore(md: string): WhyThisScore {
-  const section = extractWhyThisScoreSection(md)
-  if (section === null) return EMPTY_WHY
-
-  const lines = section.split('\n')
-  let headline = ''
-  let bindingConstraint: string | null = null
-  let lever: string | null = null
-
-  for (const raw of lines) {
-    const line = raw.trim()
-    if (!line) continue
-
-    const binding = matchBulletLabel(line, ['Holding it back', 'Binding constraint', 'Holding back'])
-    if (binding !== null) { bindingConstraint = binding || null; continue }
-
-    const lev = matchBulletLabel(line, ['Closest lever', 'Cheapest lever', 'Lever', 'Closest band-crossing lever'])
-    if (lev !== null) {
-      lever = lev && !NO_LEVER_RE.test(lev) ? lev : null
-      continue
-    }
-
-    // First non-bullet, non-empty line is the headline lede. Don't let a
-    // stray later paragraph overwrite it.
-    if (!headline && !/^[-*]/.test(line)) headline = line
-  }
-
-  return { headline, bindingConstraint, lever, present: true }
-}
-
-// Carve the `## Why this score` section out of a markdown blob so the
-// slide-over can render it as a structured callout (headline + binding
-// constraint + lever) instead of leaving it as generic prose bullets.
+// ─── Retired: `## Why this score` ────────────────────────────────────────────
 //
-// `ReportBody` feeds this the `after` content from `parseDimensionalScoring`
-// (the markdown that trails the dimensional table — Why-this-score lives
-// there, immediately after the table). We return:
-//   - `why`:  the parsed WhyThisScore (present:false when no block exists)
-//   - `rest`: the same markdown with the Why-this-score heading + body
-//             removed, so it can be rendered as ordinary prose without the
-//             block showing up twice.
-//
-// The heading-to-heading slice mirrors `extractWhyThisScoreSection` exactly,
-// so whatever that parser scopes as "the block" is what we strip from `rest`.
-export function splitWhyThisScore(md: string): { why: WhyThisScore; rest: string } {
-  const headingRe = /^##\s+Why\s+this\s+score\s*$/im
-  const m = headingRe.exec(md)
-  if (!m) return { why: EMPTY_WHY, rest: md }
-
-  const why = parseWhyThisScore(md)
-  const head = md.slice(0, m.index)
-  const tail = md.slice(m.index + m[0].length)
-  const nextHeading = /\n##\s+\S/m.exec(tail)
-  const afterBlock = nextHeading ? tail.slice(nextHeading.index + 1) : ''
-  // Re-join the prose around the removed block and collapse the blank-line
-  // run the excision leaves behind (same treatment as extractMetadata).
-  const rest = `${head.trimEnd()}\n\n${afterBlock}`.replace(/\n{3,}/g, '\n\n').trim()
-  return { why, rest }
-}
+// v2 reports no longer carry a Why-this-score block (user feedback, scoring
+// v2 rollout). Older reports that still have the heading render it as an
+// ordinary prose section — nothing here parses it any more.
 
 // ─── Static peer-ranking block (frozen at evaluation time) ────────────────────
 //
@@ -329,7 +353,9 @@ export function splitPeerBlock(md: string): { found: boolean; rest: string } {
   return { found: true, rest }
 }
 
-export function parseRow(line: string) {
+export type RowTag = 'want' | 'hygiene' | 'ease' | 'rollup' | 'context'
+
+export function parseRow(line: string): { label: string; score: string; reasoning: string; tag: RowTag | null } | null {
   // "| a | b | c |" → ['', ' a ', ' b ', ' c ', ''] → ['a','b','c']
   const cells = line.split('|').slice(1, -1).map(c => c.trim())
   if (cells.length < 2) return null
@@ -337,11 +363,12 @@ export function parseRow(line: string) {
   // Strip surrounding markdown bold (whole-cell only — keeps inline emphasis)
   label = label.replace(/^\*\*(.+)\*\*$/, '$1').trim()
   score = score.replace(/^\*\*(.+)\*\*$/, '$1').trim()
-  // Strip "/N" suffix (handles both 1–10 and the old 1–5 reports)
+  // Strip "/10" suffix
   score = score.replace(/\s*\/\s*\d+\s*$/, '').trim()
-  // Detect and strip the trailing parenthetical tag
-  const tagMatch = label.match(/\(\s*(rollup|signal|context)\s*\)\s*$/i)
-  const tag = tagMatch ? (tagMatch[1].toLowerCase() as 'rollup' | 'signal' | 'context') : null
-  const cleanLabel = label.replace(/\s*\(\s*(rollup|signal|context)\s*\)\s*$/i, '').trim()
+  // Detect and strip the trailing parenthetical tag (spec §8.5 exact tags)
+  const tagRe = /\s*\(\s*(want|hygiene|ease|rollup|context)\s*\)\s*$/i
+  const tagMatch = label.match(tagRe)
+  const tag = tagMatch ? (tagMatch[1].toLowerCase() as RowTag) : null
+  const cleanLabel = label.replace(tagRe, '').trim()
   return { label: cleanLabel, score, reasoning, tag }
 }

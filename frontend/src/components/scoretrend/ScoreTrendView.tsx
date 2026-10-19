@@ -12,16 +12,20 @@ import { scoreColor } from '@/lib/tier'
 import {
   analyzeScoreTrend,
   type Trajectory, type LandscapeTrend, type TrajectorySummary,
-  type TrendRecommendation, type Band, type MovementClass,
+  type TrendRecommendation, type MovementClass, type MetricTrend, type MetricSummary,
+  type MetricMove, type TrendMetric, TREND_METRICS,
 } from '@/lib/scoreTrend'
+import { VerdictChip } from '@/components/shared/EligibilityChip'
 import { formatWithinNoise } from '@/lib/scoringStats'
 
 // STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.3 + § 4.
 //
 // This panel is the app's loudest score-movement surface, so it obeys the
 // presentation rules literally:
-//   - a move under the 0.30 Overall noise floor renders as "flat within
-//     noise" — no arrow, no sign colour, no directional verb (§ 4 rule 5);
+//   - scoring v2: every claim is stated on Want and Ease separately, each
+//     against its own floor (Want 0.30, Ease 0.35, docs/scoring-v2.md §9);
+//   - a move under its floor renders as "flat within noise" — no arrow, no
+//     sign colour, no directional verb (§ 4 rule 5);
 //   - a corpus verdict under the ≥10-evals-per-window gate renders as an
 //     explicit withheld line with the shortfall, never a weaker direction
 //     (§ 4 rule 4);
@@ -40,10 +44,7 @@ const MOVEMENT_META: Record<MovementClass, { label: string; arrow: string; color
   unknown:        { label: 'Unknown',          arrow: '',  color: '#8595A4' },
 }
 
-// Band → short label, used in the band-transition chip.
-const BAND_LABEL: Record<Band, string> = {
-  strong: 'strong', solid: 'solid', pass: 'pass', weak: 'weak', unknown: '—',
-}
+const METRIC_LABEL: Record<TrendMetric, string> = { want: 'Want', ease: 'Ease' }
 
 const signed = (n: number) => (n > 0 ? `+${n}` : n < 0 ? `−${Math.abs(n)}` : '±0')
 
@@ -152,24 +153,13 @@ function LandscapeTrendCard({ trend }: { trend: LandscapeTrend }) {
         <CardHeader title="Landscape Trend" right="earlier vs recent" />
         <p className="text-[11px] text-text-4 leading-snug py-1">
           {trend.reason} Once you have enough evaluations across distinct dates, this
-          shows whether the roles you score lately are stronger than your earlier ones.
+          shows whether the roles you score lately are more wanted, and more reachable, than your earlier ones.
         </p>
       </div>
     )
   }
 
-  // The verdict a renderer is allowed to show, in three states (docs § 3.3):
-  // a direction only when BOTH gates pass, flat when the window-mean delta is
-  // under the noise floor, withheld otherwise (under the per-window gate, or
-  // on an unclassifiable delta — anything that isn't an earned direction).
-  const directional = trend.reportableVerdict === 'improving' || trend.reportableVerdict === 'declining'
-  const flat = trend.reportableVerdict === 'flat-within-noise'
-  const withheld = !directional && !flat
-  const v = directional
-    ? MOVEMENT_META[trend.reportableVerdict === 'improving' ? 'improving' : 'declining']
-    : flat
-      ? MOVEMENT_META['within-noise']
-      : MOVEMENT_META.unknown
+  const withheld = !trend.verdictGate.met
   const withheldReason = trend.verdictGate.reason
     ?? `Corpus verdict withheld: the window means don't resolve into a direction.`
   return (
@@ -178,77 +168,45 @@ function LandscapeTrendCard({ trend }: { trend: LandscapeTrend }) {
         title="Landscape Trend"
         right={`${trend.older.count} earlier · ${trend.recent.count} recent`}
       />
-      <div className="flex items-stretch gap-3 mt-2">
-        <WindowBlock
-          title="Earlier"
-          avg={trend.older.avgOverall}
-          share={trend.older.strongSolidShare}
-          from={trend.older.dateRange.from}
-          to={trend.older.dateRange.to}
-          muted
-        />
-        <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 px-1">
-          {withheld ? (
-            <span
-              className="inline-flex items-center rounded-pill px-2 py-0.5 text-[11px] font-semibold text-text-4 bg-bg-elevated border border-border-default"
-              title={withheldReason}
-            >
-              Verdict withheld
-            </span>
-          ) : (
-            <span
-              className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-semibold"
-              style={{ color: v.color, background: `${v.color}1f` }}
-              title={flat ? formatWithinNoise(trend.delta, { floor: trend.noiseFloor }) : undefined}
-            >
-              {v.arrow && <span aria-hidden>{v.arrow}</span>}{v.label}
-            </span>
-          )}
-          <span className="text-[10px] font-mono tabular-nums text-text-4">
-            {/* No sign below the floor or under the gate — an unsigned |Δ|
-                states the gap without claiming a direction (§ 4 rule 5). */}
-            {withheld || flat ? `|Δ| ${Math.abs(trend.delta).toFixed(2)} avg` : `${signed(trend.delta)} avg`}
-          </span>
-        </div>
-        <WindowBlock
-          title="Recent"
-          avg={trend.recent.avgOverall}
-          share={trend.recent.strongSolidShare}
-          from={trend.recent.dateRange.from}
-          to={trend.recent.dateRange.to}
-          accent={withheld ? undefined : v.color}
-        />
+      {/* Scoring v2: one row per axis — Want and Ease each against their own
+          noise floor (docs/scoring-v2.md §9). */}
+      <div className="space-y-2 mt-2">
+        {TREND_METRICS.map(m => (
+          <MetricTrendRow
+            key={m}
+            label={METRIC_LABEL[m]}
+            older={m === 'want' ? trend.older.avgWant : trend.older.avgEase}
+            recent={m === 'want' ? trend.recent.avgWant : trend.recent.avgEase}
+            mt={trend[m]}
+            withheld={withheld}
+            withheldReason={withheldReason}
+          />
+        ))}
       </div>
 
-      {/* The gate line — states the shortfall (or the sample + tier that
-          backs the verdict) in words, never a hedged direction. */}
       <p className="mt-3 text-[10.5px] text-text-4 leading-snug">
         {withheld
-          ? `${withheldReason} A window mean built on fewer evaluations can be pushed past the ${trend.noiseFloor} noise floor by one role, so no direction is claimed here yet.`
-          : flat
-            ? `The gap between the two windows is under the ${trend.noiseFloor} Overall noise floor — the resolution limit of the rubric. Neither sharpening nor sliding on ${trend.verdictGate.olderCount} vs ${trend.verdictGate.recentCount} evals (${trend.verdictConfidence} confidence).`
-            : `${trend.verdictGate.olderCount} earlier vs ${trend.verdictGate.recentCount} recent evals · ${trend.verdictConfidence} confidence. What moved, not why: the scanner may have pulled a different segment on either side of ${trend.splitDate}.`}
+          ? `${withheldReason} A window mean built on fewer evaluations can be pushed past the noise floor by one role, so no direction is claimed here yet.`
+          : `${trend.verdictGate.olderCount} earlier vs ${trend.verdictGate.recentCount} recent evals · ${trend.verdictConfidence} confidence. What moved, not why: the scanner may have pulled a different segment on either side of ${trend.splitDate}.`}
       </p>
 
-      {/* Strong/solid share movement — the cleanest "am I sourcing better
-          roles?" number. */}
+      {/* Apply-worthy share movement (verdict Go / Stretch / Solid) — the
+          cleanest "am I sourcing better roles?" number. */}
       <div className="flex items-baseline justify-between gap-3 mt-3 pt-2.5 border-t border-border-default/60 text-[11px]">
-        <span className="text-text-3">Strong/solid share</span>
+        <span className="text-text-3">Apply-worthy share (Go / Stretch / Solid)</span>
         <span className="font-mono tabular-nums">
-          <span className="text-text-4">{trend.older.strongSolidShare}%</span>
+          <span className="text-text-4">{trend.older.applyWorthyShare}%</span>
           <span className="text-text-4 px-1">→</span>
-          <span className="text-text-2 font-semibold">{trend.recent.strongSolidShare}%</span>
-          {trend.strongSolidShareDelta !== 0 && (
-            // Same window gate as the verdict: under it, the share move is one
-            // role's worth of share and gets no sign or colour (§ 4 rule 5).
+          <span className="text-text-2 font-semibold">{trend.recent.applyWorthyShare}%</span>
+          {trend.applyWorthyShareDelta !== 0 && (
             <span
               className={withheld ? 'ml-1.5 text-text-4' : 'ml-1.5'}
-              style={withheld ? undefined : { color: trend.strongSolidShareDelta > 0 ? '#007D1E' : '#C80A28' }}
+              style={withheld ? undefined : { color: trend.applyWorthyShareDelta > 0 ? '#007D1E' : '#C80A28' }}
               title={withheld ? `Direction withheld: ${withheldReason}` : undefined}
             >
               {withheld
-                ? `(|Δ| ${Math.abs(trend.strongSolidShareDelta)}pt)`
-                : `(${trend.strongSolidShareDelta > 0 ? '+' : '−'}${Math.abs(trend.strongSolidShareDelta)}pt)`}
+                ? `(|Δ| ${Math.abs(trend.applyWorthyShareDelta)}pt)`
+                : `(${trend.applyWorthyShareDelta > 0 ? '+' : '−'}${Math.abs(trend.applyWorthyShareDelta)}pt)`}
             </span>
           )}
         </span>
@@ -257,26 +215,42 @@ function LandscapeTrendCard({ trend }: { trend: LandscapeTrend }) {
   )
 }
 
-function WindowBlock({
-  title, avg, share, from, to, muted, accent,
+function MetricTrendRow({
+  label, older, recent, mt, withheld, withheldReason,
 }: {
-  title: string; avg: number; share: number; from: string; to: string
-  muted?: boolean; accent?: string
+  label: string; older: number; recent: number; mt: MetricTrend; withheld: boolean; withheldReason: string
 }) {
-  const span = from && to ? (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`) : '—'
+  const directional = mt.reportableVerdict === 'improving' || mt.reportableVerdict === 'declining'
+  const flat = mt.reportableVerdict === 'flat-within-noise'
+  const v = directional
+    ? MOVEMENT_META[mt.reportableVerdict === 'improving' ? 'improving' : 'declining']
+    : flat ? MOVEMENT_META['within-noise'] : MOVEMENT_META.unknown
   return (
-    <div className="flex-1 min-w-0 rounded-md border border-border-default/70 bg-bg-elevated/60 px-3 py-2.5">
-      <div className="text-[10px] text-text-4 uppercase tracking-[0.06em] mb-1">{title}</div>
-      <div className="flex items-baseline gap-1.5">
+    <div className="flex items-center gap-3">
+      <span className="text-[10px] text-text-4 uppercase tracking-[0.06em] w-10">{label}</span>
+      <span className="text-[13px] font-mono tabular-nums text-text-3">{older.toFixed(1)}</span>
+      <span className="text-[10px] text-text-4" aria-hidden>→</span>
+      <span className="text-[13px] font-mono tabular-nums font-semibold" style={{ color: withheld || flat ? '#5D6C7B' : v.color }}>{recent.toFixed(1)}</span>
+      <span className="flex-1" />
+      {withheld ? (
         <span
-          className="text-[22px] leading-none font-mono tabular-nums font-semibold"
-          style={{ color: muted ? '#5D6C7B' : (accent ?? scoreColor(avg)) }}
+          className="inline-flex items-center rounded-pill px-2 py-0.5 text-[11px] font-semibold text-text-4 bg-bg-elevated border border-border-default"
+          title={withheldReason}
         >
-          {avg.toFixed(1)}
+          Verdict withheld
         </span>
-        <span className="text-[10px] text-text-4">avg</span>
-      </div>
-      <div className="text-[10.5px] font-mono tabular-nums text-text-4 mt-1.5 truncate" title={span}>{span}</div>
+      ) : (
+        <span
+          className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-semibold"
+          style={{ color: v.color, background: `${v.color}1f` }}
+          title={flat ? formatWithinNoise(mt.delta, { floor: mt.noiseFloor }) : undefined}
+        >
+          {v.arrow && <span aria-hidden>{v.arrow}</span>}{v.label}
+        </span>
+      )}
+      <span className="text-[10px] font-mono tabular-nums text-text-4 w-20 text-right">
+        {withheld || flat ? `|Δ| ${Math.abs(mt.delta).toFixed(2)}` : signed(mt.delta)}
+      </span>
     </div>
   )
 }
@@ -284,31 +258,40 @@ function WindowBlock({
 // ─── Re-evaluated summary ────────────────────────────────────────────────────
 
 function ReevalSummaryCard({ summary }: { summary: TrajectorySummary }) {
-  const { movement, withinNoise, avgDelta, noiseFloor, reevaluated, bandUpgrades, bandDowngrades } = summary
-  // Counted against the noise floor, not the legacy ±0.25 dead-band: the
-  // "Flat within noise" cell is the honest home of every sub-floor move, and
-  // the average move loses its colour when it is itself sub-floor.
-  const avgDetectable = Math.abs(avgDelta) >= noiseFloor
-  const cells: Array<{ label: string; value: string; color: string; title: string }> = [
-    { label: 'Improving', value: String(movement.improving), color: '#007D1E',
-      title: `Listings whose first→latest Overall rose by at least the ${noiseFloor} noise floor` },
-    { label: 'Declining', value: String(movement.declining), color: '#C80A28',
-      title: `Listings whose first→latest Overall fell by at least the ${noiseFloor} noise floor` },
-    { label: 'Flat within noise', value: String(withinNoise), color: '#5D6C7B',
-      title: `Listings whose |Δ| is under the ${noiseFloor} floor — the resolution limit of the rubric, not a small move` },
-    { label: 'Avg move', value: avgDetectable ? signed(avgDelta) : `|Δ| ${Math.abs(avgDelta).toFixed(2)}`,
-      color: avgDetectable ? (avgDelta > 0 ? '#007D1E' : '#C80A28') : '#5D6C7B',
-      title: avgDetectable
-        ? `Mean first→latest Overall move across ${reevaluated} re-evaluated listings`
-        : `Mean move across ${reevaluated} re-evaluated listings is under the ${noiseFloor} floor — no direction claimed` },
-  ]
+  const { reevaluated, verdictUpgrades, verdictDowngrades } = summary
   return (
     <div className="bg-bg-panel border border-border-default rounded-lg p-4">
       <CardHeader
         title="Re-evaluated Listings"
-        right={`${reevaluated} listing${reevaluated === 1 ? '' : 's'} · ${bandUpgrades} band upgrade${bandUpgrades === 1 ? '' : 's'} · ${bandDowngrades} downgrade${bandDowngrades === 1 ? '' : 's'}`}
+        right={`${reevaluated} listing${reevaluated === 1 ? '' : 's'} · ${verdictUpgrades} verdict upgrade${verdictUpgrades === 1 ? '' : 's'} · ${verdictDowngrades} downgrade${verdictDowngrades === 1 ? '' : 's'}`}
       />
-      <div className="grid grid-cols-4 gap-3 mt-2">
+      <div className="space-y-3 mt-2">
+        {TREND_METRICS.map(m => <MetricSummaryRow key={m} label={METRIC_LABEL[m]} s={summary[m]} reevaluated={reevaluated} />)}
+      </div>
+    </div>
+  )
+}
+
+function MetricSummaryRow({ label, s, reevaluated }: { label: string; s: MetricSummary; reevaluated: number }) {
+  const { movement, withinNoise, avgDelta, noiseFloor } = s
+  const avgDetectable = Math.abs(avgDelta) >= noiseFloor
+  const cells: Array<{ label: string; value: string; color: string; title: string }> = [
+    { label: 'Improving', value: String(movement.improving), color: '#007D1E',
+      title: `Listings whose first→latest ${label} rose by at least the ${noiseFloor} noise floor` },
+    { label: 'Declining', value: String(movement.declining), color: '#C80A28',
+      title: `Listings whose first→latest ${label} fell by at least the ${noiseFloor} noise floor` },
+    { label: 'Flat within noise', value: String(withinNoise), color: '#5D6C7B',
+      title: `Listings whose ${label} |Δ| is under the ${noiseFloor} floor — the resolution limit, not a small move` },
+    { label: 'Avg move', value: avgDetectable ? signed(avgDelta) : `|Δ| ${Math.abs(avgDelta).toFixed(2)}`,
+      color: avgDetectable ? (avgDelta > 0 ? '#007D1E' : '#C80A28') : '#5D6C7B',
+      title: avgDetectable
+        ? `Mean first→latest ${label} move across ${reevaluated} re-evaluated listings`
+        : `Mean ${label} move across ${reevaluated} re-evaluated listings is under the ${noiseFloor} floor — no direction claimed` },
+  ]
+  return (
+    <div>
+      <div className="text-[10px] text-text-4 uppercase tracking-[0.06em] mb-1">{label}</div>
+      <div className="grid grid-cols-4 gap-3">
         {cells.map(c => (
           <div key={c.label} className="rounded-md border border-border-default/70 bg-bg-elevated/60 px-3 py-2.5" title={c.title}>
             <div className="text-[10px] text-text-4 uppercase tracking-[0.06em] mb-1">{c.label}</div>
@@ -336,8 +319,6 @@ function TrajectoryListCard({ trajectories }: { trajectories: Trajectory[] }) {
 }
 
 function TrajectoryRow({ t }: { t: Trajectory }) {
-  const v = MOVEMENT_META[t.movementClass]
-  const flat = t.movementClass === 'within-noise'
   return (
     <li className="flex items-center gap-3 py-2.5">
       <CompanyLink company={t.company} size={22} className="shrink-0" />
@@ -353,15 +334,16 @@ function TrajectoryRow({ t }: { t: Trajectory }) {
           >
             {t.evals} evals · {t.confidence}
           </span>
-          {t.bandChanged && (
-            <span className="inline-flex items-center rounded-pill bg-bg-elevated border border-border-default/70 px-1.5 py-px text-[9.5px] font-mono text-text-3">
-              {BAND_LABEL[t.bandFrom]} → {BAND_LABEL[t.bandTo]}
+          {t.verdictChanged && (
+            <span className="inline-flex items-center gap-1">
+              <VerdictChip verdict={t.verdictFrom} />
+              <span className="text-[10px] text-text-4" aria-hidden>→</span>
+              <VerdictChip verdict={t.verdictTo} />
             </span>
           )}
-          {/* A per-dimension delta is only shown as the DRIVER of an Overall
-              move that itself cleared the floor (docs § 2) — under the floor
-              there is no move for it to drive. */}
-          {t.topMover && !flat && (
+          {/* A per-dimension delta is only shown as the DRIVER of a move that
+              cleared its floor (docs § 2). */}
+          {t.topMover && t.detectable && (
             <span className="text-[10px] text-text-4 truncate">
               {t.topMover.label} {signed(t.topMover.delta)}
             </span>
@@ -369,62 +351,61 @@ function TrajectoryRow({ t }: { t: Trajectory }) {
         </div>
       </div>
 
-      <Sparkline seq={t.sequence} movement={t.movementClass} />
-
-      {/* first → latest. The delta carries a sign and a movement colour ONLY
-          when it cleared the noise floor; below it the row states the flat
-          result with an unsigned |Δ| (§ 4 rules 3 and 5). */}
-      <div className="flex items-baseline gap-1.5 shrink-0 font-mono tabular-nums">
-        <span className="text-[12px]" style={{ color: scoreColor(t.firstOverall) }}>{t.firstOverall.toFixed(1)}</span>
-        <span className="text-[10px] text-text-4" aria-hidden>→</span>
-        <span className="text-[13px] font-semibold" style={{ color: scoreColor(t.latestOverall) }}>{t.latestOverall.toFixed(1)}</span>
-        <span
-          className="text-[11px] font-semibold w-14 text-right"
-          style={{ color: v.color }}
-          title={flat ? `${formatWithinNoise(t.delta, { floor: t.noiseFloor })} across ${t.evals} evals` : `${v.label} across ${t.evals} evals`}
-        >
-          {flat ? `flat ${Math.abs(t.delta).toFixed(2)}` : signed(t.delta)}
-        </span>
+      <div className="flex flex-col gap-1 shrink-0">
+        {TREND_METRICS.map(m => <MoveCell key={m} label={METRIC_LABEL[m]} mv={t[m]} seq={t.sequence.map(p => p[m])} evals={t.evals} />)}
       </div>
     </li>
   )
 }
 
-// Compact line of the chronological Overall path. Width fixed so rows align;
-// the path is normalized to the listing's own min/max so even a small absolute
-// move reads as a visible slope. A single flat span (peak == trough) draws a
-// centered baseline.
-//
-// The stroke colour comes from the row's `movementClass`, NOT from a local
-// ±0.25 comparison: a sub-floor path is drawn in muted slate so the eye can
-// read the shape without the colour asserting a direction the data can't
-// support (docs § 4 rule 5).
-function Sparkline({ seq, movement }: {
-  seq: Array<{ date: string; overall: number }>
-  movement: MovementClass
-}) {
-  const W = 64
-  const H = 22
-  const PAD = 2
-  if (seq.length < 2) return <div style={{ width: W }} className="shrink-0" aria-hidden />
+// One axis of a trajectory: sparkline + first → latest + the delta, which
+// carries a sign and a movement colour ONLY when it cleared that axis's floor.
+function MoveCell({ label, mv, seq, evals }: { label: string; mv: MetricMove; seq: number[]; evals: number }) {
+  const v = MOVEMENT_META[mv.movementClass]
+  const flat = mv.movementClass === 'within-noise'
+  return (
+    <div className="flex items-center gap-2 font-mono tabular-nums">
+      <span className="text-[9px] uppercase text-text-4 tracking-wider w-7">{label}</span>
+      <Sparkline vals={seq} movement={mv.movementClass} />
+      <span className="text-[12px]" style={{ color: scoreColor(mv.first) }}>{mv.first.toFixed(1)}</span>
+      <span className="text-[10px] text-text-4" aria-hidden>→</span>
+      <span className="text-[13px] font-semibold" style={{ color: scoreColor(mv.latest) }}>{mv.latest.toFixed(1)}</span>
+      <span
+        className="text-[11px] font-semibold w-14 text-right"
+        style={{ color: v.color }}
+        title={flat ? `${formatWithinNoise(mv.delta, { floor: mv.noiseFloor })} across ${evals} evals` : `${v.label} across ${evals} evals`}
+      >
+        {flat ? `flat ${Math.abs(mv.delta).toFixed(2)}` : signed(mv.delta)}
+      </span>
+    </div>
+  )
+}
 
-  const vals = seq.map(s => s.overall)
+// Compact line of one axis's chronological path. Width fixed so rows align;
+// normalised to the listing's own min/max. The stroke colour comes from the
+// axis's `movementClass` — a sub-floor path is muted slate (docs § 4 rule 5).
+function Sparkline({ vals, movement }: { vals: number[]; movement: MovementClass }) {
+  const W = 64
+  const H = 18
+  const PAD = 2
+  if (vals.length < 2) return <div style={{ width: W }} className="shrink-0" aria-hidden />
+
   const min = Math.min(...vals)
   const max = Math.max(...vals)
   const range = max - min
   const last = vals[vals.length - 1]
   const stroke = MOVEMENT_META[movement].color
 
-  const x = (i: number) => PAD + (i / (seq.length - 1)) * (W - PAD * 2)
+  const x = (i: number) => PAD + (i / (vals.length - 1)) * (W - PAD * 2)
   const y = (val: number) =>
     range === 0 ? H / 2 : PAD + (1 - (val - min) / range) * (H - PAD * 2)
 
-  const d = seq.map((s, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(s.overall).toFixed(1)}`).join(' ')
+  const d = vals.map((v, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')
 
   return (
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0" aria-hidden>
       <path d={d} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={x(seq.length - 1)} cy={y(last)} r={2} fill={stroke} />
+      <circle cx={x(vals.length - 1)} cy={y(last)} r={2} fill={stroke} />
     </svg>
   )
 }

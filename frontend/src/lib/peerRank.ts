@@ -18,6 +18,11 @@
 // Rank / percentile / minPeers / the ±1.5 outlier threshold / the
 // same-company exclusion for comparables all mirror the script.
 //
+// Scoring v2 (docs/scoring-v2.md §5, §9): peers are ranked on PRIORITY
+// (sqrt(Want × Ease)) — the sort key, never a headline score — and the
+// dimension outliers run over the nine agent-judged v2 dimensions. Blocked
+// rows have no Priority and are excluded from the cohort.
+//
 // STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.2.
 //
 // A peer rank is a claim about a pool of LLM judgments, and its resolution is
@@ -30,26 +35,23 @@
 // additionally carries the n it rests on plus its confidence tier so no
 // renderer can state a rank without stating its sample.
 
-import type { ScoreEntry } from '@/types'
+import type { ScoreEntry, Verdict } from '@/types'
 import { entityId, parseCities } from '@/lib/entityId'
 import { GATES, confidenceTier, type ConfidenceTier } from '@/lib/scoringStats'
+import { DIM_LABELS, JUDGED_DIMS, priorityOf, verdictOf, type JudgedDimKey } from '@/lib/scoreBands'
 
-export const PEER_DIMS = [
-  { key: 'skills_match',     label: 'Skills Match' },
-  { key: 'ease_of_entry',    label: 'Ease of Entry' },
-  { key: 'strategic_fit',    label: 'Strategic Fit' },
-  { key: 'growth_mobility',  label: 'Growth/Mobility' },
-  { key: 'optionality_exit', label: 'Optionality/Exit' },
-  { key: 'brand_value',      label: 'Brand Value' },
-] as const
+/** The nine agent-judged v2 dimensions (Want motivators + City + WLB + the
+ *  three Ease dims). salary_adj_city is script-computed, so not compared. */
+export const PEER_DIMS: ReadonlyArray<{ key: JudgedDimKey; label: string }> =
+  JUDGED_DIMS.map(key => ({ key, label: DIM_LABELS[key] }))
 
-export type PeerDimKey = (typeof PEER_DIMS)[number]['key']
+export type PeerDimKey = JudgedDimKey
 
 /** |Δ| from the peer average at which a dimension counts as an outlier —
  *  same threshold as scripts/peer-rank.mjs. Deliberately expressed in RAW
  *  rubric points (a full step and a half, comfortably above one-step judge
- *  wobble), not in Overall points, so it is never confused with the 0.30
- *  Overall noise floor (docs § 3.2). */
+ *  wobble), not in Priority points, so it is never confused with the 0.30
+ *  Priority noise floor (docs § 3.2). */
 export const OUTLIER_THRESHOLD = 1.5
 
 /** Below this cohort size the panel is omitted entirely (never rendered
@@ -80,7 +82,11 @@ export interface PeerDimDelta {
 export interface PeerComparable {
   company: string
   role: string
-  overall: number
+  want: number | null
+  ease: number | null
+  /** Sort key the comparables were matched on. */
+  priority: number
+  verdict: Verdict | null
   tier: string
   location: string
 }
@@ -96,14 +102,14 @@ export interface PeerContext {
   percentile: number
   /** Human label: "top 5%" / "top 10%" / "top quartile" / "top half" / "bottom half". */
   rankLabel: string
-  /** This entity's overall score (echoed for the renderer). */
-  overall: number
-  /** The OTHER peers' overall scores — feeds the distribution strip. */
-  peerOveralls: number[]
+  /** This entity's Priority (the rank key, echoed for the renderer). */
+  priority: number
+  /** The OTHER peers' Priorities — feeds the distribution strip. */
+  peerPriorities: number[]
   /** All comparable dimensions, sorted by delta descending (strongest
    *  advantage first, biggest lag last). */
   deltas: PeerDimDelta[]
-  /** Up to 3 closest peers by overall score, other companies only. */
+  /** Up to 3 closest peers by Priority, other companies only. */
   comparables: PeerComparable[]
   /** ADDED (docs § 3.2) — the tier over `nPeers` with gate `minPeers`:
    *  5–9 peers `low`, 10–19 `moderate`, 20+ `high`. At `low` the rank label
@@ -121,11 +127,12 @@ export function primaryArchetype(raw: string | null | undefined): string {
 }
 
 /** Latest row per entity (company + role-canonical + city), so re-evaluated
- *  listings count once. Rows without a usable overall are dropped. */
+ *  listings count once. Rows without a Priority (blocked / unscored) are
+ *  dropped. */
 export function dedupeLatestPerEntity(rows: ScoreEntry[]): Map<string, ScoreEntry> {
   const byEntity = new Map<string, ScoreEntry>()
   for (const r of rows) {
-    if (!Number.isFinite(r.overall) || r.overall <= 0) continue
+    if (priorityOf(r) == null) continue
     const id = entityId(r.company, r.role, parseCities(r.location))
     const prev = byEntity.get(id)
     if (!prev || r.date.localeCompare(prev.date) >= 0) byEntity.set(id, r)
@@ -184,7 +191,8 @@ export function peerContext(
   history: ScoreEntry[],
   { minPeers = MIN_PEERS }: { minPeers?: number } = {},
 ): PeerContext | null {
-  if (!entry || !Number.isFinite(entry.overall) || entry.overall <= 0) return null
+  const selfPriority = entry ? priorityOf(entry) : null
+  if (selfPriority == null) return null
   const seg = primaryArchetype(entry.archetype)
   if (!seg) return null
   const segLower = seg.toLowerCase()
@@ -202,17 +210,18 @@ export function peerContext(
 
   // Rank / percentile — script math: beats = peers scoring strictly below;
   // ties (and self) count as at-or-above, so rankPosition is conservative.
-  const beats = others.filter(o => o.overall < entry.overall).length
+  const pr = (o: ScoreEntry) => priorityOf(o) as number // dedupe guarantees non-null
+  const beats = others.filter(o => pr(o) < selfPriority).length
   const percentile = Math.round((beats / nPeers) * 100)
   const rankPosition = nPeers - beats
 
   // Dimension deltas vs the rest of the cohort. Dims missing on this entity
-  // (0 = not scored) are skipped rather than rendered as a fake 0-vs-avg gap.
+  // (null = not scored) are skipped rather than rendered as a fake gap.
   const deltas: PeerDimDelta[] = []
   for (const { key, label } of PEER_DIMS) {
     const value = entry[key]
-    if (!Number.isFinite(value) || value <= 0) continue
-    const peerVals = others.map(o => o[key]).filter(v => Number.isFinite(v) && v > 0)
+    if (value == null || !Number.isFinite(value) || value <= 0) continue
+    const peerVals = others.map(o => o[key]).filter((v): v is number => v != null && Number.isFinite(v) && v > 0)
     if (peerVals.length === 0) continue
     const peerAvg = peerVals.reduce((a, b) => a + b, 0) / peerVals.length
     const delta = Number((value - peerAvg).toFixed(1))
@@ -230,18 +239,21 @@ export function peerContext(
   deltas.sort((a, b) => b.delta - a.delta)
 
   // Closest comparables — other companies only (a sibling posting at the
-  // same company is dedup noise, not a comparable), closest overall first.
+  // same company is dedup noise, not a comparable), closest Priority first.
   const comparables: PeerComparable[] = others
     .filter(o => !sameCompany(o.company, entry.company))
     .map(o => ({
       company:  o.company,
       role:     o.role,
-      overall:  Number(o.overall.toFixed(2)),
+      want:     o.want,
+      ease:     o.ease,
+      priority: Number(pr(o).toFixed(2)),
+      verdict:  verdictOf(o),
       tier:     o.tier,
       location: o.location,
-      _delta:   Math.abs(o.overall - entry.overall),
+      _delta:   Math.abs(pr(o) - selfPriority),
     }))
-    .sort((a, b) => a._delta - b._delta || b.overall - a.overall)
+    .sort((a, b) => a._delta - b._delta || b.priority - a.priority)
     .slice(0, 3)
     .map(({ _delta, ...rest }) => rest)
 
@@ -251,8 +263,8 @@ export function peerContext(
     rankPosition,
     percentile,
     rankLabel: rankLabel(percentile, rankPosition, nPeers),
-    overall: entry.overall,
-    peerOveralls: others.map(o => o.overall),
+    priority: selfPriority,
+    peerPriorities: others.map(pr),
     deltas,
     comparables,
     confidence: confidenceTier(nPeers, minPeers),
@@ -271,7 +283,7 @@ export function peerContext(
 // Semantics are IDENTICAL to peerContext's rank math (pinned by parity tests
 // in peerRank.test.ts): same latest-row-per-entity dedupe, same self-exclusion
 // by entityId, same strictly-below "beats" counting (ties rank below), same
-// MIN_PEERS omit rule. rankOf(entry) ranks the entry's OWN overall — exactly
+// MIN_PEERS omit rule. rankOf(entry) ranks the entry's OWN priority — exactly
 // what peerContext does — so the column and the slide-over panel agree even
 // when the passed row differs from the deduped-latest row for its entity.
 
@@ -303,9 +315,9 @@ export interface PeerRankIndex {
 }
 
 interface CohortIndex {
-  /** Deduped cohort overalls, sorted ascending — binary-search substrate. */
-  overalls: number[]
-  /** entityId → that entity's deduped overall, for self-exclusion. */
+  /** Deduped cohort priorities, sorted ascending — binary-search substrate. */
+  priorities: number[]
+  /** entityId → that entity's deduped priority, for self-exclusion. */
   byId: Map<string, number>
 }
 
@@ -331,30 +343,32 @@ export function buildPeerRankIndex(
     if (!seg) continue
     let cohort = cohorts.get(seg)
     if (!cohort) {
-      cohort = { overalls: [], byId: new Map() }
+      cohort = { priorities: [], byId: new Map() }
       cohorts.set(seg, cohort)
     }
-    cohort.overalls.push(row.overall)
-    cohort.byId.set(id, row.overall)
+    const p = priorityOf(row) as number
+    cohort.priorities.push(p)
+    cohort.byId.set(id, p)
   }
-  for (const cohort of cohorts.values()) cohort.overalls.sort((a, b) => a - b)
+  for (const cohort of cohorts.values()) cohort.priorities.sort((a, b) => a - b)
 
   return {
     rankOf(entry: ScoreEntry): PeerRankSummary | null {
-      if (!entry || !Number.isFinite(entry.overall) || entry.overall <= 0) return null
+      const selfP = entry ? priorityOf(entry) : null
+      if (selfP == null) return null
       const seg = primaryArchetype(entry.archetype)
       if (!seg) return null
       const cohort = cohorts.get(seg.toLowerCase())
 
       // Others = the deduped cohort minus this entity (when present).
       const selfId = entityId(entry.company, entry.role, parseCities(entry.location))
-      const selfOverall = cohort?.byId.get(selfId)
-      const othersCount = (cohort?.overalls.length ?? 0) - (selfOverall !== undefined ? 1 : 0)
+      const selfStored = cohort?.byId.get(selfId)
+      const othersCount = (cohort?.priorities.length ?? 0) - (selfStored !== undefined ? 1 : 0)
       const nPeers = othersCount + 1
       if (nPeers < minPeers) return null
 
-      let beats = countBelow(cohort?.overalls ?? [], entry.overall)
-      if (selfOverall !== undefined && selfOverall < entry.overall) beats -= 1
+      let beats = countBelow(cohort?.priorities ?? [], selfP)
+      if (selfStored !== undefined && selfStored < selfP) beats -= 1
       const percentile = Math.round((beats / nPeers) * 100)
       const rankPosition = nPeers - beats
       const band = peerBand(percentile)

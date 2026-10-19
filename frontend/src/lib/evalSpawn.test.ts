@@ -74,7 +74,9 @@ test('score-only paths skip the report step; top5 writes exactly the deep-report
     assert.ok(p.includes('NO report file'), `${name} skips Step 5`)
   }
   const top5 = top5ReportsPrompt('2026-07-01')
-  assert.ok(top5.includes('5 highest-scoring survivors'))
+  assert.ok(top5.includes('5 highest-Priority survivors'))
+  assert.ok(top5.includes('never a Blocked listing'))
+  assert.ok(!/Overall/.test(top5))
   assert.ok(top5.includes('reports/tier-{N}/{Company} - {Role}.md'))
 })
 
@@ -100,5 +102,13 @@ test('prompts contain no hardcoded user data (system-layer hygiene)', () => {
     // A broad sample of school / city / nationality words — none belongs in a
     // generic task prompt, whoever the user is.
     assert.ok(!/\b(INSEAD|HEC|Bocconi|Esade|CEMS|LBS|Barcelona|Madrid|Milan|Paris|London|Copenhagen|Berlin|Italian|Spanish|French|German)\b/.test(p), `${name} carries no user-specific facts`)
+  }
+})
+
+test('triage prompts route eligibility walls through the gate, never a silent discard', () => {
+  for (const p of [inboxEvalPrompt('https://x.example/j', '2026-07-01'), filterAllPrompt('2026-07-01')]) {
+    assert.ok(p.includes('--eligibility-only'))
+    assert.ok(p.includes('logged — as Blocked'))
+    assert.ok(!/Ease of Entry|Overall/.test(p))
   }
 })

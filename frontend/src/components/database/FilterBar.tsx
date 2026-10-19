@@ -6,11 +6,14 @@ import { cn } from '@/lib/utils'
 
 const TOKEN_SUGGESTIONS = [
   { token: 'company:',   hint: 'filter by company name' },
-  { token: 'tier:',      hint: 'T1, T2-high, T2, T3, T4' },
+  { token: 'verdict:',   hint: 'go, stretch, solid, growth, thin, skip, blocked' },
+  { token: 'eligibility:', hint: 'green, amber, red' },
+  { token: 'tier:',      hint: 'T1, T2, T3, T4' },
   { token: 'archetype:', hint: 'filter by role archetype' },
   { token: 'location:',  hint: 'filter by city/country' },
   { token: 'type:',      hint: 'full-time, contract...' },
-  { token: 'min-score:', hint: 'minimum overall score (0-10)' },
+  { token: 'min-want:',  hint: 'minimum Want (1-10)' },
+  { token: 'min-ease:',  hint: 'minimum Ease (1-10)' },
 ]
 
 interface FilterBarProps {

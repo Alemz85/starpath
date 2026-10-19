@@ -2,7 +2,7 @@
 
 // The "add an offer" affordance: a split control offering two paths —
 //   • prefill from an evaluated role (searchable list of the score-history
-//     corpus, ranked by Overall) — fit/growth/brand/comp come from the eval;
+//     corpus, ranked by Priority) — fit/growth/brand/comp come from the eval;
 //   • a blank offer the user scores by hand.
 // Roles already added to the current comparison are disabled in the list so the
 // user can't double-add the same entity.
@@ -10,8 +10,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, FilePlus2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { scoreColor } from '@/lib/tier'
 import type { PickableRole } from '@/lib/offerDrafts'
+import { WantEase } from '@/components/shared/WantEase'
 
 interface AddOfferMenuProps {
   roles: PickableRole[]
@@ -114,12 +114,7 @@ export function AddOfferMenu({ roles, usedKeys, onPickRole, onAddBlank }: AddOff
                         )}
                         title={used ? 'Already in this comparison' : `Prefill ${r.company} — ${r.role}`}
                       >
-                        <span
-                          className="shrink-0 w-8 text-right text-label font-mono tabular-nums font-medium"
-                          style={{ color: scoreColor(r.overall) }}
-                        >
-                          {r.overall.toFixed(1)}
-                        </span>
+                        <WantEase want={r.want} ease={r.ease} className="shrink-0" />
                         <div className="min-w-0 flex-1">
                           <div className="text-body text-text-1 truncate">{r.company}</div>
                           <div className="text-[11px] text-text-4 truncate">{r.role || '—'}</div>

@@ -16,14 +16,15 @@ import { ViewTabs, viewPanelId, viewTabId, type ViewTab } from '@/components/sha
 import { ScoreTrendPanel } from '@/components/scoretrend/ScoreTrendView'
 import { scoreColor as galaxyScoreColor } from '@/lib/tier'
 import { analyzeScoreTrend } from '@/lib/scoreTrend'
+import { WantEase } from '@/components/shared/WantEase'
 import {
   type TimeRange, type DateBucket, type TopRow, type Distribution, type Funnel,
   type DimensionProfile, type TargetingMomentum, type MomentumDirection,
   type ArchetypeMix,
   TIME_RANGE_LABEL, filterByDateWindow,
-  avg, buildByDate, buildTopBy, buildDistribution, buildFunnel,
+  avg, buildByDate, buildTopBy, buildDistribution, buildFunnel, scoredOnly,
   buildDimensionProfile, buildTargetingMomentum, buildArchetypeMix,
-  APPLY_THRESHOLD, locationFlag,
+  locationFlag,
 } from '@/lib/trendsAnalytics'
 
 // Multi-series chart palette — sourced from the documented categorical
@@ -31,28 +32,24 @@ import {
 // of galaxy violet so adjacent lines actually contrast instead of
 // collapsing into one violet ladder.
 //
-// Series order maps to the DIMENSIONS array below: Overall (deep indigo)
-// reads as the rolled-up "headline" number; Current Fit gets the brand
-// galaxy violet because it's the day-to-day reachability driver of the
-// rollup (CF×0.70 + AF×0.30) — the line the user watches most. The
+// Series order maps to the DIMENSIONS array below: galaxy violet for Want and aurora teal for Ease — scoring v2 states every
+// trend on the two axes separately (there is no Overall line). The
 // remaining slots fan out warm/cool/warm/cool so adjacent series
 // contrast at first glance.
 const DIM_COLORS = [
-  '#3D2BB5',  // chart-2 — deep indigo, Overall (the rollup)
-  '#7C5CFF',  // chart-1 — galaxy violet, Current Fit (brand anchor; primary driver)
-  '#2EB8A8',  // chart-3 — aurora teal, Aspirational Fit
+  '#7C5CFF',  // chart-1 — galaxy violet, Want (brand anchor)
+  '#2EB8A8',  // chart-3 — aurora teal, Ease
   '#E84F8E',  // chart-4 — nebula pink, Skills Match
   '#F2A837',  // chart-5 — cosmic amber, Brand Value
   '#4D8DFF',  // chart-6 — azure, Growth
   '#8595A4',  // chart-7 — slate, Work-Life (intentionally muted)
 ]
 
-type DimKey = 'avg_overall' | 'avg_current_fit' | 'avg_aspirational_fit' | 'avg_skills_match' | 'avg_brand_value' | 'avg_growth' | 'avg_wlb'
+type DimKey = 'avg_want' | 'avg_ease' | 'avg_skills_match' | 'avg_brand_value' | 'avg_growth' | 'avg_wlb'
 
 const DIMENSIONS: Array<{ key: DimKey; label: string }> = [
-  { key: 'avg_overall',          label: 'Overall'          },
-  { key: 'avg_current_fit',      label: 'Current Fit'      },
-  { key: 'avg_aspirational_fit', label: 'Aspirational Fit' },
+  { key: 'avg_want',             label: 'Want'             },
+  { key: 'avg_ease',             label: 'Ease'             },
   { key: 'avg_skills_match',     label: 'Skills Match'     },
   { key: 'avg_brand_value',      label: 'Brand Value'      },
   { key: 'avg_growth',           label: 'Growth'           },
@@ -85,7 +82,7 @@ export function TrendsView() {
   const loaded = useDataStore(s => s.loaded)
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const applications = useDataStore(s => s.applications)
-  const [activeDims, setActiveDims] = useState<Set<DimKey>>(new Set(['avg_overall', 'avg_current_fit', 'avg_aspirational_fit']))
+  const [activeDims, setActiveDims] = useState<Set<DimKey>>(new Set(['avg_want', 'avg_ease']))
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
   const [tab, setTab] = useState<TrendsTab>('overview')
 
@@ -131,24 +128,27 @@ export function TrendsView() {
 
   const stats = useMemo(() => {
     if (filtered.length === 0) return null
+    // Score averages over SCORED rows only — blocked rows have no Want/Ease
+    // and count in the eligibility split instead (docs/scoring-v2.md §9).
+    const scored = scoredOnly(filtered)
     return {
       total:      filtered.length,
-      avgOverall: avg(filtered, 'overall').toFixed(2),
-      avgCF:      avg(filtered, 'current_fit').toFixed(2),
-      avgAF:      avg(filtered, 'aspirational_fit').toFixed(2),
+      blocked:    filtered.length - scored.length,
+      avgWant:    scored.length ? avg(scored, 'want').toFixed(2) : '—',
+      avgEase:    scored.length ? avg(scored, 'ease').toFixed(2) : '—',
     }
   }, [filtered])
 
   const distribution = useMemo(() => buildDistribution(filtered), [filtered])
 
   // Dimension profile — averages each scoring dimension across the corpus and,
-  // crucially, contrasts the apply-worthy subset (overall >= 7) against all
+  // crucially, contrasts the apply-worthy subset (verdict Go / Stretch / Solid) against all
   // scored rows so the user can see which dimensions actually *drive* a high
   // score vs which are flat noise for targeting. Pure derivation in lib/.
   const profile = useMemo(() => buildDimensionProfile(filtered), [filtered])
 
   // Targeting momentum — splits the windowed corpus chronologically into an
-  // earlier vs recent half and contrasts their quality (median overall, apply
+  // earlier vs recent half and contrasts their quality (median Want and Ease, apply
   // rate, per-dimension means). Answers "is the stuff I evaluate getting
   // better-fit over time?" — the trend *direction* the noisy daily line and the
   // static snapshots above can't show. Pure derivation in lib/; honest about
@@ -196,10 +196,11 @@ export function TrendsView() {
           // Docs § 4 rule 1 (docs/scoring-statistical-design.md): the caption
           // states the samples the panel below rests on, and — when anything
           // has been re-evaluated — how many of those moves actually cleared
-          // the 0.30 Overall noise floor. No direction is claimed up here.
+          // their metric's noise floor (Want 0.30, Ease 0.35). No direction
+          // is claimed up here.
           <span
             className="text-label text-text-4 font-mono"
-            title={`Movement is counted against the ${scoreTrendMeta.metadata?.contract.noiseFloor ?? 0.30} Overall noise floor (${scoreTrendMeta.metadata?.contract.doc ?? 'docs/scoring-statistical-design.md'}); a corpus verdict needs ${scoreTrendMeta.metadata?.contract.minPerWindowForVerdict ?? 10} evaluations per calendar window.`}
+            title={`Movement is counted against the Want ${scoreTrendMeta.metadata?.contract.noiseFloors.want ?? 0.30} / Ease ${scoreTrendMeta.metadata?.contract.noiseFloors.ease ?? 0.35} noise floors (${scoreTrendMeta.metadata?.contract.doc ?? 'docs/scoring-statistical-design.md'}); a corpus verdict needs ${scoreTrendMeta.metadata?.contract.minPerWindowForVerdict ?? 10} evaluations per calendar window.`}
           >
             {scoreTrendMeta.metadata?.evaluated ?? 0} evaluations · {scoreTrendMeta.trajectorySummary?.reevaluated ?? 0} re-evaluated
             {(scoreTrendMeta.trajectorySummary?.reevaluated ?? 0) > 0 &&
@@ -253,9 +254,9 @@ export function TrendsView() {
                 <div className="grid grid-cols-4 gap-3">
                   {[
                     { label: 'Total evaluated',      value: stats.total },
-                    { label: 'Avg overall',          value: stats.avgOverall },
-                    { label: 'Avg current fit',      value: stats.avgCF },
-                    { label: 'Avg aspirational fit', value: stats.avgAF },
+                    { label: 'Avg Want',             value: stats.avgWant },
+                    { label: 'Avg Ease',             value: stats.avgEase },
+                    { label: 'Blocked',              value: stats.blocked },
                   ].map(({ label, value }) => (
                     <div key={label} className="bg-bg-panel border border-border-default rounded-lg p-3">
                       <div className="text-micro text-text-4 uppercase mb-1">{label}</div>
@@ -352,7 +353,7 @@ export function TrendsView() {
 
               {/* Dimension profile — the only panel that explains *why* a role
                   scores well for this user. Ranks the seven scoring dimensions by
-                  how much they separate an apply-worthy role (overall ≥ 7) from the
+                  how much they separate an apply-worthy role (Go / Stretch / Solid) from the
                   full corpus, turning the raw score columns into a targeting
                   cheat-sheet: chase roles strong on the high-delta dimensions. */}
               {loaded && profile.scoredCount > 0 && (
@@ -420,15 +421,16 @@ export function TrendsView() {
 // ─── Score distribution card ─────────────────────────────────────────────────
 
 function ScoreDistributionCard({ dist }: { dist: Distribution }) {
-  const { bands, max, applyPct, total, median: med } = dist
+  const { bands, max, applyPct, total, scored, medianWant, medianEase, eligibility } = dist
   return (
     <div className="bg-bg-panel border border-border-default rounded-lg p-4">
       <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Score Distribution</span>
+        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Verdict Distribution</span>
         <span className="text-[11px] font-mono tabular-nums text-text-4">
           <span className="text-accent-text font-semibold">{applyPct}%</span>
-          <span> clear the 7.0 bar</span>
-          {total > 0 && <span> · median {med.toFixed(1)}</span>}
+          <span> apply-worthy</span>
+          {scored > 0 && <span> · median W {medianWant.toFixed(1)} · E {medianEase.toFixed(1)}</span>}
+          {total > 0 && <span> · {eligibility.red} blocked · {eligibility.amber} check first</span>}
         </span>
       </div>
 
@@ -463,21 +465,19 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
         {bands.map(b => (
           <div key={b.key} className="flex-1 text-center">
             <div className="text-[11px] text-text-2 leading-tight">{b.label}</div>
-            <div className="text-[10px] font-mono text-text-4">{b.range}</div>
           </div>
         ))}
       </div>
 
-      {/* Apply-threshold bracket — spans the three apply-worthy bands (the last
-          3 of 5 equal columns). The 2:3 flex split lines the accent rule up
-          under the 7–8 / 8–9 / ≥9 columns. */}
+      {/* Apply-worthy bracket — spans the three apply-worthy verdicts (the
+          first 3 of 7 equal columns: Go / Stretch / Solid). */}
       <div className="flex gap-2.5 mt-1.5">
-        <div className="flex-[2]" aria-hidden />
         <div className="flex-[3] flex items-center gap-1.5">
           <span className="h-px flex-1 bg-accent/30" />
           <span className="text-[9px] uppercase tracking-[0.1em] text-accent/80 font-semibold whitespace-nowrap">apply-worthy</span>
           <span className="h-px flex-1 bg-accent/30" />
         </div>
+        <div className="flex-[4]" aria-hidden />
       </div>
     </div>
   )
@@ -511,7 +511,7 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
           entry hides under the low-signal fallback. */}
       <div className="flex items-center gap-3.5 mb-3 mt-2">
         <LegendDot color="#CED0D4" label="All scored" />
-        {!lowSignal && <LegendDot color="#7C5CFF" label={`Apply-worthy (≥${APPLY_THRESHOLD.toFixed(0)})`} />}
+        {!lowSignal && <LegendDot color="#7C5CFF" label="Apply-worthy (Go / Stretch / Solid)" />}
       </div>
 
       <ul className="space-y-2.5">
@@ -613,8 +613,11 @@ const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string
 }
 
 function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
-  const { earlier, recent, medianDelta, applyPctDelta, direction, dimShifts, lowSignal } = momentum
-  const verdict = MOMENTUM_VERDICT[direction]
+  const { earlier, recent, wantMedianDelta, easeMedianDelta, applyPctDelta, wantDirection, easeDirection, dimShifts, lowSignal } = momentum
+  // Want and Ease each carry their own direction (own noise floor); the
+  // pill shows both, the recent block tints by Want.
+  const verdict = MOMENTUM_VERDICT[wantDirection]
+  const easeVerdict = MOMENTUM_VERDICT[easeDirection]
   // Lead with the dimensions that actually moved; a flat-everything corpus
   // shows nothing here rather than a row of ±0.0 badges.
   const movers = lowSignal ? [] : dimShifts.filter(s => Math.abs(s.delta) >= 0.05).slice(0, 3)
@@ -640,24 +643,28 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
           {/* Earlier → verdict → recent. The two halves use the same metric
               rows; the centre pill carries the direction. */}
           <div className="flex items-stretch gap-3">
-            <HalfBlock title="Earlier" median={earlier.medianOverall} applyPct={earlier.applyPct} from={earlier.dateFrom} to={earlier.dateTo} muted />
+            <HalfBlock title="Earlier" median={earlier.medianWant} ease={earlier.medianEase} applyPct={earlier.applyPct} from={earlier.dateFrom} to={earlier.dateTo} muted />
             <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 px-1">
-              <span
-                className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-semibold"
-                style={{ color: verdict.color, background: `${verdict.color}1f` }}
-              >
-                <span aria-hidden>{verdict.arrow}</span>{verdict.label}
-              </span>
-              <span className="text-[10px] font-mono tabular-nums text-text-4">
-                {medianDelta > 0 ? '+' : medianDelta < 0 ? '−' : '±'}{Math.abs(medianDelta).toFixed(1)} median
-              </span>
+              {([['Want', verdict, wantMedianDelta], ['Ease', easeVerdict, easeMedianDelta]] as const).map(([axis, v, d]) => (
+                <span key={axis} className="flex flex-col items-center gap-0.5">
+                  <span
+                    className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ color: v.color, background: `${v.color}1f` }}
+                  >
+                    <span aria-hidden>{v.arrow}</span>{axis} {v.label.toLowerCase()}
+                  </span>
+                  <span className="text-[10px] font-mono tabular-nums text-text-4">
+                    {d > 0 ? '+' : d < 0 ? '−' : '±'}{Math.abs(d).toFixed(1)} median
+                  </span>
+                </span>
+              ))}
             </div>
-            <HalfBlock title="Recent" median={recent.medianOverall} applyPct={recent.applyPct} from={recent.dateFrom} to={recent.dateTo} accent={verdict.color} />
+            <HalfBlock title="Recent" median={recent.medianWant} ease={recent.medianEase} applyPct={recent.applyPct} from={recent.dateFrom} to={recent.dateTo} accent={verdict.color} />
           </div>
 
-          {/* Apply-rate movement — the share clearing the 7.0 bar, earlier→recent. */}
+          {/* Apply-rate movement — the apply-worthy verdict share, earlier→recent. */}
           <div className="flex items-baseline justify-between gap-3 mt-3 pt-2.5 border-t border-border-default/60 text-[11px]">
-            <span className="text-text-3">Apply-worthy share (≥{APPLY_THRESHOLD.toFixed(0)})</span>
+            <span className="text-text-3">Apply-worthy share (Go / Stretch / Solid)</span>
             <span className="font-mono tabular-nums">
               <span className="text-text-4">{earlier.applyPct}%</span>
               <span className="text-text-4 px-1">→</span>
@@ -699,14 +706,14 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
   )
 }
 
-// One half of the momentum comparison: median overall (the headline figure) with
+// One half of the momentum comparison: median Want · Ease (the headline pair) with
 // the apply-worthy share and the date span beneath. The recent block tints its
 // median to the verdict colour; the earlier block stays muted so the eye reads
 // left→right as "from → to".
 function HalfBlock({
-  title, median, applyPct, from, to, muted, accent,
+  title, median, ease, applyPct, from, to, muted, accent,
 }: {
-  title: string; median: number; applyPct: number; from: string; to: string
+  title: string; median: number; ease: number; applyPct: number; from: string; to: string
   muted?: boolean; accent?: string
 }) {
   const span = from && to ? (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`) : '—'
@@ -720,7 +727,9 @@ function HalfBlock({
         >
           {median.toFixed(1)}
         </span>
-        <span className="text-[10px] text-text-4">median</span>
+        <span className="text-[10px] text-text-4">Want</span>
+        <span className="text-[13px] font-mono tabular-nums text-text-2 ml-1">{ease.toFixed(1)}</span>
+        <span className="text-[10px] text-text-4">Ease · median</span>
       </div>
       <div className="text-[10.5px] font-mono tabular-nums text-text-4 mt-1.5 truncate" title={span}>{span}</div>
     </div>
@@ -791,10 +800,10 @@ function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
                   {!lowSignal && <ShareShiftBadge shift={s.shareShift} />}
                   <span
                     className="font-semibold w-8 text-right"
-                    style={{ color: scoreTierColor(s.avgScore) }}
-                    title="Average overall fit for this archetype"
+                    style={{ color: scoreTierColor(s.avgWant) }}
+                    title={`Average Want ${s.avgWant.toFixed(1)} · Ease ${s.avgEase.toFixed(1)} for this archetype`}
                   >
-                    {s.avgScore.toFixed(1)}
+                    {s.avgWant.toFixed(1)}
                   </span>
                   <span className="text-text-3 w-9 text-right">{s.sharePct}%</span>
                   <span className="text-text-4 w-5 text-right">{s.count}</span>
@@ -953,18 +962,12 @@ function TopCompaniesCard({ items }: { items: TopRow[] }) {
     <PanelCard title="Top Companies">
       {items.length === 0 ? <EmptyHint /> : (
         <ul className="divide-y divide-border-default/40">
-          {items.map(({ label, count, avgScore }) => {
-            const color = scoreTierColor(avgScore)
+          {items.map(({ label, count, avgWant, avgEase }) => {
             return (
               <li key={label} className="flex items-center gap-2.5 py-2">
                 <CompanyLogo company={label} size={22} className="shrink-0" />
                 <span className="flex-1 min-w-0 text-[12.5px] text-text-1 font-medium truncate">{label}</span>
-                <span
-                  className="text-[12px] font-mono font-semibold tabular-nums shrink-0 w-9 text-right"
-                  style={{ color }}
-                >
-                  {avgScore.toFixed(1)}
-                </span>
+                <WantEase want={avgWant} ease={avgEase} className="shrink-0" />
                 <span className="text-[11px] font-mono tabular-nums text-text-4 shrink-0 w-6 text-right">{count}</span>
               </li>
             )
@@ -980,21 +983,15 @@ function TopLocationsCard({ items }: { items: TopRow[] }) {
     <PanelCard title="Top Locations">
       {items.length === 0 ? <EmptyHint /> : (
         <ul className="divide-y divide-border-default/40">
-          {items.map(({ label, count, avgScore }) => {
+          {items.map(({ label, count, avgWant, avgEase }) => {
             const flag = locationFlag(label)
-            const color = scoreTierColor(avgScore)
             return (
               <li key={label} className="flex items-center gap-2.5 py-2">
                 <span className="text-[16px] leading-none w-5 text-center shrink-0" aria-hidden>
                   {flag ?? '🌐'}
                 </span>
                 <span className="flex-1 min-w-0 text-[12.5px] text-text-1 truncate">{label}</span>
-                <span
-                  className="text-[12px] font-mono font-semibold tabular-nums shrink-0 w-9 text-right"
-                  style={{ color }}
-                >
-                  {avgScore.toFixed(1)}
-                </span>
+                <WantEase want={avgWant} ease={avgEase} className="shrink-0" />
                 <span className="text-[11px] font-mono tabular-nums text-text-4 shrink-0 w-6 text-right">{count}</span>
               </li>
             )
@@ -1006,20 +1003,22 @@ function TopLocationsCard({ items }: { items: TopRow[] }) {
 }
 
 function TopArchetypesCard({ items }: { items: TopRow[] }) {
-  const max = items.length ? Math.max(...items.map(i => i.avgScore)) : 0
+  // Bar length = mean Priority (the ranking key); the numbers shown are the
+  // Want · Ease pair, never Priority itself.
+  const max = items.length ? Math.max(...items.map(i => i.avgPriority)) : 0
   return (
     <PanelCard title="Top Archetypes">
       {items.length === 0 ? <EmptyHint /> : (
         <ul className="space-y-2.5 mt-1">
-          {items.map(({ label, count, avgScore }) => {
-            const pct = max ? (avgScore / max) * 100 : 0
-            const color = scoreTierColor(avgScore)
+          {items.map(({ label, count, avgWant, avgEase, avgPriority }) => {
+            const pct = max ? (avgPriority / max) * 100 : 0
+            const color = scoreTierColor(avgWant)
             return (
               <li key={label}>
                 <div className="flex items-baseline justify-between gap-2 mb-1">
                   <span className="text-[12px] text-text-1 truncate">{label}</span>
                   <span className="text-[11px] font-mono tabular-nums shrink-0">
-                    <span style={{ color }} className="font-semibold">{avgScore.toFixed(1)}</span>
+                    <WantEase want={avgWant} ease={avgEase} />
                     <span className="text-text-4"> · {count}</span>
                   </span>
                 </div>

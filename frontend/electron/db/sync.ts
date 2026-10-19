@@ -4,6 +4,7 @@ import type Database from 'better-sqlite3'
 import { parseScouting, parseApplications, parsePipeline, parseReportPath } from '../../src/lib/parsers/markdown'
 import { parseScoreHistory } from '../../src/lib/parsers/tsv'
 import { entityId, parseCities } from '../../src/lib/entityId'
+import { assignVerdict, normalizeTier, parseScoreCell } from '../../src/lib/scoreBands'
 import { getMeta, setMeta } from './schema'
 
 // Build a (company, role) -> latest-location lookup from the
@@ -55,19 +56,42 @@ function read(absPath: string): string | null {
   try { return fs.readFileSync(absPath, 'utf-8') } catch { return null }
 }
 
-function deriveTier(scoreNum: number | null, status: string): string {
-  if (status === 'SKIP') return 'T4'
-  if (scoreNum == null) return ''
-  if (scoreNum >= 9.0)  return 'T1'
-  if (scoreNum >= 7.0)  return 'T2'
-  return 'T3'
+// Latest stored tier per (company, role) from score_history — the engine's
+// own verdict → tier for that listing (spec §4).
+function buildTierLookup(db: Database.Database): Map<string, string> {
+  const rows = db.prepare(`
+    SELECT company, role, tier, MAX(date) AS d
+    FROM score_history
+    WHERE tier <> ''
+    GROUP BY company, role
+  `).all() as Array<{ company: string; role: string; tier: string }>
+  const m = new Map<string, string>()
+  for (const r of rows) m.set(`${r.company}::${r.role}`, r.tier)
+  return m
 }
 
-function parseScoreNum(raw: string): number | null {
-  const m = raw.match(/^([\d.]+)/)
-  if (!m) return null
-  const n = parseFloat(m[1])
-  return Number.isFinite(n) ? n : null
+// An applications row's tier. v1 cut tiers from the Overall score (≥9 T1,
+// ≥7 T2); v2 has no Overall, so the tier comes from evidence in order:
+//   1. SKIP status → T4
+//   2. the listing's latest score-history tier (the engine's verdict)
+//   3. the report link's `reports/tier-N/` folder
+//   4. a v2 `W.. E..` Score cell replayed through the verdict grid
+// and stays '' otherwise (a legacy `X.X/10` cell carries no tier on its own).
+function deriveAppTier(
+  status: string,
+  company: string,
+  role: string,
+  report: string,
+  cell: ReturnType<typeof parseScoreCell>,
+  tierLookup: Map<string, string>,
+): string {
+  if (status === 'SKIP') return 'T4'
+  const stored = normalizeTier(tierLookup.get(`${company}::${role}`))
+  if (stored) return stored
+  const fromPath = report.match(/reports\/tier-([1-4])\//)
+  if (fromPath) return `T${fromPath[1]}`
+  if (cell && 'want' in cell) return assignVerdict({ want: cell.want, ease: cell.ease })?.tier ?? ''
+  return ''
 }
 
 // ─── Per-source sync ──────────────────────────────────────────────────────────
@@ -85,15 +109,16 @@ export function syncApplications(db: Database.Database, repoPath: string): { cha
 
   const rows = parseApplications(text)
   const locLookup = buildLocationLookup(db)
+  const tierLookup = buildTierLookup(db)
   const insert = db.prepare(`
-    INSERT INTO applications (num, date, company, role, score_raw, score_num, status, pdf, deadline, report, notes, tier, entity_id, cities)
-    VALUES (@num, @date, @company, @role, @score_raw, @score_num, @status, @pdf, @deadline, @report, @notes, @tier, @entity_id, @cities)
+    INSERT INTO applications (num, date, company, role, score_raw, want, ease, legacy_score, status, pdf, deadline, report, notes, tier, entity_id, cities)
+    VALUES (@num, @date, @company, @role, @score_raw, @want, @ease, @legacy_score, @status, @pdf, @deadline, @report, @notes, @tier, @entity_id, @cities)
   `)
 
   const tx = db.transaction((entries: typeof rows) => {
     db.exec('DELETE FROM applications')
     for (const r of entries) {
-      const score_num = parseScoreNum(r.score)
+      const cell = parseScoreCell(r.score)
       const entity = computeEntityFields(r.company, r.role, locLookup)
       insert.run({
         num: r.num,
@@ -101,13 +126,15 @@ export function syncApplications(db: Database.Database, repoPath: string): { cha
         company: r.company,
         role: r.role,
         score_raw: r.score,
-        score_num,
+        want: cell && 'want' in cell ? cell.want : null,
+        ease: cell && 'ease' in cell ? cell.ease : null,
+        legacy_score: cell && 'legacy' in cell ? cell.legacy : null,
         status: r.status,
         pdf: r.pdf ? 1 : 0,
         deadline: r.deadline,
         report: r.report,
         notes: r.notes,
-        tier: deriveTier(score_num, r.status),
+        tier: deriveAppTier(r.status, r.company, r.role, r.report, cell, tierLookup),
         entity_id: entity.entity_id,
         cities: entity.cities,
       })
@@ -132,8 +159,8 @@ export function syncScouting(db: Database.Database, repoPath: string): { changed
   const rows = parseScouting(text)
   const locLookup = buildLocationLookup(db)
   const insert = db.prepare(`
-    INSERT INTO scouting (num, date, company, role, score_raw, score_num, tier, cfaf, report, deadline, promotion_hint, notes, entity_id, cities)
-    VALUES (@num, @date, @company, @role, @score_raw, @score_num, @tier, @cfaf, @report, @deadline, @promotion_hint, @notes, @entity_id, @cities)
+    INSERT INTO scouting (num, date, company, role, want, ease, tier, eligibility, eligibility_reason, report, deadline, promotion_hint, notes, entity_id, cities)
+    VALUES (@num, @date, @company, @role, @want, @ease, @tier, @eligibility, @eligibility_reason, @report, @deadline, @promotion_hint, @notes, @entity_id, @cities)
   `)
 
   const tx = db.transaction((entries: typeof rows) => {
@@ -145,10 +172,11 @@ export function syncScouting(db: Database.Database, repoPath: string): { changed
         date: r.date,
         company: r.company,
         role: r.role,
-        score_raw: r.score,
-        score_num: parseScoreNum(r.score),
+        want: r.want,
+        ease: r.ease,
         tier: r.tier,
-        cfaf: r.cfaf,
+        eligibility: r.eligibility,
+        eligibility_reason: r.eligibilityReason,
         report: r.report,
         deadline: r.deadline,
         promotion_hint: r.promotionHint,
@@ -181,15 +209,17 @@ export function syncScoreHistory(db: Database.Database, repoPath: string): { cha
   for (const r of rows) r.url = sanitizeListingUrl(r.url)
   const insert = db.prepare(`
     INSERT INTO score_history (
-      date, archetype, skills_match, ease_of_entry, strategic_fit, current_fit,
-      growth_mobility, optionality_exit, brand_value, sales_trap_risk, aspirational_fit,
-      overall, best_cities, salary_adj_city, work_life_balance, best_fit_roles,
+      date, archetype, skills_match, experience_bar, competition, ease,
+      growth_mobility, optionality_exit, brand_value, role_content,
+      best_cities, salary_adj_city, work_life_balance, want, priority,
+      eligibility, eligibility_flags, verdict, best_fit_roles,
       mode, company, role, tier, source, location, employment_type, duration, salary_raw,
       url
     ) VALUES (
-      @date, @archetype, @skills_match, @ease_of_entry, @strategic_fit, @current_fit,
-      @growth_mobility, @optionality_exit, @brand_value, @sales_trap_risk, @aspirational_fit,
-      @overall, @best_cities, @salary_adj_city, @work_life_balance, @best_fit_roles,
+      @date, @archetype, @skills_match, @experience_bar, @competition, @ease,
+      @growth_mobility, @optionality_exit, @brand_value, @role_content,
+      @best_cities, @salary_adj_city, @work_life_balance, @want, @priority,
+      @eligibility, @eligibility_flags, @verdict, @best_fit_roles,
       @mode, @company, @role, @tier, @source, @location, @employment_type, @duration, @salary_raw,
       @url
     )

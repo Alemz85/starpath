@@ -1,148 +1,105 @@
-// Pure logic behind the Reports grid: score-band classification, the
+// Pure logic behind the Reports grid: verdict-band classification, the
 // search/band filter, the multi-key sort, the facet counts, and the
 // report→score-entry matcher. Extracted out of ReportsView.tsx so the
 // banding rules and the fuzzy company/role match are unit-testable without
 // rendering the view. Nothing here imports React.
 //
-// The matcher mirrors the same exact→prefix→best-overall fallback the view
-// used inline, so a report card resolves to the same score entry it always
-// did — just now with a test pinning each tier of the fallback.
+// Scoring v2 (docs/scoring-v2.md §9): bands for display and sorting come
+// from the VERDICT, never from thresholds on a number. The v1 Overall bands
+// (Stellar / Strong / Decent / Pass) are retired with Overall itself.
 
-import type { ScoreEntry } from '@/types'
+import type { Eligibility, ScoreEntry, Verdict } from '@/types'
+import { TIER_COLORS } from '@/types'
 import { reportFixability, type Lever } from '@/lib/tierLevers'
+import { assignVerdict, normalizeEligibility, normalizeVerdict, priorityOf, VERDICT_LABELS, VERDICT_RANK, VERDICT_TIER } from '@/lib/scoreBands'
+import { tierHex } from '@/lib/tier'
 
-// ─── Score bands ─────────────────────────────────────────────────────────────
+// ─── Verdict bands ───────────────────────────────────────────────────────────
 
-export type ScoreBand = 'stellar' | 'strong' | 'decent' | 'pass' | 'skip'
+export type ScoreBand = Verdict
 
-// Stable display order, high → low. The chip row and facet counts both walk
-// this so the bands always render in the same order.
-export const ALL_BANDS: readonly ScoreBand[] = ['stellar', 'strong', 'decent', 'pass', 'skip'] as const
+// Stable display order, best → worst (spec §7 better-cell order, reversed).
+// The chip row and facet counts both walk this.
+export const ALL_BANDS: readonly ScoreBand[] = ['go', 'stretch', 'solid', 'growth', 'thin', 'skip', 'blocked'] as const
 
-export const BAND_DETAILS: Record<ScoreBand, { label: string; color: string; bg: string; text: string; border: string }> = {
-  stellar: { label: 'Stellar (≥9.0)', color: '#2EB8A8', bg: 'bg-[#2EB8A8]/12', text: 'text-[#2EB8A8]', border: 'border-[#2EB8A8]/35' },
-  strong:  { label: 'Strong (8.0-8.9)', color: '#3D2BB5', bg: 'bg-[#3D2BB5]/12', text: 'text-[#3D2BB5]', border: 'border-[#3D2BB5]/35' },
-  decent:  { label: 'Decent (7.0-7.9)', color: '#7C5CFF', bg: 'bg-[#7C5CFF]/12', text: 'text-[#7C5CFF]', border: 'border-[#7C5CFF]/35' },
-  pass:    { label: 'Pass (<7.0)', color: '#A89CD9', bg: 'bg-[#A89CD9]/12', text: 'text-[#A89CD9]', border: 'border-[#A89CD9]/35' },
-  skip:    { label: 'Skip', color: '#94A3B8', bg: 'bg-[#94A3B8]/12', text: 'text-[#94A3B8]', border: 'border-[#94A3B8]/35' },
+// Band chip styling: every verdict borrows its storage tier's tokens (spec §4
+// verdict → tier). A verdict never gets a colour of its own (DESIGN-meta §
+// Tier and Status Sections).
+export const BAND_DETAILS: Record<ScoreBand, { label: string; color: string; bg: string; text: string; border: string }> =
+  Object.fromEntries(ALL_BANDS.map(v => {
+    const tier = VERDICT_TIER[v]
+    return [v, { label: VERDICT_LABELS[v], color: tierHex(tier), ...TIER_COLORS[tier] }]
+  })) as Record<ScoreBand, { label: string; color: string; bg: string; text: string; border: string }>
+
+/** The verdict-carrying fields of a report row (DbReportRow satisfies it). */
+export interface VerdictLike {
+  tier: string
+  want?: number | null
+  ease?: number | null
+  verdict?: string | null
+  eligibility?: string | null
 }
 
-// Classify a report by its Overall score, falling back to its tier when the
-// score is missing/zero (T3/T4 listings often have no scored overall on disk).
-export function getScoreBand(overall: number | null | undefined, tier: string): ScoreBand {
-  if (overall !== null && overall !== undefined && overall > 0) {
-    if (overall >= 9.0) return 'stellar'
-    if (overall >= 8.0) return 'strong'
-    if (overall >= 7.0) return 'decent'
-    if (overall >= 5.0) return 'pass'
-    return 'skip'
-  }
-  // Fallback to tier mapping
-  const t = tier.toUpperCase()
-  if (t === 'T1') return 'stellar'
-  if (t === 'T2-HIGH') return 'strong'
-  if (t === 'T2') return 'decent'
-  if (t === 'T3') return 'pass'
+// A report's band: its stored verdict, else the grid replay of its Want/Ease
+// (red eligibility → blocked), else — for an orphan report with no matching
+// evaluation — the folder tier's representative cell (T1 go, T2 solid, T3
+// growth, T4 skip). T2 holds three cells; `solid` is the neutral middle.
+export function getScoreBand(row: VerdictLike): ScoreBand {
+  const stored = normalizeVerdict(row.verdict)
+  if (stored) return stored
+  const elig = normalizeEligibility(row.eligibility)
+  const replayed = assignVerdict({ want: row.want, ease: row.ease, eligibility: elig })
+  if (replayed) return replayed.verdict
+  const t = (row.tier ?? '').toUpperCase()
+  if (t === 'T1') return 'go'
+  if (t === 'T2') return 'solid'
+  if (t === 'T3') return 'growth'
   return 'skip'
 }
 
 // ─── Fixability / near-miss ──────────────────────────────────────────────────
 //
-// The Reports list answers "where should I spend effort?" by ranking reports on
-// how cheaply they could cross into a better tier. Two ingredients:
-//
-//   1. distance to the next band up (purely from the Overall score), and
-//   2. whether the report's own Why-this-score block names a concrete lever.
-//
-// A T3 sitting at 6.9 with a named lever is the canonical "easiest near-miss":
-// one tenth from the next band AND the engine already told us which dimension
-// to raise. We surface those first.
-
-// Lower edge of each band (inclusive) on the 0–10 Overall scale. Mirrors the
-// thresholds in getScoreBand so the two never drift.
-const BAND_FLOOR: Record<ScoreBand, number> = {
-  stellar: 9.0, strong: 8.0, decent: 7.0, pass: 5.0, skip: 0,
-}
-
-// The band immediately above each band (the upgrade target). `stellar` is the
-// ceiling — nothing above it.
-const NEXT_BAND_UP: Record<ScoreBand, ScoreBand | null> = {
-  skip: 'pass', pass: 'decent', decent: 'strong', strong: 'stellar', stellar: null,
-}
-
-// Points an Overall score must gain to reach the next band's floor. Null when
-// already in the top band (stellar) — no upgrade target exists. Returns null
-// for reports with no usable overall (can't measure a distance).
-export function distanceToNextBand(overall: number | null | undefined, tier: string): number | null {
-  if (overall === null || overall === undefined || overall <= 0) return null
-  const band = getScoreBand(overall, tier)
-  const next = NEXT_BAND_UP[band]
-  if (!next) return null
-  return Math.max(0, +(BAND_FLOOR[next] - overall).toFixed(2))
-}
-
-// The optional fixability signal a report carries once its body has been parsed
-// (the list rows themselves don't include the body — see ReportsView). Only the
-// fields the ranking needs.
-export interface Fixability {
-  /** A concrete cheapest-lever sentence exists in the report's Why block. */
-  hasLever: boolean
-  /** The binding-constraint sentence, when present (for the badge). */
-  bindingConstraint?: string | null
-  /** The lever sentence, when present (for the badge). */
-  lever?: string | null
-}
+// The Reports list answers "where should I spend effort?" by ranking reports
+// on how cheaply they could cross into a better verdict cell — the engine's
+// cheapest single-change lever (tierLevers § reportFixability), run on the
+// score-history entry the report resolves to.
 
 export interface FixabilityRow extends ReportRowLike {
-  fixability?: Fixability | null
   /** The score-history entry this report resolved to (lib § matchScore), when
-   *  one matched. When it carries the six scored dims, the near-miss / lever /
-   *  ranking run through the SAME engine the Database uses (tierLevers §
-   *  reportFixability) — so a listing reads identically in both views. Absent
-   *  or dim-less → the Overall-gap + parsed-lever fallback. */
+   *  one matched. When it carries every v2 dim, the near-miss / lever /
+   *  ranking run through the SAME engine the Database uses. */
   scoreEntry?: ScoreEntry | null
 }
 
-// Resolve a row to the single unified near-miss / fixability verdict. This is
-// the ONE place the Reports lens decides "near-miss?" — it delegates to
-// tierLevers § reportFixability, which prefers the engine (real dims) and falls
-// back to the Overall-gap heuristic. The band distance (this module owns the
-// band ladder) is computed here and injected so tierLevers stays band-agnostic.
 export function reportRowFixability(row: FixabilityRow) {
-  return reportFixability({
-    scoreEntry: row.scoreEntry,
-    overall: row.overall,
-    tier: row.tier,
-    parsedHasLever: row.fixability?.hasLever ?? false,
-    parsedLever: row.fixability?.lever ?? null,
-    bandDistance: distanceToNextBand(row.overall, row.tier),
-  })
+  return reportFixability({ scoreEntry: row.scoreEntry })
 }
 
 // A 0–1 "how worth upgrading is this" score. Higher = cheaper, more actionable.
-// Now a thin wrapper over the unified engine-first computation: when the row
-// carries real dims the rank reflects the true cheapest lift; otherwise it's
-// the historical Overall-gap + parsed-lever blend. Reports with no upgrade
-// target (stellar) or no overall score score 0 — they don't belong in a
-// "near-miss to upgrade" ranking.
 export function fixabilityScore(row: FixabilityRow): number {
   return reportRowFixability(row).fixabilityScore
 }
 
-// "Near-miss" predicate for the filter chip. Unified: when the row resolved to
-// real dims, this is the engine's lift-≤-threshold verdict (identical to the
-// Database "Near upgrade"); otherwise a report within ~0.5 of the next band up
-// OR carrying a concrete parsed lever. Stellar / unscored reports never qualify.
+// "Near-miss" predicate for the filter chip: the engine's one-step rule.
+// `go`, blocked and unscored reports never qualify.
 export function isNearMiss(row: FixabilityRow): boolean {
+  if (getScoreBand(row) === 'go') return false
   return reportRowFixability(row).nearMiss
 }
 
-// The structured engine lever for a report row, when the engine path ran and
-// found a single-dim band crossing. Null on the parse fallback (no dims) or for
-// already-top-band rows. Lets the Reports UI show the same "Skills +1 → T2"
-// lever the Database shows, instead of only the prose sentence from the body.
+// The structured engine lever for a report row, or null.
 export function reportEngineLever(row: FixabilityRow): Lever | null {
   return reportRowFixability(row).engineLever
+}
+
+// The next better band up the grid (for the "→ Stretch" hint), or null at
+// the top / for blocked rows (no score change fixes eligibility).
+export function nextBandUp(band: ScoreBand): ScoreBand | null {
+  if (band === 'go' || band === 'blocked') return null
+  const rank = VERDICT_RANK[band]
+  const up = (Object.keys(VERDICT_RANK) as ScoreBand[])
+    .filter(v => VERDICT_RANK[v] === rank + 1)[0]
+  return up ?? null
 }
 
 // ─── Filtering / sorting ─────────────────────────────────────────────────────
@@ -150,12 +107,21 @@ export function reportEngineLever(row: FixabilityRow): Lever | null {
 // The fields the Reports grid actually reads — DbReportRow satisfies this, but
 // keeping the lib's surface minimal means the tests don't have to build a full
 // 9-field DbReportRow just to assert a sort.
-export interface ReportRowLike {
+export interface ReportRowLike extends VerdictLike {
   company: string
   role: string
   tier: string
-  overall: number | null
+  want: number | null
+  ease: number | null
+  priority?: number | null
+  eligibility?: string | null
   mtime?: number
+}
+
+/** Priority for sorting (spec §5 — a sort key, never a headline). */
+function rowPriority(r: ReportRowLike): number {
+  const elig = normalizeEligibility(r.eligibility) as Eligibility | null
+  return priorityOf({ priority: r.priority ?? null, want: r.want, ease: r.ease, eligibility: elig }) ?? -1
 }
 
 export type ReportSortBy = 'score' | 'date' | 'tier' | 'fixable'
@@ -176,7 +142,7 @@ export function filterReportRows<T extends FixabilityRow>(
   const q = (opts.query ?? '').trim().toLowerCase()
   let out = rows
   if (bands && bands.size > 0) {
-    out = out.filter(r => bands.has(getScoreBand(r.overall, r.tier)))
+    out = out.filter(r => bands.has(getScoreBand(r)))
   }
   if (q) {
     out = out.filter(r => matchesQuery(r, q))
@@ -187,7 +153,7 @@ export function filterReportRows<T extends FixabilityRow>(
   return out
 }
 
-const TIER_SORT_ORDER = ['T1', 'T2-high', 'T2', 'T3', 'T4']
+const TIER_SORT_ORDER = ['T1', 'T2', 'T3', 'T4']
 
 // Stable multi-key sort. `desc` is the natural reading for every key (highest
 // score / newest / best tier first), so `asc` simply flips the comparator.
@@ -200,19 +166,22 @@ export function sortReportRows<T extends FixabilityRow>(
   const sorted = [...rows].sort((a, b) => {
     let comp = 0
     if (sortBy === 'score') {
-      comp = (b.overall ?? 0) - (a.overall ?? 0)
+      // Priority (sqrt(Want × Ease)); blocked/unscored rows sort last.
+      comp = rowPriority(b) - rowPriority(a)
     } else if (sortBy === 'date') {
       comp = (b.mtime ?? 0) - (a.mtime ?? 0)
     } else if (sortBy === 'tier') {
       const ai = TIER_SORT_ORDER.indexOf(a.tier)
       const bi = TIER_SORT_ORDER.indexOf(b.tier)
       comp = (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+      // Within a tier, the better verdict cell first (T2 holds three cells).
+      if (comp === 0) comp = VERDICT_RANK[getScoreBand(b)] - VERDICT_RANK[getScoreBand(a)]
     } else if (sortBy === 'fixable') {
       // Primary: fixability score (cheapest upgrade first under `desc`).
-      // Tie-break on raw overall so two equally-fixable rows keep a stable,
+      // Tie-break on priority so two equally-fixable rows keep a stable,
       // meaningful order rather than falling back to array position.
       comp = fixabilityScore(b) - fixabilityScore(a)
-      if (comp === 0) comp = (b.overall ?? 0) - (a.overall ?? 0)
+      if (comp === 0) comp = rowPriority(b) - rowPriority(a)
     }
     return sortOrder === 'asc' ? -comp : comp
   })
@@ -223,7 +192,7 @@ export function sortReportRows<T extends FixabilityRow>(
 // view never renders a band chip that matches zero reports on disk.
 export function corpusBands(rows: ReportRowLike[]): ScoreBand[] {
   const present = new Set<ScoreBand>()
-  for (const r of rows) present.add(getScoreBand(r.overall, r.tier))
+  for (const r of rows) present.add(getScoreBand(r))
   return ALL_BANDS.filter(b => present.has(b))
 }
 
@@ -232,10 +201,10 @@ export function corpusBands(rows: ReportRowLike[]): ScoreBand[] {
 // reports it would add). Same facet-count rule the Database sidebar uses.
 export function bandCounts(rows: ReportRowLike[], query = ''): Record<ScoreBand, number> {
   const q = query.trim().toLowerCase()
-  const counts: Record<ScoreBand, number> = { stellar: 0, strong: 0, decent: 0, pass: 0, skip: 0 }
+  const counts = Object.fromEntries(ALL_BANDS.map(b => [b, 0])) as Record<ScoreBand, number>
   for (const r of rows) {
     if (q && !matchesQuery(r, q)) continue
-    counts[getScoreBand(r.overall, r.tier)]++
+    counts[getScoreBand(r)]++
   }
   return counts
 }
@@ -263,7 +232,7 @@ export function buildScoreIndex(scoreHistory: ScoreEntry[]): ScoreIndex {
 
 // Resolve a report file to its score entry. Three-tier fallback: exact
 // company|role, then a role that is a prefix of (or prefixed by) the report's
-// role within the same company, then the company's highest-overall entry.
+// role within the same company, then the company's highest-priority entry.
 // Returns null when the company isn't in score-history at all.
 export function matchScore(index: ScoreIndex, r: { company: string; role: string }): ScoreEntry | null {
   const c  = r.company.trim().toLowerCase()
@@ -279,7 +248,7 @@ export function matchScore(index: ScoreIndex, r: { company: string; role: string
   if (prefix) return prefix
   let best: ScoreEntry | null = null
   for (const s of list) {
-    if (!best || s.overall > best.overall) best = s
+    if (!best || (priorityOf(s) ?? -1) > (priorityOf(best) ?? -1)) best = s
   }
   return best
 }

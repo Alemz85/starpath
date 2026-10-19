@@ -19,6 +19,7 @@ import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { OrbitingSystem, type OrbiterConfig } from '@/components/ui/orbiting'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { scoreColor } from '@/lib/tier'
+import { priorityOf } from '@/lib/scoreBands'
 
 interface Props {
   initials: string
@@ -34,7 +35,8 @@ export function CareerConstellation({ initials }: Props) {
       if (!e.company) continue
       const cur = companyMap.get(e.company) ?? { count: 0, sumScore: 0 }
       cur.count += 1
-      if (typeof e.overall === 'number' && e.overall > 0) cur.sumScore += e.overall
+      // Priority (√(Want × Ease)) as the size/colour key — blocked rows add 0.
+      cur.sumScore += priorityOf(e) ?? 0
       companyMap.set(e.company, cur)
     }
     const companies = [...companyMap.entries()]
@@ -52,7 +54,8 @@ export function CareerConstellation({ initials }: Props) {
       if (!a || a === 'Unknown' || a === 'unknown') continue
       const cur = archMap.get(a) ?? { count: 0, sumScore: 0 }
       cur.count += 1
-      if (typeof e.overall === 'number' && e.overall > 0) cur.sumScore += e.overall
+      // Priority (√(Want × Ease)) as the size/colour key — blocked rows add 0.
+      cur.sumScore += priorityOf(e) ?? 0
       archMap.set(a, cur)
     }
     const archetypes = [...archMap.entries()]

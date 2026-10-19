@@ -24,6 +24,7 @@
 // Keep this module pure and alias-free at runtime.
 
 import type { AppStatus } from '@/types'
+import { assignVerdict, formatScoreCell } from '../scoreBands'
 
 /** Fence info-strings that carry a proposal. Anything else is a normal fence. */
 export const PROPOSAL_FENCE_TAGS = ['starpath:apply', 'starpath:status'] as const
@@ -59,10 +60,12 @@ export interface ApplyProposal {
   kind: 'apply'
   company: string
   role: string
-  /** Verbatim `X.X/10` as proposed, absent when no score was given. */
+  /** Canonical v2 Score cell `W8.3 E5.6` (docs/scoring-v2.md §8.3), absent
+   *  when no score was given. */
   score?: string
-  /** Numeric form of `score`, for `upsertApplicationRow`'s `overall`. */
-  scoreValue?: number
+  /** Numeric Want / Ease of `score`, for `upsertApplicationRow`. */
+  want?: number
+  ease?: number
   status?: AppStatus
   deadline?: string
   url?: string
@@ -105,7 +108,10 @@ export const MAX_NOTES_CHARS = 500
 export const MAX_URL_CHARS = 2000
 export const MAX_PROPOSALS_PER_MESSAGE = 20
 
-const SCORE_RE = /^(\d{1,2}(?:\.\d)?)\/10$/
+// v2 Score cell (docs/scoring-v2.md §8.3): `W8.3 E5.6` — Want then Ease,
+// one decimal optional. The v1 `X.X/10` form is NOT accepted for a write:
+// new applications.md rows always carry the W/E form.
+const SCORE_RE = /^W\s*(\d{1,2}(?:\.\d{1,2})?)\s+E\s*(\d{1,2}(?:\.\d{1,2})?)$/i
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const HTTP_URL_RE = /^https?:\/\/[^\s|]+$/i
 
@@ -149,18 +155,19 @@ function optionalText(raw: unknown, field: string, max: number): FieldResult<str
   return { ok: true, value }
 }
 
-/** `X.X/10` (the tracker's Score format), 0–10 inclusive. */
-function parseScore(raw: unknown): FieldResult<{ score: string; value: number } | undefined> {
+/** `W8.3 E5.6` (the tracker's v2 Score format), each 1–10 inclusive. */
+function parseScore(raw: unknown): FieldResult<{ score: string; want: number; ease: number } | undefined> {
   if (raw === undefined || raw === null || raw === '') return { ok: true, value: undefined }
-  const text = typeof raw === 'number' ? `${raw.toFixed(1)}/10` : raw
-  if (typeof text !== 'string') return { ok: false, reason: 'score must be a string like "7.8/10"' }
-  const match = text.trim().match(SCORE_RE)
-  if (!match) return { ok: false, reason: 'score must look like "7.8/10"' }
-  const value = Number(match[1])
-  if (!Number.isFinite(value) || value < 0 || value > 10) {
-    return { ok: false, reason: 'score must be between 0 and 10' }
+  if (typeof raw !== 'string') return { ok: false, reason: 'score must be a string like "W8.3 E5.6"' }
+  const match = raw.trim().match(SCORE_RE)
+  if (!match) return { ok: false, reason: 'score must look like "W8.3 E5.6" (Want, then Ease)' }
+  const want = Number(match[1])
+  const ease = Number(match[2])
+  const inRange = (n: number) => Number.isFinite(n) && n >= 1 && n <= 10
+  if (!inRange(want) || !inRange(ease)) {
+    return { ok: false, reason: 'Want and Ease must each be between 1 and 10' }
   }
-  return { ok: true, value: { score: `${value.toFixed(1)}/10`, value } }
+  return { ok: true, value: { score: formatScoreCell(want, ease), want, ease } }
 }
 
 /** `YYYY-MM-DD` (a real calendar date), `Rolling`, or `n/d`. */
@@ -244,7 +251,8 @@ export function validateProposal(
   const proposal: ApplyProposal = { kind: 'apply', company: company.value, role: role.value }
   if (score.value) {
     proposal.score = score.value.score
-    proposal.scoreValue = score.value.value
+    proposal.want = score.value.want
+    proposal.ease = score.value.ease
   }
   if (status.value) proposal.status = status.value
   if (deadline.value) proposal.deadline = deadline.value
@@ -430,16 +438,13 @@ export function splitChatContent(
 
 // ─── Presentation helpers ─────────────────────────────────────────────────────
 
-/** Tier bands, mirroring `electron/db/sync.ts` › deriveTier. Only used to pick
- *  the `reports/tier-N/` folder in the placeholder report link that
- *  `upsertApplicationRow` writes for a brand-new row. */
+/** Storage tier from the Want × Ease verdict grid (docs/scoring-v2.md §4) —
+ *  the same replay `electron/db/sync.ts` › deriveAppTier uses for a W/E cell.
+ *  Only used to pick the `reports/tier-N/` folder in the placeholder report
+ *  link that `upsertApplicationRow` writes for a brand-new row. */
 export function tierForProposal(proposal: ApplyProposal): string {
   if (proposal.status === 'SKIP') return 'T4'
-  const score = proposal.scoreValue
-  if (score === undefined) return 'T4'
-  if (score >= 9.0) return 'T1'
-  if (score >= 7.0) return 'T2'
-  return 'T3'
+  return assignVerdict({ want: proposal.want, ease: proposal.ease })?.tier ?? 'T4'
 }
 
 export interface ProposalSummary {

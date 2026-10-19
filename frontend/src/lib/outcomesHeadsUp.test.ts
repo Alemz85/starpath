@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   buildOutcomesHeadsUp,
   classifyOutcome,
-  parseAppScore,
+  parseAppEase,
   MIN_DECIDED,
   type OutcomesInput,
 } from '@/lib/outcomesHeadsUp'
@@ -17,14 +17,15 @@ import type { AppStatus } from '@/types'
 function decided(
   company: string,
   status: AppStatus,
-  opts: { score?: string; archetype?: string; overall?: number } = {},
+  opts: { score?: string; archetype?: string; ease?: number } = {},
 ) {
   const role = 'Analyst'
-  const app = makeApplication({ company, role, status, score: opts.score ?? '8.0/10' })
+  const app = makeApplication({ company, role, status, score: opts.score ?? 'W8.0 E8.0' })
   const score = makeScoreEntry({
     company, role,
     archetype: opts.archetype ?? 'Data Analyst',
-    overall: opts.overall ?? 8.0,
+    want: 8.0,
+    ease: opts.ease ?? 8.0,
   })
   return { app, score }
 }
@@ -39,12 +40,12 @@ function run(rows: ReturnType<typeof decided>[]): ReturnType<typeof buildOutcome
 
 // ─── parseAppScore ────────────────────────────────────────────────────────────
 
-test('parseAppScore reads /10 and rejects everything else', () => {
-  assert.equal(parseAppScore('7.2/10'), 7.2)
-  assert.equal(parseAppScore(' 9/10 '), 9)
-  assert.equal(parseAppScore('3.40/5'), null)   // legacy /5 — never mis-ranked
-  assert.equal(parseAppScore('n/d'), null)
-  assert.equal(parseAppScore(''), null)
+test('parseAppEase reads the v2 W/E cell; a legacy /10 cell carries no Ease', () => {
+  assert.equal(parseAppEase('W8.3 E5.6'), 5.6)
+  assert.equal(parseAppEase(' W9 E7 '), 7)
+  assert.equal(parseAppEase('7.2/10'), null)   // legacy — no Ease to contrast
+  assert.equal(parseAppEase('n/d'), null)
+  assert.equal(parseAppEase(''), null)
 })
 
 // ─── classifyOutcome ──────────────────────────────────────────────────────────
@@ -110,12 +111,12 @@ test('archetype drag suppressed when that archetype also wins a lot', () => {
   // 3 losses in "Data Analyst" but also 3 wins there — it's volume, not a
   // targeting problem. Falls through to the score/streak lessons instead.
   const rows = [
-    decided('A', 'Rejected', { archetype: 'Data Analyst', score: '7.0/10', overall: 7.0 }),
-    decided('B', 'Rejected', { archetype: 'Data Analyst', score: '7.0/10', overall: 7.0 }),
-    decided('C', 'Discarded', { archetype: 'Data Analyst', score: '7.0/10', overall: 7.0 }),
-    decided('D', 'Offer', { archetype: 'Data Analyst', score: '7.2/10', overall: 7.2 }),
-    decided('E', 'Responded', { archetype: 'Data Analyst', score: '7.2/10', overall: 7.2 }),
-    decided('F', 'Interview', { archetype: 'Data Analyst', score: '7.2/10', overall: 7.2 }),
+    decided('A', 'Rejected', { archetype: 'Data Analyst', score: 'W8.0 E7.0', ease: 7.0 }),
+    decided('B', 'Rejected', { archetype: 'Data Analyst', score: 'W8.0 E7.0', ease: 7.0 }),
+    decided('C', 'Discarded', { archetype: 'Data Analyst', score: 'W8.0 E7.0', ease: 7.0 }),
+    decided('D', 'Offer', { archetype: 'Data Analyst', score: 'W8.0 E7.2', ease: 7.2 }),
+    decided('E', 'Responded', { archetype: 'Data Analyst', score: 'W8.0 E7.2', ease: 7.2 }),
+    decided('F', 'Interview', { archetype: 'Data Analyst', score: 'W8.0 E7.2', ease: 7.2 }),
   ]
   const h = run(rows)
   assert.ok(h)
@@ -126,12 +127,12 @@ test('archetype drag suppressed when that archetype also wins a lot', () => {
 
 test('flags a predictive score gap (wins score higher than losses)', () => {
   const rows = [
-    decided('A', 'Offer', { score: '9.0/10', overall: 9.0, archetype: 'Data Analyst' }),
-    decided('B', 'Responded', { score: '8.6/10', overall: 8.6, archetype: 'Product Manager' }),
-    decided('C', 'Interview', { score: '8.8/10', overall: 8.8, archetype: 'Strategy Consultant' }),
-    decided('D', 'Rejected', { score: '6.5/10', overall: 6.5, archetype: 'Data Analyst' }),
-    decided('E', 'Rejected', { score: '6.8/10', overall: 6.8, archetype: 'Product Manager' }),
-    decided('F', 'Discarded', { score: '6.2/10', overall: 6.2, archetype: 'Strategy Consultant' }),
+    decided('A', 'Offer', { score: 'W8.0 E9.0', ease: 9.0, archetype: 'Data Analyst' }),
+    decided('B', 'Responded', { score: 'W8.0 E8.6', ease: 8.6, archetype: 'Product Manager' }),
+    decided('C', 'Interview', { score: 'W8.0 E8.8', ease: 8.8, archetype: 'Strategy Consultant' }),
+    decided('D', 'Rejected', { score: 'W8.0 E6.5', ease: 6.5, archetype: 'Data Analyst' }),
+    decided('E', 'Rejected', { score: 'W8.0 E6.8', ease: 6.8, archetype: 'Product Manager' }),
+    decided('F', 'Discarded', { score: 'W8.0 E6.2', ease: 6.2, archetype: 'Strategy Consultant' }),
   ]
   const h = run(rows)
   assert.ok(h)
@@ -143,12 +144,12 @@ test('flags a predictive score gap (wins score higher than losses)', () => {
 test('flags the counter-signal when high scores fail to convert', () => {
   // Losers score HIGHER than winners — fit isn't tracking landability.
   const rows = [
-    decided('A', 'Responded', { score: '6.5/10', overall: 6.5, archetype: 'Data Analyst' }),
-    decided('B', 'Interview', { score: '6.2/10', overall: 6.2, archetype: 'Product Manager' }),
-    decided('C', 'Offer', { score: '6.8/10', overall: 6.8, archetype: 'Strategy Consultant' }),
-    decided('D', 'Rejected', { score: '9.0/10', overall: 9.0, archetype: 'Data Analyst' }),
-    decided('E', 'Rejected', { score: '8.8/10', overall: 8.8, archetype: 'Product Manager' }),
-    decided('F', 'Discarded', { score: '9.2/10', overall: 9.2, archetype: 'Strategy Consultant' }),
+    decided('A', 'Responded', { score: 'W8.0 E6.5', ease: 6.5, archetype: 'Data Analyst' }),
+    decided('B', 'Interview', { score: 'W8.0 E6.2', ease: 6.2, archetype: 'Product Manager' }),
+    decided('C', 'Offer', { score: 'W8.0 E6.8', ease: 6.8, archetype: 'Strategy Consultant' }),
+    decided('D', 'Rejected', { score: 'W8.0 E9.0', ease: 9.0, archetype: 'Data Analyst' }),
+    decided('E', 'Rejected', { score: 'W8.0 E8.8', ease: 8.8, archetype: 'Product Manager' }),
+    decided('F', 'Discarded', { score: 'W8.0 E9.2', ease: 9.2, archetype: 'Strategy Consultant' }),
   ]
   const h = run(rows)
   assert.ok(h)
@@ -161,12 +162,12 @@ test('no score-gap lesson when winners and losers score within the deadband', ()
   // Flat scores across both groups, distinct archetypes (so no drag), even
   // win/loss split → falls through to win-streak (50% conversion).
   const rows = [
-    decided('A', 'Offer', { score: '7.5/10', overall: 7.5, archetype: 'Data Analyst' }),
-    decided('B', 'Responded', { score: '7.6/10', overall: 7.6, archetype: 'Product Manager' }),
-    decided('C', 'Interview', { score: '7.4/10', overall: 7.4, archetype: 'Strategy Consultant' }),
-    decided('D', 'Rejected', { score: '7.5/10', overall: 7.5, archetype: 'UX Researcher' }),
-    decided('E', 'Rejected', { score: '7.6/10', overall: 7.6, archetype: 'Marketing Lead' }),
-    decided('F', 'Discarded', { score: '7.4/10', overall: 7.4, archetype: 'Ops Manager' }),
+    decided('A', 'Offer', { score: 'W8.0 E7.5', ease: 7.5, archetype: 'Data Analyst' }),
+    decided('B', 'Responded', { score: 'W8.0 E7.6', ease: 7.6, archetype: 'Product Manager' }),
+    decided('C', 'Interview', { score: 'W8.0 E7.4', ease: 7.4, archetype: 'Strategy Consultant' }),
+    decided('D', 'Rejected', { score: 'W8.0 E7.5', ease: 7.5, archetype: 'UX Researcher' }),
+    decided('E', 'Rejected', { score: 'W8.0 E7.6', ease: 7.6, archetype: 'Marketing Lead' }),
+    decided('F', 'Discarded', { score: 'W8.0 E7.4', ease: 7.4, archetype: 'Ops Manager' }),
   ]
   const h = run(rows)
   assert.ok(h)
@@ -214,19 +215,26 @@ test('no win-streak when the conversion rate is mediocre', () => {
 
 // ─── Join robustness ──────────────────────────────────────────────────────────
 
-test('recovers the score from the application even when no score-history matches', () => {
-  // No score-history rows at all — the lesson must still read the /10 score off
+test('recovers the Ease from the application even when no score-history matches', () => {
+  // No score-history rows at all — the lesson must still read the Ease off
   // the application string and the archetype simply stays empty (so no drag).
   const apps = [
-    makeApplication({ company: 'A', role: 'R', status: 'Offer', score: '9.0/10' }),
-    makeApplication({ company: 'B', role: 'R', status: 'Responded', score: '8.8/10' }),
-    makeApplication({ company: 'C', role: 'R', status: 'Interview', score: '8.6/10' }),
-    makeApplication({ company: 'D', role: 'R', status: 'Rejected', score: '6.0/10' }),
-    makeApplication({ company: 'E', role: 'R', status: 'Rejected', score: '6.2/10' }),
-    makeApplication({ company: 'F', role: 'R', status: 'Discarded', score: '6.4/10' }),
+    makeApplication({ company: 'A', role: 'R', status: 'Offer', score: 'W8.0 E9.0' }),
+    makeApplication({ company: 'B', role: 'R', status: 'Responded', score: 'W8.0 E8.8' }),
+    makeApplication({ company: 'C', role: 'R', status: 'Interview', score: 'W8.0 E8.6' }),
+    makeApplication({ company: 'D', role: 'R', status: 'Rejected', score: 'W8.0 E6.0' }),
+    makeApplication({ company: 'E', role: 'R', status: 'Rejected', score: 'W8.0 E6.2' }),
+    makeApplication({ company: 'F', role: 'R', status: 'Discarded', score: 'W8.0 E6.4' }),
   ]
   const h = buildOutcomesHeadsUp({ applications: apps, scoreHistory: [] })
   assert.ok(h)
   assert.equal(h.kind, 'score-gap')
   assert.equal(h.tone, 'positive')
+})
+
+test('legacy X.X/10 application cells with no score-history carry no Ease → no score-gap', () => {
+  const apps = ['Offer', 'Responded', 'Interview', 'Rejected', 'Rejected', 'Discarded'].map((status, i) =>
+    makeApplication({ company: String.fromCharCode(65 + i), role: 'R', status: status as 'Offer', score: i < 3 ? '9.0/10' : '6.0/10' }))
+  const h = buildOutcomesHeadsUp({ applications: apps, scoreHistory: [] })
+  assert.notEqual(h?.kind, 'score-gap')
 })

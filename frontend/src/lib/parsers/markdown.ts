@@ -1,4 +1,9 @@
 import type { ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile } from '@/types'
+import { normalizeTier, parseEligibilityCell } from '../scoreBands'
+
+// The applications Score cell parser (spec §8.3) lives with the other v2
+// cell parsers in lib/scoreBands; re-exported so parser callers find it here.
+export { parseScoreCell } from '../scoreBands'
 
 // ─── Generic markdown table parser ────────────────────────────────────────────
 
@@ -38,23 +43,29 @@ function tableDataCells(md: string): string[][] {
 
 // ─── Scouting tracker ─────────────────────────────────────────────────────────
 
+// 12-column v2 table, mapped BY HEADER NAME (docs/scoring-v2.md §8.2):
+//   | # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
+// Want / Ease are bare numbers (`8.25`), `—` when blocked.
 export function parseScouting(md: string): ScoutingEntry[] {
   const rows = parseMarkdownTable(md)
   return rows.flatMap(row => {
     const num = parseInt(row['#'] ?? '')
     if (isNaN(num)) return []
 
-    const tierRaw = row['Tier'] ?? ''
-    const tier = normalizeTierScouting(tierRaw)
+    const elig = parseEligibilityCell(row['Eligibility'])
+    const tier = normalizeTier(row['Tier']) ?? 'T4'
+    const blocked = elig.status === 'red'
 
     return [{
       num,
       date:          row['Date'] ?? '',
       company:       row['Company'] ?? '',
       role:          row['Role'] ?? '',
-      score:         row['Score'] ?? '',
+      want:          blocked ? null : scoreNum(row['Want']),
+      ease:          blocked ? null : scoreNum(row['Ease']),
       tier,
-      cfaf:          row['CF/AF'] ?? '',
+      eligibility:   elig.status,
+      eligibilityReason: elig.reason,
       report:        row['Report'] ?? '',
       deadline:      row['Deadline'] ?? '',
       promotionHint: row['Promotion Hint'] ?? '',
@@ -70,13 +81,13 @@ export function parseScouting(md: string): ScoutingEntry[] {
   })
 }
 
-function normalizeTierScouting(raw: string): ScoutingEntry['tier'] {
-  const t = raw.toLowerCase().trim()
-  if (t === 't1') return 'T1'
-  if (t === 't2-high' || t === 't2+') return 'T2-high'
-  if (t === 't2') return 'T2'
-  if (t === 't3') return 'T3'
-  return 'T4'
+/** A Want / Ease cell: `8.25` (a stray `/10` tolerated) → number; `—`, empty
+ *  or anything non-numeric → null. Never 0 for a missing score. */
+function scoreNum(cell: string | undefined): number | null {
+  const m = (cell ?? '').replace(/\*\*/g, '').trim().match(/^(\d+(?:\.\d+)?)/)
+  if (!m) return null
+  const n = parseFloat(m[1])
+  return Number.isFinite(n) ? n : null
 }
 
 // ─── Applications tracker ─────────────────────────────────────────────────────

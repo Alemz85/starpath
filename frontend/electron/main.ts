@@ -709,7 +709,7 @@ ipcMain.handle('db:applications-with-scores', () => {
 })
 
 ipcMain.handle('db:trends', () => {
-  if (!ensureDbReady()) return { byMonth: [], byArchetype: [], tierDistribution: [] }
+  if (!ensureDbReady()) return { byDate: [], byArchetype: [], tierDistribution: [], verdictDistribution: [], eligibilityDistribution: [] }
   return queryTrends()
 })
 

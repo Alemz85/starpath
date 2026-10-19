@@ -7,7 +7,7 @@
 // prefill from it instead of making them re-key numbers the system already
 // knows:
 //
-//   fit    ← the role's Overall (already CF×0.70 + AF×0.30)
+//   fit    ← the role's Want (scoring v2 — an offer has already cleared Ease)
 //   growth ← Growth/Mobility dimension
 //   brand  ← Brand Value dimension
 //   comp   ← Salary-Adj-for-city dimension (the savings-power band score)
@@ -19,7 +19,9 @@
 // user's own score-history already holds.
 
 import type { Factor, FactorScores } from '@/lib/offerCompare'
-import type { ScoreEntry } from '@/types'
+import type { ScoreEntry, Verdict } from '@/types'
+import { fitFactorFromScores } from '@/lib/offerCompare'
+import { isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
 
 export interface OfferDraft {
   /** Stable client id so React keys survive reorder/delete. */
@@ -40,7 +42,7 @@ export function neutralScores(): FactorScores {
 }
 
 // Clamp + round any number into the valid 1-10 integer factor range. Scores in
-// score-history are already 1-10 but may be fractional (the Overall rollup) or,
+// score-history are already 1-10 but may be fractional (the Want rollup) or,
 // for legacy rows, missing/0 — guard so a draft never carries an out-of-range
 // value into compareOffers (which would throw).
 export function clampFactor(n: number | undefined | null): number {
@@ -65,8 +67,8 @@ export function offerLabel(company: string, role: string): string {
 
 /**
  * Build a prefilled draft from one evaluated role. fit/growth/brand/comp come
- * from the evaluation; location/risk start neutral. The `overall` is used for
- * fit directly (it already encodes the CF/AF rollup) — we don't re-derive.
+ * from the evaluation; location/risk start neutral. Scoring v2: fit is the
+ * role's Want (offerCompare § fitFactorFromScores) — never re-derived.
  */
 export function draftFromScoreEntry(e: ScoreEntry): OfferDraft {
   return {
@@ -75,7 +77,7 @@ export function draftFromScoreEntry(e: ScoreEntry): OfferDraft {
     sourceKey: scoreEntryKey(e),
     scores: {
       comp: clampFactor(e.salary_adj_city),
-      fit: clampFactor(e.overall),
+      fit: clampFactor(fitFactorFromScores({ want: isScored(e) ? e.want : null }).score),
       growth: clampFactor(e.growth_mobility),
       brand: clampFactor(e.brand_value),
       location: NEUTRAL_FACTOR,
@@ -101,7 +103,11 @@ export interface PickableRole {
   key: string
   company: string
   role: string
-  overall: number
+  want: number | null
+  ease: number | null
+  /** sqrt(Want × Ease) — the ranking key only. */
+  priority: number | null
+  verdict: Verdict | null
   date: string
   tier: string
 }
@@ -109,7 +115,7 @@ export interface PickableRole {
 /**
  * Reduce the score-history corpus to a deduped, ranked list of roles the user
  * can prefill an offer from. Latest evaluation per (company,role) wins;
- * highest-Overall first so the strongest matches are easiest to pick. Rows with
+ * highest-Priority first so the strongest matches are easiest to pick. Rows with
  * no company are dropped. Pure — the view memoizes over `scoreHistory`.
  */
 export function pickableRoles(scoreHistory: ScoreEntry[]): PickableRole[] {
@@ -127,11 +133,14 @@ export function pickableRoles(scoreHistory: ScoreEntry[]): PickableRole[] {
       key: scoreEntryKey(e),
       company: e.company,
       role: e.role,
-      overall: e.overall,
+      want: isScored(e) ? e.want : null,
+      ease: isScored(e) ? e.ease : null,
+      priority: priorityOf(e),
+      verdict: verdictOf(e),
       date: e.date,
       tier: typeof e.tier === 'string' ? e.tier : 'T4',
     }))
-    .sort((a, b) => b.overall - a.overall || a.company.localeCompare(b.company))
+    .sort((a, b) => (b.priority ?? -1) - (a.priority ?? -1) || a.company.localeCompare(b.company))
 }
 
 // Are these drafts ready to compare? Need ≥2 with unique, non-empty labels —

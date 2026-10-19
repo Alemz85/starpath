@@ -69,7 +69,7 @@ const FILTERED_SCAN_ID   = 'cmd-filtered-scan'
 // re-enable; the constants below stay in place so re-enabling is a
 // one-line change. (Disabled because Indeed/Google funnel surfaces too
 // many CPG/HR/retail roles that bypass the title positives — see top-20
-// jobspy-scored audit: nothing ≥7.5 overall.)
+// jobspy-scored audit: nothing apply-worthy.)
 const JOBSPY_ENABLED     = false
 const JOBSPY_ID          = 'cmd-jobspy'
 const STAGING_MERGE_ID   = 'cmd-staging-merge'

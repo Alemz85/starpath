@@ -74,37 +74,75 @@ export interface AppConfig {
   features?: Partial<FeaturePrefs>
 }
 
+// ─── Scoring v2 vocabulary (docs/scoring-v2.md) ──────────────────────────────
+
+/** Eligibility gate (spec §1): a gate, not a score. `red` = Blocked. */
+export type Eligibility = 'green' | 'amber' | 'red'
+
+/** The six eligibility checks (spec §1.2). Readers still tolerate an unknown
+ *  check key from a newer engine — labels go through `eligibilityCheckLabel`
+ *  (lib/scoreBands), which falls back to a humanised key. */
+export const ELIGIBILITY_CHECKS = ['start_date', 'duration', 'graduation', 'language', 'work_auth', 'other'] as const
+export type EligibilityCheckKey = (typeof ELIGIBILITY_CHECKS)[number]
+
+/** One non-green check, as stored in score-history `eligibility_flags`
+ *  (`check:status:reason`, `;`-joined) or parsed from a report's
+ *  `## Eligibility` table. `question` only comes from the report body. */
+export interface EligibilityFlag {
+  check: string
+  status: Eligibility
+  reason: string
+  question?: string
+}
+
+/** Verdict cell of the Want × Ease grid (spec §4). */
+export type Verdict = 'go' | 'stretch' | 'growth' | 'solid' | 'thin' | 'skip' | 'blocked'
+
 // ─── Score history (data/score-history.tsv) ───────────────────────────────────
 
+/** One v2 score-history row (spec §8.1, 29 columns, parsed by header name).
+ *  Every numeric column is `null` when its cell is empty — blocked (red) rows
+ *  carry no dimensions, no Want, no Ease and no Priority. Never coerce a null
+ *  to 0: a 0 reads as a real (terrible) score. */
 export interface ScoreEntry {
   date: string
   archetype: string
-  skills_match: number
-  ease_of_entry: number
-  strategic_fit: number
-  current_fit: number
-  growth_mobility: number
-  optionality_exit: number
-  brand_value: number
-  sales_trap_risk: number
-  aspirational_fit: number
-  overall: number
-  best_cities: number
-  salary_adj_city: number
-  work_life_balance: number
+  // Ease dimensions (1–10, high = easier)
+  skills_match: number | null
+  experience_bar: number | null
+  competition: number | null
+  ease: number | null
+  // Want motivators (1–10)
+  growth_mobility: number | null
+  optionality_exit: number | null
+  brand_value: number | null
+  role_content: number | null
+  // Want hygiene factors (1–10)
+  best_cities: number | null
+  salary_adj_city: number | null
+  work_life_balance: number | null
+  want: number | null
+  /** round(sqrt(want × ease), 2) — a sort key only, never a headline (§5). */
+  priority: number | null
+  /** null only for a malformed row with no eligibility cell. */
+  eligibility: Eligibility | null
+  /** Raw `eligibility_flags` cell — `check:status:reason;…`, empty when green.
+   *  Parse with `parseEligibilityFlags` (lib/scoreBands). */
+  eligibility_flags: string
+  /** Verdict key; derived from the grid when the cell is empty. */
+  verdict: Verdict | null
   best_fit_roles: string
   mode: 'scouting' | 'oferta'
   company: string
   role: string
-  tier: 'T1' | 'T2' | 'T2-high' | 'T3' | 'T4' | string
+  tier: 'T1' | 'T2' | 'T3' | 'T4' | string
   source: string
   location: string
   employment_type: string
   duration: string
   salary_raw: string
-  /** The listing URL — added to score-history.tsv as column 26.
-   *  Empty for legacy rows; populated for evaluations from 2026-04-29 onward.
-   *  This is the stable join key between score_history and reports_index. */
+  /** The listing URL — the stable join key between score_history and
+   *  reports_index. */
   url: string
   /** Sibling entities sharing the same (company, role-canonical) but a
    *  different city — populated by the Database grouping pass when the
@@ -123,16 +161,23 @@ export interface ScoreEntry {
 
 // ─── Scouting tracker (data/scouting.md) ─────────────────────────────────────
 
-export type ScoutingTier = 'T1' | 'T2-high' | 'T2' | 'T3' | 'T4'
+export type ScoutingTier = 'T1' | 'T2' | 'T3' | 'T4'
 
+/** One row of the 12-column v2 scouting table (spec §8.2). */
 export interface ScoutingEntry {
   num: number
   date: string
   company: string
   role: string
-  score: string        // raw string e.g. "3.40/5"
+  /** Want score; null when blocked (`—`). */
+  want: number | null
+  /** Ease score; null when blocked (`—`). */
+  ease: number | null
   tier: ScoutingTier
-  cfaf: string         // raw string e.g. "3.67/3.0"
+  /** Gate status from the Eligibility cell; null when the cell is empty. */
+  eligibility: Eligibility | null
+  /** Reason text after `amber:` / `red:` (empty for green). */
+  eligibilityReason: string
   report: string       // markdown link or "—"
   deadline: string
   promotionHint: string
@@ -244,11 +289,10 @@ export interface ProfileConfig {
 
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 
-export type TierKey = 'T1' | 'T2-high' | 'T2' | 'T3' | 'T4'
+export type TierKey = 'T1' | 'T2' | 'T3' | 'T4'
 
 export const TIER_LABELS: Record<TierKey, string> = {
   'T1': 'T1',
-  'T2-high': 'T2+',
   'T2': 'T2',
   'T3': 'T3',
   'T4': 'T4',
@@ -257,20 +301,30 @@ export const TIER_LABELS: Record<TierKey, string> = {
 // Consistent fill + border opacity across tiers so the active-state highlight
 // reads the same regardless of which tier is selected. Earlier values varied
 // (T1 /20, T2-3 /15, T4 /10) which made T1 chips pop and T4 chips look
-// half-disabled.
-//
-// T2-high uses accent-hover (`#5B3FE8`) — the gradient stop between T1
-// and T2 in the wordmark gradient. Earlier this slot was `bg-success`,
-// which collided with the offer-status semantic (DESIGN-meta § Status
-// scale reserves success green for offer-received). The galaxy gradient
-// keeps the tier ladder visually monotonic: T1 indigo → T2-high → T2 →
-// T3 → T4.
+// half-disabled. Verdict chips reuse these through VERDICT_TIER
+// (lib/scoreBands) — a verdict never gets a colour of its own.
 export const TIER_COLORS: Record<TierKey, { bg: string; text: string; border: string }> = {
   'T1':     { bg: 'bg-tier-1/15',       text: 'text-tier-1',       border: 'border-tier-1/35' },
-  'T2-high':{ bg: 'bg-accent-hover/15', text: 'text-accent-hover', border: 'border-accent-hover/35' },
   'T2':     { bg: 'bg-tier-2/15',       text: 'text-tier-2',       border: 'border-tier-2/35' },
   'T3':     { bg: 'bg-tier-3/15',       text: 'text-tier-3',       border: 'border-tier-3/35' },
   'T4':     { bg: 'bg-tier-4/15',       text: 'text-tier-4',       border: 'border-tier-4/35' },
+}
+
+// Eligibility chip classes (DESIGN-meta § Tier and Status Sections): the
+// semantic success / warning / danger tokens over their documented BG tints
+// (Positive BG 0.12, Warning BG 0.15, Error BG 0.12). green = eligible,
+// amber = check first, red = blocked. Same text-on-tint pattern as the
+// existing semantic badges (ApplyAction, TodayView).
+export const ELIGIBILITY_COLORS: Record<Eligibility, { bg: string; text: string; border: string; dot: string }> = {
+  green: { bg: 'bg-success/[0.12]', text: 'text-success', border: 'border-success/30', dot: 'bg-success' },
+  amber: { bg: 'bg-warning/15',     text: 'text-warning', border: 'border-warning/30', dot: 'bg-warning' },
+  red:   { bg: 'bg-danger/[0.12]',  text: 'text-danger',  border: 'border-danger/30',  dot: 'bg-danger' },
+}
+
+export const ELIGIBILITY_LABELS: Record<Eligibility, string> = {
+  green: 'Eligible',
+  amber: 'Check first',
+  red:   'Blocked',
 }
 
 export const STATUS_COLORS: Record<AppStatus, string> = {

@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import type { Eligibility, Verdict } from '@/types'
+import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
 
 export type Liveness = 'active' | 'stale' | 'closed'
 
@@ -11,10 +13,17 @@ export interface FacetFilters {
   locations: Set<string>
   archetypes: Set<string>
   tiers: Set<string>
+  /** Verdict keys (scoring v2). */
+  verdicts: Set<string>
+  /** green / amber / red. */
+  eligibilities: Set<string>
   employmentTypes: Set<string>
   liveness: Set<Liveness>
-  scoreMin: number
-  scoreMax: number
+  /** Per-axis ranges — v2 has no Overall. */
+  wantMin: number
+  wantMax: number
+  easeMin: number
+  easeMax: number
 }
 
 // Default filter shows only Active listings — stale/closed are kept on disk
@@ -24,11 +33,17 @@ export const EMPTY_FILTERS: FacetFilters = {
   locations: new Set(),
   archetypes: new Set(),
   tiers: new Set(),
+  verdicts: new Set(),
+  eligibilities: new Set(),
   employmentTypes: new Set(),
   liveness: new Set<Liveness>(['active']),
-  scoreMin: 0,
-  scoreMax: 10,
+  wantMin: 0,
+  wantMax: 10,
+  easeMin: 0,
+  easeMax: 10,
 }
+
+const rangeOn = (min: number, max: number) => min > 0 || max < 10
 
 export function hasActiveFilters(f: FacetFilters): boolean {
   return (
@@ -36,10 +51,12 @@ export function hasActiveFilters(f: FacetFilters): boolean {
     f.locations.size > 0 ||
     f.archetypes.size > 0 ||
     f.tiers.size > 0 ||
+    f.verdicts.size > 0 ||
+    f.eligibilities.size > 0 ||
     f.employmentTypes.size > 0 ||
     f.liveness.size !== 1 || !f.liveness.has('active') ||
-    f.scoreMin > 0 ||
-    f.scoreMax < 10
+    rangeOn(f.wantMin, f.wantMax) ||
+    rangeOn(f.easeMin, f.easeMax)
   )
 }
 
@@ -52,6 +69,8 @@ export interface FacetCounts {
   locations: Record<string, number>
   archetypes: Record<string, number>
   tiers: Record<string, number>
+  verdicts: Record<string, number>
+  eligibilities: Record<string, number>
   employmentTypes: Record<string, number>
   liveness: Record<string, number>
 }
@@ -64,13 +83,15 @@ interface FacetSidebarProps {
     locations: string[]
     archetypes: string[]
     tiers: string[]
+    verdicts: string[]
+    eligibilities: string[]
     employmentTypes: string[]
   }
   counts?: FacetCounts
 }
 
 export function FacetSidebar({ filters, onChange, options, counts }: FacetSidebarProps) {
-  const toggle = (key: keyof Pick<FacetFilters, 'companies' | 'locations' | 'archetypes' | 'tiers' | 'employmentTypes'>, val: string) => {
+  const toggle = (key: keyof Pick<FacetFilters, 'companies' | 'locations' | 'archetypes' | 'tiers' | 'verdicts' | 'eligibilities' | 'employmentTypes'>, val: string) => {
     const next = new Set(filters[key])
     if (next.has(val)) next.delete(val)
     else next.add(val)
@@ -81,8 +102,10 @@ export function FacetSidebar({ filters, onChange, options, counts }: FacetSideba
 
   const activeCount =
     filters.companies.size + filters.locations.size + filters.archetypes.size +
-    filters.tiers.size + filters.employmentTypes.size +
-    (filters.scoreMin > 0 || filters.scoreMax < 10 ? 1 : 0)
+    filters.tiers.size + filters.verdicts.size + filters.eligibilities.size +
+    filters.employmentTypes.size +
+    (rangeOn(filters.wantMin, filters.wantMax) ? 1 : 0) +
+    (rangeOn(filters.easeMin, filters.easeMax) ? 1 : 0)
 
   return (
     <div className="w-52 shrink-0 border-r border-border-default flex flex-col bg-bg-chrome overflow-y-auto">
@@ -113,6 +136,22 @@ export function FacetSidebar({ filters, onChange, options, counts }: FacetSideba
             onChange({ ...filters, liveness: next })
           }}
           renderItem={lv => <LivenessChip liveness={lv as Liveness} />}
+        />
+        <FacetGroup
+          label="Eligibility"
+          items={options.eligibilities}
+          selected={filters.eligibilities}
+          counts={counts?.eligibilities}
+          onToggle={v => toggle('eligibilities', v)}
+          renderItem={e => <EligibilityChip status={e as Eligibility} />}
+        />
+        <FacetGroup
+          label="Verdict"
+          items={options.verdicts}
+          selected={filters.verdicts}
+          counts={counts?.verdicts}
+          onToggle={v => toggle('verdicts', v)}
+          renderItem={v => <VerdictChip verdict={v as Verdict} />}
         />
         <FacetGroup
           label="Tier"
@@ -154,9 +193,16 @@ export function FacetSidebar({ filters, onChange, options, counts }: FacetSideba
           onToggle={v => toggle('employmentTypes', v)}
         />
         <ScoreRangeGroup
-          min={filters.scoreMin}
-          max={filters.scoreMax}
-          onChange={(min, max) => onChange({ ...filters, scoreMin: min, scoreMax: max })}
+          label="Want range"
+          min={filters.wantMin}
+          max={filters.wantMax}
+          onChange={(min, max) => onChange({ ...filters, wantMin: min, wantMax: max })}
+        />
+        <ScoreRangeGroup
+          label="Ease range"
+          min={filters.easeMin}
+          max={filters.easeMax}
+          onChange={(min, max) => onChange({ ...filters, easeMin: min, easeMax: max })}
         />
       </div>
     </div>
@@ -260,7 +306,9 @@ function FacetGroup({
   )
 }
 
-function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onChange: (min: number, max: number) => void }) {
+// A narrowed range keeps scored rows only — a blocked listing has no Want or
+// Ease to range over (lib/databaseRows § inRanges).
+function ScoreRangeGroup({ label, min, max, onChange }: { label: string; min: number; max: number; onChange: (min: number, max: number) => void }) {
   const [expanded, setExpanded] = useState(true)
   const active = min > 0 || max < 10
 
@@ -271,7 +319,7 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
         className="w-full flex items-center justify-between px-2 py-1.5 hover:bg-bg-elevated rounded-md transition-colors"
       >
         <div className="flex items-center gap-1.5">
-          <span className="text-label text-text-2 font-medium">Score range</span>
+          <span className="text-label text-text-2 font-medium">{label}</span>
           {active && <span className="px-1 py-0.5 text-[10px] bg-accent/20 text-accent-text rounded font-mono">1</span>}
         </div>
         {expanded ? <ChevronDown size={12} className="text-text-4" /> : <ChevronRight size={12} className="text-text-4" />}
@@ -309,7 +357,7 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
               }}
               className="range-overlay"
               style={{ zIndex: min > 9.5 ? 3 : 2 }}
-              aria-label="Minimum score"
+              aria-label={`Minimum ${label.toLowerCase()}`}
             />
             <input
               type="range" min={0} max={10} step={0.5} value={max}
@@ -319,7 +367,7 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
               }}
               className="range-overlay"
               style={{ zIndex: 2 }}
-              aria-label="Maximum score"
+              aria-label={`Maximum ${label.toLowerCase()}`}
             />
           </div>
 
@@ -337,7 +385,7 @@ function ScoreRangeGroup({ min, max, onChange }: { min: number; max: number; onC
 function TierChip({ tier }: { tier: string }) {
   return (
     <span className="text-label font-mono text-text-2">
-      {tier === 'T2-high' ? 'T2+' : tier}
+      {tier}
     </span>
   )
 }

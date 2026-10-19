@@ -23,7 +23,7 @@ const NOW = new Date('2026-06-24T00:00:00Z')
 test('tierHeatColor: empty days are the panel wash, scored days take the tier hue', () => {
   assert.equal(tierHeatColor('', 0), '#F1F4F7')
   assert.equal(tierHeatColor('T1', 3), TIER_HEX.T1)
-  assert.equal(tierHeatColor('T2-high', 1), TIER_HEX['T2-high'])
+  assert.equal(tierHeatColor('T2', 1), TIER_HEX.T2)
   assert.equal(tierHeatColor('???', 1), TIER_HEX.T4)   // unknown tier → faded slate
 })
 
@@ -158,19 +158,19 @@ test('the streak badge stays earned after a day off (achievement, not current st
 // ─── buildHighlights ──────────────────────────────────────────────────────────
 
 test('buildHighlights returns null below 3 scored evaluations', () => {
-  assert.equal(buildHighlights([makeScoreEntry({ overall: 8 }), makeScoreEntry({ overall: 7 })]), null)
+  assert.equal(buildHighlights([makeScoreEntry({ want: 8, ease: 7 }), makeScoreEntry({ want: 7, ease: 7 })]), null)
 })
 
 test('buildHighlights surfaces top score, most-explored company, busiest day', () => {
   const hl = buildHighlights([
-    makeScoreEntry({ company: 'Stripe', overall: 9.2, date: '2026-06-20' }),
-    makeScoreEntry({ company: 'Stripe', overall: 6.0, date: '2026-06-20' }),
-    makeScoreEntry({ company: 'Acme',   overall: 7.1, date: '2026-06-19' }),
+    makeScoreEntry({ company: 'Stripe', want: 9.2, ease: 7, date: '2026-06-20' }),
+    makeScoreEntry({ company: 'Stripe', want: 6.0, ease: 7, date: '2026-06-20' }),
+    makeScoreEntry({ company: 'Acme',   want: 7.1, ease: 7, date: '2026-06-19' }),
   ])
   assert.ok(hl)
   const byLabel = Object.fromEntries(hl!.map(h => [h.label, h]))
-  assert.equal(byLabel['Top score'].value, '9.2')
-  assert.equal(byLabel['Top score'].sub, 'Stripe')
+  assert.equal(byLabel['Top match'].value, '9.2 · 7.0')
+  assert.equal(byLabel['Top match'].sub, 'Stripe')
   assert.equal(byLabel['Most explored'].value, 'Stripe')      // 2 rows
   assert.equal(byLabel['Most explored'].sub, '2 evaluations')
   assert.equal(byLabel['Busiest day'].sub, '2 in one day')    // 2026-06-20

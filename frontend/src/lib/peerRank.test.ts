@@ -6,13 +6,13 @@ import {
   MIN_PEERS, OUTLIER_THRESHOLD, PEER_DIMS,
 } from '@/lib/peerRank'
 import { GATES } from '@/lib/scoringStats'
-import { makeScoreEntry } from '@/test-utils/fixtures'
+import { makeScoreEntry, makeBlockedEntry } from '@/test-utils/fixtures'
 import type { ScoreEntry } from '@/types'
 
 // Small cohort builder: N distinct-entity rows sharing one archetype.
 function cohort(
   archetype: string,
-  specs: Array<Partial<ScoreEntry> & { company: string; overall: number }>,
+  specs: Array<Partial<ScoreEntry> & { company: string; priority: number }>,
 ): ScoreEntry[] {
   return specs.map((s, i) =>
     makeScoreEntry({
@@ -41,19 +41,19 @@ test('primaryArchetype does NOT split on "&" or "/"', () => {
 // ─── dedupeLatestPerEntity ────────────────────────────────────────────────────
 
 test('dedupeLatestPerEntity keeps only the latest row per entity', () => {
-  const older = makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Berlin', date: '2026-04-01', overall: 6.0 })
-  const newer = makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Berlin', date: '2026-05-01', overall: 7.2 })
-  const other = makeScoreEntry({ company: 'Beta', role: 'Analyst', location: 'Berlin', date: '2026-04-15', overall: 5.5 })
+  const older = makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Berlin', date: '2026-04-01', priority: 6.0 })
+  const newer = makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Berlin', date: '2026-05-01', priority: 7.2 })
+  const other = makeScoreEntry({ company: 'Beta', role: 'Analyst', location: 'Berlin', date: '2026-04-15', priority: 5.5 })
   const map = dedupeLatestPerEntity([older, newer, other])
   assert.equal(map.size, 2)
-  const overalls = [...map.values()].map(r => r.overall).sort()
-  assert.deepEqual(overalls, [5.5, 7.2])
+  const priorities = [...map.values()].map(r => r.priority).sort()
+  assert.deepEqual(priorities, [5.5, 7.2])
 })
 
-test('dedupeLatestPerEntity drops rows without a usable overall', () => {
+test('dedupeLatestPerEntity drops rows without a usable priority', () => {
   const map = dedupeLatestPerEntity([
-    makeScoreEntry({ company: 'Acme', overall: 0 }),
-    makeScoreEntry({ company: 'Beta', overall: NaN }),
+    makeScoreEntry({ company: 'Acme', priority: null }),
+    makeScoreEntry({ company: 'Beta', priority: NaN }),
   ])
   assert.equal(map.size, 0)
 })
@@ -62,37 +62,37 @@ test('dedupeLatestPerEntity drops rows without a usable overall', () => {
 
 test('returns null below MIN_PEERS cohort size', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 7 },
-    { company: 'B', overall: 6 },
-    { company: 'C', overall: 5 },
-    { company: 'D', overall: 8 },
+    { company: 'A', priority: 7 },
+    { company: 'B', priority: 6 },
+    { company: 'C', priority: 5 },
+    { company: 'D', priority: 8 },
   ])
   // self (A) + 3 others = 4 < 5
   assert.equal(peerContext(rows[0], rows), null)
   assert.equal(MIN_PEERS, 5)
 })
 
-test('returns null when the entry has no overall score or archetype', () => {
+test('returns null when the entry has no priority or archetype', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 7 }, { company: 'B', overall: 6 },
-    { company: 'C', overall: 5 }, { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+    { company: 'A', priority: 7 }, { company: 'B', priority: 6 },
+    { company: 'C', priority: 5 }, { company: 'D', priority: 8 }, { company: 'E', priority: 7.5 },
   ])
-  assert.equal(peerContext(makeScoreEntry({ archetype: 'Ops', overall: 0 }), rows), null)
-  assert.equal(peerContext(makeScoreEntry({ archetype: '', overall: 7 }), rows), null)
+  assert.equal(peerContext(makeScoreEntry({ archetype: 'Ops', priority: null }), rows), null)
+  assert.equal(peerContext(makeScoreEntry({ archetype: '', priority: 7 }), rows), null)
 })
 
 test('archetype matching is case-insensitive and on the primary segment', () => {
   const rows = [
     ...cohort('strategy & operations', [
-      { company: 'B', overall: 6 }, { company: 'C', overall: 5 },
-      { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+      { company: 'B', priority: 6 }, { company: 'C', priority: 5 },
+      { company: 'D', priority: 8 }, { company: 'E', priority: 7.5 },
     ]),
     // Hybrid whose primary segment matches
-    makeScoreEntry({ company: 'F', role: 'Hybrid', archetype: 'Strategy & Operations + Data', overall: 6.5, location: 'Paris' }),
+    makeScoreEntry({ company: 'F', role: 'Hybrid', archetype: 'Strategy & Operations + Data', priority: 6.5, location: 'Paris' }),
     // Different archetype — excluded
-    makeScoreEntry({ company: 'G', role: 'Nope', archetype: 'Tech Sales', overall: 9.9, location: 'Paris' }),
+    makeScoreEntry({ company: 'G', role: 'Nope', archetype: 'Tech Sales', priority: 9.9, location: 'Paris' }),
   ]
-  const self = makeScoreEntry({ company: 'A', role: 'Self', archetype: 'Strategy & Operations', overall: 7, location: 'Berlin' })
+  const self = makeScoreEntry({ company: 'A', role: 'Self', archetype: 'Strategy & Operations', priority: 7, location: 'Berlin' })
   const ctx = peerContext(self, [...rows, self])
   assert.ok(ctx)
   assert.equal(ctx.nPeers, 6)          // self + 5 matching, G excluded
@@ -103,11 +103,11 @@ test('archetype matching is case-insensitive and on the primary segment', () => 
 
 test('rank and percentile follow the script math (ties rank below)', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 8.0 },   // self
-    { company: 'B', overall: 6.0 },
-    { company: 'C', overall: 7.0 },
-    { company: 'D', overall: 8.0 },   // tie with self
-    { company: 'E', overall: 9.0 },
+    { company: 'A', priority: 8.0 },   // self
+    { company: 'B', priority: 6.0 },
+    { company: 'C', priority: 7.0 },
+    { company: 'D', priority: 8.0 },   // tie with self
+    { company: 'E', priority: 9.0 },
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
@@ -116,12 +116,12 @@ test('rank and percentile follow the script math (ties rank below)', () => {
   assert.equal(ctx.percentile, 40)
   assert.equal(ctx.rankPosition, 3)
   assert.match(ctx.rankLabel, /bottom half/)
-  assert.deepEqual([...ctx.peerOveralls].sort(), [6, 7, 8, 9])
+  assert.deepEqual([...ctx.peerPriorities].sort(), [6, 7, 8, 9])
 })
 
 test('top of the cohort gets a top-N% label', () => {
-  const others = Array.from({ length: 19 }, (_, i) => ({ company: `P${i}`, overall: 5 + i * 0.1 }))
-  const rows = cohort('Ops', [{ company: 'Self', overall: 9.5 }, ...others])
+  const others = Array.from({ length: 19 }, (_, i) => ({ company: `P${i}`, priority: 5 + i * 0.1 }))
+  const rows = cohort('Ops', [{ company: 'Self', priority: 9.5 }, ...others])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
   assert.equal(ctx.rankPosition, 1)
@@ -132,12 +132,12 @@ test('top of the cohort gets a top-N% label', () => {
 test('re-evaluated peers count once, at their latest score', () => {
   const rows = [
     ...cohort('Ops', [
-      { company: 'A', overall: 7.0 },
-      { company: 'B', overall: 6.0, date: '2026-04-01' },
-      { company: 'C', overall: 5.0 }, { company: 'D', overall: 5.5 }, { company: 'E', overall: 5.2 },
+      { company: 'A', priority: 7.0 },
+      { company: 'B', priority: 6.0, date: '2026-04-01' },
+      { company: 'C', priority: 5.0 }, { company: 'D', priority: 5.5 }, { company: 'E', priority: 5.2 },
     ]),
     // B re-evaluated later, now ABOVE self — must replace, not add
-    makeScoreEntry({ archetype: 'Ops', company: 'B', role: 'Analyst 1', location: 'Berlin', date: '2026-06-01', overall: 8.0 }),
+    makeScoreEntry({ archetype: 'Ops', company: 'B', role: 'Analyst 1', location: 'Berlin', date: '2026-06-01', priority: 8.0 }),
   ]
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
@@ -149,11 +149,11 @@ test('re-evaluated peers count once, at their latest score', () => {
 
 test('dim deltas compare against the OTHER peers and flag ±1.5 outliers', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 8, skills_match: 9, brand_value: 4 },
-    { company: 'B', overall: 6, skills_match: 6, brand_value: 7 },
-    { company: 'C', overall: 6, skills_match: 7, brand_value: 7 },
-    { company: 'D', overall: 6, skills_match: 6, brand_value: 7 },
-    { company: 'E', overall: 6, skills_match: 5, brand_value: 7 },
+    { company: 'A', priority: 8, skills_match: 9, brand_value: 4 },
+    { company: 'B', priority: 6, skills_match: 6, brand_value: 7 },
+    { company: 'C', priority: 6, skills_match: 7, brand_value: 7 },
+    { company: 'D', priority: 6, skills_match: 6, brand_value: 7 },
+    { company: 'E', priority: 6, skills_match: 5, brand_value: 7 },
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
@@ -172,31 +172,31 @@ test('dim deltas compare against the OTHER peers and flag ±1.5 outliers', () =>
   assert.equal(OUTLIER_THRESHOLD, 1.5)
 })
 
-test('dims the entry has not scored (0) are skipped, not treated as gaps', () => {
+test('dims the entry has not scored (null) are skipped, not treated as gaps', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 8, skills_match: 8 },   // all other dims 0
-    { company: 'B', overall: 6, skills_match: 6, brand_value: 7 },
-    { company: 'C', overall: 6, skills_match: 7, brand_value: 7 },
-    { company: 'D', overall: 6, skills_match: 6, brand_value: 7 },
-    { company: 'E', overall: 6, skills_match: 5, brand_value: 7 },
+    { company: 'A', priority: 8, skills_match: 8 },   // all other dims null
+    { company: 'B', priority: 6, skills_match: 6, brand_value: 7 },
+    { company: 'C', priority: 6, skills_match: 7, brand_value: 7 },
+    { company: 'D', priority: 6, skills_match: 6, brand_value: 7 },
+    { company: 'E', priority: 6, skills_match: 5, brand_value: 7 },
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
   assert.deepEqual(ctx.deltas.map(d => d.dim), ['skills_match'])
-  assert.ok(PEER_DIMS.length === 6)
+  assert.ok(PEER_DIMS.length === 9)   // the nine judged v2 dims
 })
 
 test('sub-outlier deltas are reported but not flagged', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 7, strategic_fit: 7 },
-    { company: 'B', overall: 6, strategic_fit: 6 },
-    { company: 'C', overall: 6, strategic_fit: 7 },
-    { company: 'D', overall: 6, strategic_fit: 6 },
-    { company: 'E', overall: 6, strategic_fit: 7 },
+    { company: 'A', priority: 7, role_content: 7 },
+    { company: 'B', priority: 6, role_content: 6 },
+    { company: 'C', priority: 6, role_content: 7 },
+    { company: 'D', priority: 6, role_content: 6 },
+    { company: 'E', priority: 6, role_content: 7 },
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
-  const sf = ctx.deltas.find(d => d.dim === 'strategic_fit')
+  const sf = ctx.deltas.find(d => d.dim === 'role_content')
   assert.ok(sf)
   assert.equal(sf.delta, 0.5)
   assert.equal(sf.outlier, false)
@@ -206,12 +206,12 @@ test('sub-outlier deltas are reported but not flagged', () => {
 
 test('comparables exclude the same company, sort by closeness, cap at 3', () => {
   const rows = cohort('Ops', [
-    { company: 'Self', overall: 7.0 },
-    { company: 'Self', overall: 7.1, role: 'Other Role' },  // same company — excluded
-    { company: 'B', overall: 6.9 },
-    { company: 'C', overall: 7.3 },
-    { company: 'D', overall: 5.0 },
-    { company: 'E', overall: 7.05 },
+    { company: 'Self', priority: 7.0 },
+    { company: 'Self', priority: 7.1, role: 'Other Role' },  // same company — excluded
+    { company: 'B', priority: 6.9 },
+    { company: 'C', priority: 7.3 },
+    { company: 'D', priority: 5.0 },
+    { company: 'E', priority: 7.05 },
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
@@ -271,11 +271,11 @@ function assertRankParity(entry: ScoreEntry, history: ScoreEntry[], msg?: string
 
 test('rankOf matches peerContext on a plain cohort with ties', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 8.0 },
-    { company: 'B', overall: 6.0 },
-    { company: 'C', overall: 7.0 },
-    { company: 'D', overall: 8.0 },   // tie with A
-    { company: 'E', overall: 9.0 },
+    { company: 'A', priority: 8.0 },
+    { company: 'B', priority: 6.0 },
+    { company: 'C', priority: 7.0 },
+    { company: 'D', priority: 8.0 },   // tie with A
+    { company: 'E', priority: 9.0 },
   ])
   for (const r of rows) assertRankParity(r, rows, `row ${r.company}`)
 })
@@ -283,11 +283,11 @@ test('rankOf matches peerContext on a plain cohort with ties', () => {
 test('rankOf matches peerContext when peers were re-evaluated', () => {
   const rows = [
     ...cohort('Ops', [
-      { company: 'A', overall: 7.0 },
-      { company: 'B', overall: 6.0, date: '2026-04-01' },
-      { company: 'C', overall: 5.0 }, { company: 'D', overall: 5.5 }, { company: 'E', overall: 5.2 },
+      { company: 'A', priority: 7.0 },
+      { company: 'B', priority: 6.0, date: '2026-04-01' },
+      { company: 'C', priority: 5.0 }, { company: 'D', priority: 5.5 }, { company: 'E', priority: 5.2 },
     ]),
-    makeScoreEntry({ archetype: 'Ops', company: 'B', role: 'Analyst 1', location: 'Berlin', date: '2026-06-01', overall: 8.0 }),
+    makeScoreEntry({ archetype: 'Ops', company: 'B', role: 'Analyst 1', location: 'Berlin', date: '2026-06-01', priority: 8.0 }),
   ]
   for (const r of rows) assertRankParity(r, rows, `row ${r.company}@${r.date}`)
 })
@@ -295,23 +295,23 @@ test('rankOf matches peerContext when peers were re-evaluated', () => {
 test('rankOf matches peerContext on hybrid / case-varied archetypes', () => {
   const rows = [
     ...cohort('strategy & operations', [
-      { company: 'B', overall: 6 }, { company: 'C', overall: 5 },
-      { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+      { company: 'B', priority: 6 }, { company: 'C', priority: 5 },
+      { company: 'D', priority: 8 }, { company: 'E', priority: 7.5 },
     ]),
-    makeScoreEntry({ company: 'F', role: 'Hybrid', archetype: 'Strategy & Operations + Data', overall: 6.5, location: 'Paris' }),
-    makeScoreEntry({ company: 'G', role: 'Nope', archetype: 'Tech Sales', overall: 9.9, location: 'Paris' }),
-    makeScoreEntry({ company: 'A', role: 'Self', archetype: 'Strategy & Operations', overall: 7, location: 'Berlin' }),
+    makeScoreEntry({ company: 'F', role: 'Hybrid', archetype: 'Strategy & Operations + Data', priority: 6.5, location: 'Paris' }),
+    makeScoreEntry({ company: 'G', role: 'Nope', archetype: 'Tech Sales', priority: 9.9, location: 'Paris' }),
+    makeScoreEntry({ company: 'A', role: 'Self', archetype: 'Strategy & Operations', priority: 7, location: 'Berlin' }),
   ]
   for (const r of rows) assertRankParity(r, rows, `row ${r.company}`)
 })
 
 test('rankOf honors the MIN_PEERS omit rule exactly at the boundary', () => {
   const four = cohort('Ops', [
-    { company: 'A', overall: 7 }, { company: 'B', overall: 6 },
-    { company: 'C', overall: 5 }, { company: 'D', overall: 8 },
+    { company: 'A', priority: 7 }, { company: 'B', priority: 6 },
+    { company: 'C', priority: 5 }, { company: 'D', priority: 8 },
   ])
   assert.equal(buildPeerRankIndex(four).rankOf(four[0]), null)   // 4 < 5
-  const five = [...four, makeScoreEntry({ archetype: 'Ops', company: 'E', role: 'Analyst 4', location: 'Berlin', overall: 7.5 })]
+  const five = [...four, makeScoreEntry({ archetype: 'Ops', company: 'E', role: 'Analyst 4', location: 'Berlin', priority: 7.5 })]
   const summary = buildPeerRankIndex(five).rankOf(five[0])
   assert.ok(summary)
   assert.equal(summary.nPeers, 5)
@@ -320,20 +320,20 @@ test('rankOf honors the MIN_PEERS omit rule exactly at the boundary', () => {
 
 test('rankOf returns null for unscored or archetype-less entries', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 7 }, { company: 'B', overall: 6 },
-    { company: 'C', overall: 5 }, { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+    { company: 'A', priority: 7 }, { company: 'B', priority: 6 },
+    { company: 'C', priority: 5 }, { company: 'D', priority: 8 }, { company: 'E', priority: 7.5 },
   ])
   const idx = buildPeerRankIndex(rows)
-  assert.equal(idx.rankOf(makeScoreEntry({ archetype: 'Ops', overall: 0 })), null)
-  assert.equal(idx.rankOf(makeScoreEntry({ archetype: '', overall: 7 })), null)
+  assert.equal(idx.rankOf(makeScoreEntry({ archetype: 'Ops', priority: null })), null)
+  assert.equal(idx.rankOf(makeScoreEntry({ archetype: '', priority: 7 })), null)
 })
 
 test('rankOf matches peerContext for an entry NOT present in the history', () => {
   const rows = cohort('Ops', [
-    { company: 'B', overall: 6 }, { company: 'C', overall: 5 },
-    { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 }, { company: 'F', overall: 6.8 },
+    { company: 'B', priority: 6 }, { company: 'C', priority: 5 },
+    { company: 'D', priority: 8 }, { company: 'E', priority: 7.5 }, { company: 'F', priority: 6.8 },
   ])
-  const outsider = makeScoreEntry({ company: 'X', role: 'New Role', archetype: 'Ops', overall: 7.2, location: 'Madrid' })
+  const outsider = makeScoreEntry({ company: 'X', role: 'New Role', archetype: 'Ops', priority: 7.2, location: 'Madrid' })
   assertRankParity(outsider, rows)
   // Outsider joins as the +1: 5 peers in history + itself
   const summary = buildPeerRankIndex(rows).rankOf(outsider)
@@ -341,15 +341,15 @@ test('rankOf matches peerContext for an entry NOT present in the history', () =>
   assert.equal(summary.nPeers, 6)
 })
 
-test('rankOf ranks the PASSED overall, like peerContext, when it differs from the deduped-latest row', () => {
+test('rankOf ranks the PASSED priority, like peerContext, when it differs from the deduped-latest row', () => {
   const rows = cohort('Ops', [
-    { company: 'A', overall: 8.5, date: '2026-06-01' },
-    { company: 'B', overall: 6 }, { company: 'C', overall: 5 },
-    { company: 'D', overall: 8 }, { company: 'E', overall: 7.5 },
+    { company: 'A', priority: 8.5, date: '2026-06-01' },
+    { company: 'B', priority: 6 }, { company: 'C', priority: 5 },
+    { company: 'D', priority: 8 }, { company: 'E', priority: 7.5 },
   ])
   // Caller holds A's OLDER evaluation (5.5) — both surfaces rank that value,
   // with A's latest row (8.5) excluded from the cohort as "self".
-  const staleA = makeScoreEntry({ archetype: 'Ops', company: 'A', role: 'Analyst 0', location: 'Berlin', date: '2026-04-01', overall: 5.5 })
+  const staleA = makeScoreEntry({ archetype: 'Ops', company: 'A', role: 'Analyst 0', location: 'Berlin', date: '2026-04-01', priority: 5.5 })
   assertRankParity(staleA, rows)
   const summary = buildPeerRankIndex(rows).rankOf(staleA)
   assert.ok(summary)
@@ -366,7 +366,7 @@ test('rankOf parity sweep across a mixed multi-archetype landscape', () => {
       role: `Role ${i % 6}`,
       location: i % 2 === 0 ? 'Berlin' : 'Madrid',
       date: `2026-0${(i % 6) + 1}-15`,
-      overall: (i * 37) % 60 / 10 + 4,     // deterministic 4.0–9.9 spread with ties
+      priority: (i * 37) % 60 / 10 + 4,     // deterministic 4.0–9.9 spread with ties
     }))
   }
   for (const r of rows) {
@@ -386,10 +386,10 @@ test('the omit gate is the contract gate, not a local literal', () => {
 })
 
 // Cohort of exactly `size` distinct entities sharing one archetype, self first.
-function cohortOfSize(size: number, selfOverall = 7): ScoreEntry[] {
+function cohortOfSize(size: number, selfPriority = 7): ScoreEntry[] {
   return cohort('Ops', [
-    { company: 'Self', overall: selfOverall },
-    ...Array.from({ length: size - 1 }, (_, i) => ({ company: `P${i}`, overall: 5 + (i % 5) * 0.1 })),
+    { company: 'Self', priority: selfPriority },
+    ...Array.from({ length: size - 1 }, (_, i) => ({ company: `P${i}`, priority: 5 + (i % 5) * 0.1 })),
   ])
 }
 
@@ -427,15 +427,15 @@ test('the batched index reports the same tier as the panel at each boundary', ()
 })
 
 test('a dimension scored by fewer peers carries its own n and its own tier', () => {
-  // 12 entities in the cohort; only 4 of the OTHER 11 scored strategic_fit,
+  // 12 entities in the cohort; only 4 of the OTHER 11 scored role_content,
   // so that dimension is weaker evidence than the block it sits in.
   const rows = cohort('Ops', [
-    { company: 'Self', overall: 8, skills_match: 8, strategic_fit: 9 },
+    { company: 'Self', priority: 8, skills_match: 8, role_content: 9 },
     ...Array.from({ length: 11 }, (_, i) => ({
       company: `P${i}`,
-      overall: 6,
+      priority: 6,
       skills_match: 6,
-      ...(i < 4 ? { strategic_fit: 6 } : {}),
+      ...(i < 4 ? { role_content: 6 } : {}),
     })),
   ])
   const ctx = peerContext(rows[0], rows)
@@ -448,7 +448,7 @@ test('a dimension scored by fewer peers carries its own n and its own tier', () 
   assert.equal(skills.peerN, 11)                    // every other peer scored it
   assert.equal(skills.confidence, 'moderate')
 
-  const sf = ctx.deltas.find(d => d.dim === 'strategic_fit')
+  const sf = ctx.deltas.find(d => d.dim === 'role_content')
   assert.ok(sf)
   assert.equal(sf.peerN, 4)                         // sparser than the cohort
   assert.equal(sf.confidence, 'insufficient')       // 4 < the 5-peer gate
@@ -456,13 +456,13 @@ test('a dimension scored by fewer peers carries its own n and its own tier', () 
   assert.equal(sf.outlier, true)                    // still an outlier — a weaker one
 })
 
-test('the outlier threshold stays in RAW rubric points, not Overall points', () => {
-  // 1.5 raw dimension points is deliberately unrelated to the 0.30 Overall
+test('the outlier threshold stays in RAW rubric points, not Priority points', () => {
+  // 1.5 raw dimension points is deliberately unrelated to the 0.30 Priority
   // noise floor — confusing the two is the failure mode the contract names.
   assert.equal(OUTLIER_THRESHOLD, 1.5)
   const rows = cohort('Ops', [
-    { company: 'Self', overall: 7, skills_match: 7.4 },
-    ...Array.from({ length: 4 }, (_, i) => ({ company: `P${i}`, overall: 7, skills_match: 6 })),
+    { company: 'Self', priority: 7, skills_match: 7.4 },
+    ...Array.from({ length: 4 }, (_, i) => ({ company: `P${i}`, priority: 7, skills_match: 6 })),
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
@@ -482,4 +482,16 @@ test('every rendered peer result exposes the sample a renderer must print', () =
   assert.equal(ctx.minPeers, GATES.peerMinPeers)
   assert.ok(['low', 'moderate', 'high'].includes(ctx.confidence))
   assert.equal(summary.minPeers, GATES.peerMinPeers)
+})
+
+test('blocked (red) rows have no Priority and never join a cohort', () => {
+  const rows = cohort('Ops', [
+    { company: 'A', priority: 7 }, { company: 'B', priority: 6 },
+    { company: 'C', priority: 5 }, { company: 'D', priority: 8 },
+  ])
+  const blocked = makeBlockedEntry('x', { archetype: 'Ops', company: 'Z', role: 'Blocked', location: 'Berlin' })
+  // 4 scored + 1 blocked: the blocked row does not lift the cohort to MIN_PEERS.
+  assert.equal(peerContext(rows[0], [...rows, blocked]), null)
+  assert.equal(peerContext(blocked, [...rows, blocked]), null)
+  assert.equal(buildPeerRankIndex([...rows, blocked]).rankOf(blocked), null)
 })

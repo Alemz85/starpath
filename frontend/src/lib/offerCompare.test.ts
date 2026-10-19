@@ -4,8 +4,8 @@
 // math, weight-normalization edge cases, single-offer weighted scoring + input
 // validation, ranking determinism, tradeoff/decisive-factor analysis, and the
 // close-call vs clear-pick recommendation branches — plus parity assertions that
-// the ported savings band and CF/AF rollups match the documented canonical
-// values, so a divergence from the backend math fails here.
+// the ported savings band matches the documented canonical values and that the
+// v2 fit factor is the role's Want, so a divergence fails here.
 //
 // Runs under the renderer's zero-dep node:test harness (`npm test`).
 
@@ -18,18 +18,14 @@ import {
   DEFAULT_WEIGHTS,
   CLOSE_CALL_THRESHOLD,
   savingsToBaseScore,
-  rollupCurrentFit,
-  rollupAspirationalFit,
-  rollupOverall,
   compFactorFromSavings,
-  fitFactorFromDims,
+  fitFactorFromScores,
   normalizeWeights,
   scoreOffer,
   tradeoffs,
   compareOffers,
   buildRecommendation,
   type FactorScores,
-  type SixDims,
 } from '@/lib/offerCompare'
 
 // Convenience: a full, valid factor-score set we can tweak per test.
@@ -58,27 +54,6 @@ test('savingsToBaseScore reproduces every documented band edge', () => {
   }
 })
 
-test('CF/AF rollups apply the 0.3 bottom-range penalty per low dim', () => {
-  // No low dims → plain average.
-  assert.equal(rollupCurrentFit({ skills_match: 8, ease_of_entry: 7, strategic_fit: 6 } as SixDims), 7)
-  // One dim in [1,2] → average minus 0.3.
-  assert.equal(rollupAspirationalFit({ growth_mobility: 2, optionality_exit: 8, brand_value: 8 } as SixDims), Number((6 - 0.3).toFixed(2)))
-})
-
-test('rollupOverall is CF×0.70 + AF×0.30 with documented context modifiers', () => {
-  // Neutral context: no modifiers.
-  const neutral = rollupOverall(8, 6, { salary_adj_for_city: 6, work_life_balance: 6 })
-  assert.equal(neutral.overall, Number((8 * 0.7 + 6 * 0.3).toFixed(2)))
-  assert.equal(neutral.modifiersApplied.length, 0)
-  // Salary Adj ≤ 4 → −0.4; WLB ≤ 4 → −0.2 (both stack).
-  const dragged = rollupOverall(8, 6, { salary_adj_for_city: 3, work_life_balance: 3 })
-  assert.equal(dragged.overall, Number((8 * 0.7 + 6 * 0.3 - 0.4 - 0.2).toFixed(2)))
-  // Intern carve-out: salary modifier suppressed, WLB still applies.
-  const intern = rollupOverall(8, 6, { salary_adj_for_city: 3, work_life_balance: 3, is_intern: true })
-  assert.equal(intern.overall, Number((8 * 0.7 + 6 * 0.3 - 0.2).toFixed(2)))
-  assert.ok(intern.modifiersApplied.some((m) => /intern/.test(m.source)))
-})
-
 // ─── compFactorFromSavings: reuses the canonical savings band ────────────────
 
 test('compFactorFromSavings maps net−baseline through savingsToBaseScore', () => {
@@ -99,40 +74,24 @@ test('compFactorFromSavings rejects non-finite inputs', () => {
   assert.throws(() => compFactorFromSavings(3000, undefined as unknown as number), TypeError)
 })
 
-// ─── fitFactorFromDims: replays the canonical CF/AF rollup → Overall ─────────
+// ─── fitFactorFromScores: v2 fit = Want ──────────────────────────────────────
 
-test('fitFactorFromDims equals the canonical Overall, never re-derived', () => {
-  const sixDims: SixDims = {
-    skills_match: 8,
-    ease_of_entry: 7,
-    strategic_fit: 8,
-    growth_mobility: 7,
-    optionality_exit: 8,
-    brand_value: 9,
-  }
-  const cf = rollupCurrentFit(sixDims)
-  const af = rollupAspirationalFit(sixDims)
-  const { overall } = rollupOverall(cf, af, { salary_adj_for_city: 6, work_life_balance: 6, is_intern: false })
-
-  const r = fitFactorFromDims(sixDims)
-  assert.equal(r.cf, cf)
-  assert.equal(r.af, af)
-  assert.equal(r.score, overall)
+test('fitFactorFromScores uses the stored Want verbatim, never re-derived', () => {
+  assert.deepEqual(fitFactorFromScores({ want: 8.25 }), { score: 8.25, source: 'want' })
 })
 
-test('fitFactorFromDims threads context modifiers (low salary adj drags Overall)', () => {
-  const sixDims: SixDims = {
-    skills_match: 8,
-    ease_of_entry: 7,
-    strategic_fit: 8,
-    growth_mobility: 7,
-    optionality_exit: 8,
-    brand_value: 9,
+test('fitFactorFromScores replays the Want formula from dimensions when Want is missing', () => {
+  const dims = {
+    growth_mobility: 8, optionality_exit: 8, brand_value: 9, role_content: 7,
+    best_cities: 8, salary_adj_city: 6, work_life_balance: 6,
   }
-  const neutral = fitFactorFromDims(sixDims, { salary_adj_for_city: 6 })
-  const lowComp = fitFactorFromDims(sixDims, { salary_adj_for_city: 3 }) // ≤4 → −0.4
-  assert.ok(lowComp.score < neutral.score)
-  assert.ok(lowComp.modifiersApplied.some((m) => m.value === -0.4))
+  assert.deepEqual(fitFactorFromScores({ want: null, dims }), { score: 8.25, source: 'replay' })
+  // A hygiene veto threads through: WLB 2 caps Want at 5.0.
+  assert.equal(fitFactorFromScores({ dims: { ...dims, work_life_balance: 2 } }).score, 5)
+})
+
+test('fitFactorFromScores falls back to neutral 5 with nothing to go on', () => {
+  assert.deepEqual(fitFactorFromScores({}), { score: 5, source: 'neutral' })
 })
 
 // ─── normalizeWeights ────────────────────────────────────────────────────────
