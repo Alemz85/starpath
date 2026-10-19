@@ -109,7 +109,26 @@ export interface ParsedLocation {
   primary: string | null         // the canonical-best for this row, used
                                  // when the entity is single-city; null
                                  // when the location field is unusable
+  country?: string               // present when the field named a country
+                                 // beside its cities ("Milan, Italy")
 }
+
+// Country tokens that ride along after a city ("Milan, Italy", "Barcelona,
+// Spain"). They are NOT cities: a location naming one city and its country
+// is a single-city entity. Region labels like "EU" stay out of this set on
+// purpose — "Hong Kong / EU" is a genuine multi-region posting.
+const KNOWN_COUNTRIES = new Set<string>([
+  'Austria', 'Österreich', 'Belgium', 'Belgique', 'België', 'Bulgaria', 'Croatia', 'Cyprus',
+  'Czech Republic', 'Czechia', 'Denmark', 'Danmark', 'Estonia', 'Finland', 'Suomi', 'France',
+  'Germany', 'Deutschland', 'Greece', 'Hungary', 'Iceland', 'Ireland', 'Italy', 'Italia',
+  'Latvia', 'Lithuania', 'Luxembourg', 'Malta', 'Netherlands', 'Nederland', 'The Netherlands',
+  'Norway', 'Norge', 'Poland', 'Polska', 'Portugal', 'Romania', 'Slovakia', 'Slovenia',
+  'Spain', 'España', 'Sweden', 'Sverige', 'Switzerland', 'Schweiz', 'Suisse', 'Türkiye', 'Turkey',
+  'United Kingdom', 'UK', 'England', 'Scotland', 'United States', 'USA', 'US', 'Canada',
+  'Australia', 'Singapore', 'Japan', 'India', 'UAE', 'United Arab Emirates', 'Israel',
+])
+
+const isCountry = (t: string) => KNOWN_COUNTRIES.has(t)
 
 export function parseCities(location: string | null | undefined): ParsedLocation {
   if (!location) return { cities: [], isMulti: false, primary: null }
@@ -119,28 +138,52 @@ export function parseCities(location: string | null | undefined): ParsedLocation
   const tokens = cleaned.split(/\s*[,;\/]\s*/).map(t => t.trim()).filter(Boolean)
 
   // Keep every token that names a place — actual cities AND regional
-  // labels like "EU". The Database city filter applies the same
-  // multi-city logic ("filter by EU matches any entity whose cities[]
-  // contains EU"), so dropping region labels would lose useful filter
-  // signal. The only thing we strip is meta-noise like "Remote" used as
-  // a prefix. cityHits keeps the token strings verbatim so the UI can
-  // render them faithfully; the "primary" we return is the first
-  // RECOGNIZED city if any exist (so the entity has a concrete city to
-  // hang scoring on), else the first token.
-  const cityHits: string[] = []
-  for (const t of tokens) {
-    if (/^remote$/i.test(t)) continue          // drop bare "Remote" — kept as suffix in token text otherwise
-    cityHits.push(t)
+  // labels like "EU". The only thing stripped is meta-noise like a bare
+  // "Remote". Country tokens are split off: they qualify the cities, they
+  // don't add one.
+  const places = tokens.filter(t => !/^remote$/i.test(t))
+  if (places.length === 0) return { cities: [], isMulti: false, primary: null }
+
+  const countries = places.filter(isCountry)
+  let cityHits = places.filter(t => !isCountry(t))
+  // A location that is only a country ("Italy") still names a place.
+  const countryOnly = cityHits.length === 0
+  if (countryOnly) cityHits = countries
+  const country = !countryOnly && countries.length > 0 ? countries[0] : undefined
+
+  const dedup = [...new Set(cityHits)]
+  if (dedup.length === 1) {
+    return country
+      ? { cities: dedup, isMulti: false, primary: dedup[0], country }
+      : { cities: dedup, isMulti: false, primary: dedup[0] }
   }
-  if (cityHits.length === 0) return { cities: [], isMulti: false, primary: null }
-  if (cityHits.length === 1) return { cities: cityHits, isMulti: false, primary: cityHits[0] }
 
   // Two or more named places → multi-city. Pick the first RECOGNIZED
   // city as primary (falls back to the first token if none are in the
   // known set — keeps things deterministic for unknown-city corpora).
-  const dedup = [...new Set(cityHits)]
   const firstKnown = dedup.find(t => KNOWN_CITIES.has(t)) ?? dedup[0]
-  return { cities: dedup, isMulti: true, primary: firstKnown }
+  return country
+    ? { cities: dedup, isMulti: true, primary: firstKnown, country }
+    : { cities: dedup, isMulti: true, primary: firstKnown }
+}
+
+// Every value a location contributes to the Database's Location facet: its
+// cities plus the country that qualified them, so "Italy" still works as a
+// filter without being mistaken for a city.
+export function locationFacetValues(location: string | null | undefined): string[] {
+  const parsed = parseCities(location)
+  const out = [...parsed.cities]
+  if (parsed.country && !out.includes(parsed.country)) out.push(parsed.country)
+  return out
+}
+
+// Compact, human form of a location field for cells and headers:
+// "Milan, Italy" → "Milan"; "Berlin / Paris" → "Berlin +1"; "Remote" → "Remote".
+export function formatLocation(location: string | null | undefined): string {
+  const parsed = parseCities(location)
+  if (parsed.cities.length === 0) return (location ?? '').trim() || '—'
+  if (parsed.isMulti) return `${parsed.primary ?? parsed.cities[0]} +${parsed.cities.length - 1}`
+  return parsed.cities[0]
 }
 
 // Compute the entity_id given a row's company, role, and parsed

@@ -17,11 +17,10 @@ import { OrbitalLoader } from '@/components/ui/orbital-loader'
 
 const POPOVER_WIDTH = 240
 
-function InitialCircle({ profile, size = 18 }: { profile: { label?: string; slug: string }; size?: number }) {
+function InitialCircle({ profile }: { profile: { label?: string; slug: string } }) {
   return (
     <span
-      className="rounded-full bg-accent/15 text-accent-text font-semibold flex items-center justify-center shrink-0"
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.55) }}
+      className="w-[18px] h-[18px] rounded-full bg-accent-soft text-accent-text text-micro font-semibold flex items-center justify-center shrink-0"
       aria-hidden
     >
       {profileInitial(profile)}
@@ -103,8 +102,8 @@ export function ProfileSwitcher({ expanded }: { expanded: boolean }) {
         aria-label={active ? `Profile: ${active.label || active.slug}` : 'Profiles'}
         title={!expanded ? (active ? active.label || active.slug : 'Profiles') : undefined}
         className={cn(
-          'flex items-center rounded-md bg-bg-base border border-border-default text-text-2 hover:text-text-1 transition-colors text-label disabled:opacity-60',
-          expanded ? 'w-full gap-2 px-2 py-1.5' : 'w-9 h-9 justify-center',
+          'btn btn-ghost btn-sm text-text-2',
+          expanded ? 'w-full justify-start gap-2 px-2' : 'btn-icon',
         )}
       >
         {switching
@@ -114,7 +113,7 @@ export function ProfileSwitcher({ expanded }: { expanded: boolean }) {
             : <span className="text-text-4">—</span>}
         {expanded && (
           <>
-            <span className="flex-1 text-left truncate">
+            <span className="flex-1 min-w-0 text-left truncate">
               {switching ? 'Switching…' : active ? active.label || active.slug : 'no active profile'}
             </span>
             <ChevronDown
@@ -130,11 +129,11 @@ export function ProfileSwitcher({ expanded }: { expanded: boolean }) {
           ref={popRef}
           role="menu"
           aria-label="Profiles"
-          className="fixed z-50 rounded-lg border border-border-strong bg-bg-base shadow-lift overflow-hidden"
+          className="card shadow-menu rounded-lg fixed z-50 overflow-hidden"
           style={{ left: anchor.left, top: anchor.top, width: POPOVER_WIDTH, animation: 'chip-appear 160ms ease both' }}
         >
-          <div className="px-3 pt-2 pb-1 text-micro text-text-4 uppercase">Profiles</div>
-          <div className="max-h-60 overflow-y-auto pb-1">
+          <div className="label px-3 pt-2.5 pb-1">Profiles</div>
+          <div className="max-h-60 overflow-y-auto p-1 pt-0">
             {profiles.map(p => (
               <button
                 key={p.slug}
@@ -142,17 +141,18 @@ export function ProfileSwitcher({ expanded }: { expanded: boolean }) {
                 disabled={!!switching || p.active}
                 onClick={() => void handleSwitch(p)}
                 className={cn(
-                  'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
+                  'w-full min-h-8 flex items-center gap-2 px-2 py-1 rounded text-left transition-colors duration-150 ease-quart',
+                  'focus-visible:outline-none focus-visible:bg-bg-elevated',
                   p.active ? 'cursor-default' : 'hover:bg-bg-elevated',
                   switching && switching !== p.slug && 'opacity-50',
                 )}
               >
                 <InitialCircle profile={p} />
                 <span className="flex-1 min-w-0">
-                  <span className="block text-label text-text-1 font-medium truncate">{p.label || p.slug}</span>
-                  <span className="block text-[10px] text-text-4 truncate">{formatProfileCounts(p.counts)}</span>
+                  <span className="block text-label font-medium text-text-1 truncate">{p.label || p.slug}</span>
+                  <span className="block text-label text-text-3 truncate">{formatProfileCounts(p.counts)}</span>
                 </span>
-                {p.active && <Check size={12} className="text-accent shrink-0" aria-label="Active profile" />}
+                {p.active && <Check size={13} className="text-accent-text shrink-0" aria-label="Active profile" />}
                 {switching === p.slug && <OrbitalLoader size={14} rings={2} className="shrink-0" />}
               </button>
             ))}
@@ -160,20 +160,22 @@ export function ProfileSwitcher({ expanded }: { expanded: boolean }) {
 
           {lastFailure && (
             <div className="px-3 py-2 border-t border-border-default" role="alert">
-              <p className="text-[11px] font-medium text-danger">Switch to {lastFailure.slug} refused</p>
+              <p className="text-label font-medium text-danger">Switch to {lastFailure.slug} refused</p>
               {lastFailure.lines.map((line, i) => (
-                <p key={i} className="text-[11px] text-danger/80 leading-snug mt-0.5">{line}</p>
+                <p key={i} className="text-label text-danger mt-0.5">{line}</p>
               ))}
             </div>
           )}
 
-          <div className="border-t border-border-default py-1">
+          <div className="border-t border-border-default p-1">
             <button
               role="menuitem"
               onClick={() => { setOpen(false); navigate('settings') }}
-              className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-label text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors"
+              className="w-full h-8 flex items-center gap-2 px-2 rounded text-left text-label text-text-3 hover:text-text-1 hover:bg-bg-elevated focus-visible:outline-none focus-visible:bg-bg-elevated transition-colors duration-150 ease-quart"
             >
-              <Plus size={12} className="shrink-0" aria-hidden />
+              <span className="w-[18px] flex items-center justify-center shrink-0" aria-hidden>
+                <Plus size={13} />
+              </span>
               New profile…
             </button>
           </div>

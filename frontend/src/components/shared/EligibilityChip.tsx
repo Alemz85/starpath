@@ -1,79 +1,82 @@
 'use client'
 
 // The ONE eligibility chip and the ONE verdict chip (scoring v2,
-// DESIGN-meta § Tier and Status Sections). Every view uses these so the
-// colour mapping lives in a single place:
+// DESIGN-meta § Eligibility and verdict). Thin wrappers over the
+// design-system primitives so the mapping lives in a single place:
 //
-//   EligibilityChip — semantic tokens over their documented BG tints:
-//     green → success  ("Eligible")
-//     amber → warning  ("Check first")
-//     red   → danger   ("Blocked")
-//   VerdictChip — the verdict's storage-tier tokens (verdict → tier map,
-//     docs/scoring-v2.md §4); a verdict never gets a colour of its own.
-//
-// Pill shape and the 10px mono label match the existing StatusBadge /
-// tier chips, so no new radius, size or colour is introduced.
+//   EligibilityChip — `Chip` semantic tones:
+//     green → success ("Eligible")
+//     amber → warning ("Check first")
+//     red   → danger  ("Blocked")
+//   VerdictChip — `TierChip` colouring via the verdict → tier map
+//     (docs/scoring-v2.md §4); a verdict never gets a colour of its own.
 
 import { cn } from '@/lib/utils'
 import type { Eligibility, Verdict } from '@/types'
-import { ELIGIBILITY_COLORS, ELIGIBILITY_LABELS } from '@/types'
-import { verdictDisplay } from '@/lib/tier'
+import { ELIGIBILITY_LABELS } from '@/types'
+import { Chip, type ChipTone } from '@/components/ui/chip'
+import { tierHex, tierVerdict, verdictTier, TIER_BG_HEX } from '@/lib/tier'
+
+const ELIGIBILITY_TONE: Record<Eligibility, ChipTone> = {
+  green: 'success',
+  amber: 'warning',
+  red:   'danger',
+}
+
+// Dot colours for the compact form — the same semantic tokens.
+const ELIGIBILITY_DOT: Record<Eligibility, string> = {
+  green: 'bg-success',
+  amber: 'bg-warning',
+  red:   'bg-danger',
+}
 
 export function EligibilityChip({
   status, reason, compact = false, className,
 }: {
   status: Eligibility | null | undefined
-  /** Shown in the tooltip (and inline for `red` when not compact). */
+  /** Shown in the tooltip. */
   reason?: string | null
   /** Dot only — for dense table cells. */
   compact?: boolean
   className?: string
 }) {
   if (!status) return null
-  const c = ELIGIBILITY_COLORS[status]
   const title = reason ? `${ELIGIBILITY_LABELS[status]} — ${reason}` : ELIGIBILITY_LABELS[status]
   if (compact) {
     return (
       <span className={cn('inline-flex items-center', className)} title={title} aria-label={title}>
-        <span className={cn('inline-block w-1.5 h-1.5 rounded-full', c.dot)} aria-hidden />
+        <span className={cn('inline-block w-1.5 h-1.5 rounded-full', ELIGIBILITY_DOT[status])} aria-hidden />
       </span>
     )
   }
   return (
-    <span
-      className={cn(
-        'shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-pill border',
-        'text-[10px] font-mono font-semibold uppercase tracking-[0.06em] whitespace-nowrap',
-        c.bg, c.text, c.border, className,
-      )}
-      title={title}
-    >
-      <span className={cn('inline-block w-1.5 h-1.5 rounded-full', c.dot)} aria-hidden />
+    <Chip tone={ELIGIBILITY_TONE[status]} className={className} title={title}>
       {ELIGIBILITY_LABELS[status]}
-    </span>
+    </Chip>
   )
 }
 
 export function VerdictChip({
-  verdict, showAction = false, className,
+  verdict, showAction = false, size = 'sm', className,
 }: {
   verdict: Verdict | null | undefined
-  /** Append the cell's action ("Stretch — apply with prep"). */
+  /** "Stretch — apply with prep" instead of "Stretch". */
   showAction?: boolean
+  size?: 'sm' | 'md'
   className?: string
 }) {
-  const v = verdictDisplay(verdict)
-  if (!v) return null
+  const tier = verdictTier(verdict)
+  if (!tier) return null
+  // Same chip shape and tier colouring as `TierChip` (components/ui/chip),
+  // with the verdict label instead of the tier symbol.
+  const color = tierHex(tier)
   return (
     <span
-      className={cn(
-        'shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-pill border',
-        'text-[10px] font-mono font-semibold tracking-[0.02em] whitespace-nowrap',
-        v.chip.bg, v.chip.text, v.chip.border, className,
-      )}
-      title={`${v.headline} (${v.tier})`}
+      className={cn('chip font-semibold', size === 'md' && 'chip-md', className)}
+      style={{ color, background: TIER_BG_HEX[tier] ?? '#F1F4F7', borderColor: `${color}33` }}
+      title={`${tierVerdict(verdict)} (${tier})`}
     >
-      {showAction ? v.headline : v.label}
+      {tierVerdict(verdict, { short: !showAction })}
     </span>
   )
 }

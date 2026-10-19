@@ -8,25 +8,27 @@ import { claudeEvalArgs, refreshCvSummary, top5ReportsPrompt } from '@/lib/evalS
 import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
   Search, FileText, X, ExternalLink, Sparkles, Square,
-  ClipboardList, Lightbulb, Coins, CheckCircle2, TrendingUp, Target,
-  Copy, Folder, Check, Compass, Wrench, ArrowUpRight,
+  Copy, Check, ArrowUp, ArrowDown, ArrowUpRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import type { ReportFile, ScoreEntry } from '@/types'
+import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { Button, Panel, PageHeader, TierChip } from '@/components/ui'
 import { ReportSlideOver } from './ReportSlideOver'
 import {
   getScoreBand, BAND_DETAILS, type ScoreBand,
   filterReportRows, sortReportRows,
   corpusBands as computeCorpusBands, bandCounts as computeBandCounts,
   buildScoreIndex, matchScore,
-  isNearMiss, reportEngineLever, nextBandUp,
+  isNearMiss, reportEngineLever,
   type FixabilityRow,
 } from '@/lib/reportsList'
 import { leverSentence } from '@/lib/tierLevers'
-import { normalizeEligibility, normalizeTier, parseEligibilityFlags, VERDICT_LABELS } from '@/lib/scoreBands'
+import {
+  normalizeEligibility, normalizeTier, normalizeVerdict, parseEligibilityFlags, verdictOf, VERDICT_LABELS,
+} from '@/lib/scoreBands'
 import { WantEase } from '@/components/shared/WantEase'
-import { EligibilityChip } from '@/components/shared/EligibilityChip'
+import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -59,84 +61,16 @@ interface PositioningReportInfo {
   content: string
 }
 
-/* ───── Custom Micro-Animated Space Icons ───── */
-
-const PulsarIcon = () => (
-  <svg className="w-10 h-10" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <style>{`
-      @keyframes pulsar-scale {
-        0% { transform: scale(0.65); opacity: 0.85; }
-        50% { transform: scale(1.05); opacity: 0.25; }
-        100% { transform: scale(0.65); opacity: 0.85; }
-      }
-      .pulsar-ring {
-        transform-origin: center;
-        animation: pulsar-scale 4s ease-in-out infinite;
-      }
-      .pulsar-ring-delayed {
-        transform-origin: center;
-        animation: pulsar-scale 4s ease-in-out infinite 2s;
-      }
-    `}</style>
-    <circle cx="50" cy="50" r="11" fill="#7C5CFF" fillOpacity="0.2" stroke="#7C5CFF" strokeWidth="2" />
-    <circle className="pulsar-ring" cx="50" cy="50" r="23" stroke="#5B3FE8" strokeWidth="1.5" strokeDasharray="3 3" />
-    <circle className="pulsar-ring-delayed" cx="50" cy="50" r="35" stroke="#3D2BB5" strokeWidth="1" />
-  </svg>
-)
-
-const ConstellationIcon = () => (
-  <svg className="w-10 h-10" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <style>{`
-      @keyframes constellation-glow {
-        0%, 100% { opacity: 0.45; }
-        50% { opacity: 1; }
-      }
-      .star {
-        animation: constellation-glow 3s ease-in-out infinite;
-      }
-      .star-1 { animation-delay: 0s; }
-      .star-2 { animation-delay: 0.8s; }
-      .star-3 { animation-delay: 1.6s; }
-    `}</style>
-    <path d="M25 45 L50 25 L75 55 L50 75 Z" stroke="#7C5CFF" strokeWidth="1" strokeDasharray="3 3" opacity="0.5" />
-    <path d="M50 25 L50 75" stroke="#B5A3FF" strokeWidth="0.75" opacity="0.3" />
-    <path d="M25 45 L75 55" stroke="#B5A3FF" strokeWidth="0.75" opacity="0.3" />
-    
-    <circle className="star star-1" cx="50" cy="25" r="4.5" fill="#7C5CFF" />
-    <circle className="star star-2" cx="75" cy="55" r="3.5" fill="#3D2BB5" />
-    <circle className="star star-3" cx="50" cy="75" r="4.5" fill="#7C5CFF" />
-    <circle className="star star-2" cx="25" cy="45" r="3.5" fill="#5B3FE8" />
-  </svg>
-)
-
-const NebulaIcon = () => (
-  <svg className="w-10 h-10" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <style>{`
-      @keyframes nebula-spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-      .nebula-halo {
-        transform-origin: center;
-        animation: nebula-spin 25s linear infinite;
-      }
-    `}</style>
-    <defs>
-      <radialGradient id="nebulaGrad" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stopColor="#7C5CFF" stopOpacity="0.35" />
-        <stop offset="60%" stopColor="#5B3FE8" stopOpacity="0.12" />
-        <stop offset="100%" stopColor="#0A0820" stopOpacity="0" />
-      </radialGradient>
-    </defs>
-    <circle cx="50" cy="50" r="45" fill="url(#nebulaGrad)" />
-    <g className="nebula-halo">
-      <path d="M50 18 A32 32 0 0 1 82 50" stroke="#7C5CFF" strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
-      <path d="M50 82 A32 32 0 0 1 18 50" stroke="#3D2BB5" strokeWidth="1.25" strokeLinecap="round" opacity="0.5" />
-      <circle cx="82" cy="50" r="2.5" fill="#B5A3FF" />
-      <circle cx="18" cy="50" r="2" fill="#B5A3FF" />
-    </g>
-  </svg>
-)
+// Sort keys for the toolbar's segmented control. `score` sorts by Priority
+// (√(Want × Ease)) — a sort key only, never shown as a number. `fixable` ranks
+// by "easiest near-miss to upgrade": the cheapest single change into a better
+// verdict cell first.
+const SORT_OPTIONS = [
+  { field: 'score' as const,   label: 'Priority' },
+  { field: 'date' as const,    label: 'Date' },
+  { field: 'tier' as const,    label: 'Tier' },
+  { field: 'fixable' as const, label: 'Fixability' },
+]
 
 export function ReportsView() {
   const scoreHistory = useDataStore(s => s.scoreHistory)
@@ -171,8 +105,8 @@ export function ReportsView() {
   const [sortBy, setSortBy] = useState<'score' | 'date' | 'tier' | 'fixable'>('score')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
-  // "Easiest near-miss to upgrade" filter — keeps only reports one cheap lever
-  // / a small gap from the next tier up.
+  // "Easiest near-miss to upgrade" filter — keeps only reports one change
+  // away from a better verdict cell.
   const [nearMissOnly, setNearMissOnly] = useState(false)
 
   const loadPositioningReports = async () => {
@@ -336,10 +270,10 @@ export function ReportsView() {
     setSelectedBands(next)
   }
 
-  // Bands present anywhere in the corpus — this is the stable chip set.
-  // T3/T4 listings never get a report written to disk, so 'pass'/'skip'
-  // typically don't appear; computing this from the data keeps the chip row
-  // honest instead of always rendering five chips, three of which match zero.
+  // Verdict bands present anywhere in the corpus — the stable chip set.
+  // T3/T4 listings rarely get a full report, so 'skip'/'blocked' typically
+  // don't appear; computing this from the data keeps the chip row
+  // honest instead of always rendering seven chips, most of which match zero.
   const corpusBands = useMemo(() => computeCorpusBands(reportRows), [reportRows])
 
   // Per-band report counts under the active search query but BEFORE the band
@@ -376,313 +310,252 @@ export function ReportsView() {
 
   const selectedScore = selected ? scoreFor(selected) : null
 
-  // Rotate all three space icons across consecutive months. (Was `% 2`, which
-  // only ever yielded 0 or 1 — NebulaIcon was unreachable.)
-  const renderPositioningIcon = (month: number) => {
-    const i = month % 3
-    if (i === 0) return <PulsarIcon />
-    if (i === 1) return <ConstellationIcon />
-    return <NebulaIcon />
-  }
+  const shownReports = showAllHistory ? positioningReports : positioningReports.slice(0, 6)
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Reports</h1>
-        <span className="text-label text-text-4 font-mono">
-          {loaded ? `${filteredFiles.length} / ${reportRows.length}` : '…'}
-        </span>
-      </div>
+      <PageHeader
+        title="Reports"
+        meta={loaded ? `${filteredFiles.length} of ${reportRows.length}` : '…'}
+        actions={
+          // Generate top 5 spawns the deep-template run: "5 deep, defensible
+          // reports beats 8 shallow ones". Live progress on the Activity tab.
+          <Button
+            tone={top5Running ? 'stop' : 'tinted'}
+            size="sm"
+            icon={top5Running ? <Square size={11} className="fill-current" /> : <Sparkles size={13} />}
+            onClick={handleGenerateTop5}
+            disabled={!repoPath}
+            title={top5Running
+              ? 'Stop the run (live log on the Activity tab)'
+              : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-Priority (√(Want × Ease)) entries. Uses Claude tokens; live log on the Activity tab.'}
+          >
+            {top5Running ? 'Stop' : 'Generate top 5 reports'}
+          </Button>
+        }
+      />
 
-      {/* Career Positioning Hub — header row carries the CTA so the
-          report cards below get the full width as a horizontal strip. */}
-      <div className="px-4 pt-3 pb-3 border-b border-border-default bg-bg-cosmos shrink-0">
-        <div className="flex flex-col gap-2.5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 min-w-0">
-              <h2 className="text-[11px] font-bold uppercase tracking-wider text-text-3 flex items-center gap-1.5 shrink-0">
-                <Sparkles size={11} className="text-accent animate-pulse" />
-                Career Positioning Hub
-              </h2>
-              <span className="text-[10px] text-text-4 truncate">
-                Cross-cutting audit of your active landscape &amp; goals.
-              </span>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
+      <div className="flex-1 min-h-0 overflow-y-auto p-5 flex flex-col gap-4">
+        {/* Career positioning: past cross-cutting audits as a row of tiles,
+            with the run action in the panel heading. */}
+        <Panel
+          title="Career positioning"
+          meta="Cross-cutting audit of your landscape and goals"
+          action={
+            <span className="flex items-center gap-1.5">
               {positioningReports.length > 3 && (
-                <button
-                  onClick={() => setShowAllHistory(!showAllHistory)}
-                  className="text-micro text-accent font-semibold hover:underline bg-transparent"
-                >
+                <Button tone="ghost" size="xs" onClick={() => setShowAllHistory(!showAllHistory)}>
                   {showAllHistory ? 'Show recent' : `All (${positioningReports.length})`}
-                </button>
+                </Button>
               )}
-              <button
+              <Button
+                tone={positioningRunning ? 'stop' : 'tinted'}
+                size="sm"
+                icon={positioningRunning ? <Square size={11} className="fill-current" /> : <Sparkles size={13} />}
                 onClick={handleAnalyzeTrajectory}
                 disabled={!repoPath}
                 title={positioningRunning
                   ? 'Stop the run (live log on the Activity tab)'
                   : 'Run /career-ops positioning across the full corpus. Uses Claude tokens; live log on the Activity tab.'}
-                className={cn(
-                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-label border transition-colors',
-                  positioningRunning
-                    ? 'bg-danger/10 border-danger/40 text-danger hover:bg-danger/15'
-                    : 'bg-accent/15 border-accent/35 text-accent-text hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed',
-                )}
               >
-                {positioningRunning ? <Square size={11} className="fill-current" /> : <Sparkles size={12} />}
-                {positioningRunning ? 'Stop' : 'Analyze Trajectory'}
-              </button>
-            </div>
-          </div>
-
-          {/* Horizontal scrollable strip of past reports. Auto-height
-              accommodates longer focus-path captions without truncation;
-              fixed min-width keeps cards readable when many exist. */}
-          <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+                {positioningRunning ? 'Stop' : 'Analyze trajectory'}
+              </Button>
+            </span>
+          }
+        >
+          <div className="flex gap-3 overflow-x-auto pb-0.5">
             {loadingPositioning && positioningReports.length === 0 ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="shrink-0 w-[220px] h-[72px] shimmer rounded-xl" />
+                <div key={i} className="shrink-0 w-[200px] h-14 shimmer rounded-lg" />
               ))
             ) : positioningReports.length === 0 ? (
-              <div className="flex-1 min-h-[72px] rounded-xl border border-dashed border-border-default flex items-center justify-center text-center px-4 py-3">
-                <span className="text-[11px] text-text-3">
-                  No positioning reports yet. Click <span className="font-semibold text-text-2">Analyze Trajectory</span> to generate the baseline.
+              <div className="flex-1 h-14 rounded-lg border border-dashed border-border-default flex items-center justify-center text-center px-4">
+                <span className="text-label text-text-3">
+                  No positioning reports yet. Run <span className="font-medium text-text-2">Analyze trajectory</span> to generate the baseline.
                 </span>
               </div>
             ) : (
-              (showAllHistory ? positioningReports : positioningReports.slice(0, 6)).map((rep) => (
+              shownReports.map((rep) => (
+                // Tile carries the date + analyzed count; the focus path is
+                // the hover title here and the subtitle inside the modal.
                 <button
                   key={rep.filename}
                   onClick={() => setSelectedPositioning(rep)}
-                  className="shrink-0 w-[220px] p-3 rounded-xl bg-bg-base border border-border-default hover:border-accent-soft hover:shadow-subtle text-left flex items-center gap-3 transition-all duration-300 group"
                   title={rep.focusPath}
+                  className="card shrink-0 w-[200px] h-14 px-3 flex items-center gap-2.5 text-left transition-colors duration-150 ease-quart hover:border-border-strong hover:bg-bg-elevated"
                 >
-                  <div className="shrink-0 transition-transform duration-300 group-hover:scale-105">
-                    {renderPositioningIcon(rep.month)}
-                  </div>
-                  {/* Card content is just the date + a compact analyzed-
-                      count stat. The focus-path caption is dropped — at
-                      220px there isn't enough room for a real one, and a
-                      generic placeholder would just be visual chrome.
-                      Hover the card to see the full focus path; click to
-                      open the modal where the focus path renders as a
-                      real subtitle. */}
-                  <div className="flex-1 min-w-0 flex flex-col gap-1">
-                    <span className="text-[13px] font-bold text-text-1 group-hover:text-accent transition-colors duration-150 leading-tight">
-                      {rep.dateStr}
-                    </span>
-                    <span className="text-[10.5px] text-text-4 font-mono tabular-nums">
-                      {rep.evalCount} analyzed
-                    </span>
-                  </div>
+                  <Sparkles size={14} className="shrink-0 text-text-4" aria-hidden />
+                  <span className="min-w-0 flex flex-col">
+                    <span className="text-body font-medium text-text-1 leading-tight truncate">{rep.dateStr}</span>
+                    <span className="text-label text-text-4 truncate">{rep.evalCount} analyzed</span>
+                  </span>
                 </button>
               ))
             )}
           </div>
-        </div>
-      </div>
+        </Panel>
 
-      {/* Controls */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-border-default bg-bg-chrome shrink-0">
-        {/* Search — borderless, no focus halo. Just an icon + input that
-            blends with the chrome row. */}
-        <div className="flex items-center gap-2 flex-1 max-w-xs">
-          <Search size={13} className="text-text-4 shrink-0" />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Escape') {
-                if (query) setQuery('')
-                else e.currentTarget.blur()
-              }
-            }}
-            placeholder="Search company or role…"
-            spellCheck={false}
-            className="flex-1 bg-transparent outline-none text-label text-text-1 placeholder:text-text-4 min-w-0"
-          />
-          {query ? (
-            <button onClick={() => setQuery('')} className="text-text-4 hover:text-text-2 shrink-0">
-              <X size={11} />
-            </button>
-          ) : (
-            <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-mono text-text-4 bg-bg-base border border-border-default shrink-0">
-              /
-            </kbd>
-          )}
-        </div>
-
-        {/* Sort Controls. `fixable` ranks by "easiest near-miss to upgrade" —
-            cheapest tier-crossing first (a T3 at 6.9 with a named lever beats a
-            T3 at 5.2 with none). Labelled "Fixability" so it reads as effort-to-
-            convert, not a raw score. */}
-        <div className="flex items-center gap-1.5 border-l border-border-default pl-3">
-          <span className="text-[10px] text-text-4 font-bold uppercase tracking-wider">Sort:</span>
-          {([
-            { field: 'score' as const,   label: 'score' },
-            { field: 'date' as const,    label: 'date' },
-            { field: 'tier' as const,    label: 'tier' },
-            { field: 'fixable' as const, label: 'fixability' },
-          ]).map(({ field, label }) => (
-            <button
-              key={field}
-              onClick={() => {
-                if (sortBy === field) {
-                  setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
-                } else {
-                  setSortBy(field)
-                  setSortOrder('desc')
+        {/* Toolbar: search · sort · band and near-miss filters. */}
+        <div className="h-10 shrink-0 flex items-center gap-4">
+          <div className="relative flex-1 max-w-xs">
+            <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-4 pointer-events-none" aria-hidden />
+            <input
+              ref={searchRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') {
+                  if (query) setQuery('')
+                  else e.currentTarget.blur()
                 }
               }}
-              title={field === 'fixable'
-                ? 'Rank by easiest near-miss to upgrade — cheapest tier-crossing first'
-                : undefined}
-              className={cn(
-                'px-2 py-0.5 text-micro font-mono rounded border transition-colors inline-flex items-center gap-1 uppercase tracking-wider',
-                sortBy === field
-                  ? 'bg-accent/10 text-accent border-accent/35 font-semibold'
-                  : 'text-text-4 border-border-default hover:border-border-strong bg-transparent'
-              )}
-            >
-              {field === 'fixable' && <Wrench size={9} className="shrink-0" />}
-              <span>{label}</span>
-              {sortBy === field && (
-                <span className="text-[9px] font-bold">
-                  {sortOrder === 'asc' ? '▲' : '▼'}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex-1" />
-
-        {/* Near-miss toggle — surfaces only reports one cheap lever / a small
-            gap from the next tier up. The count tells the user how many would
-            survive before they commit to the filter. Hidden when nothing
-            qualifies (and the toggle isn't already on) so it never sits at "0".
-            "Where effort converts" is the whole point of this view. */}
-        {(nearMissCount > 0 || nearMissOnly) && (
-          <button
-            onClick={() => setNearMissOnly(v => !v)}
-            title="Show only reports one cheap lever / a small gap from the next tier up"
-            className={cn(
-              'inline-flex items-center gap-1.5 px-2.5 py-0.5 text-micro font-medium rounded-full border transition-all duration-200 uppercase tracking-wider mr-1',
-              nearMissOnly
-                ? 'bg-accent/15 text-accent-text border-accent/40 font-bold'
-                : 'text-text-3 border-border-default hover:border-border-strong hover:bg-bg-elevated',
-            )}
-          >
-            <ArrowUpRight size={11} className="shrink-0" />
-            <span>Near-miss</span>
-            <span className="text-[10px] font-mono tabular-nums text-text-4">{nearMissCount}</span>
-          </button>
-        )}
-
-        {/* Score band filter chips — only render bands that actually have reports.
-            Reports for T3/T4 listings aren't written to disk by the pipeline,
-            so showing 'Pass'/'Skip' chips here always yields zero matches. */}
-        <div className="flex items-center gap-1.5">
-          {corpusBands.map(band => {
-            const details = BAND_DETAILS[band]
-            const active = selectedBands.has(band)
-            const count = bandCounts[band]
-            // Grey out bands the current search excludes — still clickable, but
-            // signals "selecting this adds nothing right now". Never mute the
-            // active chip (the user explicitly turned it on).
-            const muted = count === 0 && !active
-            return (
+              placeholder="Search company or role…"
+              spellCheck={false}
+              className="input input-sm pl-7 pr-8"
+            />
+            {query ? (
               <button
-                key={band}
-                onClick={() => toggleBand(band)}
-                title={`${details.label} · ${count} report${count === 1 ? '' : 's'}`}
+                onClick={() => setQuery('')}
+                title="Clear search"
+                aria-label="Clear search"
+                className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex items-center justify-center w-5 h-5 rounded text-text-4 hover:text-text-1 hover:bg-bg-elevated transition-colors"
+              >
+                <X size={12} />
+              </button>
+            ) : (
+              <kbd className="kbd absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none">/</kbd>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="label">Sort</span>
+            <div className="flex items-center gap-0.5">
+              {SORT_OPTIONS.map(({ field, label }) => {
+                const on = sortBy === field
+                return (
+                  <Button
+                    key={field}
+                    tone={on ? 'tinted' : 'ghost'}
+                    size="xs"
+                    onClick={() => {
+                      if (sortBy === field) {
+                        setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')
+                      } else {
+                        setSortBy(field)
+                        setSortOrder('desc')
+                      }
+                    }}
+                    title={field === 'fixable'
+                      ? 'Rank by easiest near-miss to upgrade — cheapest change into a better verdict first'
+                      : field === 'score'
+                        ? 'Rank by √(Want × Ease); blocked and unscored reports last'
+                        : undefined}
+                    trailing={on
+                      ? (sortOrder === 'asc' ? <ArrowUp size={12} aria-hidden /> : <ArrowDown size={12} aria-hidden />)
+                      : undefined}
+                  >
+                    {label}
+                  </Button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex-1" />
+
+          <div className="flex items-center gap-1.5">
+            {/* Near-miss toggle: only reports one change (one dimension step,
+                or one amber check resolved) from a better verdict. Hidden when
+                nothing qualifies (and the toggle isn't already on) so it never
+                sits at 0. */}
+            {(nearMissCount > 0 || nearMissOnly) && (
+              <button
+                onClick={() => setNearMissOnly(v => !v)}
+                title="Show only reports one change away from a better verdict"
                 className={cn(
-                  'inline-flex items-center gap-1.5 px-2.5 py-0.5 text-micro font-medium rounded-full border transition-all duration-200 uppercase tracking-wider',
-                  active
-                    ? `${details.bg} ${details.text} ${details.border} font-bold`
-                    : 'text-text-3 border-border-default hover:border-border-strong hover:bg-bg-elevated',
-                  muted && 'opacity-40',
+                  'chip chip-md transition-colors duration-150',
+                  nearMissOnly ? 'chip-accent' : 'hover:border-border-strong hover:text-text-1',
                 )}
               >
-                <span>{details.label}</span>
-                <span className="text-[10px] font-mono tabular-nums text-text-4">{count}</span>
+                <ArrowUpRight size={13} className="shrink-0" aria-hidden />
+                Near-miss
+                <span className="text-text-4 tabular-nums">{nearMissCount}</span>
               </button>
-            )
-          })}
+            )}
+
+            {/* Verdict filters: only verdicts that actually have reports. T3/T4
+                listings get a short report or none, so Skip / Blocked rarely
+                show. */}
+            {corpusBands.map(band => {
+              const details = BAND_DETAILS[band]
+              const active = selectedBands.has(band)
+              const count = bandCounts[band]
+              // Grey out bands the current search excludes: still clickable,
+              // but selecting it adds nothing right now. Never mute an active one.
+              const muted = count === 0 && !active
+              return (
+                <button
+                  key={band}
+                  onClick={() => toggleBand(band)}
+                  title={`${details.label} · ${count} report${count === 1 ? '' : 's'}`}
+                  className={cn(
+                    'chip chip-md transition-colors duration-150',
+                    active ? 'chip-accent' : 'hover:border-border-strong hover:text-text-1',
+                    muted && 'opacity-40',
+                  )}
+                >
+                  {details.label}
+                  <span className="text-text-4 tabular-nums">{count}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
 
-        <div className="w-px h-4 bg-border-default" />
-
-        {/* Right-aligned actions. Generate Top 5 spawns the deep-template
-            top-5 run — the philosophy shift is "5 deep, defensible reports
-            beats 8 shallow ones". Live progress in the Activity tab. */}
-        <button
-          onClick={handleGenerateTop5}
-          disabled={!repoPath}
-          title={top5Running
-            ? 'Stop the run (live log on the Activity tab)'
-            : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-Priority (√(Want × Ease)) entries. Uses Claude tokens; live log on the Activity tab.'}
-          className={cn(
-            'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-label border transition-colors',
-            top5Running
-              ? 'bg-danger/10 border-danger/40 text-danger hover:bg-danger/15'
-              : 'bg-accent/15 border-accent/35 text-accent-text hover:bg-accent/25 disabled:opacity-40 disabled:cursor-not-allowed',
-          )}
-        >
-          {top5Running ? <Square size={11} className="fill-current" /> : <Sparkles size={12} />}
-          {top5Running ? 'Stop' : 'Generate top 5 reports'}
-        </button>
-      </div>
-
-      {/* Grid */}
-      <div className="flex-1 overflow-y-auto p-4">
+        {/* List */}
         {!loaded ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+          <div className="card divide-y divide-border-default overflow-hidden shrink-0" aria-hidden>
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-24 shimmer rounded-lg" />
+              <div key={i} className="h-14 px-4 flex items-center gap-3">
+                <div className="w-7 h-7 rounded shimmer shrink-0" />
+                <div className="flex-1 flex flex-col gap-1.5">
+                  <div className="h-3 w-40 rounded-sm shimmer" />
+                  <div className="h-2.5 w-64 rounded-sm shimmer" />
+                </div>
+              </div>
             ))}
           </div>
         ) : reportRows.length === 0 ? (
-          <div className="flex items-center justify-center py-10">
-            <div className="galaxy-bg rounded-xl px-10 py-12 flex flex-col items-center gap-3 max-w-sm text-center">
-              <FileText size={32} className="text-accent opacity-80" />
-              <p className="text-label text-text-2 font-medium">No reports yet</p>
-              <p className="text-[12px] text-text-3 leading-relaxed">
-                Reports get written when you run <span className="text-text-2 font-semibold">Generate top 5 reports</span> or
-                promote a listing from the Database. They&apos;ll show up here as a scannable grid.
-              </p>
-            </div>
+          <div className="flex flex-col items-center justify-center text-center gap-2 py-16">
+            <FileText size={24} className="text-text-4" aria-hidden />
+            <p className="text-section text-text-1">No reports yet</p>
+            <p className="text-label text-text-3 max-w-sm">
+              Reports get written when you run <span className="font-medium text-text-2">Generate top 5 reports</span> or
+              promote a listing from the Database. They&apos;ll show up here as a scannable list.
+            </p>
           </div>
         ) : filteredFiles.length === 0 ? (
-          <div className="flex items-center justify-center py-10">
-            <div className="galaxy-bg rounded-xl px-10 py-12 flex flex-col items-center gap-3 max-w-sm text-center">
-              <FileText size={32} className="text-accent opacity-80" />
-              <p className="text-label text-text-3">
-                No reports match {query.trim()
-                  ? <>“<span className="text-text-2">{query.trim()}</span>”</>
-                  : 'your filters'}.
-              </p>
-              {hasActiveFilters && (
-                <button
-                  onClick={clearFilters}
-                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
-                >
-                  <X size={11} />
-                  Clear filters
-                </button>
-              )}
-            </div>
+          <div className="flex flex-col items-center justify-center text-center gap-2 py-16">
+            <FileText size={24} className="text-text-4" aria-hidden />
+            <p className="text-section text-text-1">No matching reports</p>
+            <p className="text-label text-text-3 max-w-sm">
+              No reports match {query.trim()
+                ? <>“<span className="text-text-2">{query.trim()}</span>”</>
+                : 'your filters'}.
+            </p>
+            {hasActiveFilters && (
+              <Button tone="ghost" size="sm" icon={<X size={13} />} onClick={clearFilters} className="mt-1">
+                Clear filters
+              </Button>
+            )}
           </div>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3">
+          <div className="card divide-y divide-border-default overflow-hidden shrink-0">
             {filteredFiles.map(report => {
               const score = report.scoreEntry ?? scoreFor(report)
               const url = report.url || score?.url || ''
               return (
-                <ReportCard
+                <ReportRow
                   key={report.path}
                   report={report}
                   scoreEntry={score}
@@ -736,7 +609,7 @@ export function ReportsView() {
         />
       )}
 
-      {/* Full-screen positioning report modal */}
+      {/* Positioning report slide-over */}
       {selectedPositioning && (
         <PositioningModal
           report={selectedPositioning}
@@ -764,7 +637,10 @@ function orphanScoreEntry(r: ReportFile): ScoreEntry {
   }
 }
 
-function ReportCard({
+// One 56px list row: logo · company / role · upgrade caption · verdict ·
+// eligibility + Want · Ease · posting link. The main button opens the report slide-over; the
+// link button is a sibling so the two never nest.
+function ReportRow({
   report,
   scoreEntry,
   url,
@@ -786,89 +662,74 @@ function ReportCard({
   const flags = parseEligibilityFlags(report.eligibility_flags ?? scoreEntry?.eligibility_flags ?? '')
   const red = flags.find(f => f.status === 'red')
   const amberReasons = flags.filter(f => f.status === 'amber').map(f => f.reason).filter(Boolean).join('; ')
-  // A card earns the upgrade footer when it's a genuine near-miss — the
+  // The row's verdict: stored, else replayed from Want · Ease. An orphan
+  // report (no evaluation behind it) has none and falls back to its folder
+  // tier chip rather than a made-up verdict.
+  const verdict = verdictOf({
+    verdict: normalizeVerdict(report.verdict) ?? scoreEntry?.verdict ?? null,
+    want, ease, eligibility,
+  })
+  // A row earns the upgrade caption when it's a genuine near-miss — the
   // engine's one-step rule (lib/reportsList § isNearMiss), identical to the
-  // Database "Near upgrade". `go`, blocked and unscored cards stay clean.
+  // Database "Near upgrade". `go`, blocked and unscored rows stay clean.
   const row = { ...report, scoreEntry }
   const nearMiss = isNearMiss(row)
   const engineLever = nearMiss ? reportEngineLever(row) : null
-  const next = nearMiss ? nextBandUp(getScoreBand(row)) : null
+  // "One change from Stretch · Skills match 6 → 7 → Stretch".
+  const fixText = engineLever
+    ? `One change from ${VERDICT_LABELS[engineLever.toVerdict]} · ${leverSentence(engineLever)}`
+    : null
   return (
-    <div className="relative">
+    <div className={cn(
+      'flex items-center pr-3 transition-colors duration-150 ease-quart',
+      isSelected ? 'bg-accent-soft' : 'hover:bg-bg-elevated',
+    )}>
       <button
         onClick={onClick}
-        className={cn(
-          'w-full text-left p-3 rounded-lg border transition-colors group',
-          isSelected
-            ? 'bg-accent/10 border-accent/40'
-            : 'bg-bg-panel border-border-default hover:border-border-strong hover:bg-bg-elevated',
-        )}
+        className="flex-1 min-w-0 h-14 pl-4 pr-3 flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
       >
-        <div className="flex items-start gap-2.5 min-w-0">
-          <CompanyLogo company={report.company} size={26} className="mt-0.5 shrink-0" />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-2">
-              <div className="text-[13px] text-text-1 font-semibold leading-snug truncate min-w-0">{report.company}</div>
-              <span className="flex items-center gap-1.5 shrink-0">
-                <EligibilityChip status={eligibility} reason={red?.reason ?? (amberReasons || null)} compact />
-                <WantEase
-                  want={want}
-                  ease={ease}
-                  blockedReason={blocked ? (red?.reason || 'Blocked') : null}
-                  className="max-w-[120px]"
-                />
-              </span>
-            </div>
-            <div className={cn(
-              'text-[12px] text-text-3 truncate mt-1 leading-snug',
-              url ? 'pr-9' : 'pr-1',
-            )}>
-              {report.role}
-            </div>
-
-            {/* Upgrade footer — only for near-misses. The pill names the next
-                verdict cell up; the line under it is the engine's cheapest
-                single change (one dimension raised, or one amber resolved). */}
-            {nearMiss && engineLever && (
-              <div className="mt-2 flex flex-col gap-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {next && (
-                    <span
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent/12 text-accent-text border border-accent/30"
-                      title={`One change from ${VERDICT_LABELS[engineLever.toVerdict]}`}
-                    >
-                      <ArrowUpRight size={9} className="shrink-0" />
-                      {VERDICT_LABELS[engineLever.toVerdict]}
-                    </span>
-                  )}
-                </div>
-                <div
-                  className="flex items-start gap-1 text-[11px] leading-snug text-text-3 line-clamp-2"
-                  title={leverSentence(engineLever)}
-                >
-                  <Wrench size={10} className="shrink-0 mt-0.5 text-accent" aria-hidden />
-                  <span className="min-w-0">{leverSentence(engineLever)}</span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+        <CompanyLogo company={report.company} size={28} className="shrink-0" />
+        <span className="flex-1 min-w-0 flex flex-col">
+          <span className="text-body font-semibold text-text-1 leading-tight truncate">{report.company}</span>
+          <span className="text-label text-text-3 truncate">{report.role}</span>
+        </span>
+        {fixText && (
+          <span className="min-w-0 max-w-[40%] truncate text-label text-text-3 text-right" title={fixText}>
+            {fixText}
+          </span>
+        )}
+        {verdict
+          ? <VerdictChip verdict={verdict} className="shrink-0" />
+          : <TierChip tier={normalizeTier(report.tier) ?? report.tier} className="shrink-0" />}
+        <span className="w-[150px] shrink-0 flex items-center justify-end gap-1.5 min-w-0">
+          <EligibilityChip status={eligibility} reason={red?.reason ?? (amberReasons || null)} compact className="shrink-0" />
+          <WantEase
+            want={want}
+            ease={ease}
+            blockedReason={blocked ? (red?.reason || 'Blocked') : null}
+            size="sm"
+            className="min-w-0"
+          />
+        </span>
       </button>
-      {url && (
-        <button
+      {url ? (
+        <Button
+          tone="ghost"
+          size="xs"
+          iconOnly
+          icon={<ExternalLink size={12} />}
           onClick={(e) => { e.stopPropagation(); ipc.openExternal(url) }}
           title="Open job posting"
           aria-label="Open job posting"
-          className="absolute bottom-1.5 right-1.5 inline-flex items-center justify-center w-6 h-6 rounded-md text-text-4 opacity-60 hover:opacity-100 hover:text-accent hover:bg-accent/15 transition-all"
-        >
-          <ExternalLink size={11} />
-        </button>
+        />
+      ) : (
+        <span className="w-6 shrink-0" aria-hidden />
       )}
     </div>
   )
 }
 
-/* ───── Positioning Modal — slide-over with hero, TOC, featured TL;DR ───── */
+/* ───── Positioning report: dossier slide-over with section nav and TL;DR ───── */
 
 interface TocItem {
   slug: string
@@ -886,8 +747,8 @@ interface ParsedPositioningReport {
   toc: TocItem[]
 }
 
-// Stable slug shared by the h2 `id` attribute and the TOC pill `onClick`
-// scroll target — so each pill scrolls to its corresponding section.
+// Stable slug shared by the h2 `id` attribute and the section-nav `onClick`
+// scroll target — so each nav link scrolls to its corresponding section.
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -906,7 +767,7 @@ function cleanHeading(s: string): string {
 function parsePositioningReport(content: string): ParsedPositioningReport {
   // Strip the H1 title + the `**Evaluations analyzed:** ... · ... · ...`
   // / `**Primary archetypes considered:** ...` admin metadata block at the
-  // top of the report. The title is already expressed in the hero; the
+  // top of the report. The title is already expressed in the header; the
   // metadata lines were rendering as a long overflowing paragraph in the
   // body. Also drop the leading `---` rule that separates the metadata
   // block from the first section in the canonical template.
@@ -1007,7 +868,7 @@ function PositioningModal({
     setActiveSection(slug)
   }
 
-  // Track which section is currently in view so the TOC pill stays in
+  // Track which section is currently in view so the nav link stays in
   // sync with the user's scroll position. IntersectionObserver fires on
   // each anchored heading as it crosses the top band of the container.
   useEffect(() => {
@@ -1034,141 +895,96 @@ function PositioningModal({
     return () => observer.disconnect()
   }, [scrollEl, parsed])
 
+  const subtitle = [
+    report.dateStr,
+    report.evalCount !== 'n/d' ? `${report.evalCount} evaluations analyzed` : null,
+    report.focusPath && report.focusPath !== 'n/d' ? `Focus: ${report.focusPath}` : null,
+  ].filter(Boolean).join(' · ')
+
   return (
     <>
       {/* Backdrop */}
       <div
         className={cn(
-          'fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] transition-opacity duration-[260ms]',
+          'fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] transition-opacity duration-200 ease-quart',
           active ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}
       />
 
-      {/* Panel — matches ReportSlideOver's shell so positioning reports
-          read as first-class siblings of per-listing reports, not as a
-          weaker centered modal. 860px is a touch wider than the listing
-          slide-over (720px) because positioning content carries denser
-          tables and longer paragraphs. */}
+      {/* Panel: the same dossier shell as the per-listing report slide-over,
+          a touch wider because positioning content carries denser tables. */}
       <div className={cn(
-        'fixed right-0 top-0 bottom-0 z-40 w-[860px] max-w-full bg-bg-panel border-l border-border-strong flex flex-col shadow-cosmos-lift',
-        'transition-[transform,opacity] duration-[260ms] ease-out',
+        'fixed right-0 top-0 bottom-0 z-40 w-[840px] max-w-full bg-bg-base border-l border-border-default shadow-lift flex flex-col',
+        'transition-[transform,opacity] duration-200 ease-quart',
         active ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
       )}>
-        {/* Drag region — h-11 gives macOS a real area to grab without
-            clobbering the chrome below. */}
+        {/* Drag region for the macOS window. */}
         <div className="titlebar-drag h-11 shrink-0" />
 
-        {/* Accent-tinted hero stripe — positioning reports get the accent
-            gradient (where per-listing reports get a tier-colored one). */}
-        <div
-          className="relative h-2 shrink-0"
-          aria-hidden
-          style={{
-            background: 'linear-gradient(90deg, #7C5CFF 0%, #7C5CFF66 60%, transparent 100%)',
-          }}
-        />
-
-        {/* Editorial header — same hierarchy as ReportSlideOver
-            (eyebrow → page-size title → meta row) so the two modals read
-            as one design system. */}
-        <div className="flex items-start gap-4 px-6 pt-5 pb-4 border-b border-border-default shrink-0">
-          <div
-            className="shrink-0 w-12 h-12 rounded-xl flex items-center justify-center mt-0.5"
-            style={{
-              background: '#7C5CFF1F',
-              border: '1px solid #7C5CFF40',
-            }}
-            aria-hidden
-          >
-            <Sparkles size={20} className="text-accent" />
+        {/* Header */}
+        <div className="flex items-start gap-4 px-6 pt-2 pb-4 border-b border-border-default shrink-0">
+          <div className="shrink-0 w-10 h-10 rounded-lg bg-accent-soft flex items-center justify-center" aria-hidden>
+            <Sparkles size={18} className="text-accent-text" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-micro text-text-4 uppercase tracking-[0.08em] mb-0.5">
-              Positioning Snapshot
-            </div>
-            <h2 className="text-page text-text-1 leading-tight tracking-[-0.01em]">
-              Career Positioning — {report.dateStr}
-            </h2>
-            {/* The modal hero has room for a real focus-path subtitle —
-                show it (line-clamp-2) so the user sees this run's verdict
-                without opening the body. The strip card upstream drops
-                this because 220px isn't enough; the modal is. */}
-            {report.focusPath && report.focusPath !== 'n/d' && (
-              <p
-                className="text-label text-text-3 leading-snug mt-1.5 line-clamp-2"
-                title={report.focusPath}
-              >
-                <span className="text-text-4 font-medium">Focus · </span>
-                {report.focusPath}
-              </p>
-            )}
+            <h2 className="text-page text-text-1">Career positioning</h2>
+            <p className="text-label text-text-3 mt-1 line-clamp-2" title={report.focusPath !== 'n/d' ? report.focusPath : undefined}>
+              {subtitle}
+            </p>
           </div>
-          <button
-            onClick={handleClose}
-            className="shrink-0 p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
-            title="Close (Esc)"
-          >
-            <X size={15} />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              tone="secondary"
+              size="sm"
+              icon={copied ? <Check size={13} /> : <Copy size={13} />}
+              onClick={handleCopyTldr}
+              disabled={!parsed.tldr}
+              title={parsed.tldr ? 'Copy the TL;DR block to clipboard' : 'No TL;DR section detected in this report'}
+            >
+              {copied ? 'Copied' : 'Copy TL;DR'}
+            </Button>
+            <Button tone="ghost" size="sm" onClick={handleRevealFile} title="Reveal the markdown file in Finder">
+              Reveal file
+            </Button>
+            <Button
+              tone="ghost"
+              size="sm"
+              iconOnly
+              icon={<X size={14} />}
+              onClick={handleClose}
+              title="Close (Esc)"
+              aria-label="Close"
+            />
+          </div>
         </div>
 
-        {/* Action pills — mirrors ReportSlideOver's pattern. Copy TL;DR is
-            the primary action (the whole point of TL;DR is portability);
-            Reveal in Finder gives users a path back to the raw file. */}
-        <div className="flex items-center gap-2 px-5 py-3 border-b border-border-default shrink-0 flex-wrap">
-          <button
-            onClick={handleCopyTldr}
-            disabled={!parsed.tldr}
-            title={parsed.tldr ? 'Copy the TL;DR block to clipboard' : 'No TL;DR section detected in this report'}
-            className={cn(
-              'inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border text-[12px] transition-colors',
-              parsed.tldr
-                ? 'border-accent/35 bg-accent/10 text-accent-text hover:bg-accent/15'
-                : 'border-border-default bg-bg-elevated text-text-4 opacity-60 cursor-not-allowed',
-            )}
-          >
-            {copied ? <Check size={11} /> : <Copy size={11} />}
-            {copied ? 'Copied' : 'Copy TL;DR'}
-          </button>
-          <button
-            onClick={handleRevealFile}
-            title="Reveal the markdown file in Finder"
-            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[12px] transition-colors"
-          >
-            <Folder size={11} />
-            Reveal file
-          </button>
-        </div>
-
-        {/* Sticky section nav — horizontal pill row. Stays in view as the
-            body scrolls so jumping between TL;DR ↔ §3 Recommendation ↔
-            Appendix is one click in a 280-line report. */}
+        {/* Section nav: plain text links, the active one underlined. Stays in
+            view while the body scrolls. */}
         {parsed.toc.length > 1 && (
-          <div className="flex items-center gap-1.5 px-5 py-2 border-b border-border-default shrink-0 overflow-x-auto">
-            <Compass size={11} className="text-text-4 shrink-0" />
-            {parsed.toc.map((item) => (
-              <button
-                key={item.slug}
-                onClick={() => scrollToSlug(item.slug)}
-                className={cn(
-                  'shrink-0 px-2.5 py-0.5 text-micro font-medium rounded-full border transition-all duration-150 uppercase tracking-wider',
-                  activeSection === item.slug
-                    ? 'bg-accent/15 border-accent/40 text-accent-text font-bold'
-                    : 'text-text-3 border-border-default hover:border-border-strong hover:bg-bg-elevated',
-                )}
-                title={item.label}
-              >
-                {item.label.length > 28 ? item.label.slice(0, 26) + '…' : item.label}
-              </button>
-            ))}
-          </div>
+          <nav className="h-9 shrink-0 flex items-stretch gap-4 px-6 border-b border-border-default overflow-x-auto">
+            {parsed.toc.map((item) => {
+              const on = activeSection === item.slug
+              return (
+                <button
+                  key={item.slug}
+                  onClick={() => scrollToSlug(item.slug)}
+                  className={cn(
+                    'relative shrink-0 inline-flex items-center text-label transition-colors duration-150',
+                    on ? 'text-text-1 font-medium' : 'text-text-3 hover:text-text-1',
+                  )}
+                  title={item.label}
+                >
+                  {item.label.length > 28 ? item.label.slice(0, 26) + '…' : item.label}
+                  {on && <span className="absolute inset-x-0 bottom-0 h-0.5 bg-accent" aria-hidden />}
+                </button>
+              )
+            })}
+          </nav>
         )}
 
-        {/* Body — scroll container hosts the featured TL;DR card and the
-            markdown render. IntersectionObserver above watches every
-            [data-slug] element here so the nav pill highlights track the
-            user's scroll. */}
+        {/* Body: the TL;DR card, then the report prose. The observer above
+            watches every [data-slug] element here to keep the nav in sync. */}
         <div
           ref={setScrollEl}
           className="flex-1 overflow-y-auto px-6 py-5"
@@ -1188,34 +1004,19 @@ function PositioningModal({
   )
 }
 
-// Featured card for the TL;DR section. The whole point of a positioning
-// report is that the user should be able to act on the TL;DR alone — so
-// it gets a distinct accent-tinted card at the top of the body, separate
-// from the rest of the prose. The markdown inside still flows through the
-// same MD_COMPONENTS so labels (Focus path / Do next / Stop doing /
-// Highest-leverage cheap fix) retain their bold treatment from the source.
+// Featured card for the TL;DR section: the user should be able to act on the
+// TL;DR alone, so it sits apart from the prose in an accent-washed card. The
+// markdown inside keeps the source's bold labels (Focus path / Do next / …).
 function TldrCard({ markdown }: { markdown: string }) {
   return (
-    <div
-      data-slug="tldr"
-      className="mb-7 rounded-xl p-5 border"
-      style={{
-        background: 'linear-gradient(135deg, #7C5CFF14 0%, #7C5CFF08 100%)',
-        borderColor: '#7C5CFF40',
-      }}
-    >
-      <div className="flex items-center gap-2 mb-3">
-        <Sparkles size={13} className="text-accent" />
-        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-accent-text">
-          TL;DR — the punchline
-        </span>
-      </div>
-      <div className="prose-report prose-report--tldr">
+    <section data-slug="tldr" className="card bg-accent/[0.04] border-accent/20 p-5 mb-6">
+      <h2 className="text-section text-text-1 mb-2">TL;DR</h2>
+      <div className="prose-report [&>:last-child]:mb-0">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS_TLDR}>
           {markdown}
         </ReactMarkdown>
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -1229,111 +1030,32 @@ function flattenChildrenText(node: React.ReactNode): string {
   return ''
 }
 
-function sectionIcon(label: string): React.ElementType | null {
-  const l = label.toLowerCase()
-  if (l.includes('tl;dr') || l.includes('tldr'))                          return Sparkles
-  if (l.includes('where you stand') || l.includes('rollup') || l === 'summary') return ClipboardList
-  if (l.includes('per-archetype') || l.includes('per archetype') || l.includes('archetype'))     return Target
-  if (l.includes('priority') || l.includes('recommendation') || l.includes('verdict'))           return CheckCircle2
-  if (l.includes('trajectory') || l.includes('horizon'))                  return TrendingUp
-  if (l.includes('appendix') || l.includes('supporting data') || l.includes('data sources'))     return Lightbulb
-  if (l.includes('gap') || l.includes('bottleneck'))                      return Lightbulb
-  if (l.includes('comp') || l.includes('salary') || l.includes('opportunity') || l.includes('demand'))  return Coins
-  if (l.includes('analysis') || l.includes('coverage') || l.includes('standing'))                return Compass
-  return null
-}
-
-// Shared markdown components used by the main positioning body. The h2
-// renderer carries a data-slug attribute that the TOC pills + scroll
-// observer use to navigate the report.
+// Markdown overrides for the positioning body. `.prose-report` in globals.css
+// styles every element; the h2 override only adds the anchor the section nav
+// and the scroll observer target, and strips the "1. " admin prefix. Wide
+// tables get a horizontal scroller so they never push the panel wider.
 const MD_COMPONENTS = {
-  h2: ({ children, ...rest }: { children?: React.ReactNode }) => {
+  h2: ({ children }: { children?: React.ReactNode }) => {
     const text = flattenChildrenText(children)
-    const stripped = cleanHeading(text)
     const slug = slugify(text)
-    const Icon = sectionIcon(stripped)
     return (
-      <h2
-        data-slug={slug}
-        id={slug}
-        className="scroll-mt-4 flex items-center gap-2 text-page font-semibold text-text-1 border-b border-border-default pb-2.5 mt-8 mb-4"
-        {...rest}
-      >
-        {Icon && (
-          <Icon
-            size={16}
-            className="shrink-0 text-accent"
-            aria-hidden
-          />
-        )}
-        <span>{stripped}</span>
+      <h2 data-slug={slug} id={slug} className="scroll-mt-4">
+        {cleanHeading(text)}
       </h2>
     )
   },
-  h3: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return (
-      <h3 className="text-section font-bold text-text-2 mt-6 mb-2" {...rest}>
-        {children}
-      </h3>
-    )
-  },
-  p: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return (
-      <p className="text-body text-text-2 leading-relaxed mb-4" {...rest}>
-        {children}
-      </p>
-    )
-  },
-  table: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return (
-      <div className="overflow-x-auto my-6 border border-border-default rounded-xl">
-        <table className="w-full border-collapse text-left text-body" {...rest}>
-          {children}
-        </table>
-      </div>
-    )
-  },
-  thead: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <thead className="bg-bg-elevated/60 border-b border-border-default" {...rest}>{children}</thead>
-  },
-  tbody: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <tbody className="divide-y divide-border-default" {...rest}>{children}</tbody>
-  },
-  th: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <th className="px-4 py-2.5 text-[11px] font-semibold text-text-3 uppercase tracking-[0.06em]" {...rest}>{children}</th>
-  },
-  td: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <td className="px-4 py-2.5 text-[12.5px] text-text-2 leading-snug" {...rest}>{children}</td>
-  },
-  ul: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <ul className="list-disc pl-5 mb-4 space-y-1.5 text-body text-text-2" {...rest}>{children}</ul>
-  },
-  ol: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <ol className="list-decimal pl-5 mb-4 space-y-1.5 text-body text-text-2" {...rest}>{children}</ol>
-  },
-  li: ({ children, ...rest }: { children?: React.ReactNode }) => {
-    return <li className="leading-relaxed" {...rest}>{children}</li>
-  },
+  table: ({ children }: { children?: React.ReactNode }) => (
+    <div className="overflow-x-auto">
+      <table>{children}</table>
+    </div>
+  ),
 }
 
-// Compact markdown components for the TL;DR card. Same component set,
-// but with tighter spacing and no h2 chrome — the TL;DR is a single
-// stretch of bold-labeled paragraphs plus one ordered list, not a
-// document with its own sub-sections.
+// TL;DR card overrides: same set, but an h2 inside the TL;DR (rare) renders
+// as a plain bold line so it doesn't become a second nav anchor.
 const MD_COMPONENTS_TLDR = {
   ...MD_COMPONENTS,
   h2: ({ children }: { children?: React.ReactNode }) => (
-    // TL;DR shouldn't contain h2s, but if it does, render them lightly so
-    // the card doesn't grow chrome that belongs to the main body.
-    <div className="text-[13px] font-semibold text-text-1 mt-3 mb-2">{children}</div>
-  ),
-  p: ({ children, ...rest }: { children?: React.ReactNode }) => (
-    <p className="text-[13.5px] text-text-2 leading-relaxed mb-3 last:mb-0" {...rest}>{children}</p>
-  ),
-  ol: ({ children, ...rest }: { children?: React.ReactNode }) => (
-    <ol className="list-decimal pl-5 mb-3 space-y-1 text-[13.5px] text-text-2" {...rest}>{children}</ol>
-  ),
-  ul: ({ children, ...rest }: { children?: React.ReactNode }) => (
-    <ul className="list-disc pl-5 mb-3 space-y-1 text-[13.5px] text-text-2" {...rest}>{children}</ul>
+    <p className="font-semibold text-text-1">{children}</p>
   ),
 }

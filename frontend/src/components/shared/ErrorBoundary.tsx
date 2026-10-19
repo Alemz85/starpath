@@ -42,37 +42,37 @@ export class ErrorBoundary extends Component<Props, State> {
     const where = this.props.label ? `The ${this.props.label} view` : 'This view'
     return (
       <div className="flex-1 min-h-0 flex items-center justify-center p-8">
-        <div className="w-[440px] max-w-full rounded-xl border border-border-default bg-bg-panel shadow-card overflow-hidden">
+        <div className="w-[440px] max-w-full rounded-xl border border-border-default bg-bg-base shadow-lift overflow-hidden">
           <div className="px-6 pt-6 pb-4">
             <div className="flex items-start gap-3">
               <span className="shrink-0 mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-full bg-danger/10">
                 <AlertTriangle size={17} className="text-danger" />
               </span>
               <div className="min-w-0 flex-1">
-                <h2 className="text-[15px] font-semibold text-text-1 leading-tight">{where} ran into an error</h2>
-                <p className="text-[12.5px] text-text-3 mt-1.5 leading-relaxed">
+                <h2 className="text-title text-text-1 leading-tight">{where} ran into an error</h2>
+                <p className="text-label text-text-3 mt-1.5 leading-relaxed">
                   The rest of starpath is fine and your data on disk is untouched. Try the view
                   again, or reload the app if it keeps happening.
                 </p>
               </div>
             </div>
             {error.message && (
-              <pre className="mt-4 max-h-32 overflow-auto rounded-md bg-bg-elevated border border-border-default px-3 py-2 text-[11px] font-mono text-text-2 whitespace-pre-wrap break-words">
+              <pre className="mt-4 max-h-32 overflow-auto rounded bg-bg-elevated border border-border-default px-3 py-2 text-micro font-normal font-mono text-text-2 whitespace-pre-wrap break-words">
                 {error.message}
               </pre>
             )}
           </div>
-          <div className="px-6 py-3.5 flex items-center justify-end gap-2 bg-bg-chrome border-t border-border-default">
+          <div className="px-6 py-3.5 flex items-center justify-end gap-2 bg-bg-elevated/60 border-t border-border-default">
             <button
               onClick={() => window.location.reload()}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-label text-text-2 rounded-md hover:bg-bg-elevated transition-colors"
+              className="btn btn-ghost btn-sm"
             >
               <RefreshCw size={12} />
               Reload app
             </button>
             <button
               onClick={this.reset}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-label text-white bg-accent hover:bg-accent-hover rounded-md font-medium transition-colors"
+              className="btn btn-primary btn-sm"
             >
               <RotateCw size={12} />
               Try again

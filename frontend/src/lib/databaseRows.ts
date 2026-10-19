@@ -15,7 +15,7 @@
 import type { ScoreEntry, ApplicationEntry } from '@/types'
 import { ENGAGED_STATUSES } from '@/types'
 import { canonicalizeArchetype } from './archetype'
-import { parseCities, entityId } from './entityId'
+import { parseCities, entityId, locationFacetValues } from './entityId'
 import { matchesTokenQuery, type TokenFilters } from './databaseQuery'
 import { livenessKey, type Liveness } from './scanHistory'
 import { isBlocked, isScored, priorityOf, verdictOf } from './scoreBands'
@@ -132,7 +132,7 @@ export function dedupeEntities(scoreHistory: ScoreEntry[]): ScoreEntry[] {
 export function buildFacetOptions(scoreHistory: ScoreEntry[]): DbFacetOptions {
   return {
     companies:       [...new Set(scoreHistory.map(s => s.company))].sort(),
-    locations:       [...new Set(scoreHistory.flatMap(s => parseCities(s.location).cities))].sort(),
+    locations:       [...new Set(scoreHistory.flatMap(s => locationFacetValues(s.location)))].sort(),
     archetypes:      [...new Set(scoreHistory.map(s => canonicalizeArchetype(s.archetype)).filter(Boolean))].sort(),
     tiers:           ['T1', 'T2', 'T3', 'T4'],
     verdicts:        VERDICT_FACET_ORDER,
@@ -170,9 +170,9 @@ export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterCont
   if (filters.companies.size) rows = rows.filter(r => filters.companies.has(r.company))
   if (filters.locations.size) {
     rows = rows.filter(r => {
-      const cities = parseCities(r.location).cities
-      if (cities.length === 0) return filters.locations.has(r.location)
-      return cities.some(c => filters.locations.has(c))
+      const places = locationFacetValues(r.location)
+      if (places.length === 0) return filters.locations.has(r.location)
+      return places.some(c => filters.locations.has(c))
     })
   }
   if (filters.archetypes.size) rows = rows.filter(r => filters.archetypes.has(canonicalizeArchetype(r.archetype)))
@@ -254,10 +254,10 @@ export function computeFacetCounts(entities: ScoreEntry[], ctx: DbFilterContext)
     locations: {
       pass: r => {
         if (!filters.locations.size) return true
-        const cities = parseCities(r.location).cities
-        return cities.length === 0 ? filters.locations.has(r.location) : cities.some(c => filters.locations.has(c))
+        const places = locationFacetValues(r.location)
+        return places.length === 0 ? filters.locations.has(r.location) : places.some(c => filters.locations.has(c))
       },
-      keys: r => { const c = parseCities(r.location).cities; return c.length ? c : [r.location] },
+      keys: r => { const c = locationFacetValues(r.location); return c.length ? c : [r.location] },
       out: {},
     },
     archetypes: { pass: r => set(filters.archetypes, canonicalizeArchetype(r.archetype)), keys: r => [canonicalizeArchetype(r.archetype)], out: {} },

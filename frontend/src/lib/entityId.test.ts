@@ -52,3 +52,16 @@ test('entityId: multi-city uses the literal "multi" city key', () => {
 test('entityId: unusable location key is "unknown"', () => {
   assert.equal(entityId('Acme', 'PM', parseCities('Remote')), 'acme::pm::unknown')
 })
+
+test('parseCities: "City, Country" is one city with its country attached', () => {
+  assert.deepEqual(parseCities('Milan, Italy'), { cities: ['Milan'], isMulti: false, primary: 'Milan', country: 'Italy' })
+  assert.deepEqual(parseCities('Lyon, France (also Paris/Nice)'), { cities: ['Lyon'], isMulti: false, primary: 'Lyon', country: 'France' })
+  // Country alone still names a place.
+  assert.deepEqual(parseCities('Italy'), { cities: ['Italy'], isMulti: false, primary: 'Italy' })
+  // Two cities + a country stays multi-city.
+  assert.deepEqual(parseCities('Rome / Milan, Italy'), { cities: ['Rome', 'Milan'], isMulti: true, primary: 'Rome', country: 'Italy' })
+})
+
+test('entityId: "City, Country" embeds the city slug, not "multi"', () => {
+  assert.equal(entityId('Acme', 'Intern (Italy)', parseCities('Milan, Italy')), 'acme::intern-italy::milan')
+})

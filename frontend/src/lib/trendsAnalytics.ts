@@ -343,6 +343,10 @@ export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
 //   • below a per-half floor the comparison is sampling noise, so we report
 //     `lowSignal` and the card shows a "keep evaluating" hint instead of a
 //     verdict;
+//   • a corpus whose scored rows all share one date has no timeline at all —
+//     the chronological sort is a no-op and any "earlier" / "recent" split is
+//     an arbitrary partition of same-day rows — so fewer than 2 distinct dates
+//     is also `lowSignal`, however many rows there are;
 //   • each metric's direction has a deadband (its v2 noise floor) so a trivial
 //     wobble reads as "steady", not a trend.
 
@@ -394,8 +398,10 @@ export interface TargetingMomentum {
    *  biggest movers (good or bad) lead. Only meaningful when !lowSignal. */
   dimShifts: MomentumDimShift[]
   scoredCount: number    // total scored rows feeding the split
-  /** True when either half is under MIN_PER_HALF_FOR_MOMENTUM — the view then
-   *  shows a hint instead of reading noise as a trend. */
+  /** True when either half is under MIN_PER_HALF_FOR_MOMENTUM, or when the
+   *  scored rows span fewer than 2 distinct dates (a same-day corpus has no
+   *  "earlier" and "recent" half) — the view then shows a hint instead of
+   *  reading noise as a trend. */
   lowSignal: boolean
 }
 
@@ -432,7 +438,12 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
   const earlier = summarizeHalf(earlierRows)
   const recent = summarizeHalf(recentRows)
 
+  // Same-day guard: with every scored row on one date the sort above is a
+  // no-op, so the two halves are an arbitrary partition, not a timeline.
+  const distinctDates = new Set(scored.map(r => r.date.slice(0, 10))).size
+
   const lowSignal =
+    distinctDates < 2 ||
     earlierRows.length < MIN_PER_HALF_FOR_MOMENTUM ||
     recentRows.length < MIN_PER_HALF_FOR_MOMENTUM
 

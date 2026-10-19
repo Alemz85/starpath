@@ -1,9 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { MessageSquare, Square } from 'lucide-react'
+import { Square } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
-import { cn } from '@/lib/utils'
+import { Button, Chip, PageHeader } from '@/components/ui'
 import { useDataStore } from '@/store/data'
 import {
   findApplicationRowIndex, updateApplicationFields, updateApplicationStatus, upsertApplicationRow,
@@ -287,34 +287,27 @@ export function ChatView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden" role="region" aria-label="Chat">
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium flex items-center gap-2">
-          <MessageSquare size={14} className="text-accent" aria-hidden />
-          Chat
-        </h1>
-        <span
-          className={cn(
-            'text-micro font-mono px-2 py-0.5 rounded-pill border',
-            live
-              ? 'text-accent border-accent/40 bg-accent/10'
-              : runtime?.phase === 'failed' && runtimeIsHere
-                ? 'text-danger border-danger/40 bg-danger/10'
-                : 'text-text-4 border-border-default bg-bg-elevated',
-          )}
-        >
-          {statusLabel}
-        </span>
-        {live && (
-          <button
-            type="button"
-            onClick={() => void stop()}
-            className="titlebar-no-drag inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-border-strong text-label text-text-2 hover:bg-bg-elevated transition-colors duration-200 ease-quart"
+      <PageHeader
+        title="Chat"
+        meta={
+          <Chip
+            size="sm"
+            tone={live ? 'accent' : runtime?.phase === 'failed' && runtimeIsHere ? 'danger' : 'neutral'}
           >
-            <Square size={10} className="fill-current" aria-hidden />
+            {statusLabel}
+          </Chip>
+        }
+        actions={live && (
+          <Button
+            tone="stop"
+            size="sm"
+            icon={<Square size={10} className="fill-current" aria-hidden />}
+            onClick={() => void stop()}
+          >
             Stop
-          </button>
+          </Button>
         )}
-      </div>
+      />
 
       <div className="flex-1 flex min-h-0">
         <ChatSessionRail
@@ -339,16 +332,12 @@ export function ChatView() {
           {notice && (
             <div
               role="alert"
-              className="mx-6 mb-2 flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-danger/30 bg-danger/10 text-label text-danger"
+              className="mx-6 mb-2 flex items-center justify-between gap-3 pl-3 pr-1 py-1 rounded border border-danger/25 bg-danger/10 text-label text-danger"
             >
               <span className="min-w-0 truncate" title={notice}>{notice}</span>
-              <button
-                type="button"
-                onClick={() => setNotice(null)}
-                className="shrink-0 text-text-3 hover:text-text-1 transition-colors"
-              >
+              <Button tone="ghost" size="xs" className="shrink-0" onClick={() => setNotice(null)}>
                 Dismiss
-              </button>
+              </Button>
             </div>
           )}
 

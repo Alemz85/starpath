@@ -1,4 +1,7 @@
 import { useNavStore } from '@/store/nav'
+// clsx, not cn(): twMerge reads the custom `text-body` size as a colour and
+// would drop a caller's size class next to `text-text-1`.
+import { clsx } from 'clsx'
 import { CompanyLogo } from './CompanyLogo'
 
 export function toCompanySlug(company: string): string {
@@ -25,7 +28,13 @@ export function CompanyLink({ company, size = 20, className = '', showName = fal
         e.stopPropagation()
         useNavStore.getState().navigate('company', '', toCompanySlug(company))
       }}
-      className={`inline-flex items-center gap-2 hover:opacity-80 transition-opacity ${showName ? 'font-medium text-text-1 hover:underline' : ''} ${className}`}
+      className={clsx(
+        'inline-flex items-center gap-2 min-w-0 rounded duration-150',
+        showName
+          ? 'font-medium text-text-1 hover:text-accent-text hover:underline underline-offset-2 transition-colors'
+          : 'hover:opacity-80 transition-opacity',
+        className,
+      )}
       title={`View ${company} details`}
     >
       <CompanyLogo company={company} size={size} className="shrink-0" />

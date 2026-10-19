@@ -1,8 +1,7 @@
 'use client'
 
 import { useEffect, useMemo } from 'react'
-import { GitBranch } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore } from '@/store/spawns'
 import { claudeEvalArgs, refreshCvSummary } from '@/lib/evalSpawn'
@@ -82,41 +81,42 @@ export function PipelineView() {
     void setApplicationStatus(app.company, app.role, 'Evaluated')
   }
 
-  if (!loaded) {
-    return <div className="grid h-full place-items-center text-[12px] text-text-4">Loading pipeline…</div>
-  }
-
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
-      <header className="flex items-center gap-2.5 shrink-0">
-        <GitBranch size={16} className="text-accent" />
-        <h1 className="text-[15px] font-semibold text-text-1">Pipeline</h1>
-        <span className="text-[11.5px] text-text-3">Triage the inbox · track every application</span>
-        <span className="flex-1" />
-        {/* The pending count is the one act-now signal here — it gets the
-            accent treatment when there's something to triage (mirroring the
-            sidebar's pending-accent convention), and falls back to muted when
-            the inbox is clear so the read-out doesn't cry wolf at zero. */}
-        <span className="text-[11px] font-mono tabular-nums text-text-4">
-          <span className={cn(pipeline.length > 0 && 'text-accent')}>{pipeline.length} pending</span>
-          {' · '}{activeCount} active
-        </span>
-      </header>
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* The pending count is the one act-now signal here — it gets the accent
+          treatment when there's something to triage (mirroring the sidebar's
+          pending-accent convention), and stays muted when the inbox is clear
+          so the read-out doesn't cry wolf at zero. */}
+      <PageHeader
+        title="Pipeline"
+        meta={loaded ? (
+          <>
+            <span className={pipeline.length > 0 ? 'text-accent-text font-medium' : undefined}>
+              {pipeline.length} pending
+            </span>
+            {' · '}{activeCount} active
+          </>
+        ) : '…'}
+      />
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[20rem_1fr] gap-3">
-        <PipelineInbox
-          pending={pipeline}
-          applications={applications}
-          scouting={scouting}
-          spawns={spawns}
-          onEvaluate={handleEvaluate}
-        />
+      {!loaded ? (
+        <div className="grid flex-1 place-items-center text-label text-text-4">Loading pipeline…</div>
+      ) : (
+        <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[20rem_1fr] gap-3 p-5">
+          <PipelineInbox
+            pending={pipeline}
+            applications={applications}
+            scouting={scouting}
+            spawns={spawns}
+            onEvaluate={handleEvaluate}
+          />
 
-        <div className="flex min-h-0 flex-col gap-3">
-          <PipelineBoard applications={applications} onAdvance={handleAdvance} />
-          <ClosedApplicationsPanel apps={closedApps} onRestore={handleRestore} />
+          <div className="flex min-h-0 flex-col gap-3">
+            <PipelineBoard applications={applications} onAdvance={handleAdvance} />
+            <ClosedApplicationsPanel apps={closedApps} onRestore={handleRestore} />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

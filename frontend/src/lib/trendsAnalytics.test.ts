@@ -302,6 +302,35 @@ test('buildTargetingMomentum drops undated and blocked rows, and reports applyPc
   assert.equal(m.applyPctDelta, -100)
 })
 
+test('buildTargetingMomentum flags a same-day corpus as low signal, however many rows it has', () => {
+  const n = MIN_PER_HALF_FOR_MOMENTUM * 3
+  const rows = Array.from({ length: n }, (_, i) => s(i < n / 2 ? 8.5 : 6, 7, { date: '2026-06-10' }))
+  const m = buildTargetingMomentum(rows)
+  assert.equal(m.scoredCount, n)
+  assert.ok(m.earlier.count >= MIN_PER_HALF_FOR_MOMENTUM)
+  assert.ok(m.recent.count >= MIN_PER_HALF_FOR_MOMENTUM)
+  assert.equal(m.lowSignal, true)
+  assert.equal(m.wantDirection, 'steady')
+})
+
+test('buildTargetingMomentum treats ISO timestamps on the same day as one date', () => {
+  const n = MIN_PER_HALF_FOR_MOMENTUM * 2
+  const rows = Array.from({ length: n }, (_, i) =>
+    s(i < n / 2 ? 5 : 9, 7, { date: `2026-06-10T${String(8 + i).padStart(2, '0')}:00:00Z` }))
+  const m = buildTargetingMomentum(rows)
+  assert.equal(m.lowSignal, true)
+  assert.equal(m.wantDirection, 'steady')
+})
+
+test('buildTargetingMomentum lifts the same-day guard once a second date appears', () => {
+  const earlier = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, () => s(5, 7, { date: '2026-06-09' }))
+  const recent = Array.from({ length: MIN_PER_HALF_FOR_MOMENTUM }, () => s(8, 7, { date: '2026-06-10' }))
+  const m = buildTargetingMomentum([...earlier, ...recent])
+  assert.equal(m.lowSignal, false)
+  assert.equal(m.wantDirection, 'improving')
+  assert.equal(m.easeDirection, 'steady')
+})
+
 test('buildTargetingMomentum over an empty corpus is all-zero, not NaN', () => {
   const m = buildTargetingMomentum([])
   assert.equal(m.scoredCount, 0)

@@ -9,8 +9,9 @@
 // without prop drilling.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { clsx } from 'clsx'
 import {
-  X, Sparkles, Link2, Inbox, AlertTriangle, CheckCircle2, Plus, Clipboard,
+  X, Sparkles, Link2, Inbox, AlertTriangle, CheckCircle2, Clipboard,
   Loader2,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
@@ -19,9 +20,9 @@ import { useDataStore } from '@/store/data'
 import { useSpawnsStore } from '@/store/spawns'
 import { claudeEvalArgs, refreshCvSummary, scoreOnlyEvalPrompt } from '@/lib/evalSpawn'
 import { ipc } from '@/lib/ipc'
-import { cn } from '@/lib/utils'
 import { WantEase } from '@/components/shared/WantEase'
 import { blockedReason, isBlocked } from '@/lib/scoreBands'
+import { Button } from '@/components/ui'
 import { guessCompanyFromUrl, isValidHttpUrl, normalizeUrl } from '@/lib/listingUrl'
 import type { ScoreEntry, PipelineUrl } from '@/types'
 
@@ -280,27 +281,28 @@ export function AddListingModal() {
         if (clipboardSuggestion) {
           return (
             <button
+              type="button"
               onClick={() => {
                 setUrl(clipboardSuggestion)
                 setClipboardSuggestion(null)
                 inputRef.current?.focus()
               }}
-              className="text-accent hover:underline flex items-center gap-1 focus:outline-none focus:ring-1 focus:ring-accent/50 rounded"
+              className="text-accent-text hover:underline flex items-center gap-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
             >
-              <Clipboard size={10} aria-hidden />
+              <Clipboard size={12} aria-hidden />
               Use clipboard URL
             </button>
           )
         }
         return (
           <span className="text-text-4">
-            Paste any Greenhouse / Lever / Ashby / Workday / WTTJ / company-careers URL
+            Paste any Greenhouse, Lever, Ashby, Workday, WTTJ or company careers URL
           </span>
         )
       case 'typing':
         return (
-          <span className="text-warning flex items-center gap-1" role="alert" aria-atomic>
-            <AlertTriangle size={11} aria-hidden />
+          <span className="text-warning-text flex items-center gap-1" role="alert" aria-atomic>
+            <AlertTriangle size={12} aria-hidden />
             Not a valid http(s) URL
           </span>
         )
@@ -317,21 +319,21 @@ export function AddListingModal() {
       case 'submitting':
         return (
           <span className="text-text-4 flex items-center gap-1">
-            <Loader2 size={11} className="animate-spin" aria-hidden />
+            <Loader2 size={12} className="animate-spin" aria-hidden />
             Working…
           </span>
         )
       case 'inbox-done':
         return (
           <span className="text-success flex items-center gap-1" role="status">
-            <CheckCircle2 size={11} aria-hidden />
+            <CheckCircle2 size={12} aria-hidden />
             Queued in pipeline
           </span>
         )
       case 'inbox-error':
         return (
           <span className="text-danger flex items-center gap-1" role="alert" aria-atomic>
-            <AlertTriangle size={11} aria-hidden />
+            <AlertTriangle size={12} aria-hidden />
             Failed to write — check console
           </span>
         )
@@ -342,17 +344,17 @@ export function AddListingModal() {
 
   // Input border style — reflects validation state
   const inputBorderClass = (() => {
-    if (modalState === 'typing') return 'border-warning/50 focus-within:border-warning'
-    if (modalState === 'valid-new' || modalState === 'valid-duplicate' || modalState === 'valid-queued') return 'border-accent/40 focus-within:border-accent'
-    if (modalState === 'submitting') return 'border-border-strong opacity-70'
-    return 'border-border-default focus-within:border-border-strong'
+    if (modalState === 'typing') return 'border-warning/60 focus:border-warning focus:ring-warning/20'
+    if (modalState === 'valid-new' || modalState === 'valid-duplicate' || modalState === 'valid-queued') return 'border-accent/40 focus:border-accent/60'
+    if (modalState === 'submitting') return 'border-border-strong'
+    return ''
   })()
 
   // "Evaluate" button label + icon
   const evaluateBtnContent = (() => {
-    if (modalState === 'submitting') return <><Loader2 size={12} className="animate-spin" aria-hidden />Working…</>
-    if (modalState === 'valid-duplicate') return <><Sparkles size={12} aria-hidden />Re-evaluate</>
-    return <><Sparkles size={12} aria-hidden />Add &amp; evaluate</>
+    if (modalState === 'submitting') return <><Loader2 size={13} className="animate-spin" aria-hidden />Working…</>
+    if (modalState === 'valid-duplicate') return <><Sparkles size={13} aria-hidden />Re-evaluate</>
+    return <><Sparkles size={13} aria-hidden />Add &amp; evaluate</>
   })()
 
   const evaluateBtnEnabled = valid && !isSubmitting
@@ -361,8 +363,8 @@ export function AddListingModal() {
     <>
       {/* Backdrop */}
       <div
-        className={cn(
-          'fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] transition-opacity duration-[240ms]',
+        className={clsx(
+          'fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] transition-opacity duration-200 ease-quart',
           entering ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}
@@ -380,73 +382,50 @@ export function AddListingModal() {
           aria-modal="true"
           aria-labelledby={titleId}
           aria-describedby={descId}
-          className={cn(
-            'pointer-events-auto w-full max-w-[560px] bg-bg-panel border border-border-strong rounded-2xl shadow-cosmos-lift overflow-hidden flex flex-col',
-            'transition-[transform,opacity] duration-[240ms] ease-out',
+          className={clsx(
+            'pointer-events-auto w-full max-w-lg bg-bg-base border border-border-default rounded-xl shadow-lift overflow-hidden flex flex-col',
+            'transition-[transform,opacity] duration-200 ease-quart',
             entering ? 'translate-y-0 opacity-100' : 'translate-y-2 opacity-0',
           )}
         >
-          {/* Accent stripe */}
-          <div
-            className="h-1.5 shrink-0"
-            aria-hidden
-            style={{ background: 'linear-gradient(90deg, #7C5CFF 0%, #7C5CFF66 60%, transparent 100%)' }}
-          />
-
-          {/* Editorial header */}
-          <div className="flex items-start gap-4 px-6 pt-5 pb-4 border-b border-border-default">
-            <div
-              className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center mt-0.5"
-              style={{ background: '#7C5CFF1F', border: '1px solid #7C5CFF40' }}
-              aria-hidden
-            >
-              <Plus size={18} className="text-accent" />
-            </div>
+          {/* Header */}
+          <div className="flex items-start gap-3 px-5 pt-5">
             <div className="flex-1 min-w-0">
-              <div className="text-micro text-text-4 uppercase tracking-[0.08em] mb-0.5" aria-hidden>
-                Add Listing
-              </div>
-              <h2 id={titleId} className="text-section text-text-1 leading-tight tracking-[-0.005em]">
-                Evaluate a job you found
+              <h2 id={titleId} className="text-page text-text-1">
+                Add a listing
               </h2>
-              <p id={descId} className="text-label text-text-3 leading-snug mt-1">
-                Paste a job posting URL · score it into the Database or queue it for the next filter pass.
+              <p id={descId} className="text-label text-text-3 mt-1">
+                Paste a job posting URL, then score it into the Database or queue it for the next filter pass.
               </p>
             </div>
-            <button
+            <Button
+              tone="ghost"
+              size="sm"
+              iconOnly
               onClick={handleClose}
-              className="shrink-0 p-1.5 rounded-md text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors focus:outline-none focus:ring-1 focus:ring-border-strong"
               aria-label="Close (Esc)"
-            >
-              <X size={15} aria-hidden />
-            </button>
+              className="-mr-1.5 -mt-1"
+              icon={<X size={14} aria-hidden />}
+            />
           </div>
 
           {/* Body */}
-          <div className="flex flex-col gap-3 px-6 py-5">
+          <div className="flex flex-col gap-3 px-5 pt-4 pb-5">
             {/* URL input */}
             <div>
-              <label
-                htmlFor="add-listing-url-input"
-                className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-text-4 mb-1.5"
-              >
+              <label htmlFor="add-listing-url-input" className="label block mb-1.5">
                 Job posting URL
               </label>
-              <div
-                className={cn(
-                  'flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-bg-base transition-colors duration-150',
-                  inputBorderClass,
-                )}
-              >
+              <div className="relative">
                 <Link2
                   size={14}
                   aria-hidden
-                  className={cn(
-                    'shrink-0 transition-colors duration-150',
+                  className={clsx(
+                    'absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors duration-150',
                     (modalState === 'valid-new' || modalState === 'valid-duplicate' || modalState === 'valid-queued')
                       ? 'text-accent'
                       : modalState === 'typing'
-                        ? 'text-warning'
+                        ? 'text-warning-text'
                         : 'text-text-4',
                   )}
                 />
@@ -470,12 +449,16 @@ export function AddListingModal() {
                   disabled={isSubmitting}
                   aria-invalid={modalState === 'typing' ? 'true' : 'false'}
                   aria-describedby={`${descId} ${statusId}`}
-                  className="flex-1 bg-transparent outline-none text-[13.5px] text-text-1 placeholder:text-text-4 font-mono tabular-nums disabled:opacity-50"
+                  className={clsx(
+                    'input h-9 pl-8 pr-8 font-mono disabled:opacity-60',
+                    inputBorderClass,
+                  )}
                 />
                 {url && !isSubmitting && (
                   <button
+                    type="button"
                     onClick={() => { setUrl(''); inputRef.current?.focus() }}
-                    className="shrink-0 text-text-4 hover:text-text-2 transition-colors focus:outline-none focus:ring-1 focus:ring-border-default rounded"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 inline-flex items-center justify-center rounded text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                     aria-label="Clear URL"
                     tabIndex={0}
                   >
@@ -489,7 +472,7 @@ export function AddListingModal() {
                 id={statusId}
                 aria-live="polite"
                 aria-atomic="false"
-                className="mt-1.5 min-h-[18px] text-[11px] flex items-center gap-1.5"
+                className="mt-1.5 min-h-[18px] text-label flex items-center gap-1.5"
               >
                 {hintContent}
               </div>
@@ -501,18 +484,18 @@ export function AddListingModal() {
             {modalState === 'valid-duplicate' && duplicate && (
               <div
                 role="status"
-                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-warning/30 bg-warning/5 text-[11.5px] text-text-2"
+                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-warning/30 bg-warning/5 text-label text-text-2"
               >
-                <AlertTriangle size={13} className="text-warning shrink-0 mt-0.5" aria-hidden />
-                <div className="leading-snug space-y-0.5">
+                <AlertTriangle size={13} className="text-warning-text shrink-0 mt-0.5" aria-hidden />
+                <div className="space-y-0.5">
                   <span className="text-text-1 font-medium">Already in the Database</span>
                   <span className="text-text-3"> · {duplicate.company} · {duplicate.role}</span>
                   {(duplicate.want != null || isBlocked(duplicate)) && (
-                    <span className="text-text-3"> · <WantEase want={duplicate.want} ease={duplicate.ease} blockedReason={isBlocked(duplicate) ? blockedReason(duplicate) : null} /></span>
+                    <span className="text-text-3"> · <WantEase want={duplicate.want} ease={duplicate.ease} size="sm" blockedReason={isBlocked(duplicate) ? blockedReason(duplicate) : null} /></span>
                   )}
                   <br />
-                  <span className="text-text-4">
-                    Evaluated {duplicate.date}. Hitting <span className="font-medium text-text-3">Re-evaluate</span> replaces the score.
+                  <span className="text-text-3">
+                    Evaluated {duplicate.date}. <span className="font-medium text-text-2">Re-evaluate</span> replaces the score.
                   </span>
                 </div>
               </div>
@@ -522,18 +505,18 @@ export function AddListingModal() {
             {modalState === 'valid-queued' && alreadyQueued && (
               <div
                 role="status"
-                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-accent/25 bg-accent/[0.06] text-[11.5px] text-text-2"
+                className="flex items-start gap-2.5 px-3 py-2.5 rounded-lg border border-accent/25 bg-accent/[0.06] text-label text-text-2"
               >
-                <Inbox size={13} className="text-accent shrink-0 mt-0.5" aria-hidden />
-                <div className="leading-snug space-y-0.5">
+                <Inbox size={13} className="text-accent-text shrink-0 mt-0.5" aria-hidden />
+                <div className="space-y-0.5">
                   <span className="text-text-1 font-medium">Already in your inbox</span>
                   {alreadyQueued.addedDate && (
-                    <span className="text-text-4"> · queued {alreadyQueued.addedDate}</span>
+                    <span className="text-text-3"> · queued {alreadyQueued.addedDate}</span>
                   )}
                   <br />
-                  <span className="text-text-4">
-                    Hit <span className="font-medium text-text-3">Add &amp; evaluate</span> to score it now,
-                    or the next <span className="font-medium text-text-3">Filter to Database</span> pass will pick it up automatically.
+                  <span className="text-text-3">
+                    <span className="font-medium text-text-2">Add &amp; evaluate</span> scores it now,
+                    or the next <span className="font-medium text-text-2">Filter to Database</span> pass picks it up automatically.
                   </span>
                 </div>
               </div>
@@ -543,13 +526,13 @@ export function AddListingModal() {
             {modalState === 'inbox-done' && (
               <div
                 role="status"
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-success/30 bg-success/5 text-[11.5px] text-text-2"
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-success/30 bg-success/5 text-label text-text-2"
               >
                 <CheckCircle2 size={13} className="text-success shrink-0" aria-hidden />
-                <div className="leading-snug">
+                <div>
                   <span className="text-text-1 font-medium">Added to pipeline inbox.</span>{' '}
-                  <span className="text-text-4">
-                    The next <span className="font-medium text-text-3">Filter to Database</span> run will pick it up.
+                  <span className="text-text-3">
+                    The next <span className="font-medium text-text-2">Filter to Database</span> run will pick it up.
                   </span>
                 </div>
               </div>
@@ -559,36 +542,34 @@ export function AddListingModal() {
             {modalState === 'inbox-error' && (
               <div
                 role="alert"
-                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-danger/25 bg-danger/[0.05] text-[11.5px] text-text-2"
+                className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border border-danger/25 bg-danger/5 text-label text-text-2"
               >
                 <AlertTriangle size={13} className="text-danger shrink-0" aria-hidden />
-                <span className="leading-snug">
+                <span>
                   <span className="text-text-1 font-medium">Write failed.</span>{' '}
-                  <span className="text-text-4">Check the Activity panel for details.</span>
+                  <span className="text-text-3">Check the Activity panel for details.</span>
                 </span>
               </div>
             )}
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-2 px-6 py-3.5 border-t border-border-default bg-bg-elevated/40">
+          <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border-default bg-bg-elevated">
             {/* Keyboard hint — visible for sighted users, hidden from AT */}
-            <span className="mr-auto text-[10.5px] text-text-4 select-none hidden sm:flex items-center gap-1" aria-hidden>
-              <kbd className="px-1 py-0.5 rounded bg-bg-elevated border border-border-default text-[9px] font-mono">↵</kbd>
+            <span className="mr-auto text-label text-text-4 select-none hidden sm:flex items-center gap-1" aria-hidden>
+              <kbd className="kbd">↵</kbd>
               {' '}evaluate
-              <span className="mx-1 opacity-50">·</span>
-              <kbd className="px-1 py-0.5 rounded bg-bg-elevated border border-border-default text-[9px] font-mono">Esc</kbd>
+              <span className="mx-1 text-border-strong">·</span>
+              <kbd className="kbd">Esc</kbd>
               {' '}close
             </span>
 
-            <button
-              onClick={handleClose}
-              className="px-3 py-1.5 rounded-md text-[12.5px] text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors focus:outline-none focus:ring-1 focus:ring-border-strong"
-            >
+            <Button tone="ghost" onClick={handleClose}>
               Cancel
-            </button>
+            </Button>
 
-            <button
+            <Button
+              tone="secondary"
               onClick={handleAddToInbox}
               disabled={!valid || isSubmitting || !!alreadyQueued}
               title={
@@ -601,20 +582,15 @@ export function AddListingModal() {
                   ? 'Already in inbox'
                   : 'Add to inbox — queue for next filter pass, no tokens'
               }
-              className={cn(
-                'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12.5px] border transition-colors focus:outline-none focus:ring-1 focus:ring-border-strong',
-                valid && !isSubmitting && !alreadyQueued
-                  ? 'border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong'
-                  : 'border-border-default bg-bg-elevated text-text-4 opacity-60 cursor-not-allowed',
-              )}
+              icon={alreadyQueued
+                ? <CheckCircle2 size={13} className="text-success" aria-hidden />
+                : <Inbox size={13} aria-hidden />}
             >
-              {alreadyQueued
-                ? <><CheckCircle2 size={12} className="text-success" aria-hidden />In inbox</>
-                : <><Inbox size={12} aria-hidden />Add to inbox</>
-              }
-            </button>
+              {alreadyQueued ? 'In inbox' : 'Add to inbox'}
+            </Button>
 
-            <button
+            <Button
+              tone="primary"
               onClick={handleEvaluate}
               disabled={!evaluateBtnEnabled}
               title={
@@ -627,15 +603,9 @@ export function AddListingModal() {
                   ? 'Re-evaluate with Claude (replaces previous score)'
                   : 'Add and evaluate with Claude'
               }
-              className={cn(
-                'inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-[12.5px] font-medium border transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/50',
-                evaluateBtnEnabled
-                  ? 'bg-accent border-accent text-white hover:bg-accent-hover active:bg-accent-press active:scale-[0.98]'
-                  : 'bg-accent/30 border-accent/30 text-white/70 cursor-not-allowed',
-              )}
             >
               {evaluateBtnContent}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

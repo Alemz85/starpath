@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { clsx } from 'clsx'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning, claudeArgs, isAuthFailure, diagnoseFailure, type SpawnRecord } from '@/store/spawns'
@@ -11,20 +12,24 @@ import { ipc } from '@/lib/ipc'
 import { ClaudeLogo } from '@/components/shared/Logos'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
+import { Button, PageHeader, Panel, Stat, StatStrip, type StatTone } from '@/components/ui'
 import {
   Play, Zap, Filter, Square, ArrowRight,
-  ChevronDown, ChevronRight, Check, Plus,
+  ChevronDown, Check, Plus, Star,
   AlertTriangle, RotateCw, Loader2,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { DailyBriefPanel } from '@/components/command-center/DailyBriefPanel'
-import { cn, formatRelative } from '@/lib/utils'
+import { formatRelative } from '@/lib/utils'
 
-// StatTile — single column inside a hero stat strip. No card frame, no
-// border on its own; relies on a sibling `divide-x` parent to provide
-// the hairline rhythm. Optional `accent` color highlights the most
-// actionable figure (pending listings, interviewing) and a tiny
-// pulsing dot draws the eye to non-zero values.
+// Class strings below are combined with `clsx`, not `cn`: tailwind-merge
+// reads custom size tokens (`text-label`, `text-body`) as text colours and
+// drops them when a `text-text-*` colour follows.
+
+// Legacy stat tile, kept as a thin wrapper over the `Stat` primitive so the
+// views that still import it keep compiling while they migrate to
+// `<StatStrip><Stat/></StatStrip>` directly. `accent` / `highlightDot` were
+// Tailwind class strings; they now only pick the Stat tone.
 function HeroStatTile({
   value, label, sub, accent, highlightDot,
 }: {
@@ -35,25 +40,21 @@ function HeroStatTile({
   highlightDot?: string
 }) {
   return (
-    <div className="px-5 first:pl-0 last:pr-0">
-      <div className="relative inline-block">
-        <span className={cn(
-          'text-[26px] font-mono font-semibold tabular-nums leading-none',
-          accent ?? 'text-text-1',
-        )}>
-          {value}
-        </span>
-        {highlightDot && (
-          <span
-            className={cn('absolute -top-0.5 -right-2.5 w-1.5 h-1.5 rounded-full animate-pulse', highlightDot)}
-            aria-hidden
-          />
-        )}
-      </div>
-      <div className="text-label text-text-2 font-medium mt-2">{label}</div>
-      {sub && <div className="text-micro text-text-4 mt-0.5 normal-case">{sub}</div>}
-    </div>
+    <Stat
+      value={value}
+      label={label}
+      hint={sub}
+      tone={accent ? heroTone(accent) : 'default'}
+      dot={!!highlightDot}
+    />
   )
+}
+
+function heroTone(accentClass: string): StatTone {
+  if (/danger/.test(accentClass))  return 'danger'
+  if (/warning/.test(accentClass)) return 'warning'
+  if (/success/.test(accentClass)) return 'success'
+  return 'accent'
 }
 
 const FULL_SCAN_ID       = 'cmd-full-scan'
@@ -91,14 +92,14 @@ const LOADING_MESSAGES = [
   'Asking the universe for a Tier 1 hit…',
   'Decoding HR-speak into English…',
   'Counting open roles on tracked portals…',
-  'Reading job descriptions you\u2019ll definitely skim…',
+  'Reading job descriptions you’ll definitely skim…',
   'Looking under the couch for hidden listings…',
   'Side-eyeing the salary range…',
-  'Whispering \u201Cremote-friendly\u201D into the API…',
+  'Whispering “remote-friendly” into the API…',
   'Tickling Greenhouse for fresh openings…',
   'Distracting the rate limiter…',
   'Brewing a fresh batch of opportunity…',
-  'Reverse-engineering \u201Ccompetitive compensation\u201D…',
+  'Reverse-engineering “competitive compensation”…',
   'Pretending to be a passionate self-starter…',
   'Filtering out the unicorn-hunting startups…',
 ]
@@ -127,63 +128,50 @@ export function CommandCenter() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Scouting</h1>
-      </div>
+      <PageHeader
+        title="Scouting"
+        meta={loaded && lastScanDate ? `Last scan ${formatRelative(lastScanDate)}` : undefined}
+      />
 
-      <div className="flex-1 flex flex-col px-8 pt-8 pb-8 gap-6 overflow-hidden min-h-0">
-        {/* Editorial hero — display title + 4-column stat strip below.
-            The strip uses hairline dividers (no card frames) so it
-            doesn't read as a templated SaaS dashboard, but every key
-            number is large and instantly scannable. The Pending column
-            gets accent emphasis and a pulsing dot when > 0 so the
-            "you have stuff to filter" signal can't be missed. */}
-        <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
-          <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
-            <h1 className="text-display-2 text-text-1">Scouting</h1>
-            {loaded && lastScanDate && (
-              <span className="text-label text-text-3">
-                Last scan{' '}
-                <span className="text-text-2 font-medium">{formatRelative(lastScanDate)}</span>
-              </span>
-            )}
+      <div className="flex-1 flex flex-col min-h-0 p-5 gap-5 overflow-hidden">
+        {/* Key figures inline, no card. Pending is the one "act now"
+            figure: accent tone plus a dot whenever there is something to
+            filter. */}
+        {loaded ? (
+          <StatStrip className="shrink-0">
+            <Stat
+              value={totalEvaluated}
+              label="Evaluated"
+              hint={`${distinctCompanies} ${distinctCompanies === 1 ? 'company' : 'companies'}`}
+            />
+            <Stat
+              value={active}
+              label="Active"
+              hint={active === 1 ? 'application' : 'applications'}
+            />
+            <Stat
+              value={pendingListings}
+              label="Pending"
+              hint="ready to filter"
+              tone={pendingListings > 0 ? 'accent' : 'default'}
+              dot={pendingListings > 0}
+            />
+            <Stat
+              value={scansThisMonth}
+              label="Scans"
+              hint="this month"
+            />
+          </StatStrip>
+        ) : (
+          <div className="shrink-0 flex items-stretch gap-10" aria-hidden>
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="h-[60px] w-20 shimmer rounded" />
+            ))}
           </div>
+        )}
 
-          {loaded ? (
-            <div className="grid grid-cols-4 divide-x divide-border-default/50">
-              <HeroStatTile
-                value={totalEvaluated}
-                label="Evaluated"
-                sub={`${distinctCompanies} ${distinctCompanies === 1 ? 'company' : 'companies'}`}
-              />
-              <HeroStatTile
-                value={active}
-                label="Active"
-                sub={active === 1 ? 'application' : 'applications'}
-              />
-              <HeroStatTile
-                value={pendingListings}
-                label="Pending"
-                sub="ready to filter"
-                accent={pendingListings > 0 ? 'text-accent' : undefined}
-                highlightDot={pendingListings > 0 ? 'bg-accent' : undefined}
-              />
-              <HeroStatTile
-                value={scansThisMonth}
-                label="Scans"
-                sub="this month"
-              />
-            </div>
-          ) : (
-            <div className="h-14 shimmer rounded-lg" />
-          )}
-        </div>
-
-        {/* Scouting cockpit (flex-grows to fill remaining height).
-            Recent top picks was removed from this view — the Database
-            tab is the canonical "browse what's been scored" surface, and
-            the Filtered Scan section below is now the visual anchor for
-            the cockpit's bottom half. */}
+        {/* Scouting cockpit: action row, then the daily brief and the
+            filtered-scan panel share the remaining height. */}
         <ScoutingActionPanel repoPath={repoPath} onPipelineDone={refresh} />
       </div>
     </div>
@@ -251,13 +239,13 @@ function ScoutingActionPanel({
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
-    start(FULL_SCAN_ID, 'Full Scan', 'claude', claudeArgs('/career-ops scan', 'sonnet'))
+    start(FULL_SCAN_ID, 'Full scan', 'claude', claudeArgs('/career-ops scan', 'sonnet'))
     startJobspyIfIdle()
   }
   const handleApiScan = () => {
     if (apiScan?.status === 'running') { kill(API_SCAN_ID); return }
     if (apiScan) clear(API_SCAN_ID)
-    start(API_SCAN_ID, 'API Scan', 'node', ['scripts/scan.mjs'])
+    start(API_SCAN_ID, 'API scan', 'node', ['scripts/scan.mjs'])
     startJobspyIfIdle()
   }
   const handleFilter = () => {
@@ -272,13 +260,14 @@ function ScoutingActionPanel({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <HoverDescriptionRow
+        slotMaxWidth={960}
         items={[
           {
             key: 'full',
-            description: 'Playwright + ATS APIs + WebSearch + JobSpy aggregators (Indeed/Google) — uses Claude (token cost). JobSpy runs in parallel as a zero-token sibling.',
+            description: 'Playwright + ATS APIs + WebSearch + JobSpy aggregators (Indeed/Google). Uses Claude (token cost); JobSpy runs in parallel at zero token cost.',
             node: (
               <ActionButton
-                label="Full Scan"
+                label="Full scan"
                 icon={Play}
                 tone="primary"
                 running={fullScan?.status === 'running'}
@@ -289,10 +278,10 @@ function ScoutingActionPanel({
           },
           {
             key: 'api',
-            description: 'Direct ATS API calls + JobSpy aggregators (Indeed/Google) — zero token cost. JobSpy runs in parallel.',
+            description: 'Direct ATS API calls + JobSpy aggregators (Indeed/Google). Zero token cost; JobSpy runs in parallel.',
             node: (
               <ActionButton
-                label="API Only"
+                label="API only"
                 icon={Zap}
                 tone="outline"
                 running={apiScan?.status === 'running'}
@@ -302,12 +291,8 @@ function ScoutingActionPanel({
             ),
           },
           {
-            key: 'sep',
-            node: <div className="w-px h-6 bg-border-default" aria-hidden />,
-          },
-          {
             key: 'filter',
-            description: 'Discard off-archetype / wrong-seniority / geo-locked listings, then score the survivors (~20–30%) into the Database. No prose reports.',
+            description: 'Discard off-archetype, wrong-seniority and geo-locked listings, then score the survivors (~20–30%) into the Database. No prose reports.',
             node: (
               <ActionButton
                 label="Filter to Database"
@@ -320,21 +305,17 @@ function ScoutingActionPanel({
             ),
           },
           {
-            key: 'sep2',
-            node: <div className="w-px h-6 bg-border-default" aria-hidden />,
+            key: 'sep',
+            node: <div className="w-px h-5 mx-1 bg-border-default" aria-hidden />,
           },
           {
             key: 'add-listing',
-            description: 'Paste a job posting URL the scanner didn\'t find. Choose to score it into the Database now (uses tokens, no prose report) or just queue it for the next filter pass.',
+            description: 'Paste a job URL the scanner missed. Score it into the Database now (uses tokens, no prose report) or queue it for the next filter pass.',
             node: <AddListingButton disabled={!repoPath} />,
           },
           {
-            key: 'sep3',
-            node: <div className="w-px h-6 bg-border-default" aria-hidden />,
-          },
-          {
             key: 'model',
-            description: 'Model used for the Filter to Database run. Scan is always Sonnet. Report generation has its own model — set in Settings → Models, used by the Reports tab\'s Generate Top 5 button and the per-listing Generate Report action.',
+            description: 'Model for the Filter to Database run. Scans always use Sonnet; report generation has its own model in Settings › Models.',
             node: <ModelChip />,
           },
         ]}
@@ -342,15 +323,16 @@ function ScoutingActionPanel({
 
       {/* Daily brief — the backend digest's "do this first" pick + the top
           few prioritized items per section, computed by scripts/daily-brief.mjs
-          (--json) and rendered natively. Occupies the cockpit's middle band;
-          renders nothing at all when the brief has nothing to say, so the
-          Filtered Scan section below keeps its bottom anchor either way.
+          (--json) and rendered natively. Content-sized up to half the
+          remaining height; renders nothing at all when the brief has nothing
+          to say, and the Filtered scan panel then takes the whole area.
           Deactivatable via Settings › General › Features. */}
-      {dailyBriefEnabled && <DailyBriefPanel />}
+      <div className="flex-1 min-h-0 flex flex-col gap-3 mt-2">
+        {dailyBriefEnabled && <DailyBriefPanel className="shrink-0 max-h-[50%]" />}
+        <FilteredScanRow />
+      </div>
 
-      <FilteredScanRow />
-
-      {/* Activity is now exclusively on the Scan tab. When something is
+      {/* Activity is now exclusively on the Activity tab. When something is
           running anywhere, surface a quiet pointer so the user knows where
           to go for the live log. */}
       <RunningInScanFooter />
@@ -360,12 +342,18 @@ function ScoutingActionPanel({
 
 // ─── Filtered Scan ──────────────────────────────────────────────────────────
 //
-// Always-visible chip strip listing every tracked_company in portals.yml.
-// Pre-selects the user's dream_companies (from profile.yml) on first
-// mount of the session, then leaves the selection alone. The Run button
-// spawns Claude with `/career-ops scan` plus an explicit allowlist of
+// Always-visible panel listing every tracked_company in portals.yml as a
+// toggle chip. Pre-selects the user's dream_companies (from profile.yml) on
+// first mount of the session, then leaves the selection alone. The Run
+// button spawns Claude with `/career-ops scan` plus an explicit allowlist of
 // company names — Claude reads the regular scan mode and constrains to
 // those companies (covers both API-method and websearch-method ones).
+
+const METHOD_LABEL: Record<'api' | 'websearch' | 'unknown', string> = {
+  api: 'API',
+  websearch: 'web search',
+  unknown: 'unknown method',
+}
 
 function FilteredScanRow() {
   const repoPath = useAppStore(s => s.repoPath)
@@ -381,11 +369,6 @@ function FilteredScanRow() {
 
   const [companies, setCompanies] = useState<Array<{ name: string; method: 'api' | 'websearch' | 'unknown' }>>([])
   const [dreamCompanies, setDreamCompanies] = useState<string[]>([])
-  // Chip canvas defaults to collapsed — the header strip's selection
-  // summary + Run button cover the common case (run a quick filtered
-  // scan on the existing dream selection). Editing the company set is
-  // the less-common action and lives behind a one-click expand.
-  const [expanded, setExpanded] = useState(false)
 
   // Load on mount: portals.yml → tracked_companies (with their scan
   // method) and profile.yml → dream_companies (just the names).
@@ -417,15 +400,15 @@ function FilteredScanRow() {
       `Skip every other tracked_company. Skip the search_queries section entirely. ` +
       `For each named company, follow its scan_method (api → direct API call; websearch → WebSearch with the company's scan_query). ` +
       `Append new URLs to data/pipeline.md per the standard scan mode; respect data/scan-history.tsv for dedup.`
-    start(FILTERED_SCAN_ID, `Filtered Scan (${selected.size})`, 'claude', claudeArgs(slash, 'sonnet'))
+    start(FILTERED_SCAN_ID, `Filtered scan (${selected.size})`, 'claude', claudeArgs(slash, 'sonnet'))
   }
 
   const handleResetDefaults = () => applyDefaults(dreamCompanies, true)
 
   if (companies.length === 0) {
     // No tracked_companies in portals.yml yet — onboarding wizard probably
-    // hasn't completed. Hide the row entirely instead of showing an empty
-    // strip; user gets the chips back as soon as they configure portals.
+    // hasn't completed. Hide the panel entirely instead of showing an empty
+    // canvas; user gets the chips back as soon as they configure portals.
     return null
   }
 
@@ -445,143 +428,81 @@ function FilteredScanRow() {
     })
   })()
 
-  return (
-    // mt-auto pushes the section to the bottom of the cockpit's flex
-    // column, leaving the action buttons above and the section here as
-    // the visual anchor of the empty space below them.
-    <div className="mt-auto pt-6">
-      <div className="rounded-xl border border-border-default overflow-hidden bg-bg-panel/80">
-        {/* Header strip — icon-mark left, status middle, actions right.
-            Clickable as a whole to toggle the chip canvas; the inner
-            action buttons stop propagation so they don't double-toggle.
-            Soft galaxy gradient so it reads as a distinct surface from
-            the action-button row above. */}
-        <button
-          type="button"
-          onClick={() => setExpanded(e => !e)}
-          aria-expanded={expanded}
-          className={cn(
-            'w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors',
-            expanded ? 'border-b border-border-default/60' : 'border-b border-transparent',
-            'hover:bg-accent/[0.02]',
-          )}
-          style={{
-            background: 'linear-gradient(135deg, rgba(124,92,255,0.10) 0%, rgba(124,92,255,0.02) 100%)',
-          }}
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
-              <Filter size={14} className="text-accent" />
-            </div>
-            <div className="min-w-0">
-              <div className="text-[13px] font-semibold text-text-1 leading-tight flex items-center gap-1.5">
-                Filtered Scan
-                <span className="text-text-4">
-                  {expanded
-                    ? <ChevronDown size={12} />
-                    : <ChevronRight size={12} />}
-                </span>
-              </div>
-              <div className="text-[11.5px] text-text-3 truncate mt-0.5">
-                {selected.size === 0
-                  ? 'Pick companies to scan only those — others stay untouched.'
-                  : (
-                    <>
-                      <span className="text-text-1 font-medium">{selected.size}</span>
-                      <span> of {companies.length} selected</span>
-                      {dreamCompanies.length > 0 && (
-                        <span className="text-text-4"> · {selected.size === dreamCompanies.length && [...selected].every(n => dreamCompanies.includes(n)) ? 'matches your dream list' : `${[...selected].filter(n => dreamCompanies.includes(n)).length} dream`}</span>
-                      )}
-                    </>
-                  )}
-              </div>
-            </div>
-          </div>
-          <div
-            className="flex items-center gap-1.5 shrink-0"
-            // Inner action buttons own their own clicks; stop propagation
-            // so clicking Clear / Reset / Run doesn't also collapse or
-            // expand the chip canvas.
-            onClick={e => e.stopPropagation()}
-          >
-            {selected.size > 0 && (
-              <button
-                onClick={clearAll}
-                className="text-[11.5px] text-text-4 hover:text-text-2 px-2 py-1.5 rounded transition-colors"
-              >
-                Clear
-              </button>
-            )}
-            {dreamCompanies.length > 0 && (
-              <button
-                onClick={handleResetDefaults}
-                title="Reset selection to your dream_companies list from profile.yml"
-                className="text-[11.5px] text-text-4 hover:text-text-2 px-2 py-1.5 rounded transition-colors"
-              >
-                Reset to dreams
-              </button>
-            )}
-            <button
-              onClick={handleRun}
-              disabled={!repoPath || (!running && selected.size === 0)}
-              title={running
-                ? 'Stop the run (live log on the Activity tab)'
-                : selected.size === 0
-                  ? 'Select at least one company first'
-                  : `Spawn Claude to scan only the ${selected.size} selected ${selected.size === 1 ? 'company' : 'companies'}. Costs Claude tokens.`}
-              className={cn(
-                'inline-flex items-center gap-1.5 px-3.5 py-2 rounded-md text-[12.5px] font-medium border transition-colors shadow-sm',
-                running
-                  ? 'bg-danger/15 border-danger/40 text-danger hover:bg-danger/20'
-                  : 'bg-accent border-accent text-white hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed',
-              )}
-            >
-              {running ? <Square size={12} className="fill-current" /> : <Filter size={12} />}
-              {running ? 'Stop' : 'Run filtered scan'}
-            </button>
-          </div>
-        </button>
+  const selectedNames = [...selected]
+  const dreamSelected = selectedNames.filter(n => dreamCompanies.includes(n)).length
+  const matchesDreams = selected.size === dreamCompanies.length && selectedNames.every(n => dreamCompanies.includes(n))
+  const meta = selected.size === 0
+    ? 'Pick companies to scan only those'
+    : `${selected.size} of ${companies.length} selected` +
+      (dreamCompanies.length > 0 ? ` · ${matchesDreams ? 'matches your dream list' : `${dreamSelected} dream`}` : '')
 
-        {/* Chip canvas — collapsed by default, expands inline on click. */}
-        {expanded && (
-        <div
-          className="flex flex-wrap gap-2 max-h-[240px] overflow-y-auto px-4 py-4"
-          style={{ scrollbarWidth: 'thin' }}
-        >
+  return (
+    <Panel
+      title="Filtered scan"
+      meta={meta}
+      className="flex-1 min-h-0 flex flex-col"
+      action={
+        <div className="flex items-center gap-1">
+          {selected.size > 0 && (
+            <Button tone="ghost" size="sm" onClick={clearAll}>Clear</Button>
+          )}
+          {dreamCompanies.length > 0 && (
+            <Button
+              tone="ghost"
+              size="sm"
+              onClick={handleResetDefaults}
+              title="Reset selection to your dream_companies list from profile.yml"
+            >
+              Reset to dreams
+            </Button>
+          )}
+          <Button
+            tone={running ? 'stop' : 'tinted'}
+            size="sm"
+            icon={running ? <Square size={12} className="fill-current" aria-hidden /> : <Filter size={13} aria-hidden />}
+            onClick={handleRun}
+            disabled={!repoPath || (!running && selected.size === 0)}
+            title={running
+              ? 'Stop the run (live log on the Activity tab)'
+              : selected.size === 0
+                ? 'Select at least one company first'
+                : `Spawn Claude to scan only the ${selected.size} selected ${selected.size === 1 ? 'company' : 'companies'}. Costs Claude tokens.`}
+          >
+            {running ? 'Stop filtered scan' : 'Run filtered scan'}
+          </Button>
+        </div>
+      }
+    >
+      {/* Chip canvas — always expanded, scrolls inside the panel. */}
+      <div className="min-h-0 flex-1 overflow-y-auto" style={{ scrollbarWidth: 'thin' }}>
+        <div className="flex flex-wrap gap-1.5">
           {sortedCompanies.map(c => {
             const isSelected = selected.has(c.name)
             const isDream = dreamCompanies.includes(c.name)
             return (
               <button
                 key={c.name}
+                type="button"
                 onClick={() => toggle(c.name)}
-                title={`${c.name} · ${c.method.toUpperCase()}${isDream ? ' · dream company' : ''}`}
-                className={cn(
-                  'inline-flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-md text-[12px] border transition-all',
+                aria-pressed={isSelected}
+                title={`${c.name} · ${METHOD_LABEL[c.method]}${isDream ? ' · dream company' : ''}`}
+                className={clsx(
+                  'chip chip-md h-[26px] px-2 gap-1.5 transition-colors duration-150 ease-quart',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
                   isSelected
-                    ? 'bg-accent/20 border-accent/50 text-accent-text shadow-sm'
-                    : 'bg-bg-elevated/60 border-border-default text-text-2 hover:text-text-1 hover:border-border-strong hover:bg-bg-elevated',
+                    ? 'chip-accent hover:bg-accent/20'
+                    : 'hover:bg-bg-base hover:border-border-strong hover:text-text-1',
                 )}
               >
-                {isDream && (
-                  <span
-                    title="Dream company"
-                    className={cn(
-                      'w-1.5 h-1.5 rounded-full shrink-0',
-                      isSelected ? 'bg-tier-1' : 'bg-tier-1/70',
-                    )}
-                    aria-hidden
-                  />
-                )}
                 <CompanyLogo company={c.name} size={14} className="shrink-0" />
-                <span className="truncate max-w-[160px] font-medium">{c.name}</span>
+                <span className="truncate max-w-[160px]">{c.name}</span>
+                {isDream && <Star size={12} className="shrink-0 text-accent-text" aria-hidden />}
               </button>
             )
           })}
         </div>
-        )}
       </div>
-    </div>
+    </Panel>
   )
 }
 
@@ -648,39 +569,46 @@ function ModelChip() {
 
   return (
     <div ref={ref} className="relative inline-flex">
-      <button
+      <Button
+        tone="ghost"
+        size="sm"
         onClick={() => setOpen(o => !o)}
         title="Model for the three pipeline buttons (Filter / Top Reports / All Reports)"
-        className={cn(
-          'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-pill border transition-colors text-[12px]',
-          open
-            ? 'border-accent/60 bg-accent/15 text-accent'
-            : 'border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong',
-        )}
+        aria-expanded={open}
+        className={open ? 'bg-bg-elevated text-text-1' : undefined}
+        trailing={
+          <ChevronDown
+            size={12}
+            className={clsx('transition-transform duration-150', open && 'rotate-180')}
+            aria-hidden
+          />
+        }
       >
-        <span className="text-text-4 text-[12px]">Model:</span>
-        <span className="font-semibold">{current.label}</span>
-        <ChevronDown size={11} className={cn('transition-transform', open && 'rotate-180')} />
-      </button>
+        <span>Model</span>
+        <span className="text-text-4" aria-hidden>·</span>
+        <span className="text-text-1">{current.label}</span>
+      </Button>
       {open && (
-        <div className="absolute right-0 top-[calc(100%+6px)] z-30 min-w-[180px] rounded-lg border border-border-default bg-bg-base shadow-card overflow-hidden">
+        <div className="absolute left-0 top-[calc(100%+4px)] z-30 min-w-[200px] p-1 rounded-lg border border-border-default bg-bg-base shadow-menu">
           {options.map(o => {
             const isSelected = o.id === pipeline
             return (
               <button
                 key={o.id}
+                type="button"
                 onClick={() => { setModel('pipeline', o.id); setOpen(false) }}
-                className={cn(
-                  'w-full flex items-center gap-3 px-3 py-2 text-[12px] text-left transition-colors',
+                className={clsx(
+                  'w-full flex items-center gap-2 h-8 px-2.5 rounded text-body text-left transition-colors duration-150',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
                   isSelected
-                    ? 'bg-accent/20 text-accent-text'
+                    ? 'bg-accent-soft text-accent-text'
                     : 'text-text-2 hover:bg-bg-elevated hover:text-text-1',
                 )}
               >
                 <span className="font-medium">{o.label}</span>
-                <span className={cn('text-[10.5px]', isSelected ? 'text-accent-text/80' : 'text-text-4')}>{o.tag}</span>
+                <span className={clsx('text-label', isSelected ? 'text-accent-text/80' : 'text-text-4')}>{o.tag}</span>
                 <span className="ml-auto inline-flex items-center w-3 shrink-0">
-                  {isSelected && <Check size={11} />}
+                  {isSelected && <Check size={12} aria-hidden />}
                 </span>
               </button>
             )
@@ -703,8 +631,8 @@ function statusDone(rec: SpawnRecord | undefined): boolean {
 }
 
 // Footer shown on Scouting / Applying when at least one spawn is running
-// somewhere. Activity panel itself moved to the Scan tab — this just points
-// the user there.
+// somewhere. The live log lives on the Activity tab — this just points the
+// user there.
 function RunningInScanFooter() {
   const anyRunning = useSpawnsStore(isAnyRunning)
   const navigate = useNavStore(s => s.navigate)
@@ -713,14 +641,16 @@ function RunningInScanFooter() {
   )
   if (!anyRunning) return null
   return (
-    <button
+    <Button
+      tone="tinted"
+      size="sm"
       onClick={() => navigate('scan')}
-      className="shrink-0 mt-3 self-center inline-flex items-center gap-2 px-3 py-1.5 rounded-pill bg-accent/8 hover:bg-accent/14 border border-accent/30 text-accent text-[12px] transition-colors"
+      className="shrink-0 self-start mt-2"
+      icon={<span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden />}
+      trailing={<ArrowRight size={12} aria-hidden />}
     >
-      <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-      {runningCount} running — open Scan
-      <ArrowRight size={11} className="opacity-70" />
-    </button>
+      {`${runningCount} running · open Activity`}
+    </Button>
   )
 }
 
@@ -736,6 +666,12 @@ function pickVisible(
 
 // ─── Action Button ──────────────────────────────────────────────────────────
 
+// "Stop full scan" — lower-case the label's first letter unless it opens an
+// acronym ("Stop API only").
+function stopLabel(label: string): string {
+  return /^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label
+}
+
 function ActionButton({
   label, icon: Icon, tone, running, onClick, disabled, title,
 }: {
@@ -749,71 +685,52 @@ function ActionButton({
 }) {
   if (running) {
     return (
-      <button
+      <Button
+        tone="stop"
         onClick={onClick}
         title="Click to stop"
-        className="inline-flex items-center gap-2 rounded-pill px-5 py-2 text-[14px] font-medium border-2 border-danger/40 bg-danger/10 text-danger hover:bg-danger/20 transition-colors"
+        icon={<Square size={12} className="fill-current" aria-hidden />}
       >
-        <Square size={13} className="fill-current" />
-        Stop {label}
-      </button>
-    )
-  }
-  if (tone === 'primary') {
-    return (
-      <button
-        onClick={onClick}
-        disabled={disabled}
-        title={title}
-        className="btn-pill disabled:opacity-50"
-      >
-        <Icon size={14} />
-        {label}
-      </button>
+        {`Stop ${stopLabel(label)}`}
+      </Button>
     )
   }
   return (
-    <button
+    <Button
+      tone={tone === 'primary' ? 'primary' : 'secondary'}
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="btn-pill-outline disabled:opacity-50"
+      icon={<Icon size={14} aria-hidden />}
     >
-      <Icon size={14} />
       {label}
-    </button>
+    </Button>
   )
 }
 
-// Dedicated CTA for the Add Listing modal. Visually distinct from the
-// scan/filter buttons (accent-soft tint, plus glyph) because it
-// represents a CREATE action — the user is contributing new data, not
-// running an automation. Hover-row description owns the tooltip.
+// Dedicated CTA for the Add Listing modal. Tinted rather than secondary
+// because it represents a CREATE action — the user is contributing new
+// data, not running an automation. Hover-row description owns the tooltip.
 function AddListingButton({ disabled }: { disabled?: boolean }) {
   const show = useAddListingStore(s => s.show)
   return (
-    <button
+    <Button
+      tone="tinted"
       onClick={() => show()}
       disabled={disabled}
-      className={cn(
-        'inline-flex items-center gap-2 rounded-pill px-4 py-2 text-[13.5px] font-medium border transition-all',
-        'border-accent/40 bg-accent/10 text-accent-text hover:bg-accent/15 hover:border-accent/55',
-        'disabled:opacity-40 disabled:cursor-not-allowed',
-      )}
+      icon={<Plus size={14} aria-hidden />}
     >
-      <Plus size={14} />
-      Add Listing
-    </button>
+      Add listing
+    </Button>
   )
 }
 
 // ─── Hover-description row ──────────────────────────────────────────────────
-// A button row with a single shared description slot centered below it. The
-// slot has fixed height so it doesn't reflow when the description appears or
-// changes, and the description STAYS centered on the row regardless of which
-// button is hovered — only the text swaps. mouseEnter sets the description;
-// the parent container's mouseLeave clears it, so moving between buttons
-// (across the gap or the divider) doesn't flicker.
+// A left-aligned button row with a single shared description slot under it.
+// The slot has a fixed 20px height so it doesn't reflow when the description
+// appears or changes — only the text swaps. mouseEnter sets the description;
+// the row's mouseLeave clears it, so moving between buttons (across the gap
+// or the divider) doesn't flicker.
 
 interface HoverItem {
   key: string
@@ -829,9 +746,9 @@ function HoverDescriptionRow({ items, slotMaxWidth = 640 }: {
   const desc = hoverIdx !== null ? items[hoverIdx]?.description : null
 
   return (
-    <div className="shrink-0 flex flex-col items-center pt-2">
+    <div className="shrink-0 flex flex-col items-start min-w-0">
       <div
-        className="flex items-center gap-3"
+        className="flex items-center gap-2"
         onMouseLeave={() => setHoverIdx(null)}
       >
         {items.map((item, i) => (
@@ -844,15 +761,12 @@ function HoverDescriptionRow({ items, slotMaxWidth = 640 }: {
           </span>
         ))}
       </div>
-      <div
-        className="h-12 flex items-start justify-center pt-3 px-4"
-        style={{ maxWidth: slotMaxWidth }}
-      >
+      <div className="h-5 mt-1.5 w-full" style={{ maxWidth: slotMaxWidth }}>
         <p
-          className="text-[12px] text-text-3 transition-opacity duration-150 text-center whitespace-nowrap"
+          className="text-label leading-5 text-text-3 truncate transition-opacity duration-150"
           style={{ opacity: desc ? 1 : 0 }}
         >
-          {desc ?? '\u00A0'}
+          {desc ?? ' '}
         </p>
       </div>
     </div>
@@ -860,7 +774,7 @@ function HoverDescriptionRow({ items, slotMaxWidth = 640 }: {
 }
 
 // ─── Activity Panel ─────────────────────────────────────────────────────────
-// Shared between Command Center and /scan. Flex-grows to fill the remaining
+// The matte terminal on the Activity tab. Flex-grows to fill the remaining
 // vertical space of its parent flex column.
 
 function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
@@ -882,44 +796,44 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
   const isIdle = !record
 
   return (
-    <div className={cn(
-      'flex-1 min-h-0 relative rounded-xl overflow-hidden flex flex-col bg-galaxy-matte shadow-card',
+    <div className={clsx(
+      'flex-1 min-h-0 relative rounded-lg overflow-hidden flex flex-col bg-galaxy-matte',
       isIdle && 'galaxy-stars',
     )}>
       {/* Header strip — no static "Terminal" label. When the running spawn is
           a Claude invocation the brand mark sits next to the label so the user
-          knows what's at the wheel. The elapsed chip ticks every second while
-          running so a "stuck" run can never look like "instant" success. */}
-      <div className="shrink-0 h-8 px-5 flex items-center justify-between border-b border-white/5 text-[10px] font-mono uppercase tracking-wider bg-galaxy-matte-2">
-        <span className="text-white/55 inline-flex items-center gap-1.5">
+          knows what's at the wheel. The elapsed readout ticks every second
+          while running so a "stuck" run can never look like "instant" success. */}
+      <div className="shrink-0 h-8 px-4 flex items-center justify-between gap-3 border-b border-white/5 bg-galaxy-matte-2 text-label">
+        <span className="text-white/60 inline-flex items-center gap-1.5 min-w-0 truncate">
           {record?.tool === 'claude' && <ClaudeLogo size={12} />}
           {record ? `${record.label} ${statusGlyph(record)}` : 'Idle'}
         </span>
         {record?.startedAt ? (
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center gap-2 shrink-0 tabular-nums">
             <ElapsedChip record={record} />
-            <span className="text-white/30">·</span>
-            <span className="text-white/40 tabular-nums">
+            <span className="text-white/30" aria-hidden>·</span>
+            <span className="text-white/40">
               {new Date(record.startedAt).toLocaleTimeString()}
             </span>
           </span>
         ) : null}
       </div>
 
-      {/* Body */}
+      {/* Body — the log itself is the one mono surface. */}
       <div
         ref={logRef}
-        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-[1.6] relative"
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 font-mono text-[12px] leading-[1.6] relative"
         style={{ userSelect: 'text', color: '#D4CFE6' }}
       >
         {!record && (
-          <p className="text-white/40 italic">Pick a scan or generate reports above.</p>
+          <p className="font-sans text-label text-white/40 italic">Pick a scan or generate reports above.</p>
         )}
 
         {record && record.output.map((line, i) => (
           <div
             key={i}
-            className={cn(
+            className={clsx(
               'whitespace-pre-wrap break-all',
               // Order matters — check most specific patterns first.
               line.startsWith('→ ')                       ? 'text-[#A795E8]' :  // tool-use one-liner — muted violet
@@ -970,34 +884,36 @@ function FailureCard({ record }: { record: SpawnRecord }) {
   const reason = diagnoseFailure(record)
 
   return (
-    <div className="mt-3 rounded-lg border border-[#FF8FA3]/25 bg-[#FF8FA3]/[0.07] px-3.5 py-3 flex items-start gap-3">
-      <AlertTriangle size={14} className="text-[#FF8FA3] shrink-0 mt-0.5" />
+    <div className="mt-3 font-sans rounded-lg border border-[#FF8FA3]/25 bg-[#FF8FA3]/[0.07] px-3.5 py-3 flex items-start gap-3">
+      <AlertTriangle size={14} className="text-[#FF8FA3] shrink-0 mt-0.5" aria-hidden />
       <div className="flex-1 min-w-0">
-        <div className="text-[12.5px] text-white/85 font-medium">
+        <div className="text-[13px] font-medium text-white/85">
           Run failed
           {record.exitCode != null && (
             <span className="text-white/40 font-normal"> · exit {record.exitCode}</span>
           )}
         </div>
-        {reason && <div className="text-[11.5px] text-white/55 mt-0.5 leading-snug">{reason}</div>}
+        {reason && <div className="text-label text-white/55 mt-0.5">{reason}</div>}
       </div>
       {authFail ? (
         <button
+          type="button"
           onClick={() => relogin()}
           disabled={reloginInProgress}
-          className="shrink-0 inline-flex items-center gap-1.5 pl-1.5 pr-3 h-7 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[11.5px] font-medium transition-all disabled:opacity-70 disabled:active:scale-100"
+          className="btn btn-sm btn-primary shrink-0"
         >
           {reloginInProgress
-            ? <Loader2 size={12} className="animate-spin" />
-            : <span className="bg-white rounded-full p-0.5"><ClaudeLogo size={11} /></span>}
+            ? <Loader2 size={12} className="animate-spin" aria-hidden />
+            : <span className="bg-white rounded-full p-0.5" aria-hidden><ClaudeLogo size={10} /></span>}
           {reloginInProgress ? 'Waiting…' : 'Sign in again'}
         </button>
       ) : (
         <button
+          type="button"
           onClick={() => retry(record.id)}
-          className="shrink-0 inline-flex items-center gap-1.5 px-3 h-7 bg-white/8 hover:bg-white/14 text-white/80 hover:text-white rounded-pill text-[11.5px] font-medium transition-colors"
+          className="btn btn-sm shrink-0 bg-white/10 text-white hover:bg-white/15"
         >
-          <RotateCw size={12} />
+          <RotateCw size={12} aria-hidden />
           Retry
         </button>
       )}
@@ -1019,7 +935,7 @@ function ElapsedChip({ record }: { record: SpawnRecord }) {
   const end = isRunning ? Date.now() : (record.endedAt ?? record.startedAt)
   return (
     <span
-      className={cn(
+      className={clsx(
         'tabular-nums',
         isRunning ? 'text-accent-light' : 'text-white/40',
       )}
@@ -1060,10 +976,8 @@ function LoadingMessage({ seed, showClaudeMark = false }: { seed: number; showCl
   return (
     <div className="absolute inset-0 top-7 flex items-center justify-center pointer-events-none px-6">
       <div className="flex flex-col items-center gap-4">
-        {/* Orbital rings while waiting for first output. The Claude
-            mark used to pulse here, but a tri-ring orbit reads as
-            "we're scanning through the universe of listings" — a
-            domain-truer signal than a generic logo bounce. */}
+        {/* Orbital rings while waiting for first output — reads as
+            "scanning through the universe of listings". */}
         <div className="relative inline-flex items-center justify-center">
           <OrbitalLoader size={64} strokeClass="text-accent-light" />
           {showClaudeMark && (
@@ -1074,7 +988,7 @@ function LoadingMessage({ seed, showClaudeMark = false }: { seed: number; showCl
         </div>
         <p
           key={idx}
-          className="italic text-[12.5px] text-center text-accent-light max-w-[42ch]"
+          className="font-sans italic text-body text-center text-accent-light max-w-[42ch]"
           style={{
             animation: 'chip-appear 320ms ease both',
           }}

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Download, Copy, FileDown, Check, ChevronDown } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { clsx } from 'clsx'
+import { Button } from '@/components/ui'
 import type { ScoreEntry } from '@/types'
 import { serializeRows, downloadText, exportFilename } from '@/lib/export'
 
@@ -51,50 +52,53 @@ export function ExportMenu({ rows }: { rows: ScoreEntry[] }) {
   }
 
   return (
-    <div ref={ref} className="titlebar-no-drag relative">
-      <button
+    <div
+      ref={ref}
+      className="titlebar-no-drag relative"
+      // A disabled <button> swallows hover, so the reason lives on the wrapper.
+      title={disabled ? 'No rows to export' : undefined}
+    >
+      <Button
+        tone="ghost"
+        size="sm"
         onClick={() => { if (!disabled) setOpen(o => !o) }}
         disabled={disabled}
         title={disabled ? 'No rows to export' : 'Export the filtered table'}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={cn(
-          'flex items-center gap-1.5 px-2 py-1 rounded-md text-label transition-colors',
-          disabled
-            ? 'text-text-4 opacity-50 cursor-not-allowed'
-            : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
-        )}
+        icon={copied ? <Check size={13} className="text-success" aria-hidden /> : <Download size={13} aria-hidden />}
+        trailing={
+          <ChevronDown
+            size={12}
+            className={clsx('text-text-4 transition-transform duration-150', open && 'rotate-180')}
+            aria-hidden
+          />
+        }
       >
-        {copied ? <Check size={13} className="text-success" /> : <Download size={13} />}
         {copied ? 'Copied' : 'Export'}
-        <ChevronDown size={11} className={cn('transition-transform duration-150', open && 'rotate-180')} />
-      </button>
+      </Button>
 
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full mt-1.5 w-60 rounded-lg border border-border-strong bg-bg-base shadow-lift overflow-hidden z-50"
+          className="absolute right-0 top-full mt-1 w-60 rounded-lg border border-border-default bg-bg-base shadow-menu p-1 z-50"
           style={{ animation: 'chip-appear 160ms ease both' }}
         >
-          <div className="px-3 py-2 border-b border-border-default">
-            <span className="text-micro text-text-4 uppercase">
-              Export {rows.length} {rows.length === 1 ? 'row' : 'rows'}
-            </span>
+          <div className="label px-2 pt-1.5 pb-2">
+            Export {rows.length} {rows.length === 1 ? 'row' : 'rows'}
           </div>
-          <div className="py-1">
-            <MenuItem
-              icon={Copy}
-              label="Copy to clipboard"
-              hint="TSV · paste into Sheets / Excel"
-              onClick={handleCopy}
-            />
-            <MenuItem
-              icon={FileDown}
-              label="Download CSV"
-              hint={exportFilename('csv')}
-              onClick={handleDownload}
-            />
-          </div>
+          <MenuItem
+            icon={Copy}
+            label="Copy to clipboard"
+            hint="TSV · paste into Sheets / Excel"
+            onClick={handleCopy}
+          />
+          <MenuItem
+            icon={FileDown}
+            label="Download CSV"
+            hint={exportFilename('csv')}
+            onClick={handleDownload}
+          />
         </div>
       )}
     </div>
@@ -111,14 +115,15 @@ function MenuItem({
 }) {
   return (
     <button
+      type="button"
       role="menuitem"
       onClick={onClick}
-      className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-text-2 hover:bg-bg-elevated hover:text-text-1 transition-colors"
+      className="group w-full flex items-center gap-2.5 px-2 py-1.5 rounded text-left text-text-2 hover:bg-bg-elevated hover:text-text-1 transition-colors duration-150"
     >
-      <Icon size={13} className="shrink-0 opacity-80" />
+      <Icon size={14} className="shrink-0 text-text-3 group-hover:text-text-2" aria-hidden />
       <span className="flex-1 min-w-0">
-        <span className="block text-[12px] truncate">{label}</span>
-        {hint && <span className="block text-[10.5px] text-text-4 truncate font-mono">{hint}</span>}
+        <span className="block text-body truncate">{label}</span>
+        {hint && <span className="block text-label text-text-4 truncate">{hint}</span>}
       </span>
     </button>
   )

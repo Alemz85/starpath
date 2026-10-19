@@ -5,17 +5,19 @@
 // passes mutators down. Shows the live weighted total once a comparison is
 // running so the user sees each edit move the number.
 
-import { X, GripVertical, Info } from 'lucide-react'
+import { X, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { scoreColor } from '@/lib/tier'
 import { FACTORS, FACTOR_LABELS, FACTOR_HELP, type Factor } from '@/lib/offerCompare'
 import type { OfferDraft } from '@/lib/offerDrafts'
+import { Button, Chip, ScoreNumber } from '@/components/ui'
 import { FactorScale } from './FactorScale'
 
 interface OfferCardProps {
   draft: OfferDraft
   /** Rank among the compared offers (1-based) when a comparison is live. */
   rank?: number
+  /** How many offers are ranked, for the "#1 of 3" chip. Optional. */
+  rankOf?: number
   /** Weighted total when a comparison is live. */
   total?: number
   /** True for the #1 offer so the card can wear a subtle winner accent. */
@@ -32,6 +34,7 @@ interface OfferCardProps {
 export function OfferCard({
   draft,
   rank,
+  rankOf,
   total,
   isWinner,
   duplicateLabel,
@@ -43,28 +46,9 @@ export function OfferCard({
   const blank = draft.label.trim().length === 0
 
   return (
-    <div
-      className={cn(
-        'rounded-2xl border bg-bg-base p-4 flex flex-col gap-3 shadow-subtle transition-colors',
-        isWinner ? 'border-accent/50' : 'border-border-default',
-      )}
-    >
-      {/* Header: rank chip · label field · remove */}
-      <div className="flex items-center gap-2.5">
-        <GripVertical size={14} className="text-text-4 shrink-0" aria-hidden />
-        {typeof rank === 'number' && (
-          <span
-            className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-mono font-medium tabular-nums"
-            style={
-              isWinner
-                ? { background: '#7C5CFF', color: '#fff' }
-                : { background: 'var(--dolly-bg-grey)', color: 'var(--dolly-text-secondary)' }
-            }
-            title={`Rank #${rank}`}
-          >
-            {rank}
-          </span>
-        )}
+    <div className="card p-4 flex flex-col gap-3">
+      {/* Header: label field · rank chip · total · remove */}
+      <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <input
             type="text"
@@ -74,49 +58,60 @@ export function OfferCard({
             aria-label="Offer label"
             spellCheck={false}
             className={cn(
-              'w-full bg-transparent outline-none text-section text-text-1 placeholder:text-text-4',
-              'border-b transition-colors pb-0.5',
+              'input font-medium',
               duplicateLabel
                 ? 'border-danger/60'
                 : blank
-                  ? 'border-warning/50'
-                  : 'border-transparent hover:border-border-default focus:border-accent/50',
+                  ? 'border-warning/60'
+                  : undefined,
             )}
           />
         </div>
-        {typeof total === 'number' && (
-          <span
-            className="shrink-0 text-section font-mono tabular-nums font-medium"
-            style={{ color: scoreColor(total) }}
-            title="Weighted total"
+        {typeof rank === 'number' && (
+          <Chip
+            tone={isWinner ? 'success' : 'accent'}
+            size="sm"
+            className="shrink-0"
+            title={`Rank #${rank}`}
           >
-            {total.toFixed(2)}
-          </span>
+            #{rank}{typeof rankOf === 'number' && rankOf > 0 ? ` of ${rankOf}` : ''}
+          </Chip>
+        )}
+        {typeof total === 'number' && (
+          <ScoreNumber
+            value={total}
+            size="md"
+            decimals={2}
+            className="shrink-0 min-w-10 text-right"
+            title="Weighted total"
+          />
         )}
         {canRemove && (
-          <button
+          <Button
+            tone="ghost"
+            size="xs"
+            iconOnly
+            icon={<X size={14} aria-hidden />}
             onClick={onRemove}
             aria-label={`Remove ${draft.label || 'offer'}`}
-            className="shrink-0 p-1 rounded-md text-text-4 hover:text-danger hover:bg-danger/5 transition-colors"
             title="Remove offer"
-          >
-            <X size={14} />
-          </button>
+            className="shrink-0 hover:text-danger"
+          />
         )}
       </div>
 
       {duplicateLabel && (
-        <p className="text-[11px] text-danger -mt-1">Labels must be unique — rename this offer.</p>
+        <p className="text-label text-danger -mt-1.5">Labels must be unique — rename this offer.</p>
       )}
 
       {/* Factor rows */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         {FACTORS.map((f: Factor) => (
-          <div key={f} className="grid grid-cols-[120px_1fr] items-center gap-3">
+          <div key={f} className="grid grid-cols-[112px_1fr] items-center gap-3">
             <div className="flex items-center gap-1 min-w-0">
               <span className="text-label text-text-2 truncate">{FACTOR_LABELS[f]}</span>
               <span className="text-text-4 shrink-0 cursor-help" title={FACTOR_HELP[f]} aria-hidden>
-                <Info size={11} />
+                <Info size={12} />
               </span>
             </div>
             <FactorScale

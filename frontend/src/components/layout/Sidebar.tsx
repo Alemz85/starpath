@@ -159,10 +159,10 @@ export function Sidebar() {
         aria-label={showBadge ? `${item.label}, ${badge!.count}` : item.label}
         aria-current={currentView === item.view ? 'page' : undefined}
         className={cn(
-          'w-full flex items-center gap-3 px-2 py-2 rounded-md text-body',
+          'w-full flex items-center gap-2.5 px-2 h-8 rounded text-body',
           'transition-[background-color,color] duration-200 ease-quart',
           currentView === item.view
-            ? 'bg-accent/15 text-text-1 font-medium'
+            ? 'bg-accent/12 text-text-1 font-medium'
             : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
           !expanded && 'justify-center px-0',
         )}
@@ -185,7 +185,7 @@ export function Sidebar() {
               running indicator's placement. Shows the count when collapsed
               so the signal survives a narrowed sidebar. */}
           {showFailed && (
-            <span className="absolute -top-1.5 -right-1.5 z-10 min-w-[14px] h-[14px] px-1 rounded-full bg-danger text-white text-[9px] font-mono font-medium leading-none flex items-center justify-center tabular-nums">
+            <span className="absolute -top-1.5 -right-1.5 z-10 min-w-[14px] h-[14px] px-1 rounded-full bg-danger text-white text-micro leading-none flex items-center justify-center tabular-nums">
               {failedCount}
             </span>
           )}
@@ -204,17 +204,17 @@ export function Sidebar() {
           <span className="flex-1 flex items-center justify-between gap-2">
             <span>{item.label}</span>
             {showRunning ? (
-              <span className="text-[10px] font-mono text-accent">running</span>
+              <span className="text-[11px] text-accent-text">running</span>
             ) : showFailed ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-mono text-danger">
+              <span className="inline-flex items-center gap-1 text-[11px] text-danger">
                 <AlertTriangle size={10} />
                 {failedCount} failed
               </span>
             ) : showBadge ? (
               <span className={cn(
-                'shrink-0 min-w-[18px] text-center px-1.5 py-0.5 rounded-full text-[10px] font-mono font-medium tabular-nums leading-none',
+                'shrink-0 min-w-[18px] text-center px-1.5 py-0.5 rounded-pill text-[11px] font-medium tabular-nums leading-none',
                 badge!.accent
-                  ? 'bg-accent/15 text-accent'
+                  ? 'bg-accent/12 text-accent-text'
                   : 'bg-bg-elevated text-text-4 border border-border-default',
               )}>
                 {badge!.count}
@@ -242,7 +242,7 @@ export function Sidebar() {
         {expanded && (
           <div className="titlebar-no-drag select-none flex items-center gap-1.5">
             <StarpathLogo size={18} />
-            <span className="text-[20px] tracking-tight galaxy-text font-bold lowercase leading-none">
+            <span className="text-[15px] font-semibold text-text-1 tracking-[-0.01em] leading-none">
               starpath
             </span>
           </div>
@@ -265,8 +265,8 @@ export function Sidebar() {
       <div className={cn('py-2', expanded ? 'px-3' : 'px-2 flex justify-center')}>
         <button
           className={cn(
-            'flex items-center rounded-md bg-bg-base border border-border-default text-text-3 hover:text-text-2 transition-colors text-label',
-            expanded ? 'w-full gap-2 px-2 py-1.5' : 'w-9 h-9 justify-center',
+            'flex items-center rounded bg-bg-base border border-border-default text-text-3 hover:text-text-2 hover:border-border-strong transition-colors text-label',
+            expanded ? 'w-full gap-2 px-2 h-8' : 'w-8 h-8 justify-center',
           )}
           onClick={() => {
             const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
@@ -277,7 +277,7 @@ export function Sidebar() {
         >
           <Search size={expanded ? 12 : 14} />
           {expanded && <span className="flex-1 text-left">Search...</span>}
-          {expanded && <kbd className="text-[10px] bg-bg-elevated border border-border-default rounded px-1">⌘K</kbd>}
+          {expanded && <kbd className="kbd">⌘K</kbd>}
         </button>
       </div>
 

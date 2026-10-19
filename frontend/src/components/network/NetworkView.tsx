@@ -5,10 +5,9 @@ import {
   Send, Clock, Snowflake, CheckCircle2, Reply, AlertTriangle, Waypoints, Search,
 } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
-import { cn } from '@/lib/utils'
 import { useDataStore } from '@/store/data'
-import { scoreColor } from '@/lib/tier'
 import { CompanyLink } from '@/components/shared/CompanyLink'
+import { Chip, Panel, ScoreNumber, type ChipTone } from '@/components/ui'
 import {
   buildRosterRows, degreeLabel, isNetworkEmpty, partitionGaps,
   type CompanyPath, type NetworkGap, type NetworkOverview, type NetworkThread,
@@ -16,24 +15,25 @@ import {
 } from '@/lib/networkLens'
 
 // ─── Vocabulary → presentation ────────────────────────────────────────────────
-// Colors stay on the semantic ladder the Outreach board and Today cockpit use:
-// accent = act now, info = on the clock, success = a win, muted = stop/none.
-// No new tokens (DESIGN-meta § Status scale).
+// Same chip tones as the Outreach board (DESIGN-meta § 7): accent = act now
+// (nudge, warm path), neutral = on the clock, success = a win, muted = stop.
 
-const PLAY_META: Record<PlayId, { label: string; icon: React.ElementType; chip: string }> = {
-  'reply-handoff': { label: 'Reply',       icon: Reply,        chip: 'text-success bg-success/10 border-success/30' },
-  nudge:           { label: 'Nudge due',   icon: Send,         chip: 'text-accent bg-accent/10 border-accent/30' },
-  'warm-direct':   { label: 'Warm direct', icon: Send,         chip: 'text-accent bg-accent/10 border-accent/30' },
-  'warm-intro':    { label: 'Warm intro',  icon: Waypoints,    chip: 'text-accent bg-accent/10 border-accent/30' },
-  wait:            { label: 'Wait',        icon: Clock,        chip: 'text-info bg-info/10 border-info/30' },
-  'cold-search':   { label: 'Cold search', icon: Search,       chip: 'text-text-3 bg-bg-elevated border-border-default' },
+type ChipMeta = { label: string; icon: React.ElementType; tone: ChipTone }
+
+const PLAY_META: Record<PlayId, ChipMeta> = {
+  'reply-handoff': { label: 'Reply',       icon: Reply,     tone: 'success' },
+  nudge:           { label: 'Nudge due',   icon: Send,      tone: 'accent' },
+  'warm-direct':   { label: 'Warm direct', icon: Send,      tone: 'accent' },
+  'warm-intro':    { label: 'Warm intro',  icon: Waypoints, tone: 'accent' },
+  wait:            { label: 'Wait',        icon: Clock,     tone: 'neutral' },
+  'cold-search':   { label: 'Cold search', icon: Search,    tone: 'muted' },
 }
 
-const ACTION_META: Record<ThreadAction, { label: string; icon: React.ElementType; chip: string }> = {
-  nudge:   { label: 'Nudge due', icon: Send,         chip: 'text-accent bg-accent/10 border-accent/30' },
-  waiting: { label: 'Waiting',   icon: Clock,        chip: 'text-info bg-info/10 border-info/30' },
-  done:    { label: 'Replied',   icon: CheckCircle2, chip: 'text-success bg-success/10 border-success/30' },
-  cold:    { label: 'Cold',      icon: Snowflake,    chip: 'text-text-3 bg-bg-elevated border-border-default' },
+const ACTION_META: Record<ThreadAction, ChipMeta> = {
+  nudge:   { label: 'Nudge due', icon: Send,         tone: 'accent' },
+  waiting: { label: 'Waiting',   icon: Clock,        tone: 'neutral' },
+  done:    { label: 'Replied',   icon: CheckCircle2, tone: 'success' },
+  cold:    { label: 'Cold',      icon: Snowflake,    tone: 'muted' },
 }
 
 const TIE_LABEL: Record<string, string> = { strong: 'strong', medium: 'medium', weak: 'weak' }
@@ -108,7 +108,7 @@ export function NetworkPanel({ overview, ready }: {
         // is the realistic cause. Say exactly that; nothing decorative.
         <p className="text-label text-text-3 max-w-xl leading-relaxed">
           The network lens couldn&apos;t load. It needs{' '}
-          <code className="font-mono text-[11px] text-text-2">scripts/lib/network-lens-core.mjs</code>{' '}
+          <code className="font-mono text-label text-text-2">scripts/lib/network-lens-core.mjs</code>{' '}
           in your career-ops folder — update the repo, then reopen this tab.
         </p>
       ) : empty ? (
@@ -122,14 +122,14 @@ export function NetworkPanel({ overview, ready }: {
 
           {/* 1 · Warm paths into the pipeline, most actionable play first. */}
           {overview.companies.length > 0 && (
-            <Section
+            <Panel
               title="Warm paths"
-              sub={`${overview.counts.companiesWithPath} pipeline ${overview.counts.companiesWithPath === 1 ? 'company' : 'companies'} where you know someone`}
+              meta={`${overview.counts.companiesWithPath} pipeline ${overview.counts.companiesWithPath === 1 ? 'company' : 'companies'} where you know someone`}
             >
-              <div className="divide-y divide-border-default/60">
+              <div className="divide-y divide-border-default">
                 {overview.companies.map(c => <CompanyRow key={c.companyKey} c={c} />)}
               </div>
-            </Section>
+            </Panel>
           )}
           {overview.companies.length === 0 && overview.roster.length > 0 && overview.counts.pipelineTargets > 0 && (
             <p className="text-label text-text-4">
@@ -140,40 +140,40 @@ export function NetworkPanel({ overview, ready }: {
 
           {/* 2 · Cadence on open outreach threads. */}
           {overview.threads.length > 0 && (
-            <Section
+            <Panel
               title="Open threads"
-              sub={`${overview.counts.threads} logged · ${overview.counts.dueNudges} due a nudge`}
+              meta={`${overview.counts.threads} logged · ${overview.counts.dueNudges} due a nudge`}
             >
-              <div className="divide-y divide-border-default/60">
+              <div className="divide-y divide-border-default">
                 {overview.threads.map(t => (
                   <ThreadRow key={`${t.company}|${t.contact}`.toLowerCase()} t={t} />
                 ))}
               </div>
-            </Section>
+            </Panel>
           )}
 
           {/* 3 · Coverage gaps — apply-worthy companies with nobody mapped. */}
           {gapSplit.priority.length > 0 && (
-            <Section
+            <Panel
               title="Coverage gaps"
-              sub="apply-worthy companies with no mapped contact — worth finding a path into"
+              meta="Apply-worthy companies with no mapped contact"
             >
-              <div className="divide-y divide-border-default/60">
+              <div className="divide-y divide-border-default">
                 {gapSplit.priority.map(g => <GapRow key={g.companyKey} g={g} />)}
               </div>
               {gapSplit.rest.length > 0 && (
-                <p className="text-micro text-text-4 pt-2">
+                <p className="text-label text-text-4 pt-2">
                   +{gapSplit.rest.length} more below the 7.0 apply threshold
                 </p>
               )}
-            </Section>
+            </Panel>
           )}
 
           {/* 4 · Latent leads — people you know at untargeted companies. */}
           {overview.latentLeads.length > 0 && (
-            <Section
+            <Panel
               title="Latent leads"
-              sub="contacts at companies not in your pipeline — leads if you ever target them"
+              meta="Contacts at companies outside your pipeline"
             >
               <div className="flex flex-wrap gap-x-5 gap-y-1.5">
                 {overview.latentLeads.map(l => (
@@ -185,32 +185,18 @@ export function NetworkPanel({ overview, ready }: {
                   </span>
                 ))}
               </div>
-            </Section>
+            </Panel>
           )}
 
           {/* 5 · The roster itself. */}
           {rosterRows.length > 0 && (
-            <Section title="Roster" sub="everyone in data/network.md">
+            <Panel title="Roster" meta="Everyone in data/network.md">
               <RosterTable rows={rosterRows} />
-            </Section>
+            </Panel>
           )}
         </>
       )}
     </div>
-  )
-}
-
-// ─── Sections ─────────────────────────────────────────────────────────────────
-
-function Section({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
-  return (
-    <section className="rounded-lg border border-border-default bg-bg-base px-4 py-3">
-      <div className="flex items-baseline gap-2.5 mb-2">
-        <h2 className="text-section text-text-1">{title}</h2>
-        {sub && <span className="text-micro text-text-4 normal-case tracking-normal">{sub}</span>}
-      </div>
-      {children}
-    </section>
   )
 }
 
@@ -220,10 +206,10 @@ function RosterStarter({ compact = false }: { compact?: boolean }) {
   return (
     <div className="max-w-2xl space-y-2">
       <p className="text-label text-text-3 leading-relaxed">
-        No network mapped yet. <code className="font-mono text-[11px] text-text-2">data/network.md</code> is
+        No network mapped yet. <code className="font-mono text-label text-text-2">data/network.md</code> is
         your referral roster — one markdown table row per person you know:
       </p>
-      <pre className="text-[11px] font-mono text-text-3 bg-bg-elevated border border-border-default rounded-md px-3 py-2 overflow-x-auto">
+      <pre className="text-label font-mono text-text-3 bg-bg-elevated border border-border-default rounded px-3 py-2 overflow-x-auto">
         {'| # | Name | Company | Title | Relationship | Degree | Via | Last Contact | Notes |'}
       </pre>
       {!compact && (
@@ -240,16 +226,12 @@ function RosterStarter({ compact = false }: { compact?: boolean }) {
 
 // ─── Rows ─────────────────────────────────────────────────────────────────────
 
-function Chip({ meta }: { meta: { label: string; icon: React.ElementType; chip: string } }) {
+function MetaChip({ meta }: { meta: ChipMeta }) {
   const Icon = meta.icon
   return (
-    <span className={cn(
-      'inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full border shrink-0',
-      meta.chip,
-    )}>
-      <Icon size={9} aria-hidden />
+    <Chip tone={meta.tone} size="sm" icon={<Icon size={12} aria-hidden />} className="shrink-0">
       {meta.label}
-    </span>
+    </Chip>
   )
 }
 
@@ -257,19 +239,17 @@ function CompanyRow({ c }: { c: CompanyPath }) {
   const meta = PLAY_META[c.play] ?? PLAY_META['cold-search']
   return (
     <div className="py-2.5 first:pt-0.5 last:pb-0.5">
-      <div className="flex items-center gap-2.5 flex-wrap">
-        <CompanyLink company={c.company} size={18} showName className="text-[13px]" />
+      <div className="flex items-center gap-2.5 flex-wrap min-h-6">
+        <CompanyLink company={c.company} size={18} showName className="text-body" />
         {c.topRole && (
           <span className="text-label text-text-3">
             {c.topRole.role}
-            <span className="font-mono font-semibold tabular-nums ml-1.5" style={{ color: scoreColor(c.topRole.score) }}>
-              {c.topRole.score.toFixed(1)}
-            </span>
+            <ScoreNumber value={c.topRole.score} size="sm" className="ml-1.5" />
           </span>
         )}
-        <Chip meta={meta} />
+        <MetaChip meta={meta} />
         {c.counts.untouched > 0 && (
-          <span className="text-[10px] text-text-4 font-mono">
+          <span className="text-label text-text-4">
             {c.counts.untouched} of {c.counts.paths} {c.counts.paths === 1 ? 'path' : 'paths'} untouched
           </span>
         )}
@@ -284,7 +264,7 @@ function CompanyRow({ c }: { c: CompanyPath }) {
         {c.reason}
       </p>
       {c.paths.length > 1 && (
-        <p className="text-micro text-text-4 mt-1 normal-case tracking-normal">
+        <p className="text-label text-text-4 mt-1">
           Paths:{' '}
           {c.paths.map((p, i) => (
             <span key={p.name}>
@@ -296,8 +276,8 @@ function CompanyRow({ c }: { c: CompanyPath }) {
         </p>
       )}
       {c.cautions.map(caution => (
-        <p key={caution} className="flex items-start gap-1.5 text-micro text-text-4 mt-1 normal-case tracking-normal">
-          <AlertTriangle size={10} className="text-warning shrink-0 mt-[1px]" aria-hidden />
+        <p key={caution} className="flex items-start gap-1.5 text-label text-text-3 mt-1">
+          <AlertTriangle size={12} className="text-warning-text shrink-0 mt-[2px]" aria-hidden />
           <span>{caution}</span>
         </p>
       ))}
@@ -308,9 +288,9 @@ function CompanyRow({ c }: { c: CompanyPath }) {
 function ThreadRow({ t }: { t: NetworkThread }) {
   const meta = ACTION_META[t.action] ?? ACTION_META.waiting
   return (
-    <div className="py-2 first:pt-0.5 last:pb-0.5 flex items-center gap-2.5 flex-wrap">
-      <Chip meta={meta} />
-      <span className="text-[13px] text-text-1 font-medium">{t.contact}</span>
+    <div className="min-h-10 py-2 first:pt-0.5 last:pb-0.5 flex items-center gap-2.5 flex-wrap">
+      <MetaChip meta={meta} />
+      <span className="text-body text-text-1 font-medium">{t.contact}</span>
       <span className="text-label text-text-3">
         {t.company}
         {t.title && <span className="text-text-4"> · {t.title}</span>}
@@ -318,7 +298,7 @@ function ThreadRow({ t }: { t: NetworkThread }) {
         <span className="text-text-4"> · {daysLabel(t.daysSince)}</span>
         {t.action === 'waiting' && t.nextNudge && <span className="text-text-4"> · next nudge {t.nextNudge}</span>}
       </span>
-      <span className="text-micro text-text-4 normal-case tracking-normal flex-1 min-w-0 truncate">{t.reason}</span>
+      <span className="text-label text-text-4 flex-1 min-w-0 truncate" title={t.reason}>{t.reason}</span>
     </div>
   )
 }
@@ -326,17 +306,15 @@ function ThreadRow({ t }: { t: NetworkThread }) {
 function GapRow({ g }: { g: NetworkGap }) {
   const top = g.roles[0]
   return (
-    <div className="py-2 first:pt-0.5 last:pb-0.5 flex items-center gap-2.5 flex-wrap">
-      <CompanyLink company={g.company} size={18} showName className="text-[13px]" />
+    <div className="min-h-10 py-2 first:pt-0.5 last:pb-0.5 flex items-center gap-2.5 flex-wrap">
+      <CompanyLink company={g.company} size={18} showName className="text-body" />
       {top && (
         <span className="text-label text-text-3">
           {top.role}
-          <span className="font-mono font-semibold tabular-nums ml-1.5" style={{ color: scoreColor(g.topScore) }}>
-            {g.topScore.toFixed(1)}
-          </span>
+          <ScoreNumber value={g.topScore} size="sm" className="ml-1.5" />
         </span>
       )}
-      <span className="text-micro text-text-4 normal-case tracking-normal">no contact mapped</span>
+      <span className="text-label text-text-4">No contact mapped</span>
     </div>
   )
 }
@@ -345,38 +323,38 @@ function GapRow({ g }: { g: NetworkGap }) {
 
 function RosterTable({ rows }: { rows: RosterRow[] }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto -mx-4">
       <table className="w-full border-collapse text-left text-body">
         <thead>
-          <tr className="text-micro text-text-4">
-            <th className="font-medium py-1.5 pr-4">Name</th>
-            <th className="font-medium py-1.5 pr-4">Company</th>
-            <th className="font-medium py-1.5 pr-4">Title</th>
-            <th className="font-medium py-1.5 pr-4">Tie</th>
-            <th className="font-medium py-1.5 pr-4">Degree</th>
-            <th className="font-medium py-1.5 pr-4">Last contact</th>
-            <th className="font-medium py-1.5">Status</th>
+          <tr className="border-y border-border-default bg-bg-elevated/60">
+            <th className="th h-8 pl-4 pr-4">Name</th>
+            <th className="th h-8 pr-4">Company</th>
+            <th className="th h-8 pr-4">Title</th>
+            <th className="th h-8 pr-4">Tie</th>
+            <th className="th h-8 pr-4">Degree</th>
+            <th className="th h-8 pr-4">Last contact</th>
+            <th className="th h-8 pr-4">Status</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-border-default/60">
+        <tbody className="divide-y divide-border-default">
           {rows.map(r => (
-            <tr key={`${r.contact.companyKey}|${r.contact.name}`}>
-              <td className="py-1.5 pr-4 text-text-1 font-medium whitespace-nowrap">{r.contact.name}</td>
-              <td className="py-1.5 pr-4 whitespace-nowrap">
+            <tr key={`${r.contact.companyKey}|${r.contact.name}`} className="h-10 hover:bg-bg-elevated transition-colors duration-150">
+              <td className="pl-4 pr-4 text-text-1 font-medium whitespace-nowrap">{r.contact.name}</td>
+              <td className="pr-4 whitespace-nowrap">
                 {r.inPipeline
                   ? <CompanyLink company={r.contact.company} size={14} showName className="text-body" />
                   : <span className="text-text-3">{r.contact.company}</span>}
               </td>
-              <td className="py-1.5 pr-4 text-text-3">{r.contact.title || '—'}</td>
-              <td className="py-1.5 pr-4 text-text-3">{TIE_LABEL[r.contact.relationship] ?? r.contact.relationship}</td>
-              <td className="py-1.5 pr-4 text-text-3 whitespace-nowrap">{degreeLabel(r.contact.degree, r.contact.via)}</td>
-              <td className="py-1.5 pr-4 text-text-4 font-mono text-[11px] whitespace-nowrap">{r.contact.lastContact || '—'}</td>
-              <td className="py-1.5">
+              <td className="pr-4 text-text-3">{r.contact.title || '—'}</td>
+              <td className="pr-4 text-text-3">{TIE_LABEL[r.contact.relationship] ?? r.contact.relationship}</td>
+              <td className="pr-4 text-text-3 whitespace-nowrap">{degreeLabel(r.contact.degree, r.contact.via)}</td>
+              <td className="pr-4 text-label text-text-4 whitespace-nowrap">{r.contact.lastContact || '—'}</td>
+              <td className="pr-4">
                 {r.thread
-                  ? <Chip meta={ACTION_META[r.thread.action] ?? ACTION_META.waiting} />
+                  ? <MetaChip meta={ACTION_META[r.thread.action] ?? ACTION_META.waiting} />
                   : r.inPipeline
-                    ? <span className="text-micro text-accent normal-case tracking-normal">warm path</span>
-                    : <span className="text-micro text-text-4 normal-case tracking-normal">not in pipeline</span>}
+                    ? <span className="text-label text-accent-text">Warm path</span>
+                    : <span className="text-label text-text-4">Not in pipeline</span>}
               </td>
             </tr>
           ))}

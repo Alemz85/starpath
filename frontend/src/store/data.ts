@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
 import { upsertApplicationRow, updateApplicationStatus } from '@/lib/applicationsDoc'
 import { livenessKey, parseDiscarded, deriveLiveness, countScansThisMonth } from '@/lib/scanHistory'
-import { normalizeEligibility, normalizeTier, normalizeVerdict } from '@/lib/scoreBands'
+import { normalizeEligibility, normalizeVerdict } from '@/lib/scoreBands'
+import { normalizeTier } from '@/lib/tierLevers'
 import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus } from '@/types'
 
 interface DataState {
@@ -288,7 +289,10 @@ function toScoreEntry(row: DbScoreHistoryRow): ScoreEntry {
     mode:              (row.mode === 'oferta' ? 'oferta' : 'scouting'),
     company:           row.company,
     role:              row.role,
-    tier:              row.tier,
+    tier:              normalizeTier(row.tier, {
+      verdict: normalizeVerdict(row.verdict), want: row.want, ease: row.ease,
+      eligibility: normalizeEligibility(row.eligibility),
+    }),
     source:            row.source,
     location:          row.location,
     employment_type:   row.employment_type,

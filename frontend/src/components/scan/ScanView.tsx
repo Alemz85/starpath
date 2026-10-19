@@ -5,7 +5,7 @@ import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
 import { ActivityPanel } from '@/components/command-center/CommandCenter'
 import { ActiveProcessesBar } from './ActiveProcessesBar'
-import { Activity } from 'lucide-react'
+import { Chip, PageHeader } from '@/components/ui'
 
 /**
  * The Scan tab is the unified activity hub. It used to host the same scan
@@ -87,22 +87,19 @@ export function ScanView() {
         className="sr-only"
       />
 
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium flex items-center gap-2">
-          <Activity size={14} className="text-accent" aria-hidden="true" />
-          Activity
-        </h1>
-        {anyRunning && (
-          <span
-            className="text-micro font-mono px-2 py-0.5 rounded-pill border text-accent border-accent/40 bg-accent/10"
+      <PageHeader
+        title="Activity"
+        meta={anyRunning ? (
+          <Chip
+            tone="accent"
             aria-label={`${runningCount} process${runningCount === 1 ? '' : 'es'} running`}
           >
             {runningCount} running
-          </span>
-        )}
-      </div>
+          </Chip>
+        ) : undefined}
+      />
 
-      <div className="flex-1 flex flex-col px-8 pt-6 pb-8 gap-4 overflow-hidden min-h-0">
+      <div className="flex-1 flex flex-col p-5 gap-4 overflow-hidden min-h-0">
         <ActiveProcessesBar
           focusedId={focusedId}
           onFocus={setFocusedId}

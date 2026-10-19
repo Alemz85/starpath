@@ -132,11 +132,11 @@ test('deadlineTime mirrors parseDeadline and sinks non-dates to +Infinity', () =
 // ─── urgencyBadge ────────────────────────────────────────────────────────────
 
 test('urgencyBadge maps every live bucket to a label + color, none → null', () => {
-  assert.equal(urgencyBadge('urgent')?.label, 'URGENT')
-  assert.equal(urgencyBadge('month')?.label, 'THIS MONTH')
-  assert.equal(urgencyBadge('upcoming')?.label, 'UPCOMING')
-  assert.equal(urgencyBadge('missed')?.label, 'MISSED')
-  assert.ok(urgencyBadge('urgent')?.color.includes('text-danger'))
+  assert.equal(urgencyBadge('urgent')?.label, 'Urgent')
+  assert.equal(urgencyBadge('month')?.label, 'This month')
+  assert.equal(urgencyBadge('upcoming')?.label, 'Upcoming')
+  assert.equal(urgencyBadge('missed')?.label, 'Missed')
+  assert.equal(urgencyBadge('urgent')?.color, 'chip-danger')
   assert.equal(urgencyBadge('none'), null)
 })
 

@@ -16,10 +16,10 @@
 // very end of the funnel where the call is the user's to make.
 
 import { useMemo, useState } from 'react'
-import { Scale, Info, RotateCcw } from 'lucide-react'
+import { Info, RotateCcw } from 'lucide-react'
 import { useDataStore } from '@/store/data'
-import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/shared/EmptyState'
+import { Button, PageHeader } from '@/components/ui'
 import {
   compareOffers,
   DEFAULT_WEIGHTS,
@@ -121,39 +121,34 @@ export function OffersView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Title bar */}
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <div className="flex items-center gap-2">
-          <Scale size={15} className="text-accent" />
-          <h1 className="text-body text-text-1 font-medium">Offers</h1>
-        </div>
-        {hasDrafts && (
-          <span className="text-label text-text-4 font-mono">
-            {drafts.length} {drafts.length === 1 ? 'offer' : 'offers'}
-          </span>
-        )}
-        <div className="flex-1" />
-        <div className="titlebar-no-drag flex items-center gap-2">
-          {hasDrafts && (
-            <button
-              onClick={clearAll}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[12px] text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors"
-              title="Clear all offers"
-            >
-              <RotateCcw size={12} />
-              Clear
-            </button>
-          )}
-          <AddOfferMenu roles={roles} usedKeys={usedKeys} onPickRole={addRole} onAddBlank={addBlank} />
-        </div>
-      </div>
+      <PageHeader
+        title="Offers"
+        meta={hasDrafts ? `${drafts.length} ${drafts.length === 1 ? 'offer' : 'offers'}` : undefined}
+        actions={
+          <>
+            {hasDrafts && (
+              <Button
+                tone="ghost"
+                size="sm"
+                icon={<RotateCcw size={12} aria-hidden />}
+                onClick={clearAll}
+                title="Clear all offers"
+              >
+                Clear
+              </Button>
+            )}
+            <AddOfferMenu roles={roles} usedKeys={usedKeys} onPickRole={addRole} onAddBlank={addBlank} />
+          </>
+        }
+      />
 
       <div className="flex-1 overflow-y-auto">
         {/* Getting-started state — no offers yet. */}
         {!hasDrafts ? (
           <div className="h-full flex items-center justify-center p-8">
-            <div className="max-w-[560px] w-full text-center flex flex-col items-center gap-5">
+            <div className="max-w-[560px] w-full text-center flex flex-col items-center gap-4">
               <EmptyState
+                className="py-0"
                 title="Weigh two or more offers side by side"
                 hint={
                   loaded && roles.length > 0
@@ -161,17 +156,17 @@ export function OffersView() {
                     : 'Add offers to compare them on the same six-factor model the evaluation engine uses — compensation, fit, growth, brand, location and risk — weighted by what you care about.'
                 }
               />
-              <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2">
                 <AddOfferMenu roles={roles} usedKeys={usedKeys} onPickRole={addRole} onAddBlank={addBlank} />
               </div>
-              <p className="text-[11px] text-text-4 max-w-[44ch] leading-snug">
+              <p className="text-label text-text-4 max-w-[48ch]">
                 The same weighted-ranking math as the backend <span className="font-mono">compare-offers</span> engine.
                 Nothing here is saved — it&apos;s a decision aid; the call is yours.
               </p>
             </div>
           </div>
         ) : (
-          <div className="p-4 flex flex-col gap-4 max-w-[1100px] mx-auto">
+          <div className="p-5 flex flex-col gap-4 max-w-[1100px] mx-auto">
             {/* Result, or the "not ready yet" nudge. */}
             {result ? (
               <ComparisonResult result={result} />
@@ -190,6 +185,7 @@ export function OffersView() {
                     key={d.id}
                     draft={d}
                     rank={standing?.rank}
+                    rankOf={result?.ranking.length}
                     total={standing?.total}
                     isWinner={standing?.isWinner}
                     duplicateLabel={dupLabels.has(d.label.trim().toLowerCase())}
@@ -216,9 +212,9 @@ function NotReadyHint({ reason }: { reason?: 'need-two' | 'blank-label' | 'dupli
         ? 'Two offers share a name — make each label unique.'
         : 'Add at least one more offer to compare.'
   return (
-    <div className="rounded-2xl border border-dashed border-border-strong bg-bg-panel/50 px-5 py-4 flex items-center gap-3">
-      <Info size={15} className="text-text-4 shrink-0" />
-      <p className="text-body text-text-3">{text}</p>
+    <div className="card border-dashed p-4 flex items-center gap-2.5 text-label text-text-3">
+      <Info size={14} className="text-text-4 shrink-0" aria-hidden />
+      <p>{text}</p>
     </div>
   )
 }

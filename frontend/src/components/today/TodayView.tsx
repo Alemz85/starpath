@@ -1,22 +1,22 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ArrowRight, CalendarCheck2, Briefcase } from 'lucide-react'
+import { ArrowRight, CalendarCheck2 } from 'lucide-react'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
-import { cn } from '@/lib/utils'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
-import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
+import { RunningInScanFooter } from '@/components/command-center/CommandCenter'
+import { Button, Chip, PageHeader, Stat, StatStrip, type ChipTone } from '@/components/ui'
 import { buildTodaySummary, type DeadlineItem } from '@/lib/todayCockpit'
 
-// Severity → countdown-chip tone. Reuses the semantic tokens so a deadline two
-// days out reads the same red as an urgent deadline badge elsewhere in the app.
-function severityTone(sev: DeadlineItem['severity']): string {
+// Severity → countdown-chip tone. Reuses the semantic tones so a deadline two
+// days out reads the same red as an urgent deadline chip elsewhere in the app.
+function severityTone(sev: DeadlineItem['severity']): ChipTone {
   switch (sev) {
-    case 'critical': return 'text-danger bg-danger/10 border-danger/30'
-    case 'high':     return 'text-warning bg-warning/10 border-warning/30'
-    case 'medium':   return 'text-accent bg-accent/10 border-accent/30'
-    default:         return 'text-text-3 bg-bg-elevated border-border-default'
+    case 'critical': return 'danger'
+    case 'high':     return 'warning'
+    case 'medium':   return 'accent'
+    default:         return 'neutral'
   }
 }
 
@@ -39,67 +39,59 @@ export function TodayView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Title bar — landmark header for screen readers */}
-      <header className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome" aria-label="Today cockpit">
-        <h1 className="text-body text-text-1 font-medium">Today</h1>
-        {/* Live region so screen readers announce the count when it updates */}
-        <span
-          className="text-label text-text-4 font-mono"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {loaded ? `${deadlines.length} upcoming ${deadlines.length === 1 ? 'deadline' : 'deadlines'}` : '…'}
-        </span>
-      </header>
+      {/* Title bar — the meta slot is a live region so screen readers announce
+          the count when it updates. */}
+      <PageHeader
+        title="Today"
+        live
+        meta={loaded ? (
+          <>
+            {deadlines.length} upcoming {deadlines.length === 1 ? 'deadline' : 'deadlines'}
+            {urgent > 0 && (
+              <>
+                {' · '}
+                <span className="text-danger font-medium">
+                  {urgent} {urgent === 1 ? 'closes' : 'close'} this week
+                </span>
+              </>
+            )}
+          </>
+        ) : '…'}
+      />
 
       <div
-        className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0"
+        className="flex-1 flex flex-col p-5 gap-5 overflow-hidden min-h-0"
         aria-busy={!loaded}
       >
-        {/* Editorial hero — headline plus the three "where things stand"
-            counts. Mirrors the Applying hero (galaxy-bg card, display title,
-            divided stat strip). */}
-        <section
-          className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos"
-          aria-label="Pipeline summary"
-        >
-          <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
-            {/* h2 here so the page hierarchy is h1 (title bar) → h2 (section) */}
-            <h2 className="text-display-2 text-text-1">What's next</h2>
-            {loaded && urgent > 0 && (
-              <span className="text-label text-danger font-medium">
-                {urgent} {urgent === 1 ? 'deadline closes' : 'deadlines close'} this week
-              </span>
-            )}
-          </div>
-
+        {/* Where things stand — three counts inline, no card around them. */}
+        <section className="shrink-0" aria-label="Pipeline summary">
           {loaded ? (
-            <div className="grid grid-cols-3 divide-x divide-border-default/50">
-              <HeroStatTile
+            <StatStrip>
+              <Stat
                 value={deadlines.length}
                 label="Deadlines"
-                sub={next ? `next ${next.daysLeft === 0 ? 'today' : next.daysLeft === 1 ? 'tomorrow' : `in ${next.daysLeft} days`}` : 'none upcoming'}
-                accent={urgent > 0 ? 'text-danger' : undefined}
-                highlightDot={urgent > 0 ? 'bg-danger' : undefined}
+                hint={next ? `Next ${next.daysLeft === 0 ? 'today' : next.daysLeft === 1 ? 'tomorrow' : `in ${next.daysLeft} days`}` : 'None upcoming'}
+                tone={urgent > 0 ? 'danger' : 'default'}
+                dot={urgent > 0}
               />
-              <HeroStatTile
+              <Stat
                 value={summary.awaitingResponse}
                 label="Waiting for response"
-                sub="applications sent"
+                hint="Applications sent"
               />
-              <HeroStatTile
+              <Stat
                 value={summary.awaitingNextRound}
                 label="Waiting for next round"
-                sub="interviews in progress"
+                hint="Interviews in progress"
               />
-            </div>
+            </StatStrip>
           ) : (
             /* Skeleton — three columns matching the real stat strip layout */
-            <div className="grid grid-cols-3 gap-4" aria-hidden="true">
+            <div className="flex divide-x divide-border-default" aria-hidden="true">
               {[0, 1, 2].map(i => (
                 <div key={i} className="space-y-2 px-5 first:pl-0">
-                  <div className="h-7 w-10 shimmer rounded" />
-                  <div className="h-3.5 w-20 shimmer rounded" />
+                  <div className="h-[22px] w-10 shimmer rounded" />
+                  <div className="h-3.5 w-24 shimmer rounded" />
                   <div className="h-3 w-16 shimmer rounded" />
                 </div>
               ))}
@@ -114,7 +106,7 @@ export function TodayView() {
         >
           {!loaded ? (
             <div className="space-y-2" aria-hidden="true">
-              {[0, 1, 2].map(i => <div key={i} className="h-[60px] shimmer rounded-lg" />)}
+              {[0, 1, 2].map(i => <div key={i} className="h-14 shimmer rounded-lg" />)}
             </div>
           ) : deadlines.length === 0 ? (
             <NoDeadlines onOpenApplying={() => navigate('applying')} />
@@ -142,37 +134,34 @@ export function TodayView() {
 
 function DeadlineRow({ item, onOpen }: { item: DeadlineItem; onOpen: () => void }) {
   return (
-    <div className="group flex items-center gap-3.5 rounded-lg bg-bg-base border border-border-default px-4 py-3 transition-colors hover:border-border-strong">
+    <div className="card group flex items-center gap-3 h-14 px-4 transition-colors duration-150 hover:border-border-strong">
       {/* Company logo — decorative; company name appears in the text beside it */}
       <CompanyLogo company={item.company} size={32} className="shrink-0" aria-hidden />
 
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-medium text-text-1 leading-tight truncate">{item.company}</p>
-        <p className="text-[12px] text-text-3 truncate mt-0.5">{item.role}</p>
+        <p className="text-label text-text-3 truncate mt-0.5">{item.role}</p>
       </div>
 
       {/* Date + countdown */}
       <div className="shrink-0 flex items-center gap-2.5">
-        <span className="text-[12px] text-text-2 font-mono tabular-nums">{DATE_FMT.format(item.date)}</span>
-        <span
-          className={cn(
-            'inline-flex items-center text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full border',
-            severityTone(item.severity),
-          )}
-        >
+        <span className="text-label text-text-2 tabular-nums">{DATE_FMT.format(item.date)}</span>
+        <Chip tone={severityTone(item.severity)} size="sm">
           {countdown(item.daysLeft)}
-        </span>
+        </Chip>
       </div>
 
-      {/* Secondary outlined pill — the row is a heads-up, not a primary CTA */}
-      <button
+      {/* Secondary — the row is a heads-up, not a primary CTA */}
+      <Button
+        tone="secondary"
+        size="sm"
         onClick={onOpen}
         aria-label={`Open ${item.company} — ${item.role} in Applying`}
-        className="shrink-0 inline-flex items-center gap-1 pl-3 pr-2.5 h-7 rounded-pill border border-border-strong text-text-2 text-[12px] font-medium hover:bg-bg-elevated transition-colors"
+        trailing={<ArrowRight size={12} aria-hidden />}
+        className="shrink-0"
       >
         Open
-        <ArrowRight size={12} aria-hidden className="text-text-4" />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -183,27 +172,22 @@ function NoDeadlines({ onOpenApplying }: { onOpenApplying: () => void }) {
   return (
     <div className="h-full flex items-center justify-center py-4">
       <div className="max-w-sm w-full px-6 text-center">
-        <span
-          className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-success/10 mb-4"
-          aria-hidden="true"
-        >
-          <CalendarCheck2 size={22} className="text-success" />
-        </span>
+        <CalendarCheck2 size={40} strokeWidth={1.5} className="mx-auto mb-3 text-text-4" aria-hidden="true" />
 
-        <h2 className="text-[15px] font-semibold text-text-1">No upcoming deadlines</h2>
-        <p className="text-[12.5px] text-text-3 leading-relaxed mt-2">
+        <h2 className="text-section text-text-1">No upcoming deadlines</h2>
+        <p className="text-label text-text-3 mt-1.5">
           Deadlines show up here for listings you've moved to Applying but haven't sent yet.
         </p>
 
-        <div className="flex items-center justify-center mt-5">
-          <button
+        <div className="flex items-center justify-center mt-4">
+          <Button
+            tone="secondary"
+            size="sm"
             onClick={onOpenApplying}
             aria-label="Go to Applying"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-pill border border-border-strong text-text-2 text-[12px] font-medium hover:bg-bg-elevated transition-colors"
           >
-            <Briefcase size={13} aria-hidden className="text-text-4" />
             Go to Applying
-          </button>
+          </Button>
         </div>
       </div>
     </div>

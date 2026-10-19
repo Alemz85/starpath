@@ -1,32 +1,51 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { ipc } from '@/lib/ipc'
 import {
-  Briefcase, AlertTriangle, Plus, FileText, MessageSquare, GraduationCap, X, ArrowRight, ArrowUpRight, Bell,
+  Briefcase, AlertTriangle, Plus, FileText, Sparkles, GraduationCap, X, ArrowRight, ArrowUpRight, Bell, Loader2,
 } from 'lucide-react'
-import { RunningInScanFooter, HeroStatTile } from '@/components/command-center/CommandCenter'
+import { RunningInScanFooter } from '@/components/command-center/CommandCenter'
 import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
+import { Button, Chip, PageHeader, ScoreNumber, Stat, StatStrip, type ChipTone } from '@/components/ui'
 import { cn, deadlineLabel, deadlineUrgency, urgencyBadge } from '@/lib/utils'
 import {
   STATUS_GROUPS, getSpawnId, groupByStatus, countActNow,
   cardAttention, stageProgress, nextStep,
   type CardAttention, type FollowUpState, type NextStep,
 } from '@/lib/applyingBoard'
-import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
+import type { AppStatus, ApplicationEntry } from '@/types'
+
+// Status hue for the column-header dot and the funnel progress strip. Literal
+// classes so Tailwind's JIT sees them; mirrors STATUS_COLORS (lifecycle state).
+const STATUS_FILL: Record<AppStatus, string> = {
+  Evaluated: 'bg-info',
+  Applied:   'bg-accent',
+  Responded: 'bg-accent',
+  Interview: 'bg-warning',
+  Offer:     'bg-success',
+  Rejected:  'bg-danger',
+  Discarded: 'bg-text-4',
+  SKIP:      'bg-text-4',
+}
+
+// "7.79/10" → 7.79. Null when the cell holds no number.
+function scoreValue(raw: string): number | null {
+  const m = /(\d+(?:\.\d+)?)/.exec(raw ?? '')
+  return m ? Number(m[1]) : null
+}
 
 export function ApplyingView() {
   const repoPath = useAppStore(s => s.repoPath)
   const models = useAppStore(s => s.models)
   const closedLaneEnabled = useAppStore(s => s.features.closedLane)
   const applications = useDataStore(s => s.applications)
-  const pipeline = useDataStore(s => s.pipeline)
   const loaded = useDataStore(s => s.loaded)
   const refresh = useDataStore(s => s.refresh)
   const setApplicationStatus = useDataStore(s => s.setApplicationStatus)
@@ -138,64 +157,58 @@ export function ApplyingView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Applying</h1>
-        <span className="text-label text-text-4 font-mono">
-          {loaded ? `${applications.length} active` : '…'}
-        </span>
-        <div className="flex-1" />
-        {pipeline.length > 0 && (
-          <span className="text-label text-text-4 font-mono">
-            {pipeline.length} pending
-          </span>
-        )}
-      </div>
-
-      <div className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0">
-        {/* Editorial hero — display title + 4-column funnel strip
-            (Sent → Responded → Interviewing → Offers). Hairline
-            dividers, no card frames. Interviewing and Offers get
-            accent + pulsing dot so the in-flight stages stand out. */}
-        <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
-          <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
-            <h1 className="text-display-2 text-text-1">Applying</h1>
-            {loaded && (
-              actNowCount > 0 ? (
-                <span className="inline-flex items-center gap-1.5 text-label text-danger font-medium">
-                  <Bell size={13} className="shrink-0" />
+      <PageHeader
+        title="Applying"
+        meta={loaded ? (
+          <>
+            {activeCount} active
+            {actNowCount > 0 ? (
+              <>
+                {' · '}
+                <span className="text-danger font-medium">
                   {actNowCount} {actNowCount === 1 ? 'needs' : 'need'} action today
                 </span>
-              ) : activeCount > 0 ? (
-                <span className="text-label text-success font-medium">
-                  All caught up
-                </span>
-              ) : null
-            )}
-          </div>
+              </>
+            ) : activeCount > 0 ? (
+              <>
+                {' · '}
+                <span className="text-success">All caught up</span>
+              </>
+            ) : null}
+          </>
+        ) : '…'}
+      />
 
-          {loaded ? (
-            <div className="grid grid-cols-4 divide-x divide-border-default/50">
-              <HeroStatTile value={totalApplied}      label="Sent"          sub="applications" />
-              <HeroStatTile value={totalResponded}    label="Responded"     sub="replies received" />
-              <HeroStatTile
-                value={totalInterviewing}
-                label="Interviewing"
-                sub="active processes"
-                accent={totalInterviewing > 0 ? 'text-warning' : undefined}
-                highlightDot={totalInterviewing > 0 ? 'bg-warning' : undefined}
-              />
-              <HeroStatTile
-                value={totalOffers}
-                label="Offers"
-                sub="received"
-                accent={totalOffers > 0 ? 'text-success' : undefined}
-                highlightDot={totalOffers > 0 ? 'bg-success' : undefined}
-              />
-            </div>
-          ) : (
-            <div className="h-14 shimmer rounded-lg" />
-          )}
-        </div>
+      <div className="flex-1 flex flex-col min-h-0 p-5 gap-4 overflow-hidden">
+        {/* Funnel strip — Sent → Responded → Interviewing → Offers. The two
+            in-flight stages take their lifecycle hue + dot when non-zero. */}
+        {loaded ? (
+          <StatStrip className="shrink-0">
+            <Stat value={totalApplied}   label="Sent" />
+            <Stat value={totalResponded} label="Responded" />
+            <Stat
+              value={totalInterviewing}
+              label="Interviewing"
+              tone={totalInterviewing > 0 ? 'warning' : 'default'}
+              dot={totalInterviewing > 0}
+            />
+            <Stat
+              value={totalOffers}
+              label="Offers"
+              tone={totalOffers > 0 ? 'success' : 'default'}
+              dot={totalOffers > 0}
+            />
+          </StatStrip>
+        ) : (
+          <div className="shrink-0 flex divide-x divide-border-default" aria-hidden="true">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="space-y-2 px-5 first:pl-0">
+                <div className="h-[22px] w-10 shimmer rounded" />
+                <div className="h-3.5 w-20 shimmer rounded" />
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Inbox — pending URLs */}
         <InboxPanel repoPath={repoPath} />
@@ -283,35 +296,29 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="w-[380px] rounded-xl bg-bg-panel border border-border-strong shadow-lift overflow-hidden"
+        className="w-[380px] rounded-xl bg-bg-base border border-border-default shadow-lift overflow-hidden"
       >
-        <div className="px-5 pt-5 pb-3">
+        <div className="px-5 pt-5 pb-4">
           <div className="flex items-start gap-3">
-            <CompanyLogo company={app.company} size={36} className="shrink-0" />
+            <CompanyLogo company={app.company} size={32} className="shrink-0" />
             <div className="min-w-0 flex-1">
-              <h3 className="text-[15px] font-semibold text-text-1 leading-tight">Remove from Applying?</h3>
-              <p className="text-[12.5px] text-text-3 mt-1.5 leading-relaxed">
+              <h3 className="text-title text-text-1">Remove from Applying?</h3>
+              <p className="text-label text-text-3 mt-1">
                 <span className="font-medium text-text-2">{app.company}</span> — {app.role}
               </p>
             </div>
           </div>
-          <p className="text-[12px] text-text-4 leading-relaxed mt-3.5">
-            We'll mark this row Discarded in <code className="text-accent/80 bg-bg-elevated px-1 py-0.5 rounded text-[10.5px]">data/applications.md</code> and hide it from the kanban. The row stays in the file for audit — you can flip the status back any time.
+          <p className="text-label text-text-3 mt-3">
+            We'll mark this row Discarded in <code className="font-mono text-micro text-text-2 bg-bg-elevated px-1 py-0.5 rounded-sm">data/applications.md</code> and hide it from the kanban. The row stays in the file for audit — you can flip the status back any time.
           </p>
         </div>
-        <div className="px-5 py-3 flex items-center justify-end gap-2 bg-bg-chrome border-t border-border-default">
-          <button
-            onClick={onCancel}
-            className="px-3 py-1.5 text-label text-text-2 rounded-md hover:bg-bg-elevated transition-colors"
-          >
+        <div className="px-5 py-3 flex items-center justify-end gap-2 bg-bg-elevated/60 border-t border-border-default">
+          <Button tone="secondary" size="sm" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className="px-3 py-1.5 text-label text-danger bg-danger/10 border border-danger/30 rounded-md hover:bg-danger/15 transition-colors font-medium"
-          >
+          </Button>
+          <Button tone="danger" size="sm" onClick={onConfirm}>
             Remove
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -328,22 +335,21 @@ function EmptyBoard({ onBrowse }: { onBrowse: () => void }) {
   return (
     <div className="h-full flex items-center justify-center">
       <div className="max-w-sm text-center px-6">
-        <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-accent/10 mb-4">
-          <Briefcase size={20} className="text-accent" />
-        </span>
-        <h3 className="text-[15px] font-semibold text-text-1">No active applications yet</h3>
-        <p className="text-[12.5px] text-text-3 leading-relaxed mt-1.5">
+        <Briefcase size={40} strokeWidth={1.5} className="mx-auto mb-3 text-text-4" aria-hidden />
+        <h3 className="text-section text-text-1">No active applications yet</h3>
+        <p className="text-label text-text-3 mt-1.5">
           When you Apply to a listing from the Database or a report, it lands here and moves
           through the stages — Evaluated to Offer — as you work it.
         </p>
-        <button
+        <Button
+          tone="primary"
           onClick={onBrowse}
-          className="inline-flex items-center gap-1.5 mt-4 pl-3.5 pr-3 h-9 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[13px] font-medium transition-all shadow-pill hover:shadow-pill-hover"
+          trailing={<ArrowRight size={14} />}
+          className="mt-4"
         >
           Browse the Database
-          <ArrowRight size={14} />
-        </button>
-        <p className="text-[11px] text-text-4 mt-3">
+        </Button>
+        <p className="text-label text-text-4 mt-3">
           or paste a job URL in the inbox above to start a new lead
         </p>
       </div>
@@ -375,34 +381,36 @@ function InboxPanel({ repoPath }: { repoPath: string | null }) {
   }
 
   return (
-    <div className="shrink-0 rounded-lg border border-border-default bg-bg-panel overflow-hidden">
+    <div className="card shrink-0 overflow-hidden">
       {/* Divider only shows when the list has content beneath. With an
           empty inbox the bottom rule used to float below the header with
           nothing under it — read as a stray line. */}
       <div className={cn(
-        'flex items-center justify-between px-3 h-9',
+        'flex items-center gap-3 px-3 h-10',
         pipeline.length > 0 && 'border-b border-border-default',
       )}>
-        <span className="text-micro text-text-4 uppercase flex items-center gap-1.5">
-          <span>Inbox</span>
-          <span className="font-mono text-text-3">{pipeline.length}</span>
+        <span className="flex items-baseline gap-1.5 shrink-0">
+          <span className="label">Inbox</span>
+          <span className="text-label text-text-4 tabular-nums">{pipeline.length}</span>
         </span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex-1 min-w-0 flex items-center justify-end gap-1.5">
           <input
             value={newUrl}
             onChange={e => setNewUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addUrl()}
             placeholder="Paste job URL…"
-            className="w-72 px-2 py-1 bg-bg-base border border-border-default rounded text-label text-text-1 placeholder:text-text-4 outline-none focus:border-accent/60"
+            className="input input-sm max-w-sm min-w-0"
           />
-          <button
+          <Button
+            tone="tinted"
+            size="sm"
             onClick={addUrl}
             disabled={!newUrl.trim() || adding}
-            className="flex items-center gap-1 px-2 py-1 bg-accent/15 text-accent border border-accent/40 rounded text-label hover:bg-accent/25 disabled:opacity-40 transition-colors"
+            icon={<Plus size={13} />}
+            className="shrink-0"
           >
-            <Plus size={11} />
             Add
-          </button>
+          </Button>
         </div>
       </div>
       {pipeline.length > 0 && (
@@ -427,22 +435,24 @@ function InboxList({ items }: { items: import('@/types').PipelineUrl[] }) {
           <div
             key={i}
             className={cn(
-              'flex items-center gap-2 text-[11px] leading-snug',
-              p.isStale ? 'text-warning' : 'text-text-3',
+              'flex items-center gap-2 text-label',
+              p.isStale ? 'text-warning-text' : 'text-text-3',
             )}
           >
-            {p.isStale && <AlertTriangle size={9} className="shrink-0" />}
+            {p.isStale && <AlertTriangle size={12} className="shrink-0" />}
             <span className="truncate font-mono">{p.url}</span>
           </div>
         ))}
       </div>
       {remaining > 0 && (
-        <button
+        <Button
+          tone="ghost"
+          size="xs"
           onClick={() => setExpanded(e => !e)}
-          className="mt-1.5 text-[10.5px] text-text-4 hover:text-accent transition-colors"
+          className="mt-1 -ml-2"
         >
           {expanded ? 'Show fewer' : `+ ${remaining} more`}
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -467,7 +477,6 @@ interface ColumnProps {
 }
 
 function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd, onDropOnColumn, onTailorCV, onDraftApp, onPrepInt, onAdvance, onRemove, onViewReport }: ColumnProps) {
-  const textColor = STATUS_COLORS[status]
   const [hover, setHover] = useState(false)
   // How many cards in THIS column want action today — drives the header pip so
   // a collapsed/scrolled column still signals "there's something pressing in
@@ -492,32 +501,33 @@ function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd,
         onDropOnColumn()
       }}
       className={cn(
-        'flex flex-col w-60 shrink-0 rounded-lg bg-bg-panel border overflow-hidden h-full transition-colors',
-        isDropTarget && hover ? 'border-accent/60 bg-accent/[0.04]' : 'border-border-default',
+        'rounded-lg bg-bg-panel/50 border border-border-default/60 flex flex-col w-60 shrink-0 overflow-hidden h-full transition-colors duration-150',
+        isDropTarget && hover && 'border-accent/60 bg-accent/[0.04]',
       )}
     >
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border-default bg-bg-chrome shrink-0">
-        <span className={cn('text-micro font-medium uppercase tracking-wider flex items-center gap-1.5', textColor)}>
-          {status}
-          {columnActNow > 0 && (
-            <span
-              className="inline-flex items-center gap-0.5 px-1 py-px rounded-full bg-danger/10 text-danger text-[9px] font-mono leading-none normal-case tracking-normal"
-              title={`${columnActNow} ${columnActNow === 1 ? 'card needs' : 'cards need'} action today`}
-            >
-              <Bell size={8} className="shrink-0" />
-              {columnActNow}
-            </span>
-          )}
-        </span>
-        <span className="text-micro font-mono text-text-4">{items.length}</span>
+      <div className="flex items-center gap-2 px-3 h-9 border-b border-border-default bg-bg-elevated/60 shrink-0">
+        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', STATUS_FILL[status])} aria-hidden />
+        <span className="text-label font-medium text-text-2">{status}</span>
+        <span className="text-label text-text-4 tabular-nums">{items.length}</span>
+        {columnActNow > 0 && (
+          <Chip
+            tone="danger"
+            size="sm"
+            icon={<Bell size={10} className="shrink-0" />}
+            className="ml-auto"
+            title={`${columnActNow} ${columnActNow === 1 ? 'card needs' : 'cards need'} action today`}
+          >
+            {columnActNow}
+          </Chip>
+        )}
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {items.length === 0 ? (
           <div className={cn(
-            'rounded-md py-5 text-center transition-colors',
-            isDropTarget && hover ? 'border-2 border-dashed border-accent/40 bg-accent/[0.05]' : 'galaxy-bg',
+            'rounded border border-dashed py-5 text-center transition-colors duration-150',
+            isDropTarget && hover ? 'border-accent/40 bg-accent/[0.05]' : 'border-border-default',
           )}>
-            <p className="text-micro text-text-4">{isDropTarget && hover ? 'Drop here' : 'Empty'}</p>
+            <p className="text-label text-text-4">{isDropTarget && hover ? 'Drop here' : 'Empty'}</p>
           </div>
         ) : (
           items.map((app, i) => {
@@ -562,7 +572,7 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
   const badge = urgencyBadge(urgency)
 
   // Fused attention verdict (deadline clock + follow-up cadence). Drives the
-  // left rail accent and the follow-up nudge chip. Memoised so the per-frame
+  // card's border hue and the follow-up nudge chip. Memoised so the per-frame
   // drag re-renders don't recompute the date math.
   const attention = useMemo<CardAttention>(() => cardAttention(app), [app])
   const followUp = attention.followUp
@@ -615,59 +625,49 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
       }}
       onDragEnd={onDragEnd}
       className={cn(
-        'group relative p-2.5 rounded-md bg-bg-elevated border transition-colors cursor-grab active:cursor-grabbing',
-        // Lift the border to the attention hue so a pressing card is legible
-        // even before the eye reaches the rail / chip. Calm cards keep the
-        // default hairline.
+        'card group relative p-2.5 transition-colors duration-150 cursor-grab active:cursor-grabbing',
+        // The border carries the attention hue so a pressing card is legible
+        // at a glance down a dense column. Calm cards keep the hairline.
         attention.level === 'act-now' ? 'border-danger/30 hover:border-danger/50'
           : attention.level === 'soon' ? 'border-warning/30 hover:border-warning/50'
-          : 'border-border-default hover:border-border-strong',
+          : 'hover:border-border-strong',
         isDragging && 'opacity-40',
       )}
     >
-      {/* Attention rail — a thin rounded strip hugging the card's left edge.
-          Red = act now (urgent deadline or overdue nudge), amber = soon. The
-          one signal that survives a glance down a dense column. */}
-      {attention.level !== 'calm' && (
-        <span
-          aria-hidden
-          className={cn(
-            'absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full',
-            attention.level === 'act-now' ? 'bg-danger' : 'bg-warning',
-          )}
-        />
-      )}
       {/* Remove button — top-right, fades in on hover. Confirms before
           marking the row Discarded so the card can't disappear by accident. */}
-      <button
+      <Button
+        tone="ghost"
+        size="xs"
+        iconOnly
         onClick={(e) => { e.stopPropagation(); onRemove() }}
         onPointerDown={(e) => e.stopPropagation()}
         title="Remove from applying batch"
         aria-label="Remove from applying batch"
-        className="absolute top-1 right-1 p-1 rounded text-text-4 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/10 transition-all"
-      >
-        <X size={11} />
-      </button>
-      <div className="flex items-start gap-2 pr-5">
+        icon={<X size={12} />}
+        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-danger"
+      />
+      <div className="flex items-start gap-2 pr-6">
         <CompanyLogo company={app.company} size={24} className="shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="text-[12px] text-text-1 font-medium truncate leading-tight block">
+          <div className="text-[13px] font-medium text-text-1 truncate leading-tight">
             {app.company}
           </div>
-          <div className="text-[11px] text-text-3 truncate leading-tight mt-0.5">{app.role}</div>
+          <div className="text-label text-text-3 truncate mt-0.5">{app.role}</div>
         </div>
       </div>
       <div className="flex items-center justify-between mt-2 gap-2">
-        <span className="text-[10px] font-mono text-text-4 tabular-nums">{app.score}</span>
-        <div className="flex items-center gap-1.5">
+        <ScoreNumber value={scoreValue(app.score)} size="sm" />
+        <div className="flex items-center gap-1.5 min-w-0">
           <FollowUpChip state={followUp} />
           {badge && (
-            <span
-              className={cn('text-[10px] font-mono px-1 py-0.5 rounded border', badge.color)}
+            <Chip
+              tone={badge.color.replace('chip-', '') as ChipTone}
+              size="sm"
               title={app.deadline}
             >
               {deadlineLabel(app.deadline) ?? badge.label}
-            </span>
+            </Chip>
           )}
           <FilesStrip company={app.company} role={app.role} size="sm" />
         </div>
@@ -681,15 +681,23 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
 
       {/* Recommended next move — the single highest-value action for this card,
           one click. Tone tracks the pressure (danger = urgent close/overdue,
-          warning = coming due, accent = the natural next step). The secondary
-          row below keeps every action reachable. */}
+          tinted = the natural next step). The icon row below keeps every
+          action reachable. */}
       <NextStepButton step={step} running={stepRunning} onClick={runStep} />
 
-      <div className="flex items-center gap-1 mt-1.5 -mb-0.5">
-        <CardAction label="Tailor CV" running={tailorRunning} onClick={onTailorCV} active={step.kind === 'tailor-cv'} />
-        <CardAction label="Draft"     running={draftRunning}  onClick={onDraftApp} active={step.kind === 'draft'} />
-        <CardAction label="Prep"      running={prepRunning}   onClick={onPrepInt}  active={step.kind === 'prep'} />
-        <CardAction label="Report"    running={false}         onClick={onViewReport} />
+      <div className="flex items-center gap-0.5 mt-1.5 -mb-0.5 h-6">
+        <CardAction label="Tailor CV" icon={<Sparkles size={12} />}      running={tailorRunning} onClick={onTailorCV} active={step.kind === 'tailor-cv'} />
+        <CardAction label="Draft application" icon={<FileText size={12} />}  running={draftRunning}  onClick={onDraftApp} active={step.kind === 'draft'} />
+        <CardAction label="Prep application"  icon={<GraduationCap size={12} />} running={prepRunning} onClick={onPrepInt}  active={step.kind === 'prep'} />
+        <Button
+          tone="ghost"
+          size="xs"
+          onClick={(e) => { e.stopPropagation(); onViewReport() }}
+          onPointerDown={(e) => e.stopPropagation()}
+          className="ml-auto"
+        >
+          Report
+        </Button>
       </div>
     </div>
   )
@@ -702,8 +710,8 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
 // meter, not a control, so it never competes with the next-step button.
 function StageProgressStrip({ cleared, total, status }: { cleared: number; total: number; status: AppStatus }) {
   // Offer (complete) fills success-green; every other live stage fills with the
-  // status' own text hue so the strip agrees with the column header colour.
-  const fill = status === 'Offer' ? 'bg-success' : STATUS_COLORS[status].replace('text-', 'bg-')
+  // status' own hue so the strip agrees with the column header dot.
+  const fill = status === 'Offer' ? 'bg-success' : STATUS_FILL[status]
   return (
     <div
       className="flex items-center gap-0.5 mt-2"
@@ -726,43 +734,31 @@ function StageProgressStrip({ cleared, total, status }: { cleared: number; total
 
 // ─── Next-step button ───────────────────────────────────────────────────────
 // The card's recommended one-click action (see lib/applyingBoard.nextStep).
-// Full-width and tinted by tone so the eye lands on it first; an 'advance' step
-// shows a ↗ to signal it bumps the stage, a launch step shows a running state.
+// Full-width so the eye lands on it first; danger when the step is urgent,
+// tinted otherwise. An 'advance' step shows a ↗ to signal it bumps the stage;
+// a launch step that's already in flight shows the stop tone.
 function NextStepButton({ step, running, onClick }: { step: NextStep; running: boolean; onClick: () => void }) {
-  const tone =
-    step.tone === 'urgent'
-      ? 'border-danger/40 bg-danger/10 text-danger hover:bg-danger/15'
-      : step.tone === 'due'
-        ? 'border-warning/40 bg-warning/10 text-warning hover:bg-warning/15'
-        : 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/15'
+  const tone = running ? 'stop' : step.tone === 'urgent' ? 'danger' : 'tinted'
   return (
-    <button
+    <Button
+      tone={tone}
+      size="sm"
       onClick={(e) => { e.stopPropagation(); onClick() }}
       onPointerDown={(e) => e.stopPropagation()}
       title={step.reason || step.label}
       aria-label={step.reason || step.label}
-      className={cn(
-        'mt-2 w-full inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border',
-        'text-[11px] font-medium leading-none transition-colors',
-        running ? 'border-danger/40 bg-danger/10 text-danger' : tone,
-      )}
+      trailing={!running && step.kind === 'advance' ? <ArrowUpRight size={12} className="shrink-0" /> : undefined}
+      className="w-full mt-2"
     >
-      {running ? (
-        <>Running…</>
-      ) : (
-        <>
-          {step.label}
-          {step.kind === 'advance' && <ArrowUpRight size={12} className="shrink-0" />}
-        </>
-      )}
-    </button>
+      {running ? 'Running…' : step.label}
+    </Button>
   )
 }
 
 // Follow-up nudge chip — only shows when a card has an actionable cadence
 // (due-soon / overdue). A waiting or no-cadence card stays silent so the chip
 // reads as "act on this", not decoration. Amber when it comes due, red once
-// overdue — matching the attention rail's hue scale. The Bell + the
+// overdue — matching the card border's hue scale. The Bell + the
 // `state.reason` tooltip tell the user exactly what nudge is owed.
 function FollowUpChip({ state }: { state: FollowUpState }) {
   if (state.kind !== 'overdue' && state.kind !== 'due-soon') return null
@@ -771,39 +767,33 @@ function FollowUpChip({ state }: { state: FollowUpState }) {
     ? (state.dueInDays != null ? `${-state.dueInDays}d late` : 'Overdue')
     : (state.dueInDays === 0 ? 'Today' : 'Soon')
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-0.5 text-[10px] font-mono px-1 py-0.5 rounded border',
-        overdue
-          ? 'text-danger bg-danger/10 border-danger/30'
-          : 'text-warning bg-warning/10 border-warning/30',
-      )}
+    <Chip
+      tone={overdue ? 'danger' : 'warning'}
+      size="sm"
+      icon={<Bell size={10} className="shrink-0" />}
       title={state.reason}
     >
-      <Bell size={9} className="shrink-0" />
       {label}
-    </span>
+    </Chip>
   )
 }
 
-function CardAction({ label, running, onClick, active = false }: { label: string; running: boolean; onClick: () => void; active?: boolean }) {
+// Icon-only per-card action. Running → stop tone with a spinner (a click kills
+// the spawn). When this action is already the recommended next step (shown
+// above as the full-width button), the icon takes the accent text colour to
+// mark it as "that one" without competing for the eye.
+function CardAction({ label, icon, running, onClick, active = false }: { label: string; icon: ReactNode; running: boolean; onClick: () => void; active?: boolean }) {
   return (
-    <button
+    <Button
+      tone={running ? 'stop' : 'ghost'}
+      size="xs"
+      iconOnly
       onClick={(e) => { e.stopPropagation(); onClick() }}
       onPointerDown={(e) => e.stopPropagation()}
-      className={cn(
-        'flex-1 px-1.5 py-1 rounded text-[10px] leading-none border transition-colors text-center',
-        running
-          ? 'border-danger/40 bg-danger/10 text-danger'
-          // When this action is already the recommended next step (shown above
-          // as the primary button), keep the duplicate quiet — a faint accent
-          // outline marks it as "that one", without competing for the eye.
-          : active
-            ? 'border-accent/30 text-accent/70 hover:bg-accent/5'
-            : 'border-border-default text-text-3 hover:text-accent hover:border-accent/40 hover:bg-accent/5',
-      )}
-    >
-      {running ? '…' : label}
-    </button>
+      title={running ? `Stop: ${label}` : label}
+      aria-label={running ? `Stop: ${label}` : label}
+      icon={running ? <Loader2 size={12} className="animate-spin" /> : icon}
+      className={cn(!running && active && 'text-accent-text')}
+    />
   )
 }

@@ -1,5 +1,16 @@
 import { clsx, type ClassValue } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+import { extendTailwindMerge } from 'tailwind-merge'
+
+// tailwind-merge needs to know the custom type scale, otherwise it reads
+// `text-label` / `text-stat` as colour utilities and drops them whenever a
+// `text-text-*` colour sits in the same call.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      'font-size': [{ text: ['display', 'display-2', 'page', 'stat', 'title', 'section', 'body', 'cell', 'label', 'micro'] }],
+    },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -87,12 +98,15 @@ export function deadlineTime(deadline: string): number {
   return parseDeadline(deadline)?.getTime() ?? Number.POSITIVE_INFINITY
 }
 
+// Deadline bucket → sentence-case label + the `.chip-*` tone class (globals.css).
+// Callers render it through <Chip>; `color` is the chip tone class, so the
+// tone name is `color.replace('chip-', '')`.
 export function urgencyBadge(urgency: ReturnType<typeof deadlineUrgency>) {
   switch (urgency) {
-    case 'urgent':   return { label: 'URGENT',     color: 'text-danger bg-danger/10 border-danger/30' }
-    case 'month':    return { label: 'THIS MONTH',  color: 'text-warning bg-warning/10 border-warning/30' }
-    case 'upcoming': return { label: 'UPCOMING',    color: 'text-info bg-info/10 border-info/30' }
-    case 'missed':   return { label: 'MISSED',      color: 'text-text-4 bg-bg-elevated border-border-default' }
+    case 'urgent':   return { label: 'Urgent',     color: 'chip-danger' }
+    case 'month':    return { label: 'This month', color: 'chip-warning' }
+    case 'upcoming': return { label: 'Upcoming',   color: 'chip-accent' }
+    case 'missed':   return { label: 'Missed',     color: 'chip-muted' }
     default:         return null
   }
 }

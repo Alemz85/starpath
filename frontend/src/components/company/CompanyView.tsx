@@ -5,8 +5,10 @@ import { ArrowLeft, TrendingUp, TrendingDown, Minus, FileText, Send } from 'luci
 import { useDataStore } from '@/store/data'
 import { useNavStore, VIEW_LABELS } from '@/store/nav'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
-import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { EmptyState } from '@/components/shared/EmptyState'
+import {
+  Button, Chip, PageHeader, ScoreNumber, SectionHeading, Stat, StatStrip as StatRow, StatusChip, TierChip,
+} from '@/components/ui'
 import { OffersTable } from '@/components/database/OffersTable'
 import { ReportSlideOver } from '@/components/reports/ReportSlideOver'
 import { computeCompanyStats, type CompanyStats } from '@/lib/companyStats'
@@ -18,12 +20,11 @@ import {
   type ScoreTrajectory,
   type TimelineEvent,
 } from '@/lib/companyTimeline'
-import { scoreColor, tierHex } from '@/lib/tier'
-import { formatWantEase } from '@/lib/scoreBands'
+import { scoreColor } from '@/lib/tier'
 import { WantEase } from '@/components/shared/WantEase'
+import { parseScoreCell } from '@/lib/scoreBands'
 import { cn } from '@/lib/utils'
-import { STATUS_COLORS } from '@/types'
-import type { ScoreEntry, ApplicationEntry, AppStatus } from '@/types'
+import type { ScoreEntry, ApplicationEntry } from '@/types'
 
 export function CompanyView({ slug }: { slug: string }) {
   const scoreHistory = useDataStore(s => s.scoreHistory)
@@ -65,41 +66,32 @@ export function CompanyView({ slug }: { slug: string }) {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Title bar — the whole bar is a macOS drag region; interactive
-          elements (back button, logo, heading text) must opt out via
-          titlebar-no-drag so Electron doesn't swallow their clicks. */}
-      <div
-        className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome flex items-center"
-        role="banner"
-      >
-        <button
-          type="button"
-          onClick={() => navigate(returnView)}
-          className="titlebar-no-drag flex items-center gap-1.5 py-1 pl-1.5 pr-2.5 hover:bg-bg-elevated rounded-md text-text-3 hover:text-text-1 transition-colors"
-          aria-label={`Back to ${backLabel}`}
-          title={`Back to ${backLabel}`}
-        >
-          <ArrowLeft size={16} aria-hidden />
-          <span className="text-label">{backLabel}</span>
-        </button>
-
-        <div className="titlebar-no-drag flex items-center gap-2 min-w-0">
-          <CompanyLogo company={companyName} size={24} />
-          {/* h1 is the only top-level heading in this view */}
-          <h1 className="text-body text-text-1 font-medium truncate">{companyName}</h1>
-        </div>
-
-        {loaded && stats.evalCount > 0 && (
+      {/* Title bar — the whole bar is a macOS drag region; PageHeader opts
+          its actions slot out via titlebar-no-drag. */}
+      <PageHeader
+        title={companyName}
+        meta={loaded && stats.evalCount > 0 ? (
           <span
-            className="titlebar-no-drag text-label text-text-4 font-mono tabular-nums"
             aria-label={`${stats.roleCount} role${stats.roleCount !== 1 ? 's' : ''}, ${stats.evalCount} evaluation${stats.evalCount !== 1 ? 's' : ''}`}
           >
             {stats.roleCount} role{stats.roleCount !== 1 && 's'} · {stats.evalCount} eval{stats.evalCount !== 1 && 's'}
           </span>
-        )}
-      </div>
+        ) : undefined}
+        actions={
+          <Button
+            tone="ghost"
+            size="sm"
+            icon={<ArrowLeft size={13} aria-hidden />}
+            onClick={() => navigate(returnView)}
+            aria-label={`Back to ${backLabel}`}
+            title={`Back to ${backLabel}`}
+          >
+            Back
+          </Button>
+        }
+      />
 
-      <main className="flex-1 overflow-auto bg-bg-base">
+      <main className="flex-1 overflow-auto">
         {/* Not-loaded yet — show skeleton layout */}
         {!loaded && <LoadingSkeleton />}
 
@@ -115,7 +107,7 @@ export function CompanyView({ slug }: { slug: string }) {
 
         {/* Loaded and there is data */}
         {loaded && hasAnyData && (
-          <div className="max-w-6xl mx-auto p-6 space-y-8">
+          <div className="max-w-6xl mx-auto p-5 space-y-5">
             {stats.evalCount > 0 && (
               <section aria-labelledby="stats-heading">
                 <h2 id="stats-heading" className="sr-only">Company snapshot</h2>
@@ -128,7 +120,7 @@ export function CompanyView({ slug }: { slug: string }) {
                 of evaluations + applications. Only worth showing once there's
                 more than a single data point to read direction from. */}
             {(trajectory.points.length >= 2 || timeline.length > 1) && (
-              <section aria-labelledby="trajectory-heading" className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+              <section aria-labelledby="trajectory-heading" className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
                 <h2 id="trajectory-heading" className="sr-only">Score trajectory and engagement timeline</h2>
                 {trajectory.points.length >= 2 && <TrajectoryCard trajectory={trajectory} />}
                 {timeline.length > 0 && (
@@ -141,25 +133,24 @@ export function CompanyView({ slug }: { slug: string }) {
 
             {apps.length > 0 && <ApplicationsSection apps={apps} />}
 
-            <section aria-labelledby="history-heading">
-              <div className="flex items-center justify-between mb-4">
-                <h2 id="history-heading" className="text-section text-text-1 font-medium">
-                  Score history &amp; roles
-                </h2>
-                <div className="text-label text-text-4" aria-live="polite">
-                  {history.length} evaluation{history.length !== 1 && 's'}
-                </div>
-              </div>
+            <section aria-labelledby="history-heading" className="card overflow-hidden">
+              <SectionHeading
+                className="px-4 pt-3 mb-0"
+                title={<span id="history-heading">Score history and roles</span>}
+                meta={
+                  <span aria-live="polite">
+                    {history.length} evaluation{history.length !== 1 && 's'}
+                  </span>
+                }
+              />
 
               {history.length > 0 ? (
-                <div className="border border-border-default rounded-md overflow-hidden bg-bg-chrome">
-                  <OffersTable
-                    rows={history}
-                    onOpenReport={setSelectedEntry}
-                    onRowClick={(entry) => setSelectedEntry(entry)}
-                    selectedId={selectedId}
-                  />
-                </div>
+                <OffersTable
+                  rows={history}
+                  onOpenReport={setSelectedEntry}
+                  onRowClick={(entry) => setSelectedEntry(entry)}
+                  selectedId={selectedId}
+                />
               ) : (
                 /* Company is in applications but has no score-history rows */
                 <EmptyState
@@ -196,32 +187,29 @@ export function CompanyView({ slug }: { slug: string }) {
 // doesn't collapse to a spinner dot while data loads.
 function LoadingSkeleton() {
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8" aria-busy="true" aria-label="Loading company data">
+    <div className="max-w-6xl mx-auto p-5 space-y-5" aria-busy="true" aria-label="Loading company data">
       {/* Stat strip placeholder */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="flex gap-10">
         {[...Array(5)].map((_, i) => (
-          <div
-            key={i}
-            className="rounded-lg border border-border-default bg-bg-elevated px-4 py-3 space-y-2"
-          >
-            <div className="shimmer h-2.5 rounded w-16" />
+          <div key={i} className="space-y-2">
             <div className="shimmer h-5 rounded w-10" />
+            <div className="shimmer h-3 rounded w-16" />
           </div>
         ))}
       </div>
 
       {/* History table placeholder */}
-      <div className="space-y-2">
-        <div className="shimmer h-4 rounded w-40" />
-        <div className="border border-border-default rounded-md overflow-hidden">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="flex items-center gap-3 px-4 py-3 border-b border-border-default last:border-b-0">
-              <div className="shimmer h-3 rounded flex-1" />
-              <div className="shimmer h-3 rounded w-10" />
-              <div className="shimmer h-3 rounded w-16" />
-            </div>
-          ))}
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-border-default">
+          <div className="shimmer h-4 rounded w-40" />
         </div>
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="flex items-center gap-3 px-4 h-10 border-b border-border-default last:border-b-0">
+            <div className="shimmer h-3 rounded flex-1" />
+            <div className="shimmer h-3 rounded w-10" />
+            <div className="shimmer h-3 rounded w-16" />
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -230,56 +218,31 @@ function LoadingSkeleton() {
 // ─── Stat strip ───────────────────────────────────────────────────────────────
 
 function StatStrip({ stats, appCount }: { stats: CompanyStats; appCount: number }) {
+  const cityLabel = stats.cities.length === 1 ? 'City' : 'Cities'
+  const cityHint = stats.cities.join(' · ') || undefined
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+    <StatRow>
       {/* Scoring v2: Want · Ease pairs, never one combined number. "Best"
           is the highest-Priority listing; Average is over scored rows. */}
-      <StatTile
-        label="Best · Want · Ease"
-        value={stats.best ? formatWantEase(stats.best.want, stats.best.ease) : '—'}
+      <Stat
+        label="Best listing"
+        value={stats.best ? <WantEase want={stats.best.want} ease={stats.best.ease} /> : '—'}
       />
-      <StatTile
-        label="Average · Want · Ease"
-        value={formatWantEase(stats.avgWant, stats.avgEase)}
+      <Stat
+        label="Average"
+        value={stats.avgWant != null || stats.avgEase != null ? <WantEase want={stats.avgWant} ease={stats.avgEase} /> : '—'}
       />
-      <StatTile
+      <Stat
         label="Top tier"
-        value={stats.bestTier ?? '—'}
-        color={stats.bestTier ? tierHex(stats.bestTier) : undefined}
+        value={stats.bestTier ? <TierChip tier={stats.bestTier} size="md" /> : '—'}
       />
-      <StatTile
-        label={stats.cities.length === 1 ? 'City' : 'Cities'}
+      <Stat
+        label={cityLabel}
         value={stats.cities.length > 0 ? String(stats.cities.length) : '—'}
-        hint={stats.cities.join(' · ') || undefined}
+        hint={cityHint ? <span title={cityHint}>{cityHint}</span> : undefined}
       />
-      <StatTile label="Applications" value={String(appCount)} />
-    </div>
-  )
-}
-
-function StatTile({
-  label, value, color, hint,
-}: {
-  label: string
-  value: string
-  color?: string
-  hint?: string
-}) {
-  return (
-    <div
-      className="rounded-lg border border-border-default bg-bg-elevated px-4 py-3"
-      title={hint}
-      aria-label={hint ? `${label}: ${value} (${hint})` : `${label}: ${value}`}
-    >
-      <div className="text-micro text-text-4 uppercase">{label}</div>
-      <div
-        className={cn('mt-1.5 text-page font-mono tabular-nums leading-none', !color && 'text-text-1')}
-        style={color ? { color } : undefined}
-        aria-hidden
-      >
-        {value}
-      </div>
-    </div>
+      <Stat label="Applications" value={String(appCount)} />
+    </StatRow>
   )
 }
 
@@ -307,39 +270,37 @@ function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
   const lineColor = scoreColor(latestScore)
 
   return (
-    <div className="rounded-lg border border-border-default bg-bg-elevated p-4 flex flex-col">
-      <div className="flex items-center justify-between">
-        <h3 className="text-micro text-text-4 uppercase">Want trajectory</h3>
-        <span
-          className={cn('inline-flex items-center gap-1 text-label font-medium', meta.tone)}
-          aria-label={`${trajectoryLabel(direction)}${delta !== 0 ? `, ${deltaSign}${delta.toFixed(1)} since first evaluation` : ''}`}
-        >
-          <meta.Icon size={14} aria-hidden />
-          {trajectoryLabel(direction)}
-        </span>
-      </div>
+    <div className="card p-4 flex flex-col h-full">
+      <SectionHeading
+        title="Want trajectory"
+        action={
+          <span
+            className={`inline-flex items-center gap-1 text-label font-medium ${meta.tone}`}
+            aria-label={`${trajectoryLabel(direction)}${delta !== 0 ? `, ${deltaSign}${delta.toFixed(1)} since first evaluation` : ''}`}
+          >
+            <meta.Icon size={14} aria-hidden />
+            {trajectoryLabel(direction)}
+          </span>
+        }
+      />
 
-      <div className="mt-3 flex items-end gap-3">
-        <div
-          className="text-page font-mono tabular-nums leading-none"
-          style={{ color: lineColor }}
-          aria-hidden
-        >
-          {latestScore.toFixed(1)}
-        </div>
+      <div className="flex items-baseline gap-3">
+        <span aria-hidden>
+          <ScoreNumber value={latestScore} size="lg" />
+        </span>
         {delta !== 0 && (
-          <div className="text-label font-mono tabular-nums text-text-4 pb-0.5" aria-hidden>
+          <div className="text-label text-text-4" aria-hidden>
             {deltaSign}{delta.toFixed(1)} vs first
           </div>
         )}
       </div>
 
-      {/* Sparkline — score over evaluations, oldest→newest, left→right. */}
+      {/* Sparkline — Want over evaluations, oldest→newest, left→right. */}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="mt-3 w-full h-14"
         role="img"
-        aria-label={`Score over ${points.length} evaluations, from ${points[0].score.toFixed(1)} to ${latestScore.toFixed(1)}`}
+        aria-label={`Want over ${points.length} evaluations, from ${points[0].score.toFixed(1)} to ${latestScore.toFixed(1)}`}
         preserveAspectRatio="none"
       >
         <polyline
@@ -369,7 +330,7 @@ function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
         })}
       </svg>
 
-      <div className="mt-1.5 flex items-center justify-between text-micro text-text-4 font-mono tabular-nums">
+      <div className="mt-1.5 flex items-center justify-between text-label text-text-4">
         <span>{points[0].date}</span>
         <span>{points[points.length - 1].date}</span>
       </div>
@@ -381,8 +342,8 @@ function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
 
 function TimelineCard({ events }: { events: TimelineEvent[] }) {
   return (
-    <div className="rounded-lg border border-border-default bg-bg-elevated p-4">
-      <h3 className="text-micro text-text-4 uppercase mb-3">Engagement timeline</h3>
+    <div className="card p-4 h-full">
+      <SectionHeading title="Engagement timeline" />
       <ol className="relative" role="list">
         {events.map((ev, i) => (
           <TimelineRow key={`${ev.date}-${ev.kind}-${ev.role}-${i}`} ev={ev} last={i === events.length - 1} />
@@ -407,8 +368,8 @@ function TimelineRow({ ev, last }: { ev: TimelineEvent; last: boolean }) {
           className={cn(
             'flex items-center justify-center w-6 h-6 rounded-full border shrink-0',
             isApp
-              ? 'border-accent/40 bg-accent/10 text-accent'
-              : 'border-border-strong bg-bg-base text-text-3',
+              ? 'border-accent/25 bg-accent-soft text-accent-text'
+              : 'border-border-default bg-bg-elevated text-text-3',
           )}
           aria-hidden
         >
@@ -421,22 +382,17 @@ function TimelineRow({ ev, last }: { ev: TimelineEvent; last: boolean }) {
         <div className="flex items-baseline gap-2">
           <span className="text-body text-text-1 truncate">{ev.role || '—'}</span>
           {(ev.want != null || ev.blocked) && (
-            <WantEase want={ev.want} ease={ev.ease} blockedReason={ev.blocked ? 'Blocked' : null} className="shrink-0" />
+            <WantEase want={ev.want} ease={ev.ease} size="sm" blockedReason={ev.blocked ? 'Blocked' : null} className="shrink-0" />
           )}
           {ev.legacyScore != null && (
-            <span className="text-label font-mono tabular-nums shrink-0 text-text-3">{ev.legacyScore.toFixed(1)}/10</span>
+            <span className="text-label text-text-3 shrink-0" title="Legacy v1 score">{ev.legacyScore.toFixed(1)}/10</span>
           )}
         </div>
         <div className="flex items-center gap-2 mt-0.5 text-label text-text-4">
-          <span
-            className={cn(
-              'inline-flex items-center px-1.5 py-px rounded-pill text-[11px] font-medium',
-              isApp ? STATUS_COLORS[ev.status ?? 'Applied'] : 'text-text-3 bg-bg-panel',
-            )}
-          >
-            {label}
-          </span>
-          <span className="font-mono tabular-nums">{ev.date}</span>
+          {isApp
+            ? <StatusChip status={ev.status ?? 'Applied'} />
+            : <Chip size="sm">{label}</Chip>}
+          <span>{ev.date}</span>
         </div>
       </div>
     </li>
@@ -445,46 +401,51 @@ function TimelineRow({ ev, last }: { ev: TimelineEvent; last: boolean }) {
 
 // ─── Applications ─────────────────────────────────────────────────────────────
 
-function ApplicationsSection({ apps }: { apps: ApplicationEntry[] }) {
-  return (
-    <section aria-labelledby="applications-heading">
-      <h2 id="applications-heading" className="text-section text-text-1 font-medium mb-3">
-        Applications
-      </h2>
-      <div
-        className="rounded-md border border-border-default divide-y divide-border-default overflow-hidden bg-bg-chrome"
-        role="list"
-        aria-label={`${apps.length} application${apps.length !== 1 ? 's' : ''}`}
-      >
-        {apps.map(a => (
-          <div
-            key={`${a.num}-${a.role}`}
-            className="flex items-center gap-3 px-4 py-2.5"
-            role="listitem"
-          >
-            <span className="flex-1 min-w-0 text-body text-text-1 truncate">{a.role}</span>
-            {a.score && a.score !== '—' && (
-              <span className="text-label font-mono text-text-3 tabular-nums shrink-0">{a.score}</span>
-            )}
-            <span className="text-label font-mono text-text-4 tabular-nums shrink-0">{a.date}</span>
-            <StatusBadge status={a.status} />
-          </div>
-        ))}
-      </div>
-    </section>
-  )
+// Application `score` cell: `W8.3 E5.6` (scoring v2) or a legacy `8.4/10`,
+// shown as-is (docs/scoring-v2.md §8.3).
+function AppScoreCell({ raw }: { raw: string }) {
+  const cell = parseScoreCell(raw)
+  if (!cell) return <span className="text-text-4">—</span>
+  if ('legacy' in cell) return <span className="text-label text-text-3" title="Legacy v1 score">{cell.legacy.toFixed(1)}/10</span>
+  return <WantEase want={cell.want} ease={cell.ease} size="sm" bare />
 }
 
-function StatusBadge({ status }: { status: AppStatus }) {
+function ApplicationsSection({ apps }: { apps: ApplicationEntry[] }) {
   return (
-    <span
-      className={cn(
-        'inline-flex items-center px-2 py-0.5 rounded-pill border border-border-default bg-bg-elevated text-[11px] font-medium shrink-0',
-        STATUS_COLORS[status],
-      )}
-      aria-label={`Status: ${status}`}
-    >
-      {status}
-    </span>
+    <section aria-labelledby="applications-heading" className="card overflow-hidden">
+      <SectionHeading
+        className="px-4 pt-3 mb-0"
+        title={<span id="applications-heading">Applications</span>}
+        meta={apps.length}
+      />
+      <table className="w-full text-body border-collapse" aria-label={`${apps.length} application${apps.length !== 1 ? 's' : ''}`}>
+        <thead>
+          <tr className="bg-bg-elevated/60 border-b border-border-default">
+            <th className="th text-left px-4 h-8">Role</th>
+            <th className="th text-right px-3 h-8 w-28">Want · Ease</th>
+            <th className="th text-left px-3 h-8 w-28">Date</th>
+            <th className="th text-left px-4 h-8 w-32">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border-default">
+          {apps.map(a => {
+            return (
+              <tr key={`${a.num}-${a.role}`} className="h-10 hover:bg-bg-elevated transition-colors duration-150">
+                <td className="px-4 text-text-1 truncate max-w-0 w-full">{a.role}</td>
+                <td className="px-3 text-right">
+                  <AppScoreCell raw={a.score} />
+                </td>
+                <td className="px-3 text-label text-text-3 whitespace-nowrap">{a.date}</td>
+                <td className="px-4">
+                  <span aria-label={`Status: ${a.status}`}>
+                    <StatusChip status={a.status} />
+                  </span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </section>
   )
 }

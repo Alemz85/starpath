@@ -1,25 +1,17 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
-  /* Brand accent — galaxy violet (a lighter relative of the immersive #0A0820) */
   --accent:           #7C5CFF;
   --accent-hover:     #5B3FE8;
   --accent-press:     #4A2FC8;
   --accent-light:     #B5A3FF;
-  /* Galaxy surfaces — matte palette */
   --galaxy-deep:      #0A0820;
   --galaxy-matte:     #1F1B36;
   --galaxy-matte-2:   #2A2548;
-  --dolly-bg-grey:    #F1F4F7;
-  --dolly-text-primary:   #1C2B33;
-  --dolly-text-secondary: #5D6C7B;
   --divider-gray:     #DEE3E9;
-  --card-corner-radius: 20px;
 }
 
 * {
@@ -36,21 +28,24 @@ html, body, #__next {
 body {
   background-color: #FFFFFF;
   color: #1C2B33;
-  font-family: 'Montserrat', 'Inter', -apple-system, system-ui, Helvetica, Arial, sans-serif;
-  font-feature-settings: "ss01", "ss02";
+  font-family: var(--font-sans), 'IBM Plex Sans', -apple-system, system-ui, Helvetica, Arial, sans-serif;
   font-size: 13px;
   line-height: 1.5;
+  /* Every number in the app lines up without reaching for a monospace face. */
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   user-select: none;
 }
 
-/* Allow text selection in content areas */
 p, td, th, li, .selectable {
   user-select: text;
 }
 
-/* Scrollbar — quiet, light */
+/* Browser surfaces carry the palette too. */
+::selection {
+  background: rgba(124, 92, 255, 0.18);
+}
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -61,25 +56,64 @@ p, td, th, li, .selectable {
 ::-webkit-scrollbar-thumb {
   background: #CED0D4;
   border-radius: 100px;
-  border: 2px solid #FFFFFF;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #909396;
+  background-clip: padding-box;
 }
 
-/* Focus ring — minimal accessibility indicator. The earlier 2px solid +2px
-   offset read as a "violet halo" around every focused input (CmdK search,
-   Reports search, etc). Keep the rule for keyboard-nav users but make it a
-   thin tinted ring with no offset so it doesn't compete with each
-   component's own border treatment. Inputs that sit inside an already-
-   styled wrapper get a transparent ring (the wrapper handles it). */
 :focus-visible {
-  outline: 1px solid rgba(124, 92, 255, 0.45);
-  outline-offset: 0;
+  outline: 2px solid rgba(124, 92, 255, 0.45);
+  outline-offset: 1px;
 }
 input:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+select:focus-visible {
   outline: none;
+}
+
+/* Native form controls, restyled so they stop looking like the OS.
+   Checkbox: 14px rounded box, accent fill with a drawn check when on.
+   Select: borderless arrow replaced by a quiet chevron. */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border-radius: 4px;
+  border: 1.5px solid #CED4DC;
+  background: #FFFFFF;
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms cubic-bezier(0.25, 1, 0.5, 1), border-color 120ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+input[type="checkbox"]::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  transform: scale(0);
+  transition: transform 120ms cubic-bezier(0.25, 1, 0.5, 1);
+  background: #FFFFFF;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+}
+input[type="checkbox"]:hover { border-color: #B5A3FF; }
+input[type="checkbox"]:checked { background: #7C5CFF; border-color: #7C5CFF; }
+input[type="checkbox"]:checked::before { transform: scale(1); }
+input[type="checkbox"]:focus-visible { outline: 2px solid rgba(124, 92, 255, 0.35); outline-offset: 1px; }
+input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+select:not([multiple]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238595A4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 26px;
 }
 
 /* Electron titlebar drag area */
@@ -90,39 +124,96 @@ textarea:focus-visible {
   -webkit-app-region: no-drag;
 }
 
-/* Window title bar — single source of truth for title-row height.
-   pt-10 (40px) clears macOS hiddenInset traffic-lights (y≈10–22) with
-   comfortable breathing room. All sidebar/main-pane title rows stay
-   in lockstep so horizontal dividers align across panes. */
+/* Window title row — the one header every view uses. pt-10 clears the macOS
+   traffic lights; the sidebar's own title row uses the same class so the two
+   panes' horizontal dividers line up. */
 .title-bar {
   -webkit-app-region: drag;
   @apply flex items-center pt-10 pb-2 shrink-0;
 }
 
-/* Typography utilities */
 .font-mono {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-mono), 'IBM Plex Mono', ui-monospace, monospace;
 }
 
-/* Shimmer animation — subtle gray on white */
+/* ─── Component classes ──────────────────────────────────────────────────── */
+
+@layer components {
+  /* Buttons. One shape (6px), three heights, five tones. */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded text-[13px] font-medium whitespace-nowrap select-none
+           transition-colors duration-150 ease-quart
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40;
+  }
+  .btn-sm { @apply h-7 px-2.5 text-[12px] gap-1; }
+  .btn-xs { @apply h-6 px-2 text-[12px] gap-1; }
+  .btn-lg { @apply h-9 px-3.5 text-[13px]; }
+  .btn-icon { @apply w-8 px-0; }
+  .btn-sm.btn-icon { @apply w-7; }
+  .btn-xs.btn-icon { @apply w-6; }
+  .btn-primary   { @apply bg-accent text-white hover:bg-accent-hover active:bg-accent-press shadow-pill hover:shadow-pill-hover; }
+  .btn-secondary { @apply bg-bg-base text-text-1 border border-border-default shadow-subtle hover:bg-bg-elevated active:bg-bg-panel; }
+  .btn-ghost     { @apply text-text-3 hover:text-text-1 hover:bg-bg-elevated; }
+  .btn-tinted    { @apply bg-accent-soft text-accent-text hover:bg-accent/20; }
+  .btn-danger    { @apply bg-danger/10 text-danger hover:bg-danger/15; }
+  .btn-stop      { @apply bg-danger/10 text-danger border border-danger/30 hover:bg-danger/15; }
+
+  /* Legacy aliases kept so unmigrated call sites render as the new primary /
+     secondary buttons instead of the old pills. */
+  .btn-pill         { @apply btn btn-primary btn-lg; }
+  .btn-pill-outline { @apply btn btn-secondary btn-lg; }
+
+  /* Chips. Small (20px) rounded tags; `chip-pill` for lifecycle badges. */
+  .chip {
+    @apply inline-flex items-center gap-1 h-5 px-2 rounded-pill text-[11px] font-medium leading-none whitespace-nowrap
+           border border-border-default/70 bg-bg-elevated text-text-2;
+  }
+  .chip-md      { @apply h-6 px-2.5 text-[12px]; }
+  .chip-pill    { @apply rounded-pill; }
+  .chip-accent  { @apply bg-accent-soft border-accent/20 text-accent-text; }
+  .chip-success { @apply bg-success/10 border-success/25 text-success; }
+  .chip-warning { @apply bg-warning/15 border-warning/30 text-warning-text; }
+  .chip-danger  { @apply bg-danger/10 border-danger/25 text-danger; }
+  .chip-muted   { @apply bg-transparent text-text-4; }
+  .chip-plain   { @apply bg-transparent border-transparent px-0 text-text-3; }
+
+  /* Labels: sentence case, 12px, medium, secondary. Never uppercase. */
+  .label { @apply text-[12px] font-medium text-text-3 leading-tight; }
+
+  /* Cards: hairline plus a 1px contact shadow, 14px. */
+  .card { @apply bg-bg-base border border-border-default rounded-lg shadow-subtle; }
+
+  /* Inputs */
+  .input {
+    @apply h-8 w-full px-2.5 rounded border border-border-default bg-bg-base text-[13px] text-text-1
+           placeholder:text-text-4 outline-none transition-[border-color,box-shadow] duration-150
+           shadow-subtle focus:border-accent/60 focus:ring-[3px] focus:ring-accent/15;
+  }
+  .input-sm { @apply h-7 px-2 text-[12px]; }
+
+  .kbd {
+    @apply inline-flex items-center h-[18px] px-1 rounded-sm border border-border-default bg-bg-elevated
+           text-[11px] text-text-4 leading-none font-mono;
+  }
+
+  /* Table header cell */
+  .th { @apply text-[12px] font-medium text-text-3 whitespace-nowrap select-none; }
+}
+
+/* ─── Atmosphere ─────────────────────────────────────────────────────────── */
+
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
 }
 .shimmer {
-  background: linear-gradient(
-    90deg,
-    #F1F4F7 25%,
-    #E4E8EC 50%,
-    #F1F4F7 75%
-  );
+  background: linear-gradient(90deg, #F1F4F7 25%, #E4E8EC 50%, #F1F4F7 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
 
-/* Hero/entry surface — ambient galaxy wash (light context).
-   Bright enough to host dark text; faint violet+blue glow for "deeper" feel.
-   Used on Command Center hero, Trends chart, empty-state cards. */
+/* Ambient galaxy wash — empty states and the two remaining hero moments. */
 .galaxy-bg {
   background:
     radial-gradient(ellipse at 78% 18%, rgba(124, 92, 255, 0.06) 0%, transparent 55%),
@@ -131,13 +222,7 @@ textarea:focus-visible {
     #FFFFFF;
 }
 
-/* Immersive galaxy surface — full-screen splash/onboarding.
-   Layered recipe: a deep radial bloom anchored at top-center fades
-   from galaxy-deep navy at the core to a saturated accent-hover
-   violet at the corners (the 21st.dev "dark + purple deep" pattern,
-   re-tuned to the starpath palette). Two ambient texture washes sit
-   on top to break the gradient's mathematical evenness — without
-   them the corners feel too clean. */
+/* Immersive galaxy surface — onboarding only. */
 .galaxy-immersive {
   background:
     radial-gradient(ellipse at 22% 28%, rgba(124, 92, 255, 0.16) 0%, transparent 55%),
@@ -151,12 +236,7 @@ textarea:focus-visible {
   border: 2px solid transparent;
 }
 
-/* Twinkling starfield — opt-in decoration for dark surfaces only
-   (galaxy-immersive, galaxy-matte, galaxy-deep). Two tiled radial
-   layers (slow 7s + fast 4.2s) for delicate parallax twinkle. Stars
-   are intentionally small and quiet — the surface is the hero, not
-   the decoration. Host element must be `position: relative` and
-   `overflow: hidden`. Honors prefers-reduced-motion. */
+/* Twinkling starfield — dark surfaces only. */
 .galaxy-stars {
   position: relative;
 }
@@ -206,20 +286,14 @@ textarea:focus-visible {
   50%      { opacity: 0.78; }
 }
 
-/* Orbital loader rings — paired keyframes so each ring can have its
-   own duration and direction. Linear ease so the ring spins evenly
-   (curves would visibly accelerate/decelerate which reads as broken). */
+/* Orbital loader rings */
 @keyframes orbital-spin-cw  { to { transform: rotate(360deg); } }
 @keyframes orbital-spin-ccw { to { transform: rotate(-360deg); } }
 .orbital-spin     { animation-iteration-count: infinite; animation-timing-function: linear; }
 .orbital-spin-cw  { animation-name: orbital-spin-cw; }
 .orbital-spin-ccw { animation-name: orbital-spin-ccw; }
 
-/* Cosmos grain — fixed, full-viewport noise overlay at 2% opacity.
-   Adds texture so light surfaces don't feel sterile-flat. SVG noise
-   is inlined as data URI to avoid a network fetch. The layer is
-   `position: fixed` and `pointer-events: none` so it never affects
-   interaction. Per perf guardrails: not attached to scroll containers. */
+/* Cosmos grain — fixed, full-viewport noise at 2.5% opacity. */
 .cosmos-grain {
   position: fixed;
   inset: 0;
@@ -233,20 +307,11 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .galaxy-stars::before,
   .galaxy-stars::after { animation: none; opacity: 0.65; }
-  .btn-pill > svg     { transition: none; }
   .orbital-spin       { animation: none; }
+  .shimmer            { animation: none; }
 }
 
-/* Brand wordmark — galaxy gradient text clip. */
-.galaxy-text {
-  background: linear-gradient(135deg, #5B3FE8 0%, #7C5CFF 50%, #A121CE 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-}
-
-/* Empty-state subtle gradient border (no fill change). */
+/* Empty-state gradient border (no fill change). */
 .galaxy-border {
   border: 1px solid transparent;
   background:
@@ -254,146 +319,88 @@ textarea:focus-visible {
     linear-gradient(135deg, rgba(124,92,255,0.4), rgba(91,63,232,0.4), rgba(161,33,206,0.4)) border-box;
 }
 
-/* Suggestion chip appear animation */
 @keyframes chip-appear {
-  from { opacity: 0; transform: translateY(5px) scale(0.94); }
+  from { opacity: 0; transform: translateY(4px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0)   scale(1); }
 }
 .suggestion-chip {
-  animation: chip-appear 220ms ease both;
+  animation: chip-appear 200ms cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
-/* Frosted glass utility — for sticky nav / sidebar */
 .frosted {
   background: rgba(241, 244, 247, 0.8);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-/* Primary CTA pill — galaxy violet. Motion design:
-   - 200ms cubic-bezier(0.25,1,0.5,1) on color/shadow (state, not decoration)
-   - active scale(0.98) for physical-press feedback
-   - galaxy-tinted hover shadow rather than generic black drop
-   - magnetic hover: child icon translates 1px right on hover (only
-     applies when wrapped with .group on the button element) */
-.btn-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 22px;
-  border-radius: 100px;
-  font-size: 14px;
-  font-weight: 500;
-  letter-spacing: -0.14px;
-  background: #7C5CFF;
-  color: #FFFFFF;
-  border: none;
-  cursor: pointer;
-  transition: background 200ms cubic-bezier(0.25, 1, 0.5, 1),
-              box-shadow 200ms cubic-bezier(0.25, 1, 0.5, 1),
-              transform 150ms cubic-bezier(0.25, 1, 0.5, 1);
-  box-shadow: 0 1px 2px rgba(76, 47, 200, 0.15);
-}
-.btn-pill:hover {
-  background: #5B3FE8;
-  box-shadow: 0 6px 18px 0 rgba(124, 92, 255, 0.32), 0 1px 2px 0 rgba(76, 47, 200, 0.18);
-}
-.btn-pill:active { background: #4A2FC8; transform: scale(0.98); }
-.btn-pill:disabled { background: #DEE3E9; color: #8595A4; cursor: not-allowed; box-shadow: none; }
-.btn-pill > svg { transition: transform 220ms cubic-bezier(0.25, 1, 0.5, 1); }
-.btn-pill:hover > svg { transform: translateX(1px); }
-.btn-pill:disabled > svg { transform: none; }
+/* ─── Report prose ───────────────────────────────────────────────────────── */
 
-.btn-pill-outline {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 10px 22px;
-  border-radius: 100px;
-  font-size: 14px;
-  font-weight: 500;
-  background: transparent;
-  color: #1C2B33;
-  border: 2px solid rgba(10, 19, 23, 0.12);
-  cursor: pointer;
-  transition: background 200ms ease, color 200ms ease;
-}
-.btn-pill-outline:hover { background: rgba(70, 90, 105, 0.08); }
-
-/* Report markdown prose — Meta editorial, dark text on white */
 .prose-report {
   color: #1C2B33;
-  font-size: 14px;
+  font-size: 13.5px;
   line-height: 1.6;
   user-select: text;
 }
-/* h1: report title — de-emphasised micro label */
+.prose-report > :first-child { margin-top: 0; }
 .prose-report h1 {
   font-size: 13px;
   font-weight: 500;
   color: #5D6C7B;
-  margin-top: 0;
-  margin-bottom: 1rem;
-  letter-spacing: 0;
+  margin: 0 0 1rem;
 }
-/* h2: section headers — bumped to 16px so they actually feel like
-   section breaks rather than slightly-bold body text. The
-   DimensionGroup component uses 16px too, so the body reads with
-   one consistent rhythm across both the parsed dimensional view and
-   the markdown-rendered sections. Letter-spacing tightened slightly
-   per Optimistic VF small-headline conventions. */
 .prose-report h2 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: #050505;
-  margin-top: 1.75rem;
-  margin-bottom: 0.875rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #DEE3E9;
-  letter-spacing: -0.01em;
-  text-transform: none;
+  letter-spacing: -0.005em;
+  margin: 2rem 0 0.75rem;
 }
-/* h3: sub-sections — sized between body and h2 so a "### " heading
-   still reads as a heading, not just bold body text. */
 .prose-report h3 {
-  font-size: 14.5px;
+  font-size: 13.5px;
   font-weight: 600;
   color: #1C2B33;
-  margin-top: 1.25rem;
-  margin-bottom: 0.5rem;
-  letter-spacing: -0.005em;
+  margin: 1.25rem 0 0.5rem;
 }
-.prose-report p { margin-bottom: 0.75rem; color: #1C2B33; }
+.prose-report p { margin-bottom: 0.75rem; }
 .prose-report ul, .prose-report ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
-.prose-report li { margin-bottom: 0.25rem; color: #1C2B33; }
+.prose-report li { margin-bottom: 0.3rem; }
+.prose-report li > p { margin-bottom: 0.3rem; }
 .prose-report strong { color: #050505; font-weight: 600; }
+.prose-report a { color: #5B3FE8; text-decoration: underline; text-underline-offset: 2px; }
 .prose-report code {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 12px;
   background: #F1F4F7;
-  padding: 0.1rem 0.4rem;
-  border-radius: 6px;
-  color: #7C5CFF;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  color: #1C2B33;
 }
 .prose-report blockquote {
-  border-left: 3px solid #7C5CFF;
-  padding: 0.25rem 0 0.25rem 0.875rem;
+  padding: 0.6rem 0.9rem;
   color: #5D6C7B;
   margin: 0.75rem 0;
   background: #F7F8FA;
-  border-radius: 0 8px 8px 0;
+  border: 1px solid #DEE3E9;
+  border-radius: 8px;
 }
-/* Tables */
-.prose-report table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; border-radius: 12px; overflow: hidden; }
-.prose-report thead { background: #F1F4F7; }
+.prose-report table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 0.75rem 0 1.25rem;
+  border: 1px solid #DEE3E9;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.prose-report table code { white-space: normal; }
+.prose-report thead { background: #F7F8FA; }
 .prose-report th {
   text-align: left;
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 500;
   color: #5D6C7B;
   border-bottom: 1px solid #DEE3E9;
   padding: 0.5rem 0.75rem;
@@ -401,12 +408,11 @@ textarea:focus-visible {
 .prose-report td {
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid #F0F2F5;
-  color: #1C2B33;
-  font-size: 12.5px;
   vertical-align: top;
 }
+.prose-report tr:last-child td { border-bottom: none; }
 .prose-report td:first-child { color: #050505; font-weight: 500; }
-.prose-report tbody tr:hover { background: rgba(124, 92, 255, 0.04); }
+.prose-report th:first-child, .prose-report td:first-child { width: 26%; }
 .prose-report hr {
   border: none;
   border-top: 1px solid #DEE3E9;
@@ -415,20 +421,18 @@ textarea:focus-visible {
 
 /* Score bar */
 .score-bar-track {
-  height: 4px;
-  background: #DEE3E9;
+  height: 3px;
+  background: #E4E8EC;
   border-radius: 100px;
   overflow: hidden;
 }
 .score-bar-fill {
   height: 100%;
   border-radius: 100px;
-  transition: width 0.3s ease;
+  transition: width 0.3s cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-/* Dual-handle range slider — overlays two native inputs on a single
-   visible track, with the thumbs styled and the tracks invisible.
-   Used for the database "Score range" facet. */
+/* Dual-handle range slider (Database score facet) */
 .range-overlay {
   -webkit-appearance: none;
   appearance: none;
@@ -464,13 +468,8 @@ textarea:focus-visible {
   transition: transform 120ms ease, background 120ms ease;
   margin-top: -5px;
 }
-.range-overlay::-webkit-slider-thumb:hover {
-  background: #F5F2FF;
-}
-.range-overlay::-webkit-slider-thumb:active {
-  cursor: grabbing;
-  background: #EBE5FF;
-}
+.range-overlay::-webkit-slider-thumb:hover { background: #F5F2FF; }
+.range-overlay::-webkit-slider-thumb:active { cursor: grabbing; background: #EBE5FF; }
 .range-overlay::-moz-range-thumb {
   width: 14px;
   height: 14px;
@@ -479,9 +478,5 @@ textarea:focus-visible {
   border: 2px solid #7C5CFF;
   pointer-events: auto;
   cursor: grab;
-  transition: transform 120ms ease, background 120ms ease;
-}
-.range-overlay::-moz-range-thumb:hover {
-  background: #F5F2FF;
 }
 .range-overlay:focus { outline: none; }

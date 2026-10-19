@@ -6,11 +6,11 @@ import {
   X, Send, MessageSquarePlus,
 } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
-import { cn } from '@/lib/utils'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ViewTabs, viewPanelId, viewTabId, type ViewTab } from '@/components/shared/ViewTabs'
+import { Button, Chip, PageHeader, Stat, StatStrip, type ChipTone } from '@/components/ui'
 import { NetworkPanel, useNetworkOverview } from '@/components/network/NetworkView'
 import {
   buildOutreachBoard,
@@ -32,21 +32,20 @@ const OUTREACH_TABS: readonly ViewTab<OutreachTab>[] = [
   { key: 'network', label: 'Network' },
 ]
 
-// Cadence verdict → presentation. Reuses the same semantic ladder the Today
-// cockpit maps outreach onto (DESIGN-meta tokens only — no new hues):
-//   nudge   → accent  (act now — the brand action colour, matches Today)
-//   waiting → info    (on track, on the clock)
-//   cold    → text-3  (muted — stop pestering)
+// Cadence verdict → presentation. Chip tones from DESIGN-meta § 7:
+//   nudge   → accent  (act now — the one action colour, matches Today)
+//   waiting → neutral (on track, on the clock)
 //   done    → success (they replied — a win)
+//   cold    → muted   (stop pestering)
 type Action = OutreachContact['action']
 
 const ACTION_META: Record<string, {
-  label: string; icon: React.ElementType; chip: string; ring: string; dot: string; order: number
+  label: string; icon: React.ElementType; tone: ChipTone; order: number
 }> = {
-  nudge:   { label: 'Nudge due', icon: Send,        chip: 'text-accent bg-accent/10 border-accent/30',          ring: 'border-accent/30',      dot: 'bg-accent',  order: 0 },
-  waiting: { label: 'Waiting',   icon: Clock,       chip: 'text-info bg-info/10 border-info/30',                ring: 'border-border-default', dot: 'bg-info',    order: 1 },
-  done:    { label: 'Replied',   icon: CheckCircle2,chip: 'text-success bg-success/10 border-success/30',       ring: 'border-border-default', dot: 'bg-success', order: 2 },
-  cold:    { label: 'Cold',      icon: Snowflake,   chip: 'text-text-3 bg-bg-elevated border-border-default',   ring: 'border-border-default', dot: 'bg-text-4',  order: 3 },
+  nudge:   { label: 'Nudge due', icon: Send,         tone: 'accent',  order: 0 },
+  waiting: { label: 'Waiting',   icon: Clock,        tone: 'neutral', order: 1 },
+  done:    { label: 'Replied',   icon: CheckCircle2, tone: 'success', order: 2 },
+  cold:    { label: 'Cold',      icon: Snowflake,    tone: 'muted',   order: 3 },
 }
 
 function metaFor(action: string) {
@@ -155,36 +154,36 @@ export function OutreachView() {
     <div className="flex flex-col h-full overflow-hidden">
       {/* Title-bar contents swap with the active tab — each tab's real meta,
           or nothing while it loads; never a placeholder caption. */}
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Outreach</h1>
-        {tab === 'board' ? (
-          <>
-            <span className="text-label text-text-4 font-mono" aria-live="polite" aria-atomic="true">
-              {showSkeleton ? '…' : `${counts.nudge} ${counts.nudge === 1 ? 'nudge' : 'nudges'} due`}
-            </span>
-            <div className="flex-1" />
-            {/* The compose button belongs to the log, so it's Board-only; the
-                modal itself stays mounted at the view root. */}
-            <button
-              onClick={() => setComposing(true)}
-              disabled={showSkeleton || busy}
-              aria-label="Log a new outreach touch"
-              className="titlebar-no-drag inline-flex items-center gap-1.5 h-7 pl-2 pr-2.5 rounded-pill bg-accent hover:bg-accent-hover text-white text-label font-medium transition-colors shadow-pill disabled:opacity-40 disabled:pointer-events-none"
-            >
-              <Plus size={13} aria-hidden />
-              Log a touch
-            </button>
-          </>
+      <PageHeader
+        title="Outreach"
+        meta={tab === 'board' ? (
+          <span aria-live="polite" aria-atomic="true">
+            {showSkeleton ? '…' : `${counts.nudge} ${counts.nudge === 1 ? 'nudge' : 'nudges'} due`}
+          </span>
         ) : (
-          !netSkeleton && net.overview && !net.empty && (
-            <span className="text-label text-text-4 font-mono" aria-live="polite">
+          !netSkeleton && net.overview && !net.empty ? (
+            <span aria-live="polite">
               {net.overview.counts.contacts} {net.overview.counts.contacts === 1 ? 'contact' : 'contacts'}
               {' · '}{net.overview.counts.companiesWithPath} warm {net.overview.counts.companiesWithPath === 1 ? 'company' : 'companies'}
-              {net.overview.counts.dueNudges > 0 && <> · <span className="text-accent">{net.overview.counts.dueNudges} {net.overview.counts.dueNudges === 1 ? 'nudge' : 'nudges'} due</span></>}
+              {net.overview.counts.dueNudges > 0 && <> · <span className="text-accent-text">{net.overview.counts.dueNudges} {net.overview.counts.dueNudges === 1 ? 'nudge' : 'nudges'} due</span></>}
             </span>
-          )
+          ) : null
         )}
-      </div>
+        actions={tab === 'board' && (
+          // The compose button belongs to the log, so it's Board-only; the
+          // modal itself stays mounted at the view root.
+          <Button
+            tone="primary"
+            size="sm"
+            icon={<Plus size={13} aria-hidden />}
+            onClick={() => setComposing(true)}
+            disabled={showSkeleton || busy}
+            aria-label="Log a new outreach touch"
+          >
+            Log a touch
+          </Button>
+        )}
+      />
 
       <ViewTabs
         tabs={OUTREACH_TABS}
@@ -199,36 +198,26 @@ export function OutreachView() {
           role="tabpanel"
           id={viewPanelId('outreach', 'board')}
           aria-labelledby={viewTabId('outreach', 'board')}
-          className="flex-1 flex flex-col px-8 pt-8 pb-6 gap-5 overflow-hidden min-h-0"
+          className="flex-1 flex flex-col p-5 gap-4 overflow-hidden min-h-0"
         >
-          {/* Editorial hero — the cadence headline + a four-column breakdown of the
-              contact mix, mirroring the Today / Applying hero pattern. */}
-          <div className="shrink-0 galaxy-bg rounded-xl border border-border-default px-9 py-7 shadow-cosmos">
-            <div className="flex items-baseline justify-between gap-6 flex-wrap mb-7">
-              <h2 className="text-display-2 text-text-1">Stay in touch</h2>
-              {!showSkeleton && counts.nudge > 0 && (
-                <span className="text-label text-accent font-medium" aria-live="polite">
-                  {counts.nudge} {counts.nudge === 1 ? 'contact is' : 'contacts are'} due a nudge
-                </span>
-              )}
-            </div>
-            {showSkeleton ? (
-              <div className="h-14 shimmer rounded-lg" aria-hidden />
-            ) : (
-              <div className="grid grid-cols-4 divide-x divide-border-default/50">
-                <StatTile value={counts.nudge}   label="Nudges due" sub="reach out now" accent={counts.nudge > 0 ? 'text-accent' : undefined} dot={counts.nudge > 0 ? 'bg-accent' : undefined} />
-                <StatTile value={counts.waiting} label="Waiting"    sub="on the clock" />
-                <StatTile value={counts.done}    label="Replied"    sub="they answered" accent={counts.done > 0 ? 'text-success' : undefined} />
-                <StatTile value={counts.cold}    label="Cold"       sub="no path left" />
-              </div>
-            )}
-          </div>
+          {/* Cadence figures — inline, no card. Nudges due is the one
+              "act now" figure on the page. */}
+          {showSkeleton ? (
+            <div className="shrink-0 h-14 shimmer rounded-lg" aria-hidden />
+          ) : (
+            <StatStrip className="shrink-0">
+              <Stat value={counts.nudge}   label="Nudges due" hint="Reach out now" tone={counts.nudge > 0 ? 'accent' : 'default'} dot={counts.nudge > 0} />
+              <Stat value={counts.waiting} label="Waiting"    hint="On the clock" />
+              <Stat value={counts.done}    label="Replied"    hint="They answered" tone={counts.done > 0 ? 'success' : 'default'} />
+              <Stat value={counts.cold}    label="Cold"       hint="No path left" />
+            </StatStrip>
+          )}
 
           {/* The contact list — nudges first. */}
           <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1" role="region" aria-label="Outreach contacts">
             {showSkeleton ? (
               <div className="space-y-2" aria-hidden>
-                {[0, 1, 2].map(i => <div key={i} className="h-[72px] shimmer rounded-lg" />)}
+                {[0, 1, 2].map(i => <div key={i} className="h-16 shimmer rounded-lg" />)}
               </div>
             ) : sorted.length === 0 ? (
               <EmptyState onLog={() => setComposing(true)} />
@@ -252,7 +241,7 @@ export function OutreachView() {
           role="tabpanel"
           id={viewPanelId('outreach', 'network')}
           aria-labelledby={viewTabId('outreach', 'network')}
-          className="flex-1 min-h-0 overflow-y-auto p-4"
+          className="flex-1 min-h-0 overflow-y-auto p-5"
         >
           <NetworkPanel overview={net.overview} ready={net.ready} />
         </div>
@@ -266,27 +255,6 @@ export function OutreachView() {
           onSubmit={async (args) => { await logTouch(args); setComposing(false) }}
         />
       )}
-    </div>
-  )
-}
-
-// ─── Stat tile ────────────────────────────────────────────────────────────────
-// Local copy of the hero stat tile pattern (kept self-contained rather than
-// importing CommandCenter's, so this view doesn't couple to a file another
-// surface owns). Same tokens/sizing as the Today/Applying heroes.
-function StatTile({
-  value, label, sub, accent, dot,
-}: { value: string | number; label: string; sub?: string; accent?: string; dot?: string }) {
-  return (
-    <div className="px-5 first:pl-0 last:pr-0">
-      <div className="relative inline-block">
-        <span className={cn('text-[34px] leading-none font-semibold tabular-nums', accent ?? 'text-text-1')} aria-label={`${value} ${label}`}>
-          {value}
-        </span>
-        {dot && <span className={cn('absolute -right-2.5 top-1 w-1.5 h-1.5 rounded-full animate-pulse', dot)} aria-hidden />}
-      </div>
-      <div className="mt-2 text-label text-text-2 font-medium" aria-hidden>{label}</div>
-      {sub && <div className="text-micro text-text-4 mt-0.5" aria-hidden>{sub}</div>}
     </div>
   )
 }
@@ -311,39 +279,44 @@ function ContactRow({
   const showReply = contact.action !== 'done' && contact.action !== 'cold'
   const nudgeLabel = contact.action === 'nudge' ? 'Nudge' : 'Log touch'
 
+  // Channel lives in the tooltip so the visible line keeps two separators.
+  const detailTitle = [
+    contact.company,
+    contact.title,
+    contact.channel && `via ${contact.channel}`,
+    daysLabel(contact.daysSince),
+  ].filter(Boolean).join(' · ')
+
   return (
     <div
       role="listitem"
-      className={cn(
-        'group flex items-center gap-3.5 rounded-lg bg-bg-base border px-4 py-3 transition-colors hover:border-border-strong',
-        meta.ring,
-      )}
+      className="group card flex items-center gap-3 px-4 py-3 transition-colors duration-150 ease-quart hover:border-border-strong"
     >
       <CompanyLogo company={contact.company} size={32} className="shrink-0" aria-hidden />
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[13px] font-medium text-text-1 leading-tight">{contact.contact}</span>
-          <span className={cn(
-            'inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full border',
-            meta.chip,
-          )} aria-label={`Status: ${meta.label}`}>
-            <Icon size={9} aria-hidden />
+          <Chip
+            tone={meta.tone}
+            size="sm"
+            icon={<Icon size={12} aria-hidden />}
+            aria-label={`Status: ${meta.label}`}
+          >
             {meta.label}
-          </span>
+          </Chip>
           {contact.touches > 1 && (
-            <span className="text-[10px] text-text-4 font-mono" aria-label={`${contact.touches} touches sent`}>{contact.touches} touches</span>
+            <span className="text-label text-text-4" aria-label={`${contact.touches} touches sent`}>{contact.touches} touches</span>
           )}
         </div>
-        <div className="text-[12px] text-text-2 truncate mt-0.5">
-          <span className="font-medium">{contact.company}</span>
-          {contact.title && <><span className="text-text-4" aria-hidden> · </span><span className="text-text-3">{contact.title}</span></>}
-          {contact.channel && <><span className="text-text-4" aria-hidden> · </span><span className="text-text-4">{contact.channel}</span></>}
+        <div className="text-label text-text-3 truncate mt-0.5" title={detailTitle}>
+          <span className="text-text-2 font-medium">{contact.company}</span>
+          {contact.title && <><span className="text-text-4" aria-hidden> · </span>{contact.title}</>}
           <span className="text-text-4" aria-hidden> · </span>
           <span className="text-text-4">{daysLabel(contact.daysSince)}</span>
         </div>
         {contact.reason && (
-          <p className="text-[11px] text-text-4 leading-snug mt-1 line-clamp-1">{contact.reason}</p>
+          <p className="text-label text-text-4 mt-0.5 line-clamp-1">{contact.reason}</p>
         )}
       </div>
 
@@ -352,37 +325,41 @@ function ContactRow({
             (the thread is dead; "Reopen" is the explicit action if the user
             wants to restart). */}
         {showReply && (
-          <button
+          <Button
+            tone="ghost"
+            size="sm"
+            iconOnly
+            icon={<Reply size={14} aria-hidden />}
             onClick={() => onOutcome('Replied')}
             disabled={busy}
             aria-label={`Mark ${contact.contact} as replied`}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-md text-text-3 hover:text-success hover:bg-success/10 transition-colors disabled:opacity-40"
-          >
-            <Reply size={15} aria-hidden />
-          </button>
+            className="hover:text-success"
+          />
         )}
         {/* Primary action depends on cadence: nudge-due → log a nudge; a
             terminal contact → no primary (the reply/outcome controls remain). */}
         {!terminal ? (
-          <button
+          <Button
+            tone="primary"
+            size="sm"
+            icon={<MessageSquarePlus size={13} aria-hidden />}
             onClick={onNudge}
             disabled={busy}
             aria-label={`${nudgeLabel} ${contact.contact} at ${contact.company}`}
-            className="inline-flex items-center gap-1.5 pl-3 pr-2.5 h-8 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[12px] font-medium transition-all shadow-pill hover:shadow-pill-hover disabled:opacity-50"
           >
-            <MessageSquarePlus size={13} aria-hidden />
             {nudgeLabel}
-          </button>
+          </Button>
         ) : contact.action === 'cold' ? (
-          <button
+          <Button
+            tone="secondary"
+            size="sm"
+            trailing={<ArrowRight size={12} aria-hidden />}
             onClick={() => onOutcome('Pending')}
             disabled={busy}
             aria-label={`Reopen outreach thread with ${contact.contact} at ${contact.company}`}
-            className="inline-flex items-center gap-1.5 px-3 h-8 rounded-pill border border-border-default text-text-3 hover:text-text-1 hover:border-border-strong text-[12px] font-medium transition-colors disabled:opacity-50"
           >
             Reopen
-            <ArrowRight size={12} aria-hidden />
-          </button>
+          </Button>
         ) : null}
       </div>
     </div>
@@ -482,20 +459,20 @@ function LogTouchModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-[520px] bg-bg-panel border border-border-strong rounded-lg shadow-2xl overflow-hidden"
+        className="w-[520px] bg-bg-base border border-border-default rounded-xl shadow-lift overflow-hidden"
         onClick={e => e.stopPropagation()}
         aria-hidden="false"
       >
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-border-default">
-          <Users size={15} className="text-accent shrink-0" aria-hidden />
-          <span id={titleId} className="text-body text-text-1 font-medium flex-1">Log a touch</span>
-          <button
+        <div className="flex items-center gap-2 pl-4 pr-3 py-3 border-b border-border-default">
+          <span id={titleId} className="text-title text-text-1 flex-1">Log a touch</span>
+          <Button
+            tone="ghost"
+            size="xs"
+            iconOnly
+            icon={<X size={14} aria-hidden />}
             onClick={onClose}
             aria-label="Close dialog"
-            className="p-1 rounded-md text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors"
-          >
-            <X size={14} aria-hidden />
-          </button>
+          />
         </div>
 
         <div className="p-4 space-y-3">
@@ -544,30 +521,28 @@ function LogTouchModal({
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-border-default">
-          <button
-            onClick={onClose}
-            className="px-3 h-8 rounded-pill text-text-3 hover:text-text-1 text-label font-medium transition-colors"
-          >
+          <Button tone="ghost" size="sm" onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            tone="primary"
+            size="sm"
+            icon={<Send size={13} aria-hidden />}
             onClick={submit}
             disabled={!canSubmit}
+            loading={busy}
             aria-label="Save outreach touch"
             aria-busy={busy}
-            className="inline-flex items-center gap-1.5 pl-3.5 pr-3 h-8 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[12px] font-medium transition-all shadow-pill hover:shadow-pill-hover disabled:opacity-40 disabled:pointer-events-none"
           >
-            <Send size={13} aria-hidden />
             {busy ? 'Saving…' : 'Log touch'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
   )
 }
 
-const inputCls =
-  'w-full h-8 px-2.5 rounded-md bg-bg-base border border-border-default text-text-1 text-[12.5px] placeholder:text-text-4 outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/25 transition-colors'
+const inputCls = 'input'
 
 function Field({
   label, required, htmlFor, children,
@@ -576,8 +551,8 @@ function Field({
 }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="block text-micro text-text-4 uppercase tracking-wide font-medium mb-1">
-        {label}{required && <span className="text-accent" aria-hidden> *</span>}
+      <label htmlFor={htmlFor} className="label block mb-1">
+        {label}{required && <span className="text-accent-text" aria-hidden> *</span>}
         {required && <span className="sr-only"> (required)</span>}
       </label>
       {children}
@@ -590,24 +565,24 @@ function Field({
 function EmptyState({ onLog }: { onLog: () => void }) {
   return (
     <div className="h-full flex items-center justify-center">
-      <div className="max-w-sm text-center px-6 py-8">
-        <span className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-accent/10 mb-4" aria-hidden>
-          <Users size={20} className="text-accent" />
-        </span>
-        <h3 className="text-[15px] font-semibold text-text-1">No outreach logged yet</h3>
-        <p className="text-[12.5px] text-text-3 leading-relaxed mt-1.5">
-          When you reach out to a recruiter, hiring manager, or peer at a target company,
-          log the touch here. The cadence engine tells you when each contact is due a nudge —
+      <div className="max-w-sm text-center px-6 py-8 flex flex-col items-center">
+        <Users size={24} className="text-text-4 mb-3" aria-hidden />
+        <h3 className="text-section text-text-1">No outreach logged yet</h3>
+        <p className="text-label text-text-3 mt-1">
+          When you reach out to a recruiter, hiring manager or peer at a target company,
+          log the touch here. The cadence engine tells you when each contact is due a nudge
           and surfaces it on Today.
         </p>
-        <button
+        <Button
+          tone="primary"
+          size="sm"
+          icon={<Plus size={13} aria-hidden />}
           onClick={onLog}
-          className="inline-flex items-center gap-1.5 mt-4 pl-3 pr-3.5 h-8 bg-accent hover:bg-accent-hover text-white rounded-pill text-[12px] font-medium transition-colors shadow-pill"
           aria-label="Log your first outreach touch"
+          className="mt-4"
         >
-          <Plus size={13} aria-hidden />
           Log your first touch
-        </button>
+        </Button>
       </div>
     </div>
   )

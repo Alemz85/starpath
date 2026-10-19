@@ -10,22 +10,25 @@ import {
   type SortingState,
 } from '@tanstack/react-table'
 import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText, TrendingUp } from 'lucide-react'
-import { cn } from '@/lib/utils'
+// clsx, not cn(): twMerge reads the custom `text-label` / `text-body` sizes as
+// colours and would silently drop them next to a `text-text-*` class.
+import { clsx } from 'clsx'
 import type { ScoreEntry, AppStatus } from '@/types'
-import { STATUS_COLORS, ENGAGED_STATUSES } from '@/types'
+import { ENGAGED_STATUSES } from '@/types'
 import { CompanyLink } from '@/components/shared/CompanyLink'
-import { parseCities } from '@/lib/entityId'
+import { Button, Chip, ScoreBar, ScoreNumber, StatusChip, type ChipTone } from '@/components/ui'
+import { formatLocation } from '@/lib/entityId'
 import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
-import { scoreColor } from '@/lib/tier'
+import { tierVerdict } from '@/lib/tier'
 import { rowLever, leverSentence, type LeverResult } from '@/lib/tierLevers'
 import { buildPeerRankIndex, type PeerRankSummary } from '@/lib/peerRank'
 import {
   blockedReason, eligibilityCheckLabel, isBlocked, parseEligibilityFlags, priorityOf,
-  DIM_LABELS, EASE_DIMS, HYGIENE_DIMS, MOTIVATOR_DIMS, type V2DimKey,
+  DIM_LABELS, EASE_DIMS, HYGIENE_DIMS, MOTIVATOR_DIMS, VERDICT_RANK, type V2DimKey,
 } from '@/lib/scoreBands'
 import { WantEase } from '@/components/shared/WantEase'
 import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
@@ -39,47 +42,81 @@ interface OffersTableProps {
 
 const col = createColumnHelper<ScoreEntry>()
 
-// ─── Want · Ease cell ───────────────────────────────────────────────────────
+// ─── Layout ─────────────────────────────────────────────────────────────────
 //
-// Scoring v2: the eligibility dot + the compact Want · Ease pair (shared
-// WantEase component). A blocked row shows its red reason in place of the
-// scores. Replaces the v1 Overall dial + CF/AF block.
+// `table-layout: fixed`: every column but Listing has a fixed width and Listing
+// takes the rest (never below LISTING_MIN_WIDTH). The fixed columns sum to
+// 804px, so the table fits a ~1100px container (a 1530px window with the app
+// sidebar and the facet rail) without scrolling; narrower windows scroll
+// horizontally with the caret + Listing columns pinned on the left.
+const LISTING_MIN_WIDTH = 300
+const CARET_WIDTH = 28
+const RIGHT_ALIGNED = new Set(['score', 'date'])
+
+// Per-column cell padding. Listing hugs the caret; the action icons need the
+// full 56px for two 24px buttons.
+const CELL_PAD: Record<string, string> = {
+  breakdown: 'px-0.5',
+  company:   'pl-1 pr-3',
+  actions:   'px-1',
+}
+const cellPad = (id: string) => CELL_PAD[id] ?? 'px-2'
+
+// Sticky-left offsets for the pinned columns (caret, then Listing).
+const STICKY_LEFT: Record<string, string> = {
+  breakdown: 'sticky left-0',
+  company:   'sticky left-7',
+}
+
+// Row surface. Applied to every cell (not the <tr>) so the pinned cells are
+// opaque and the scrolled columns never show through them: translucent tints
+// ride on a white base as a flat gradient layer.
+function cellSurface(isSelected: boolean, isExpanded: boolean): string {
+  if (isSelected) return 'bg-bg-base bg-gradient-to-r from-accent-soft to-accent-soft'
+  if (isExpanded) return 'bg-bg-base bg-gradient-to-r from-bg-elevated/60 to-bg-elevated/60 group-hover:from-bg-elevated group-hover:to-bg-elevated'
+  return 'bg-bg-base group-hover:bg-bg-elevated'
+}
+
+// Keyboard focus ring, drawn by the cells (an outline on the <tr> would be
+// covered by the opaque pinned cells): top + bottom on every cell, plus the
+// outer edge on the first and last.
+const FOCUS_MID   = 'group-focus-visible:shadow-[inset_0_1px_0_0_theme(colors.accent),inset_0_-1px_0_0_theme(colors.accent)]'
+const FOCUS_FIRST = 'group-focus-visible:shadow-[inset_1px_0_0_0_theme(colors.accent),inset_0_1px_0_0_theme(colors.accent),inset_0_-1px_0_0_theme(colors.accent)]'
+const FOCUS_LAST  = 'group-focus-visible:shadow-[inset_-1px_0_0_0_theme(colors.accent),inset_0_1px_0_0_theme(colors.accent),inset_0_-1px_0_0_theme(colors.accent)]'
+
+// Liveness → chip tone (process state, so semantic hues are allowed).
+const LIVENESS_CHIP: Record<'active' | 'stale' | 'closed', { tone: ChipTone; label: string }> = {
+  active: { tone: 'success', label: 'Active' },
+  stale:  { tone: 'warning', label: 'Stale' },
+  closed: { tone: 'muted',   label: 'Closed' },
+}
+
+// DIM_LABELS (lib/scoreBands) is shared with the report engine and keeps its
+// own casing; the UI renders labels in sentence case (DESIGN-meta § 3).
+const sentence = (s: string) => s.charAt(0) + s.slice(1).toLowerCase()
+
+// ─── Want · Ease ────────────────────────────────────────────────────────────
+//
+// Scoring v2: the eligibility dot + the Want · Ease pair (shared WantEase,
+// bare — the column header names the two numbers). A blocked row shows its
+// red reason in place of the scores. Sorted by Priority, which is never shown.
 
 function ScoreCell({ entry }: { entry: ScoreEntry }) {
   const blocked = isBlocked(entry)
   const flags = parseEligibilityFlags(entry.eligibility_flags).filter(f => f.status !== 'green')
   const reason = flags.map(f => `${eligibilityCheckLabel(f.check)}: ${f.reason}`).join('; ')
   return (
-    <div className="flex items-center gap-1.5 min-w-0">
-      <EligibilityChip status={entry.eligibility} reason={reason || null} compact />
+    <div className="flex items-center justify-end gap-1.5 min-w-0">
+      <EligibilityChip status={entry.eligibility} reason={reason || null} compact className="shrink-0" />
       <WantEase
         want={entry.want}
         ease={entry.ease}
         blockedReason={blocked ? blockedReason(entry) : null}
-        className={blocked ? 'max-w-[112px]' : undefined}
+        size="md"
+        bare
+        className="min-w-0"
       />
     </div>
-  )
-}
-
-// ─── Application-status badge ───────────────────────────────────────────────
-//
-// A small pill on a listing the user has already engaged (applied / heard back
-// / interviewing / offer / rejected). Colour comes from the shared
-// STATUS_COLORS map so it reads the same as the Applying-tab statuses. Sits
-// next to the role so the Database doubles as an "what have I already chased?"
-// view, not just a scored inventory.
-function StatusBadge({ status }: { status: AppStatus }) {
-  return (
-    <span
-      className={cn(
-        'shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-pill border border-border-default bg-bg-elevated',
-        'text-[9px] font-mono font-semibold uppercase tracking-[0.06em]',
-        STATUS_COLORS[status],
-      )}
-    >
-      {status}
-    </span>
   )
 }
 
@@ -98,21 +135,21 @@ function relativeTime(dateStr: string): string {
   return `${Math.floor(days / 365)}y`
 }
 
-// ─── Fixability lever chip ──────────────────────────────────────────────────
+// ─── Upgrade path ───────────────────────────────────────────────────────────
 //
 // Surfaces, per evaluated row, the CHEAPEST single change — one dimension
 // raised, or one amber eligibility check resolved — that moves the listing
 // into a strictly better verdict cell (lib/tierLevers, mirroring the spec §7
 // lever search).
 //
-// Three states:
-//   • near-miss lever (one step) → accent-filled "one nudge away" pill
-//   • larger lever               → quiet outline pill (still a real path up)
-//   • `go` / no lever            → a muted mark (Go has nowhere to climb)
+// Three states, all plain text (a lever is a secondary fact, not a state):
+//   • near-miss lever (one step) → accent text, medium weight
+//   • larger lever               → quiet text-3 (still a real path up)
+//   • `go` / no lever            → "Go" / "—" in text-4 (Go has nowhere to climb)
 //
-// The chip is decision-support while scanning: it tells the user *which*
-// roles are cheap upgrades worth chasing, without opening each report.
-function LeverChip({ lever }: { lever: LeverResult }) {
+// Decision-support while scanning: it tells the user *which* roles are cheap
+// upgrades worth chasing, without opening each report.
+function UpgradeCell({ lever }: { lever: LeverResult }) {
   const best = lever.best
   if (!best) {
     // `go` rows are "maxed"; everything else with no single path reads as a
@@ -120,10 +157,10 @@ function LeverChip({ lever }: { lever: LeverResult }) {
     const maxed = lever.verdict === 'go'
     return (
       <span
-        className="text-[10.5px] font-mono text-text-4"
+        className="text-label text-text-4 whitespace-nowrap"
         title={maxed ? 'Go — nothing is holding it back' : lever.verdict === 'blocked' ? 'Blocked — no score change fixes eligibility' : 'No single change reaches a better verdict'}
       >
-        {maxed ? '★' : '—'}
+        {maxed ? 'Go' : '—'}
       </span>
     )
   }
@@ -131,14 +168,12 @@ function LeverChip({ lever }: { lever: LeverResult }) {
   return (
     <span
       title={tooltip}
-      className={cn(
-        'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-pill text-[10px] font-mono font-medium whitespace-nowrap max-w-[124px]',
-        lever.nearMiss
-          ? 'bg-accent/10 text-accent border border-accent/30'
-          : 'bg-bg-elevated text-text-3 border border-border-default',
+      className={clsx(
+        'inline-flex items-center gap-1 max-w-full min-w-0 text-label whitespace-nowrap',
+        lever.nearMiss ? 'text-accent-text font-medium' : 'text-text-3',
       )}
     >
-      <TrendingUp size={9} className="shrink-0" aria-hidden />
+      <TrendingUp size={12} className="shrink-0" aria-hidden />
       <span className="truncate">
         {best.kind === 'amber' ? 'Resolve' : `${best.label.split(' ')[0]} +${best.lift}`}
       </span>
@@ -146,7 +181,7 @@ function LeverChip({ lever }: { lever: LeverResult }) {
   )
 }
 
-// ─── Peer-percentile chip ───────────────────────────────────────────────────
+// ─── Peer rank ──────────────────────────────────────────────────────────────
 //
 // Compact twin of the slide-over's "Peer context" panel (PeerContextCard):
 // where this row's Priority sits among ALL evaluated roles sharing its primary
@@ -154,8 +189,8 @@ function LeverChip({ lever }: { lever: LeverResult }) {
 // the two surfaces render from one band vocabulary so they can never disagree.
 //
 // Below MIN_PEERS cohort members the cell renders NOTHING (the shared omit
-// rule — no "n/a" placeholder). Top-half rows read as quiet data ("top 25%");
-// bottom-half rows recede further ("#9/12" in muted slate). No color beyond
+// rule — no "n/a" placeholder). Top-half rows read as quiet data ("Top 25% of
+// 12"); bottom-half rows read as a position ("#9 of 12"). No colour beyond
 // text-weight contrast: percentile is within-archetype context, not absolute
 // score quality, so it must not borrow the score or tier scales.
 //
@@ -164,7 +199,13 @@ function LeverChip({ lever }: { lever: LeverResult }) {
 // confidence rank (5–9 peers, where one peer is ≥10 percentile points) never
 // gets the emphasis treatment — at that sample the band name is a bucket
 // label, not a quartile claim, and the tooltip says so in full.
-function PeerRankChip({ rank }: { rank: PeerRankSummary | null }) {
+function peerText(rank: PeerRankSummary): string {
+  if (rank.band === 'bottom') return `#${rank.rankPosition} of ${rank.nPeers}`
+  const label = rank.compactLabel
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)} of ${rank.nPeers}`
+}
+
+function PeerCell({ rank }: { rank: PeerRankSummary | null }) {
   if (!rank) return null
   const band = rank.band === 'top5' || rank.band === 'top10' || rank.band === 'quartile'
   const emphasize = band && rank.confidence !== 'low'
@@ -178,13 +219,12 @@ function PeerRankChip({ rank }: { rank: PeerRankSummary | null }) {
           : '') +
         ' Live cohort, same math as the Peer context panel in the report slide-over.'
       }
-      className={cn(
-        'text-[10.5px] font-mono tabular-nums whitespace-nowrap',
-        emphasize ? 'text-text-2 font-semibold' : 'text-text-4',
+      className={clsx(
+        'block truncate text-label whitespace-nowrap',
+        emphasize ? 'text-text-2 font-semibold' : 'text-text-3',
       )}
     >
-      {rank.compactLabel}
-      <span className="text-text-4 font-normal"> ·{rank.nPeers}</span>
+      {peerText(rank)}
     </span>
   )
 }
@@ -196,7 +236,7 @@ function PeerRankChip({ rank }: { rank: PeerRankSummary | null }) {
 // hygiene) / Ease, and the eligibility checks. Multiple rows can be open at
 // once. The chevron rotates 90° to signal open state.
 
-const BREAKDOWN_GROUPS: Array<{ title: string; keys: readonly V2DimKey[] }> = [
+const BREAKDOWN_GROUPS: Array<{ title: 'Want' | 'Ease'; keys: readonly V2DimKey[] }> = [
   { title: 'Want', keys: [...MOTIVATOR_DIMS, ...HYGIENE_DIMS] },
   { title: 'Ease', keys: EASE_DIMS },
 ]
@@ -234,137 +274,135 @@ function BreakdownRow({
   const flags = parseEligibilityFlags(entry.eligibility_flags)
 
   return (
-    <tr className="bg-bg-elevated/40 border-b border-border-default/30">
-      <td colSpan={colSpan} className="pl-16 pr-6 py-3">
-        {lever.best && (
-          <div className="mb-3 max-w-[720px]">
-            <div className={cn(
-              'inline-flex items-center gap-2 px-2.5 py-1.5 rounded-md text-[11px]',
-              lever.nearMiss
-                ? 'bg-accent/[0.07] text-text-2 border border-accent/25'
-                : 'bg-bg-elevated text-text-3 border border-border-default',
-            )}>
-              <TrendingUp size={12} className={cn('shrink-0', lever.nearMiss ? 'text-accent' : 'text-text-4')} aria-hidden />
+    <tr>
+      <td
+        colSpan={colSpan}
+        className="bg-bg-base bg-gradient-to-r from-bg-elevated/60 to-bg-elevated/60 border-b border-border-default/70 py-3 pr-6"
+      >
+        {/* Pinned with the Listing column so the breakdown stays in view
+            when a narrow window scrolls the table sideways. Indent lines the
+            content up with the company name above it. */}
+        <div className="sticky left-0 pl-[74px] max-w-[794px]">
+          {lever.best && (
+            <p className="mb-3 flex items-start gap-1.5 text-label text-text-2">
+              <TrendingUp
+                size={12}
+                className={clsx('shrink-0 mt-[3px]', lever.nearMiss ? 'text-accent-text' : 'text-text-4')}
+                aria-hidden
+              />
               <span>
                 Cheapest upgrade:{' '}
                 <span className="font-medium text-text-1">
                   {lever.best.kind === 'amber'
                     ? lever.best.label
-                    : `${lever.best.label} ${lever.best.from} → ${lever.best.to}`}
+                    : `${sentence(lever.best.label)} ${lever.best.from} → ${lever.best.to}`}
                 </span>
                 {lever.best.kind === 'amber' ? ' (+0.5 Ease)' : ` (+${lever.best.lift})`} moves this from{' '}
-                <VerdictChip verdict={lever.best.fromVerdict} /> to{' '}
-                <VerdictChip verdict={lever.best.toVerdict} />.
+                {tierVerdict(lever.best.fromVerdict, { short: true })} to{' '}
+                <span className="font-medium text-text-1">{tierVerdict(lever.best.toVerdict, { short: true })}</span>.
               </span>
-            </div>
-          </div>
-        )}
-        {/* Eligibility checks — every non-green check with its reason; a
-            clean gate reads as one quiet line. */}
-        <div className="mb-3 max-w-[720px]">
-          <div className="text-[10px] font-mono uppercase tracking-[0.08em] text-text-4 mb-1.5">Eligibility</div>
-          {flags.length === 0 ? (
-            <div className="flex items-center gap-2 text-[11px] text-text-3">
-              <EligibilityChip status={entry.eligibility} />
-              {entry.eligibility === 'green' && <span>All checks clear</span>}
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {flags.map((f, i) => (
-                <div key={`${f.check}-${i}`} className="flex items-center gap-2 text-[11px]">
-                  <EligibilityChip status={f.status} />
-                  <span className="text-text-2 font-medium w-[124px] shrink-0">{eligibilityCheckLabel(f.check)}</span>
-                  <span className="text-text-3 min-w-0 truncate" title={f.reason}>{f.reason || '—'}</span>
-                </div>
-              ))}
-            </div>
+            </p>
           )}
-        </div>
 
-        {!isBlocked(entry) && (
-          <div className="grid grid-cols-2 gap-x-8 max-w-[720px]">
-            {BREAKDOWN_GROUPS.map(group => (
-              <div key={group.title}>
-                <div className="flex items-baseline justify-between mb-1.5">
-                  <span className="text-[10px] font-mono uppercase tracking-[0.08em] text-text-4">{group.title}</span>
-                  {(() => {
-                    const rollup = group.title === 'Want' ? entry.want : entry.ease
-                    return (
-                      <span className="text-[10px] font-mono tabular-nums font-semibold" style={{ color: scoreColor(rollup ?? 0) }}>
-                        {rollup != null ? rollup.toFixed(1) : '—'}
-                      </span>
-                    )
-                  })()}
-                </div>
-                <div className="space-y-1.5">
-                  {group.keys.map(key => {
-                    const raw = entry[key]
-                    const val = typeof raw === 'number' ? raw : null
-                    const pct = val == null ? 0 : Math.min(100, (val / 10) * 100)
-                    const c = scoreColor(val ?? 0)
-                    return (
-                      <div key={key} className="flex items-center gap-2.5">
-                        <span className="text-[10.5px] text-text-3 w-[110px] shrink-0">{DIM_LABELS[key]}</span>
-                        <div className="flex-1 h-1.5 bg-bg-elevated rounded-pill overflow-hidden">
-                          <div
-                            className="h-full rounded-pill"
-                            style={{ width: `${pct}%`, background: c, transition: 'width 320ms ease' }}
-                          />
-                        </div>
-                        <span className="text-[10px] font-mono tabular-nums w-[28px] text-right" style={{ color: c }}>
-                          {val != null ? val.toFixed(0) : '—'}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
+          {/* Eligibility checks — every non-green check with its reason; a
+              clean gate reads as one quiet line. */}
+          <div className="mb-3">
+            <div className="label mb-1.5">Eligibility</div>
+            {flags.length === 0 ? (
+              <div className="flex items-center gap-2 text-label text-text-3">
+                <EligibilityChip status={entry.eligibility} />
+                {entry.eligibility === 'green' && <span>All checks clear</span>}
               </div>
-            ))}
+            ) : (
+              <div className="space-y-1">
+                {flags.map((f, i) => (
+                  <div key={`${f.check}-${i}`} className="flex items-center gap-2 min-w-0">
+                    <EligibilityChip status={f.status} className="shrink-0" />
+                    <span className="text-label text-text-2 font-medium w-[124px] shrink-0">{eligibilityCheckLabel(f.check)}</span>
+                    <span className="text-label text-text-3 min-w-0 truncate" title={f.reason}>{f.reason || '—'}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
 
-        {showCityList && (
-          <div className="mt-4 pt-3 border-t border-border-default/40 max-w-[720px]">
-            <div className="text-[10px] font-mono uppercase tracking-[0.08em] text-text-4 mb-2">
-              Cities ({allCities.length})
-            </div>
-            <div className="space-y-1">
-              {cityRows.map(s => {
-                const isPrimary = s === entry
-                const isHistorical = (s.livenessState ?? 'active') !== 'active'
+          {!isBlocked(entry) && (
+            <div className="grid grid-cols-2 gap-x-8">
+              {BREAKDOWN_GROUPS.map(group => {
+                const rollup = group.title === 'Want' ? entry.want : entry.ease
                 return (
-                  <button
-                    key={`${s.company}|${s.role}`}
-                    onClick={(evt) => onSelectSibling(s, evt)}
-                    className={cn(
-                      'w-full flex items-center gap-3 px-2 py-1.5 rounded text-left transition-colors',
-                      'hover:bg-bg-elevated',
-                      isHistorical && 'opacity-55',
-                    )}
-                  >
-                    <span className={cn(
-                      'text-[11px] flex-1 min-w-0 truncate',
-                      isPrimary ? 'text-text-1 font-medium' : 'text-text-2',
-                    )}>
-                      {s.location || s.role}
-                      {isPrimary && <span className="ml-2 text-[9.5px] font-mono uppercase tracking-[0.08em] text-accent">primary</span>}
-                    </span>
-                    <VerdictChip verdict={s.verdict} />
-                    <WantEase want={s.want} ease={s.ease} blockedReason={isBlocked(s) ? blockedReason(s) : null} className="max-w-[140px]" />
-                    <span className={cn(
-                      'text-[9.5px] font-mono uppercase tracking-[0.08em] w-[50px] text-right',
-                      s.livenessState === 'closed' ? 'text-text-4' :
-                      s.livenessState === 'stale'  ? 'text-warning' :
-                      'text-success',
-                    )}>
-                      {s.livenessState ?? 'active'}
-                    </span>
-                  </button>
+                  <div key={group.title} className="min-w-0">
+                    <div className="flex items-baseline justify-between mb-1.5">
+                      <span className="label">{group.title}</span>
+                      <ScoreNumber value={rollup} size="sm" />
+                    </div>
+                    <div className="space-y-1.5">
+                      {group.keys.map(key => {
+                        const raw = entry[key]
+                        const val = typeof raw === 'number' ? raw : null
+                        return (
+                          <div key={key} className="flex items-center gap-3 min-w-0">
+                            <span className="text-label text-text-3 w-[120px] shrink-0 truncate">{sentence(DIM_LABELS[key])}</span>
+                            <ScoreBar value={val} className="flex-1" />
+                            <ScoreNumber value={val} size="sm" decimals={0} className="w-7 shrink-0 text-right" />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
                 )
               })}
             </div>
-          </div>
-        )}
+          )}
+
+          {showCityList && (
+            <div className="mt-4 pt-3 border-t border-border-default">
+              <div className="label mb-1.5">Cities ({allCities.length})</div>
+              <div>
+                {cityRows.map(s => {
+                  const isPrimary = s === entry
+                  const isHistorical = (s.livenessState ?? 'active') !== 'active'
+                  const live = LIVENESS_CHIP[s.livenessState ?? 'active']
+                  return (
+                    <button
+                      key={`${s.company}|${s.role}`}
+                      type="button"
+                      onClick={(evt) => onSelectSibling(s, evt)}
+                      className={clsx(
+                        'w-full h-8 flex items-center gap-3 px-2 rounded text-left transition-colors duration-150',
+                        'hover:bg-bg-panel',
+                        isHistorical && 'opacity-60',
+                      )}
+                    >
+                      <span
+                        className={clsx(
+                          'flex-1 min-w-0 truncate text-body',
+                          isPrimary ? 'text-text-1 font-medium' : 'text-text-2',
+                        )}
+                        title={s.location || s.role}
+                      >
+                        {s.location ? formatLocation(s.location) : s.role}
+                        {isPrimary && <span className="ml-2 text-label font-normal text-text-4">Primary</span>}
+                      </span>
+                      <VerdictChip verdict={s.verdict} />
+                      <WantEase
+                        want={s.want}
+                        ease={s.ease}
+                        blockedReason={isBlocked(s) ? blockedReason(s) : null}
+                        size="sm"
+                        bare
+                        className="w-[120px] shrink-0 justify-end text-right"
+                      />
+                      <span className="w-[60px] shrink-0 flex justify-end">
+                        <Chip tone={live.tone}>{live.label}</Chip>
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </td>
     </tr>
   )
@@ -433,7 +471,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   }
 
   // Listing → application status, keyed company|role (same key the liveness /
-  // discard maps use). Drives the per-row StatusBadge. Last row wins if the
+  // discard maps use). Drives the per-row StatusChip. Last row wins if the
   // same listing somehow appears twice in applications.md.
   const statusByKey = useMemo(() => {
     const m = new Map<string, AppStatus>()
@@ -447,7 +485,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     col.display({
       id: 'breakdown',
       header: '',
-      size: 36,
+      size: CARET_WIDTH,
       cell: info => {
         const entry = info.row.original
         const isOpen = expandedRef.current.has(entryKey(entry))
@@ -455,22 +493,19 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const titleSuffix = sibCount > 0 ? ` · ${sibCount} more in this group` : ''
         return (
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); toggleExpandedRef.current(entry) }}
             title={(isOpen ? 'Hide score breakdown' : 'Show score breakdown') + titleSuffix}
             aria-label={(isOpen ? 'Hide score breakdown' : 'Show score breakdown') + titleSuffix}
             aria-expanded={isOpen}
-            className="inline-flex items-center gap-1 justify-center px-1 h-6 rounded-md text-text-4 hover:text-accent hover:bg-accent/10 transition-colors"
+            className="inline-flex items-center justify-center w-6 h-6 rounded text-text-4 hover:text-text-1 hover:bg-bg-panel transition-colors duration-150"
           >
             <ChevronRight
               size={14}
-              className="transition-transform duration-150 shrink-0"
+              className="shrink-0 transition-transform duration-150 ease-quart"
               style={{ transform: isOpen ? 'rotate(90deg)' : 'rotate(0deg)' }}
+              aria-hidden
             />
-            {sibCount > 0 && (
-              <span className="text-[9px] font-mono font-semibold text-accent tabular-nums leading-none">
-                +{sibCount}
-              </span>
-            )}
           </button>
         )
       },
@@ -478,22 +513,21 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     }),
     col.accessor('company', {
       header: 'Listing',
-      size: 320,
       cell: info => {
         const company = info.getValue()
         const entry = info.row.original
         const role = entry.role
         const status = statusByKey.get(livenessKey(entry.company, entry.role))
         return (
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2.5 min-w-0">
             <CompanyLink company={company} size={28} className="shrink-0" />
-            <div className="min-w-0 flex-1 leading-tight">
-              <div className="text-[13px] text-text-1 font-semibold truncate block">
+            <div className="min-w-0 flex-1">
+              <div className="text-[13px] leading-tight font-semibold text-text-1 truncate" title={company}>
                 {company}
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                <span className="text-[11.5px] text-text-3 truncate">{role}</span>
-                {status != null && ENGAGED_STATUSES.has(status) && <StatusBadge status={status} />}
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="text-label text-text-3 truncate" title={role}>{role}</span>
+                {status != null && ENGAGED_STATUSES.has(status) && <StatusChip status={status} className="shrink-0" />}
               </div>
             </div>
           </div>
@@ -501,29 +535,9 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       },
     }),
     col.display({
-      id: 'report',
-      header: '',
-      size: 24,
-      cell: info => {
-        const entry = info.row.original
-        if (!hasReport(entry)) return <span className="block w-5 h-5" aria-hidden />
-        return (
-          <button
-            onClick={(e) => { e.stopPropagation(); onOpenReport(entry) }}
-            title="Open scouting report"
-            aria-label="Open scouting report"
-            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-3 hover:text-accent hover:bg-accent/10 transition-all"
-          >
-            <FileText size={11} />
-          </button>
-        )
-      },
-      enableSorting: false,
-    }),
-    col.display({
       id: 'score',
       header: 'Want · Ease',
-      size: 132,
+      size: 100,
       // Sorted by Priority (sqrt(Want × Ease)) — the v2 sort key, never shown
       // as a number. Blocked / unscored rows sit at -1 → bottom on desc.
       sortingFn: (a, b) => (priorityOf(a.original) ?? -1) - (priorityOf(b.original) ?? -1),
@@ -534,23 +548,26 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     col.display({
       id: 'verdict',
       header: 'Verdict',
-      size: 96,
+      size: 112,
+      // Better-cell order (VERDICT_RANK): descending puts Go first, Blocked
+      // last; unscored rows sit below Blocked.
       sortingFn: (a, b) => {
         const ra = rowLever(a.original).verdict
         const rb = rowLever(b.original).verdict
-        const order = ['blocked', 'skip', 'thin', 'growth', 'solid', 'stretch', 'go']
-        return order.indexOf(ra ?? '') - order.indexOf(rb ?? '')
+        return (ra ? VERDICT_RANK[ra] : -1) - (rb ? VERDICT_RANK[rb] : -1)
       },
       sortDescFirst: true,
       enableSorting: true,
-      cell: info => <VerdictChip verdict={rowLever(info.row.original).verdict} />,
+      cell: info => (
+        <VerdictChip verdict={rowLever(info.row.original).verdict} className="max-w-full truncate" />
+      ),
     }),
     col.display({
       id: 'peer',
       header: 'Peers',
-      // Widened from 76 so the band and its cohort size ("top 25% ·12") fit on
-      // one line — docs § 4 rule 1: a percentile without its n is not
-      // publishable output, so the n rides in the cell, not only the tooltip.
+      // Wide enough for the band and its cohort size ("Top 25% of 12") on one
+      // line — docs § 4 rule 1: a percentile without its n is not publishable
+      // output, so the n rides in the cell, not only the tooltip.
       size: 96,
       // Sort by percentile: descending puts the strongest within-cohort
       // standouts first. Rows without a rank (cohort < MIN_PEERS or unscored)
@@ -562,12 +579,12 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       },
       sortDescFirst: true,
       enableSorting: true,
-      cell: info => <PeerRankChip rank={peerIndex.rankOf(info.row.original)} />,
+      cell: info => <PeerCell rank={peerIndex.rankOf(info.row.original)} />,
     }),
     col.display({
       id: 'fixability',
-      header: 'Upgrade Path',
-      size: 116,
+      header: 'Upgrade path',
+      size: 110,
       // Sort by how cheap the upgrade is: near-misses (smallest lift) first,
       // rows with no lever last. `sortingFn` reads the lever lift; a missing
       // lever sorts to the bottom of an ascending sort (Infinity).
@@ -577,47 +594,37 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         return la - lb
       },
       enableSorting: true,
-      cell: info => <LeverChip lever={rowLever(info.row.original)} />,
+      cell: info => <UpgradeCell lever={rowLever(info.row.original)} />,
     }),
     col.accessor('location', {
       header: 'Location',
       size: 120,
       cell: info => {
         const raw = info.getValue() || ''
-        // Single-URL multi-city listings (e.g., Rev-celerator across 4
-        // cities) collapse to a compact "City · +N" pill — the row is
-        // ONE entity, not N siblings, so it gets one cell. Hover shows
-        // the full list. Single-city rows render the city verbatim.
-        const parsed = parseCities(raw)
-        if (parsed.isMulti && parsed.cities.length > 1) {
-          const primary = parsed.primary ?? parsed.cities[0]
-          const others  = parsed.cities.length - 1
-          return (
-            <div className="flex items-center justify-center" title={parsed.cities.join(' · ')}>
-              <span className="text-[11.5px] text-text-3 truncate block max-w-[108px] text-center">
-                {primary} · +{others}
-              </span>
-            </div>
-          )
-        }
+        // "City, Country" reads as the city; single-URL multi-city listings
+        // read as "City +N" (formatLocation). Grouped sibling evaluations of
+        // the same role in other cities add a muted "+N" — the caret expands
+        // them. Hover shows the full string.
+        const sibs = info.row.original.siblings ?? []
+        const title = sibs.length > 0
+          ? [raw, ...sibs.map(s => s.location)].filter(Boolean).join(' · ')
+          : raw || undefined
         return (
-          <div className="flex items-center justify-center">
-            <span className="text-[11.5px] text-text-3 truncate block max-w-[108px] text-center">
-              {raw || '—'}
-            </span>
-          </div>
+          <span className="block truncate text-label text-text-2" title={title}>
+            {formatLocation(raw)}
+            {sibs.length > 0 && <span className="text-text-4"> +{sibs.length}</span>}
+          </span>
         )
       },
     }),
     col.accessor('archetype', {
       header: 'Archetype',
-      size: 130,
+      size: 126,
       cell: info => {
-        const v = info.getValue()
-        const display = canonicalizeArchetype(v)
-        if (!display) return <span className="text-[11px] text-text-4">—</span>
+        const display = canonicalizeArchetype(info.getValue())
+        if (!display) return <span className="text-label text-text-4">—</span>
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-pill bg-bg-elevated border border-border-default text-[10.5px] text-text-3 truncate max-w-[118px]">
+          <span className="block truncate text-label text-text-3" title={display}>
             {display}
           </span>
         )
@@ -625,34 +632,54 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     }),
     col.accessor('date', {
       header: 'Added',
-      size: 60,
+      size: 56,
       cell: info => {
         const v = info.getValue()
         return (
-          <span className="text-[11px] font-mono text-text-4 tabular-nums" title={v || undefined}>
+          <span className="text-label text-text-4 whitespace-nowrap" title={v || undefined}>
             {relativeTime(v)}
           </span>
         )
       },
     }),
-    col.accessor('url', {
+    col.display({
+      id: 'actions',
       header: '',
-      size: 32,
+      size: 56,
       enableSorting: false,
       cell: info => {
-        const url = info.getValue()
-        if (!url || !/^https?:\/\//i.test(url)) {
-          return <span className="block w-6 h-6" aria-hidden />
-        }
+        const entry = info.row.original
+        const url = entry.url
+        const validUrl = !!url && /^https?:\/\//i.test(url)
         return (
-          <button
-            onClick={(e) => { e.stopPropagation(); ipc.openExternal(url) }}
-            title="Open job posting in browser"
-            aria-label="Open job posting in browser"
-            className="inline-flex items-center justify-center w-6 h-6 rounded-md text-text-3 hover:text-accent hover:bg-accent/10 transition-all"
-          >
-            <ExternalLink size={12} />
-          </button>
+          <div className="flex items-center justify-end">
+            {hasReport(entry) ? (
+              <Button
+                tone="ghost"
+                size="xs"
+                iconOnly
+                onClick={(e) => { e.stopPropagation(); onOpenReport(entry) }}
+                title="Open scouting report"
+                aria-label="Open scouting report"
+                icon={<FileText size={13} aria-hidden />}
+              />
+            ) : (
+              <span className="block w-6 h-6 shrink-0" aria-hidden />
+            )}
+            {validUrl ? (
+              <Button
+                tone="ghost"
+                size="xs"
+                iconOnly
+                onClick={(e) => { e.stopPropagation(); ipc.openExternal(url) }}
+                title="Open job posting in browser"
+                aria-label="Open job posting in browser"
+                icon={<ExternalLink size={13} aria-hidden />}
+              />
+            ) : (
+              <span className="block w-6 h-6 shrink-0" aria-hidden />
+            )}
+          </div>
         )
       },
     }),
@@ -672,36 +699,47 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     getSortedRowModel: getSortedRowModel(),
   })
 
+  // Below this width the table scrolls sideways instead of squeezing Listing.
+  const visibleColumns = table.getVisibleLeafColumns()
+  const tableMinWidth = visibleColumns.reduce(
+    (sum, c) => sum + (c.id === 'company' ? LISTING_MIN_WIDTH : c.getSize()),
+    0,
+  )
+  const lastColumnId = visibleColumns[visibleColumns.length - 1]?.id
+
   return (
-    <div className="h-full overflow-auto relative">
-      <table className="w-full border-collapse text-left" style={{ minWidth: 900 }}>
-        <thead className="sticky top-0 z-10">
+    <div className="h-full overflow-auto relative bg-bg-base">
+      <table
+        className="w-full table-fixed border-separate border-spacing-0 text-left"
+        style={{ minWidth: tableMinWidth }}
+      >
+        <thead>
           {table.getHeaderGroups().map(hg => (
             <tr key={hg.id}>
               {hg.headers.map(header => {
+                const id = header.column.id
                 const canSort = header.column.getCanSort()
                 const sorted = header.column.getIsSorted()
-                const headerStr = header.column.columnDef.header as string
-                const isCentered = headerStr === 'Location'
-                const isUpgradePath = headerStr === 'Upgrade Path'
-                const isPeers = headerStr === 'Peers'
+                const isRight = RIGHT_ALIGNED.has(id)
                 const headerTitle =
-                  isUpgradePath ? 'Cheapest single change — one dimension raised, or one amber eligibility check resolved — that moves this listing into a better verdict. Sort ascending = easiest to upgrade first.'
-                  : isPeers ? 'Where this listing\'s Priority (√(Want × Ease)) ranks among all evaluated roles of the same archetype (live cohort), followed by the cohort size. Blank = fewer than 5 peers evaluated, where no rank is publishable. Bold = 10+ peers back the band; muted = 5–9 peers, read as top/bottom half only. Sort descending = strongest standouts first.'
-                  : headerStr === 'Want · Ease' ? 'Eligibility dot, then Want (how much you want it) · Ease (how realistic it is to get in). Blocked listings show their reason instead. Sorted by √(Want × Ease).'
+                  id === 'fixability' ? 'Cheapest single change — one dimension raised, or one amber eligibility check resolved — that moves this listing into a better verdict. Sort ascending = easiest to upgrade first.'
+                  : id === 'peer' ? 'Where this listing\'s Priority (√(Want × Ease)) ranks among all evaluated roles of the same archetype (live cohort), followed by the cohort size. Blank = fewer than 5 peers evaluated, where no rank is publishable. Bold = 10+ peers back the band; muted = 5–9 peers, read as top/bottom half only. Sort descending = strongest standouts first.'
+                  : id === 'score' ? 'Eligibility dot, then Want (how much you want it) · Ease (how realistic it is to get in). Blocked listings show their reason instead. Sorted by √(Want × Ease).'
+                  : id === 'verdict' ? 'Where Want × Ease lands on the verdict grid. Sort descending = Go first, Blocked last.'
                   : undefined
                 const ariaSortVal: 'ascending' | 'descending' | 'none' = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
                 const toggleSort = canSort ? header.column.getToggleSortingHandler() : undefined
                 return (
                   <th
                     key={header.id}
-                    style={{ width: header.getSize() }}
+                    style={id === 'company' ? undefined : { width: header.getSize() }}
                     aria-sort={canSort ? ariaSortVal : undefined}
                     title={headerTitle}
-                    className={cn(
-                      'px-3 py-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-4 whitespace-nowrap select-none',
-                      'bg-bg-chrome border-b border-border-default',
-                      canSort && 'cursor-pointer hover:text-text-2 transition-colors',
+                    className={clsx(
+                      'th h-9 bg-bg-base border-b border-border-default sticky top-0',
+                      cellPad(id),
+                      STICKY_LEFT[id] ? clsx(STICKY_LEFT[id], 'z-30') : 'z-20',
+                      canSort && 'cursor-pointer hover:text-text-1 transition-colors duration-150',
                     )}
                     onClick={toggleSort}
                     onKeyDown={canSort ? (e) => {
@@ -712,13 +750,13 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                     } : undefined}
                     tabIndex={canSort ? 0 : undefined}
                   >
-                    <div className={cn('flex items-center gap-1', isCentered && 'justify-center')}>
+                    <div className={clsx('flex items-center gap-1', isRight && 'flex-row-reverse')}>
                       {flexRender(header.column.columnDef.header, header.getContext())}
                       {canSort && (
-                        <span className={sorted ? 'text-accent' : 'text-text-4'}>
-                          {sorted === 'asc' ? <ArrowUp size={10} /> :
-                           sorted === 'desc' ? <ArrowDown size={10} /> :
-                           <ArrowUpDown size={10} className="opacity-40" />}
+                        <span className={clsx('shrink-0', sorted ? 'text-accent-text' : 'text-text-4')} aria-hidden>
+                          {sorted === 'asc' ? <ArrowUp size={12} /> :
+                           sorted === 'desc' ? <ArrowDown size={12} /> :
+                           <ArrowUpDown size={12} className="opacity-50" />}
                         </span>
                       )}
                     </div>
@@ -734,12 +772,9 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
             const id = `${entry.company}-${entry.role}`
             const isSelected = id === selectedId
             const isExpanded = expanded.has(entryKey(entry))
-            // The score colour in the Want · Ease pair / breakdown bars
-            // already fades on its own when the score is low (per the
-            // galaxy palette), so the row itself stays at full opacity —
-            // company name and role should always be cleanly readable. The
-            // earlier `opacity-65` on T4 / stale rows greyed everything,
-            // including the things the user is trying to scan.
+            const surface = cellSurface(isSelected, isExpanded)
+            // Rows stay at full strength whatever the score: the Want · Ease
+            // numbers carry the band colour, so company and role always read cleanly.
             return (
               <Fragment key={row.id}>
                 <tr
@@ -753,21 +788,26 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                   tabIndex={0}
                   aria-selected={isSelected}
                   role="row"
-                  className={cn(
-                    'border-b border-border-default/30 cursor-pointer',
-                    'transition-colors duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50',
-                    isSelected
-                      ? 'bg-accent/10'
-                      : isExpanded
-                        ? 'bg-bg-elevated/40'
-                        : 'hover:bg-accent/[0.04]',
-                  )}
+                  className="group cursor-pointer focus-visible:outline-none"
                 >
-                  {row.getVisibleCells().map(cell => (
-                    <td key={cell.id} className="px-3 py-2.5 align-middle">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
+                  {row.getVisibleCells().map((cell, i) => {
+                    const colId = cell.column.id
+                    return (
+                      <td
+                        key={cell.id}
+                        className={clsx(
+                          'h-10 align-middle border-b border-border-default/70 transition-colors duration-150',
+                          cellPad(colId),
+                          surface,
+                          STICKY_LEFT[colId] && clsx(STICKY_LEFT[colId], 'z-10'),
+                          RIGHT_ALIGNED.has(colId) && 'text-right',
+                          i === 0 ? FOCUS_FIRST : colId === lastColumnId ? FOCUS_LAST : FOCUS_MID,
+                        )}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    )
+                  })}
                 </tr>
                 {isExpanded && (
                   <BreakdownRow
@@ -782,16 +822,14 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
           {rows.length === 0 && (
             <tr>
               <td colSpan={columns.length}>
-                <div className="py-20 px-6 flex flex-col items-center justify-center gap-4">
-                  <div className="w-14 h-14 rounded-full galaxy-bg border border-border-default flex items-center justify-center">
-                    <Search size={22} className="text-accent opacity-80" />
-                  </div>
+                <div className="py-20 px-6 flex flex-col items-center justify-center gap-3">
+                  <Search size={24} className="text-text-4" aria-hidden />
                   <div className="text-center max-w-xs">
-                    <p className="text-[14px] text-text-1 font-semibold">No listings match</p>
-                    <p className="text-[12px] text-text-3 mt-1.5 leading-relaxed">
+                    <p className="text-section text-text-1">No listings match</p>
+                    <p className="text-label text-text-3 mt-1.5">
                       Try relaxing a filter or searching a different keyword.
-                      Use the <span className="font-mono text-text-2">Liveness</span> chips to include stale or closed listings,
-                      or turn off <span className="font-mono text-text-2">Untapped</span> to see roles already in your pipeline.
+                      Use the <span className="font-medium text-text-2">Liveness</span> chips to include stale or closed listings,
+                      or turn off <span className="font-medium text-text-2">Untapped</span> to see roles already in your pipeline.
                     </p>
                   </div>
                 </div>

@@ -59,7 +59,7 @@ export function ViewTabs<K extends string>({ tabs, active, onSelect, ariaLabel, 
     <div
       role="tablist"
       aria-label={ariaLabel}
-      className="flex items-center border-b border-border-default bg-bg-chrome shrink-0 px-2"
+      className="flex items-center gap-5 border-b border-border-default shrink-0 px-4"
     >
       {tabs.map(({ key, label, count, dirty }) => {
         const isActive = active === key
@@ -75,7 +75,7 @@ export function ViewTabs<K extends string>({ tabs, active, onSelect, ariaLabel, 
             onClick={() => onSelect(key)}
             onKeyDown={e => handleKeyDown(e, key)}
             className={cn(
-              'flex items-center gap-1.5 px-4 py-2.5 text-label border-b-2 transition-colors',
+              'flex items-center gap-1.5 px-0.5 pt-2 pb-2.5 text-[13px] border-b-2 -mb-px transition-colors',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-inset',
               isActive
                 ? 'border-accent text-text-1'
@@ -84,7 +84,7 @@ export function ViewTabs<K extends string>({ tabs, active, onSelect, ariaLabel, 
           >
             {label}
             {typeof count === 'number' && count > 0 && (
-              <span className={cn('text-micro font-mono tabular-nums', isActive ? 'text-text-3' : 'text-text-4')}>
+              <span className={cn('text-[12px] tabular-nums', isActive ? 'text-text-3' : 'text-text-4')}>
                 {count}
               </span>
             )}

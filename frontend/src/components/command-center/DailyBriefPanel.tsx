@@ -17,16 +17,20 @@
 // only exists when the brief has something genuinely worth saying.
 
 import { useEffect, useRef, useState } from 'react'
-import { Sunrise, ArrowRight, ArrowUpRight } from 'lucide-react'
+import { clsx } from 'clsx'
+import { ArrowRight, ArrowUpRight } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
-import { cn } from '@/lib/utils'
+import { Button, Chip, SectionHeading } from '@/components/ui'
 import {
   parseBriefJson, buildBriefDisplay, briefItemTarget, briefTargetLabel,
   type BriefDisplay, type BriefSectionId, type BriefItem, type BriefTarget,
 } from '@/lib/dailyBrief'
+
+// Class strings are combined with `clsx`, not `cn` — tailwind-merge reads
+// `text-body` / `text-label` as colours and would drop them.
 
 // Per-section dot tone — the same semantic ladder the Today feed uses:
 // obligations escalate danger → warning → accent; prospective opportunities
@@ -42,7 +46,7 @@ const SECTION_DOT: Record<BriefSectionId, string> = {
   insight:   'bg-text-4',
 }
 
-export function DailyBriefPanel() {
+export function DailyBriefPanel({ className }: { className?: string } = {}) {
   const repoPath = useAppStore(s => s.repoPath)
   const loaded = useDataStore(s => s.loaded)
   // Store arrays are replaced wholesale on every disk mirror (db:changed /
@@ -82,88 +86,80 @@ export function DailyBriefPanel() {
     else navigate(target.view, target.view === 'database' ? (target.filter ?? '') : '')
   }
 
+  const meta = [
+    display.asOf,
+    display.totalActions > 0
+      ? `${display.totalActions} action${display.totalActions === 1 ? '' : 's'}`
+      : null,
+  ].filter(Boolean).join(' · ')
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col pt-4">
-      <section
-        aria-label="Daily brief"
-        className="max-h-full overflow-hidden flex flex-col rounded-xl border border-border-default bg-bg-panel/80"
-      >
-        {/* Header strip — icon tile + title + date, action count right. */}
-        <div className="shrink-0 flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border-default/60">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-accent/15 border border-accent/30 flex items-center justify-center shrink-0">
-              <Sunrise size={13} className="text-accent" aria-hidden />
-            </div>
-            <span className="text-[13px] font-semibold text-text-1">Today&apos;s brief</span>
-            {display.asOf && (
-              <span className="text-[11px] font-mono tabular-nums text-text-4">{display.asOf}</span>
-            )}
-          </div>
-          {display.totalActions > 0 && (
-            <span className="text-label text-text-3 shrink-0">
-              {display.totalActions} action{display.totalActions === 1 ? '' : 's'}
-            </span>
-          )}
-        </div>
+    <section
+      aria-label="Daily brief"
+      className={clsx('card p-4 flex flex-col min-h-0 overflow-hidden', className)}
+    >
+      <SectionHeading title="Daily brief" meta={meta} className="shrink-0" />
 
-        <div className="min-h-0 overflow-y-auto px-4 py-3.5 space-y-4" style={{ scrollbarWidth: 'thin' }}>
-          {/* The single "do this first" pick — cross-section, time-criticality
-              ranked by the core. One accent plate, one CTA. */}
-          {display.topAction && (
-            <TopActionPlate
-              sectionId={display.topAction.section}
-              sectionTitle={display.topAction.sectionTitle}
-              item={display.topAction.item}
-              onAct={act}
-            />
-          )}
+      {/* Scrolls inside the card when the brief outgrows its slot. The -mx-2
+          bleed lets row hover fills reach 8px past the text edge while the
+          text itself stays aligned with the heading. */}
+      <div className="min-h-0 overflow-y-auto -mx-2 space-y-4" style={{ scrollbarWidth: 'thin' }}>
+        {/* The single "do this first" pick — cross-section, time-criticality
+            ranked by the core. */}
+        {display.topAction && (
+          <TopActionRow
+            sectionId={display.topAction.section}
+            sectionTitle={display.topAction.sectionTitle}
+            item={display.topAction.item}
+            onAct={act}
+          />
+        )}
 
-          {/* Per-section top slices. Only non-empty sections exist here. */}
-          {display.sections.length > 0 && (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-3.5">
-              {display.sections.map(s => (
-                <div key={s.id} className="min-w-0">
-                  <div className="flex items-baseline gap-2 mb-1">
-                    <h3 className="text-micro text-text-4">{s.title}</h3>
-                    {s.hiddenCount > 0 && (
-                      <span className="text-[10.5px] text-text-4">+{s.hiddenCount} more</span>
-                    )}
-                  </div>
-                  <ul className="list-none p-0 m-0 space-y-0.5">
-                    {s.items.map(it => (
-                      <li key={it.key}>
-                        <BriefItemRow sectionId={s.id} item={it} onAct={act} />
-                      </li>
-                    ))}
-                  </ul>
+        {/* Per-section top slices. Only non-empty sections exist here. */}
+        {display.sections.length > 0 && (
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-x-8 gap-y-3">
+            {display.sections.map(s => (
+              <div key={s.id} className="min-w-0">
+                <div className="flex items-baseline gap-2 px-2 mb-0.5">
+                  <h3 className="label">{s.title}</h3>
+                  {s.hiddenCount > 0 && (
+                    <span className="text-label text-text-4">+{s.hiddenCount} more</span>
+                  )}
                 </div>
-              ))}
-            </div>
-          )}
+                <ul className="list-none p-0 m-0">
+                  {s.items.map(it => (
+                    <li key={it.key}>
+                      <BriefItemRow sectionId={s.id} item={it} onAct={act} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
 
-          {/* Insight notes — quiet prose, never actions. */}
-          {display.insights.length > 0 && (
-            <div className={cn(
-              'space-y-1.5',
-              (display.topAction || display.sections.length > 0) && 'pt-3 border-t border-border-default/60',
-            )}>
-              {display.insights.map(({ sectionId, item }) => (
-                <p key={`${sectionId}|${item.key}`} className="text-[11.5px] text-text-3 leading-snug">
-                  <span className="font-medium text-text-2">{item.label}.</span>{' '}
-                  {item.sub}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-    </div>
+        {/* Insight notes — quiet prose, never actions. */}
+        {display.insights.length > 0 && (
+          <div className={clsx(
+            'space-y-1.5 px-2',
+            (display.topAction || display.sections.length > 0) && 'pt-3 border-t border-border-default',
+          )}>
+            {display.insights.map(({ sectionId, item }) => (
+              <p key={`${sectionId}|${item.key}`} className="text-label text-text-3">
+                <span className="font-medium text-text-2">{item.label}.</span>{' '}
+                {item.sub}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   )
 }
 
-// ─── Top action plate ─────────────────────────────────────────────────────────
+// ─── Top action row ───────────────────────────────────────────────────────────
 
-function TopActionPlate({
+function TopActionRow({
   sectionId, sectionTitle, item, onAct,
 }: {
   sectionId: BriefSectionId
@@ -174,24 +170,24 @@ function TopActionPlate({
   const target = briefItemTarget(sectionId, item)
   const cta = briefTargetLabel(target)
   return (
-    <div className="rounded-lg border border-accent/30 bg-accent/[0.06] px-3.5 py-2.5 flex items-center gap-3">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2 flex-wrap">
-          <span className="text-micro text-accent-text">Do this first</span>
-          {sectionTitle && <span className="text-[10.5px] text-text-4">{sectionTitle}</span>}
-        </div>
-        <p className="text-[13px] font-medium text-text-1 leading-tight mt-0.5 truncate">{item.label}</p>
-        {item.sub && <p className="text-[11.5px] text-text-3 leading-snug mt-0.5 line-clamp-1">{item.sub}</p>}
-      </div>
+    <div className="flex items-center gap-2.5 h-9 px-2 rounded bg-bg-elevated">
+      <Chip tone="accent" title="Do this first" className="shrink-0">First</Chip>
+      <span className="text-body font-medium text-text-1 truncate min-w-0 shrink-0 max-w-[50%]">{item.label}</span>
+      <span className="text-label text-text-3 truncate min-w-0 flex-1" title={item.sub || undefined}>{item.sub}</span>
+      {sectionTitle && (
+        <span className="text-label text-text-4 shrink-0 truncate max-w-[30%]">{sectionTitle}</span>
+      )}
       {cta && (
-        <button
+        <Button
+          tone="ghost"
+          size="xs"
           onClick={() => onAct(target)}
           aria-label={`${cta}: ${item.label}`}
-          className="shrink-0 inline-flex items-center gap-1.5 pl-3.5 pr-3 h-8 bg-accent hover:bg-accent-hover active:scale-[0.98] text-white rounded-pill text-[12px] font-medium transition-all shadow-pill hover:shadow-pill-hover"
+          className="shrink-0 -mr-1"
+          trailing={<ArrowRight size={12} aria-hidden />}
         >
           {cta}
-          <ArrowRight size={13} aria-hidden />
-        </button>
+        </Button>
       )}
     </div>
   )
@@ -211,32 +207,29 @@ function BriefItemRow({
 
   const body = (
     <>
-      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', dot)} aria-hidden />
-      <span className="min-w-0 flex-1">
-        <span className="block text-[12px] text-text-1 leading-tight truncate">{item.label}</span>
-        {item.sub && (
-          <span className="block text-[10.5px] text-text-4 leading-snug truncate">{item.sub}</span>
-        )}
-      </span>
+      <span className={clsx('w-1.5 h-1.5 rounded-full shrink-0', dot)} aria-hidden />
+      <span className="text-body text-text-1 truncate min-w-0 shrink-0 max-w-[60%]">{item.label}</span>
+      <span className="text-label text-text-3 truncate min-w-0 flex-1">{item.sub}</span>
     </>
   )
 
   if (!target) {
-    return <div className="flex items-center gap-2 px-1.5 py-1">{body}</div>
+    return <div className="flex items-center gap-2 h-9 px-2">{body}</div>
   }
 
   const cta = briefTargetLabel(target)
   return (
     <button
+      type="button"
       onClick={() => onAct(target)}
       title={cta ?? undefined}
       aria-label={`${cta}: ${item.label}`}
-      className="group w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left transition-colors hover:bg-bg-elevated"
+      className="group w-full flex items-center gap-2 h-9 px-2 rounded text-left transition-colors duration-150 hover:bg-bg-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
     >
       {body}
       <ArrowUpRight
         size={12}
-        className="shrink-0 text-text-4 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="shrink-0 text-text-4 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity"
         aria-hidden
       />
     </button>

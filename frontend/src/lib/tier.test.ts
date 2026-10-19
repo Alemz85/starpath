@@ -6,12 +6,13 @@ import {
   tierHex,
   TIER_HEX,
   NEUTRAL_SCORE_COLOR,
-  verdictDisplay,
+  tierVerdict,
+  verdictTier,
 } from '@/lib/tier'
 
 test('scoreColor maps each band at its documented threshold', () => {
-  assert.equal(scoreColor(9.5), '#2EB8A8')      // ≥9 stellar — aurora teal
-  assert.equal(scoreColor(9.0), '#2EB8A8')
+  assert.equal(scoreColor(9.5), TIER_HEX.T1)     // ≥8 deep indigo (one ladder, no teal)
+  assert.equal(scoreColor(9.0), TIER_HEX.T1)
   assert.equal(scoreColor(8.0), TIER_HEX.T1)     // ≥8 deep indigo
   assert.equal(scoreColor(7.0), TIER_HEX.T2)     // ≥7 galaxy violet (apply threshold)
   assert.equal(scoreColor(6.9), '#5D6C7B')       // ≥5 slate
@@ -21,7 +22,7 @@ test('scoreColor maps each band at its documented threshold', () => {
 })
 
 test('scoreColorLight stays in the cosmic family per band', () => {
-  assert.equal(scoreColorLight(9), TIER_HEX.T1)  // teal fades into indigo
+  assert.equal(scoreColorLight(9), '#7C5CFF')    // indigo fades into violet
   assert.equal(scoreColorLight(8), '#7C5CFF')
   assert.equal(scoreColorLight(7), '#B5A3FF')
   assert.equal(scoreColorLight(5), '#94A3B8')
@@ -41,15 +42,13 @@ test('NEUTRAL_SCORE_COLOR is the slate secondary token', () => {
   assert.equal(NEUTRAL_SCORE_COLOR, '#5D6C7B')
 })
 
-test('verdictDisplay: label + action from the spec, colour from the verdict tier', () => {
-  const s = verdictDisplay('stretch')!
-  assert.equal(s.label, 'Stretch')
-  assert.equal(s.action, 'apply with prep')
-  assert.equal(s.headline, 'Stretch — apply with prep')
-  assert.equal(s.tier, 'T2')
-  assert.equal(s.color, TIER_HEX.T2)
-  assert.equal(verdictDisplay('go')!.color, TIER_HEX.T1)
-  assert.equal(verdictDisplay('growth')!.tier, 'T3')
-  assert.equal(verdictDisplay('blocked')!.color, TIER_HEX.T4)
-  assert.equal(verdictDisplay(null), null)
+test('tierVerdict / verdictTier: v2 verdict copy and its tier', () => {
+  assert.equal(tierVerdict('stretch'), 'Stretch — apply with prep')
+  assert.equal(tierVerdict('growth', { short: true }), 'Growth target')
+  assert.equal(tierVerdict('thin'), 'If pipeline thin — only if your pipeline is thin')
+  assert.equal(tierVerdict(null), '—')
+  assert.equal(verdictTier('go'), 'T1')
+  assert.equal(verdictTier('solid'), 'T2')
+  assert.equal(verdictTier('blocked'), 'T4')
+  assert.equal(verdictTier('nope'), null)
 })

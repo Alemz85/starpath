@@ -31,6 +31,8 @@ import {
   computeEase,
   computeWant,
   eligibilityCheckLabel,
+  normalizeTier as normalizeTierCell,
+  normalizeVerdict,
   parseEligibilityFlags,
   DIM_LABELS,
   DREAM_WANT_FLOOR,
@@ -157,6 +159,21 @@ export function replay(dims: V2Dims, ctx: LeverContext): { want: number; ease: n
 export function hasScoredDims(e: ScoreEntry | null | undefined): e is ScoreEntry {
   if (!e || e.eligibility === 'red' || e.verdict === 'blocked') return false
   return v2DimsOf(e) != null
+}
+
+// Every row entering the renderer passes through here so the T1..T4
+// vocabulary is the only one the UI sees. v2 history writes T1–T4 directly
+// (docs/scoring-v2.md §8.1); an empty cell falls back to the verdict's tier
+// (stored, else replayed from Want/Ease), then T4.
+export function normalizeTier(raw: string | null | undefined, entry?: Partial<ScoreEntry>): TierKey {
+  const t = normalizeTierCell(raw)
+  if (t) return t
+  if (entry) {
+    const v = normalizeVerdict(entry.verdict ?? '')
+      ?? assignVerdict({ want: entry.want, ease: entry.ease, eligibility: entry.eligibility ?? null })?.verdict
+    if (v) return VERDICT_TIER[v]
+  }
+  return 'T4'
 }
 
 // ─── Lever search (spec §7) ─────────────────────────────────────────────────

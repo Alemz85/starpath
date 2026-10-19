@@ -34,7 +34,7 @@ if (!existsSync(cvPath)) {
 }
 
 // 2. Check profile.yml exists
-const profilePath = join(projectRoot, 'config', 'profile.yml');
+const profilePath = join(projectRoot, 'user', 'profile.yml');
 if (!existsSync(profilePath)) {
   errors.push('user/profile.yml not found. Copy from config/profile.example.yml and fill in your details.');
 } else {

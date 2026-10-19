@@ -3,7 +3,8 @@
 import { useState, useRef, useEffect } from 'react'
 import { useDataStore } from '@/store/data'
 import { ChevronDown, Check, Plus, Loader2 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { clsx } from 'clsx'
+import { Button } from '@/components/ui'
 import type { AppStatus, ScoreEntry, ApplicationEntry } from '@/types'
 
 const STATUSES: AppStatus[] = [
@@ -45,17 +46,15 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
       }
     }
     return (
-      <button
+      <Button
+        tone="tinted"
+        size={size === 'sm' ? 'sm' : 'md'}
+        icon={<Plus size={13} aria-hidden />}
+        loading={busy}
         onClick={handleApply}
-        disabled={busy}
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-pill border-2 border-accent/40 bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-60',
-          size === 'sm' ? 'px-3 py-1 text-[12px]' : 'px-4 py-1.5 text-[13px]',
-        )}
       >
-        {busy ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
         Apply
-      </button>
+      </Button>
     )
   }
 
@@ -102,36 +101,40 @@ function StatusDropdown({
   return (
     <div ref={ref} className="relative inline-flex">
       <button
+        type="button"
         onClick={() => setOpen(o => !o)}
         disabled={busy}
-        className={cn(
-          'inline-flex items-center gap-1.5 rounded-pill border transition-colors',
-          statusToneClasses(current),
-          size === 'sm' ? 'px-3 py-1 text-[12px]' : 'px-4 py-1.5 text-[13px]',
-          busy && 'opacity-60',
-        )}
+        className={clsx('btn btn-secondary titlebar-no-drag', size === 'sm' && 'btn-sm')}
       >
-        {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-        {current}
-        <ChevronDown size={11} className="opacity-70" />
+        {busy
+          ? <Loader2 size={12} className="animate-spin shrink-0" aria-hidden />
+          : <StatusDot status={current} />}
+        {statusLabel(current)}
+        <ChevronDown
+          size={12}
+          className={clsx('shrink-0 text-text-4 transition-transform duration-150', open && 'rotate-180')}
+          aria-hidden
+        />
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1.5 z-50 min-w-[180px] rounded-md border border-border-default bg-bg-base shadow-card overflow-hidden"
+          className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border-default bg-bg-base shadow-menu p-1"
         >
           {STATUSES.map(s => (
             <button
               key={s}
+              type="button"
               onClick={() => { onChange(s); setOpen(false) }}
-              className={cn(
-                'w-full flex items-center justify-between gap-3 px-3 py-1.5 text-[12px] text-left transition-colors',
+              className={clsx(
+                'w-full h-8 flex items-center gap-2 px-2 rounded text-body text-left transition-colors duration-150',
                 s === current
-                  ? 'bg-accent/10 text-text-1'
-                  : 'text-text-2 hover:bg-bg-elevated',
+                  ? 'text-text-1 font-medium bg-bg-elevated'
+                  : 'text-text-2 hover:bg-bg-elevated hover:text-text-1',
               )}
             >
-              <span>{s}</span>
-              {s === current && <Check size={12} className="text-accent" />}
+              <StatusDot status={s} />
+              <span className="flex-1 truncate">{statusLabel(s)}</span>
+              {s === current && <Check size={13} className="shrink-0 text-accent-text" aria-hidden />}
             </button>
           ))}
         </div>
@@ -140,16 +143,33 @@ function StatusDropdown({
   )
 }
 
-function statusToneClasses(s: AppStatus): string {
+// Display label — sentence case, matching <StatusChip> ("SKIP" reads as
+// "Skipped"). The stored status value is unchanged.
+function statusLabel(s: AppStatus): string {
+  return s === 'SKIP' ? 'Skipped' : s
+}
+
+// Small lifecycle dot: semantic colour only where the state has one (Offer
+// green, Interview amber, Rejected red); Applied / Responded carry the accent
+// like <StatusChip>; everything else stays neutral.
+function StatusDot({ status }: { status: AppStatus }) {
+  return (
+    <span
+      className={clsx('inline-block w-1.5 h-1.5 rounded-full shrink-0', statusDotClass(status))}
+      aria-hidden
+    />
+  )
+}
+
+function statusDotClass(s: AppStatus): string {
   switch (s) {
-    case 'Offer':     return 'border-success/40 bg-success/10 text-success'
-    case 'Interview': return 'border-warning/40 bg-warning/10 text-warning'
-    case 'Rejected':
-    case 'Discarded':
-    case 'SKIP':      return 'border-border-default bg-bg-elevated text-text-3'
+    case 'Offer':     return 'bg-success'
+    case 'Interview': return 'bg-warning'
+    case 'Rejected':  return 'bg-danger'
     case 'Applied':
-    case 'Responded': return 'border-accent/40 bg-accent/10 text-accent'
-    default:          return 'border-border-strong bg-bg-elevated text-text-2'
+    case 'Responded': return 'bg-accent'
+    case 'Evaluated': return 'bg-text-3'
+    default:          return 'bg-text-4'
   }
 }
 

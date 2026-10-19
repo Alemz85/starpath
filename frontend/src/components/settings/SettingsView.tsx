@@ -13,7 +13,8 @@ import { ViewTabs, viewTabId, viewPanelId } from '@/components/shared/ViewTabs'
 import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
 import { ipc } from '@/lib/ipc'
 import { slugValidationHint, formatProfileCounts, profileInitial, describeProfileFailure } from '@/lib/profiles'
-import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2 } from 'lucide-react'
+import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2, Star } from 'lucide-react'
+import { Button, Chip, PageHeader } from '@/components/ui'
 import { cn } from '@/lib/utils'
 
 // ─── Role suggestion graph ────────────────────────────────────────────────────
@@ -264,7 +265,7 @@ type SettingsTab = 'general' | ConfigTab
 const TABS: { key: SettingsTab; label: string; sub: string }[] = [
   { key: 'general',  label: 'General',      sub: 'Repository, profiles, models, and data.' },
   { key: 'identity', label: 'Identity',     sub: 'Name, contact, compensation, languages.' },
-  { key: 'roles',    label: 'Target Roles', sub: 'Primary archetypes, dream companies, and preferred cities.' },
+  { key: 'roles',    label: 'Target roles', sub: 'Primary archetypes, dream companies, and preferred cities.' },
   { key: 'portals',  label: 'Portals',      sub: 'Title filters, tracked companies, language blocklist.' },
 ]
 
@@ -345,17 +346,7 @@ export function SettingsView() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Title bar — subtitle cross-fades when the tab changes */}
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Settings</h1>
-        <span className="text-label text-text-4" aria-hidden="true">·</span>
-        <span
-          key={active.key}
-          className="text-label text-text-3 transition-opacity duration-150"
-        >
-          {active.sub}
-        </span>
-      </div>
+      <PageHeader title="Settings" meta={active.sub} />
 
       <ViewTabs
         tabs={TABS.map(({ key, label }) => ({ key, label, dirty: dirtyByTab[key] }))}
@@ -384,7 +375,7 @@ export function SettingsView() {
           className="h-full"
         >
           {tab === 'identity' && (
-            <div className="max-w-[820px] mx-auto w-full px-5 pt-4 pb-10">
+            <div className="max-w-[820px] mx-auto w-full px-5 py-5">
               <ProfileEditPanel />
             </div>
           )}
@@ -483,20 +474,22 @@ function GeneralTab() {
       <SettingRow title="Repository" description="The local career-ops folder Claude reads and writes to.">
         <div className="flex items-center gap-2 mt-3">
           <div
-            className="flex-1 px-3 py-2 rounded-md border border-border-default bg-bg-elevated text-label font-mono truncate"
+            className="flex-1 min-w-0 h-7 leading-7 px-2.5 rounded border border-border-default bg-bg-elevated text-label truncate"
             aria-label="Current repository path"
           >
-            <span className={repoPath ? 'text-text-3' : 'text-text-4 italic'}>
+            <span className={repoPath ? 'font-mono text-text-2' : 'text-text-4'}>
               {repoPath ?? 'Not set'}
             </span>
           </div>
-          <button
+          <Button
+            tone="secondary"
+            size="sm"
             onClick={changeRepo}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors shrink-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+            icon={<FolderOpen size={13} aria-hidden="true" />}
+            className="shrink-0"
           >
-            <FolderOpen size={13} aria-hidden="true" />
             Change
-          </button>
+          </Button>
         </div>
       </SettingRow>
 
@@ -506,7 +499,7 @@ function GeneralTab() {
         title="Models"
         description="Pick the Claude model used for each category of work. Sonnet is cheaper and fast; Opus is more thorough. Each always runs the latest version your Claude CLI knows."
       >
-        <div className="mt-4 space-y-4" role="group" aria-label="Model assignments">
+        <div className="mt-4 space-y-3" role="group" aria-label="Model assignments">
           {MODEL_ROWS.map(row => (
             <ModelChoice
               key={row.key}
@@ -523,7 +516,7 @@ function GeneralTab() {
         title="Features"
         description="Optional surfaces you can switch off to slim the app down. Off means hidden everywhere — nothing is deleted, and switching back On restores the surface instantly."
       >
-        <div className="mt-4 space-y-4" role="group" aria-label="Feature switches">
+        <div className="mt-4 space-y-3" role="group" aria-label="Feature switches">
           {FEATURE_ROWS.map(row => (
             <FeatureToggle
               key={row.key}
@@ -540,28 +533,28 @@ function GeneralTab() {
         {/* Shift-click forces a full SQLite resync from the markdown/TSV
             sources — useful when debugging cache divergence. Plain click
             just re-reads from the DB (the watcher keeps it current). */}
-        <button
+        <Button
+          tone="secondary"
+          size="sm"
           onClick={handleRefresh}
-          className="flex items-center gap-1.5 px-3 py-2 mt-3 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
           title="Shift-click to force a full SQLite resync"
+          icon={refreshDone ? <Check size={13} aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
+          className="mt-3"
         >
-          {refreshDone
-            ? <><Check size={13} aria-hidden="true" /> Done</>
-            : <><RefreshCw size={13} aria-hidden="true" /> Refresh data</>
-          }
-        </button>
+          {refreshDone ? 'Done' : 'Refresh data'}
+        </Button>
       </SettingRow>
 
       <SettingRow title="Workspace tuning" description="Re-run Claude to regenerate keyword filters and candidate context from your CV and profile.">
-        <button
+        <Button
+          tone="secondary"
+          size="sm"
           onClick={handleRetune}
-          className="flex items-center gap-1.5 px-3 py-2 mt-3 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+          icon={retuneDone ? <Check size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
+          className="mt-3"
         >
-          {retuneDone
-            ? <><Check size={13} aria-hidden="true" /> Started</>
-            : <><Sparkles size={13} aria-hidden="true" /> Re-tune workspace</>
-          }
-        </button>
+          {retuneDone ? 'Started' : 'Re-tune workspace'}
+        </Button>
       </SettingRow>
     </div>
   )
@@ -625,49 +618,49 @@ function ProfilesSection() {
       description="Switchable search profiles — each keeps its own preferences, scan keywords, trackers, and reports. Exactly one is active; switching swaps what every view reads."
     >
       {profiles.length === 0 ? (
-        <p className="mt-3 text-label text-text-4">
+        <p className="mt-3 text-label text-text-3">
           Multi-profile mode isn't initialized. Run{' '}
-          <code className="text-accent/70 bg-bg-elevated px-1 py-0.5 rounded text-micro">npm run profile -- init</code>{' '}
+          <code className="font-mono text-micro text-text-2 bg-bg-elevated px-1 py-0.5 rounded-sm">npm run profile -- init</code>{' '}
           in the repo to move the current search into a named profile — the switcher then appears here and in the sidebar.
         </p>
       ) : (
         <>
-          <div className="mt-3 border border-border-default rounded-md overflow-hidden" role="list" aria-label="Profiles">
-            {profiles.map((p, i) => (
+          <div className="card mt-3 divide-y divide-border-default overflow-hidden" role="list" aria-label="Profiles">
+            {profiles.map(p => (
               <div
                 key={p.slug}
                 role="listitem"
-                className={cn('flex items-center gap-3 px-3 py-2.5', i > 0 && 'border-t border-border-default')}
+                className="flex items-center gap-3 px-3 py-2.5"
               >
                 <span
-                  className="w-[18px] h-[18px] rounded-full bg-accent/15 text-accent-text text-[10px] font-semibold flex items-center justify-center shrink-0"
+                  className="w-5 h-5 rounded-full bg-accent-soft text-accent-text text-micro font-semibold flex items-center justify-center shrink-0"
                   aria-hidden="true"
                 >
                   {profileInitial(p)}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-label text-text-1 font-medium truncate">{p.label || p.slug}</span>
-                    <span className="text-micro font-mono text-text-4 shrink-0">{p.slug}</span>
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <span className="text-body font-medium text-text-1 truncate">{p.label || p.slug}</span>
+                    <span className="text-label font-mono text-text-4 shrink-0">{p.slug}</span>
                   </div>
-                  <div className="text-micro text-text-4 mt-0.5 truncate">
-                    {p.created && <>created {p.created} · </>}
+                  <div className="text-label text-text-3 mt-0.5 truncate">
+                    {p.created && <>Created {p.created} · </>}
                     {formatProfileCounts(p.counts)}
                   </div>
                 </div>
                 {p.active ? (
-                  <span className="inline-flex items-center gap-1 text-micro text-accent shrink-0">
-                    <Check size={11} aria-hidden="true" /> active
-                  </span>
+                  <Chip tone="accent" size="sm" className="shrink-0">Active</Chip>
                 ) : (
-                  <button
+                  <Button
+                    tone="secondary"
+                    size="sm"
                     onClick={() => void switchTo(p.slug)}
                     disabled={!!switching}
                     aria-label={`Switch to ${p.label || p.slug}`}
-                    className="px-2.5 py-1 rounded-md border border-border-default text-label text-text-2 hover:bg-bg-elevated disabled:opacity-40 transition-colors shrink-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+                    className="shrink-0"
                   >
                     {switching === p.slug ? 'Switching…' : 'Switch'}
-                  </button>
+                  </Button>
                 )}
               </div>
             ))}
@@ -675,9 +668,9 @@ function ProfilesSection() {
 
           {lastFailure && (
             <div role="alert" className="mt-2">
-              <p className="text-label text-danger font-medium">Switch to {lastFailure.slug} refused</p>
+              <p className="text-label font-medium text-danger">Switch to {lastFailure.slug} refused</p>
               {lastFailure.lines.map((line, i) => (
-                <p key={i} className="text-label text-danger/80 leading-snug">{line}</p>
+                <p key={i} className="text-label text-danger">{line}</p>
               ))}
             </div>
           )}
@@ -695,7 +688,7 @@ function ProfilesSection() {
                   onChange={e => setSlug(e.target.value)}
                   placeholder="slug (e.g. cph-student)"
                   spellCheck={false}
-                  className="w-full px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md font-mono text-[12px] text-text-1 placeholder:text-text-4 transition-colors"
+                  className="input font-mono"
                 />
               </div>
               <div className="flex-1">
@@ -704,44 +697,46 @@ function ProfilesSection() {
                   id="profile-create-label"
                   value={label}
                   onChange={e => setLabel(e.target.value)}
-                  placeholder="label (optional)"
+                  placeholder="Label (optional)"
                   onKeyDown={e => { if (e.key === 'Enter') void handleCreate() }}
-                  className="w-full px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-[12px] text-text-1 placeholder:text-text-4 transition-colors"
+                  className="input"
                 />
               </div>
             </div>
             <div className="flex gap-2 items-center">
-              <label htmlFor="profile-create-from" className="text-label text-text-4 shrink-0">Copy config from</label>
+              <label htmlFor="profile-create-from" className="label shrink-0">Copy config from</label>
               <select
                 id="profile-create-from"
                 value={from}
                 onChange={e => setFrom(e.target.value)}
-                className="flex-1 px-2 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-[12px] text-text-1 transition-colors"
+                className="input flex-1 w-auto min-w-0 px-2 cursor-pointer"
               >
-                <option value="">start empty</option>
+                <option value="">Start empty</option>
                 {profiles.map(p => (
                   <option key={p.slug} value={p.slug}>{p.label || p.slug}</option>
                 ))}
               </select>
-              <button
+              <Button
+                tone="secondary"
+                size="sm"
                 onClick={() => void handleCreate()}
                 disabled={!canCreate}
                 aria-busy={creating}
-                className="flex items-center gap-1.5 px-3 h-8 rounded-md bg-accent/20 border border-accent/30 text-accent-text text-label hover:bg-accent/30 disabled:opacity-40 transition-colors shrink-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+                icon={created ? <Check size={13} aria-hidden="true" /> : undefined}
+                className="shrink-0"
               >
-                {created ? <Check size={12} aria-hidden="true" /> : null}
                 {creating ? 'Creating…' : created ? 'Created' : 'Create profile'}
-              </button>
+              </Button>
             </div>
             {(hint || (duplicate && trimmedSlug)) && (
-              <p className="text-micro text-danger" role="alert">
+              <p className="text-label text-danger" role="alert">
                 {hint || `'${trimmedSlug}' already exists`}
               </p>
             )}
             {createFailure.length > 0 && (
               <div role="alert">
                 {createFailure.map((line, i) => (
-                  <p key={i} className="text-label text-danger/80 leading-snug">{line}</p>
+                  <p key={i} className="text-label text-danger">{line}</p>
                 ))}
               </div>
             )}
@@ -830,42 +825,42 @@ function RolesTab() {
         title="Selected roles"
         description="Role archetypes the system uses to score fit. Select as many as apply — the more specific, the better the scoring."
       >
-        <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]" role="list" aria-label="Selected role archetypes">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5 min-h-6" role="list" aria-label="Selected role archetypes">
           {roles.length === 0 ? (
-            <span className="text-label text-text-4 self-center italic">No roles selected — pick from suggestions or browse below.</span>
+            <span className="text-label text-text-4">No roles selected. Pick from the suggestions or browse below.</span>
           ) : (
             roles.map(role => (
-              <span key={role} role="listitem" className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg bg-accent/15 border border-accent/35 text-accent-text text-label font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-accent/70 shrink-0" aria-hidden="true" />
+              <Chip key={role} role="listitem" tone="accent" size="md">
                 {role}
-                <button
+                <ChipControl
                   onClick={() => removeRole(role)}
                   aria-label={`Remove ${role}`}
-                  className="text-accent-text/40 hover:text-accent-text transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+                  className="-mr-1 text-accent-text/60 hover:text-accent-text hover:bg-accent/15"
                 >
                   <X size={11} aria-hidden="true" />
-                </button>
-              </span>
+                </ChipControl>
+              </Chip>
             ))
           )}
         </div>
 
         {suggestions.length > 0 && (
-          <div className="mt-5">
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-micro font-semibold text-text-4 uppercase tracking-widest" aria-hidden="true">Related</span>
+          <div className="mt-4">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="label" aria-hidden="true">Related</span>
               <div className="flex-1 h-px bg-border-default" aria-hidden="true" />
             </div>
-            <div className="flex flex-wrap gap-2" role="list" aria-label="Suggested related roles">
+            <div className="flex flex-wrap gap-1.5" role="list" aria-label="Suggested related roles">
               {suggestions.map((role, i) => (
                 <button
                   key={role}
+                  type="button"
                   onClick={() => addRole(role)}
                   aria-label={`Add suggested role: ${role}`}
-                  className="suggestion-chip inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-border-strong text-text-3 text-label hover:border-accent/50 hover:text-accent-text hover:bg-accent/10 active:scale-95 transition-all duration-150 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+                  className="suggestion-chip chip chip-md border-dashed border-border-strong bg-transparent text-text-3 hover:border-accent/50 hover:text-accent-text hover:bg-accent-soft transition-colors duration-150 ease-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                   style={{ animationDelay: `${i * 40}ms` }}
                 >
-                  <Plus size={10} className="text-text-4 shrink-0" aria-hidden="true" />
+                  <Plus size={11} className="shrink-0" aria-hidden="true" />
                   {role}
                 </button>
               ))}
@@ -873,7 +868,7 @@ function RolesTab() {
           </div>
         )}
 
-        <div className="mt-5">
+        <div className="mt-4">
           <label htmlFor="roles-custom-input" className="sr-only">Add a custom role</label>
           <input
             id="roles-custom-input"
@@ -883,7 +878,7 @@ function RolesTab() {
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addRole(addInput) } }}
             placeholder="Add a custom role and press Enter…"
             aria-label="Add a custom role — press Enter or comma to confirm"
-            className="w-full px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+            className="input"
           />
         </div>
       </SettingRow>
@@ -895,16 +890,19 @@ function RolesTab() {
             return (
               <button
                 key={role}
+                type="button"
                 onClick={() => selected ? removeRole(role) : addRole(role)}
                 aria-pressed={selected}
                 className={cn(
-                  'inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-micro transition-all duration-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
+                  'chip chip-md transition-colors duration-150 ease-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
                   selected
-                    ? 'bg-accent/15 border-accent/30 text-accent-text'
-                    : 'border-border-default text-text-4 hover:border-border-strong hover:text-text-2',
+                    ? 'chip-accent hover:bg-accent/15'
+                    : 'text-text-3 hover:border-border-strong hover:text-text-1',
                 )}
               >
-                {selected ? <Check size={9} aria-hidden="true" /> : <Plus size={9} aria-hidden="true" />}
+                {selected
+                  ? <Check size={11} aria-hidden="true" />
+                  : <Plus size={11} className="text-text-4" aria-hidden="true" />}
                 {role}
               </button>
             )
@@ -916,20 +914,22 @@ function RolesTab() {
 
       <TargetLocationsSection rawYaml={raw} />
 
-      <div className="px-6 py-4 flex items-center justify-between border-t border-border-default">
-        <p className="text-label text-text-4">
-          Saved to <code className="text-accent/70 bg-bg-elevated px-1 py-0.5 rounded text-micro">target_roles.primary</code> in profile.yml
+      <div className="px-5 py-4 flex items-center justify-between gap-3">
+        <p className="text-label text-text-3">
+          Saved to <code className="font-mono text-micro text-text-2 bg-bg-elevated px-1 py-0.5 rounded-sm">target_roles.primary</code> in <code className="font-mono text-micro text-text-2 bg-bg-elevated px-1 py-0.5 rounded-sm">user/profile.yml</code>
         </p>
-        <button
+        <Button
+          tone="primary"
+          size="sm"
           onClick={handleSave}
           disabled={saving || roles.length === 0}
           aria-busy={saving}
           aria-label={saving ? 'Saving roles…' : saved ? 'Roles saved' : 'Save roles'}
-          className="flex items-center gap-2 px-4 py-2 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+          icon={saved ? <Check size={13} aria-hidden="true" /> : undefined}
+          className="shrink-0"
         >
-          {saved ? <Check size={13} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : saved ? 'Saved' : 'Save roles'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -992,26 +992,26 @@ function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
       title="Dream companies"
       description="Floors Brand Value at 10 and Aspirational Fit at 8.0 in scoring — the user wants their foot in the door regardless of function match."
     >
-      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]" role="list" aria-label="Dream companies">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 min-h-6" role="list" aria-label="Dream companies">
         {names.length === 0 ? (
-          <span className="text-label text-text-4 italic self-center">No dream companies yet — add brands you'd most want to work for.</span>
+          <span className="text-label text-text-4">No dream companies yet. Add the brands you'd most want to work for.</span>
         ) : (
           names.map(n => (
-            <span key={n} role="listitem" className="inline-flex items-center gap-2 pl-2.5 pr-2 py-1.5 rounded-lg bg-tier-1/15 border border-tier-1/35 text-tier-1 text-label font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-tier-1/70 shrink-0" aria-hidden="true" />
+            <Chip
+              key={n}
+              role="listitem"
+              size="md"
+              icon={<Star size={12} className="text-accent-text shrink-0" aria-hidden="true" />}
+            >
               {n}
-              <button
-                onClick={() => remove(n)}
-                aria-label={`Remove ${n}`}
-                className="opacity-50 hover:opacity-100 transition-opacity focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
-              >
+              <ChipControl onClick={() => remove(n)} aria-label={`Remove ${n}`} className="-mr-1">
                 <X size={11} aria-hidden="true" />
-              </button>
-            </span>
+              </ChipControl>
+            </Chip>
           ))
         )}
       </div>
-      <div className="mt-4 flex gap-2">
+      <div className="mt-3 flex items-center gap-2">
         <label htmlFor="dream-company-input" className="sr-only">Add a dream company</label>
         <input
           id="dream-company-input"
@@ -1020,18 +1020,20 @@ function DreamCompaniesSection({ rawYaml }: { rawYaml: string | null }) {
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
           placeholder="Add a company (e.g. Stripe, Datadog) and press Enter…"
           aria-label="Add a dream company — press Enter or comma to confirm"
-          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+          className="input flex-1"
         />
-        <button
+        <Button
+          tone="secondary"
+          size="sm"
           onClick={handleSave}
           disabled={saving || !dirty}
           aria-busy={saving}
           aria-label={saving ? 'Saving dream companies…' : savedAt ? 'Dream companies saved' : 'Save dream companies'}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+          icon={savedAt ? <Check size={13} aria-hidden="true" /> : undefined}
+          className="shrink-0"
         >
-          {savedAt ? <Check size={12} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : savedAt ? 'Saved' : 'Save'}
-        </button>
+        </Button>
       </div>
     </SettingRow>
   )
@@ -1143,44 +1145,40 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
       title="Target locations"
       description="Cities you want to work in, in priority order. Drives the Best Cities scoring dimension — top of list scores 9-10, bottom of list 6-7, anything not listed scores lower."
     >
-      <div className="mt-4 flex flex-wrap gap-2 min-h-[38px]" role="list" aria-label="Target cities in priority order">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 min-h-6" role="list" aria-label="Target cities in priority order">
         {cities.length === 0 ? (
-          <span className="text-label text-text-4 italic self-center">No target locations yet — add the cities you'd actually relocate to.</span>
+          <span className="text-label text-text-4">No target locations yet. Add the cities you'd actually relocate to.</span>
         ) : (
           cities.map((c, i) => (
-            <span key={c} role="listitem" className="inline-flex items-center gap-1.5 pl-2.5 pr-1 py-1.5 rounded-lg bg-info/10 border border-info/30 text-info text-label font-medium">
-              <span className="font-mono text-info/60 text-[10px] mr-0.5" aria-label={`Priority ${i + 1}`}>#{i + 1}</span>
+            <Chip key={c} role="listitem" size="md">
+              <span className="text-text-4" aria-label={`Priority ${i + 1}`}>#{i + 1}</span>
               {c}
-              <button
-                onClick={() => move(c, -1)}
-                disabled={i === 0}
-                aria-label={`Move ${c} up in priority`}
-                aria-disabled={i === 0}
-                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
-              >
-                <ChevronRight size={11} className="-rotate-90" aria-hidden="true" />
-              </button>
-              <button
-                onClick={() => move(c, 1)}
-                disabled={i === cities.length - 1}
-                aria-label={`Move ${c} down in priority`}
-                aria-disabled={i === cities.length - 1}
-                className="opacity-50 hover:opacity-100 disabled:opacity-20 transition-opacity p-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
-              >
-                <ChevronRight size={11} className="rotate-90" aria-hidden="true" />
-              </button>
-              <button
-                onClick={() => remove(c)}
-                aria-label={`Remove ${c}`}
-                className="opacity-50 hover:opacity-100 transition-opacity p-0.5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
-              >
-                <X size={11} aria-hidden="true" />
-              </button>
-            </span>
+              <span className="inline-flex items-center -mr-1">
+                <ChipControl
+                  onClick={() => move(c, -1)}
+                  disabled={i === 0}
+                  aria-label={`Move ${c} up in priority`}
+                  aria-disabled={i === 0}
+                >
+                  <ChevronRight size={11} className="-rotate-90" aria-hidden="true" />
+                </ChipControl>
+                <ChipControl
+                  onClick={() => move(c, 1)}
+                  disabled={i === cities.length - 1}
+                  aria-label={`Move ${c} down in priority`}
+                  aria-disabled={i === cities.length - 1}
+                >
+                  <ChevronRight size={11} className="rotate-90" aria-hidden="true" />
+                </ChipControl>
+                <ChipControl onClick={() => remove(c)} aria-label={`Remove ${c}`}>
+                  <X size={11} aria-hidden="true" />
+                </ChipControl>
+              </span>
+            </Chip>
           ))
         )}
       </div>
-      <div className="mt-4 flex gap-2">
+      <div className="mt-3 flex items-center gap-2">
         <label htmlFor="target-location-input" className="sr-only">Add a target city</label>
         <input
           id="target-location-input"
@@ -1189,18 +1187,20 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
           placeholder="Add a city (e.g. Dublin, Barcelona, Berlin) and press Enter…"
           aria-label="Add a target city — press Enter or comma to confirm"
-          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+          className="input flex-1"
         />
-        <button
+        <Button
+          tone="secondary"
+          size="sm"
           onClick={handleSave}
           disabled={saving || !dirty}
           aria-busy={saving}
           aria-label={saving ? 'Saving target locations…' : savedAt ? 'Target locations saved' : 'Save target locations'}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+          icon={savedAt ? <Check size={13} aria-hidden="true" /> : undefined}
+          className="shrink-0"
         >
-          {savedAt ? <Check size={12} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : savedAt ? 'Saved' : 'Save'}
-        </button>
+        </Button>
       </div>
     </SettingRow>
   )
@@ -1414,7 +1414,7 @@ function PortalsTab() {
         <TagInput tags={positive} onRemove={t => removeTag(setPositive, t)}
           input={addPos} setInput={setAddPos}
           onAdd={() => addTag(positive, setPositive, addPos, setAddPos)}
-          color="text-success bg-success/10 border-success/30" className="mt-3"
+          className="mt-3"
           aria-label="Must-match keywords" />
       </SettingRow>
 
@@ -1422,10 +1422,10 @@ function PortalsTab() {
         <TagInput tags={negative} onRemove={t => removeTag(setNegative, t)}
           input={addNeg} setInput={setAddNeg}
           onAdd={() => addTag(negative, setNegative, addNeg, setAddNeg)}
-          color="text-danger bg-danger/10 border-danger/30" className="mt-3"
+          className="mt-3"
           aria-label="Exclude keywords" />
         {negative.length > 8 && (
-          <p className="mt-2 text-micro text-warning" role="alert">{negative.length} exclusions — review periodically to avoid over-filtering</p>
+          <p className="mt-2 text-label text-warning-text" role="alert">{negative.length} exclusions. Review them periodically to avoid over-filtering.</p>
         )}
       </SettingRow>
 
@@ -1436,43 +1436,44 @@ function PortalsTab() {
       >
         <div className="mt-3 space-y-2">
           {/* Search */}
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border-default bg-bg-elevated">
-            <Search size={12} className="text-text-4 shrink-0" aria-hidden="true" />
+          <div className="relative">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-4 pointer-events-none" aria-hidden="true" />
             <label htmlFor="company-search" className="sr-only">Filter companies</label>
             <input
               id="company-search"
               value={companySearch}
               onChange={e => setCompanySearch(e.target.value)}
               placeholder="Filter companies…"
-              className="flex-1 bg-transparent outline-none text-label text-text-1 placeholder:text-text-4"
+              className="input pl-8 pr-9"
             />
             {companySearch && (
-              <button
+              <Button
+                tone="ghost"
+                size="xs"
+                iconOnly
                 onClick={() => setCompanySearch('')}
                 aria-label="Clear company filter"
-                className="text-text-4 hover:text-text-2 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
-              >
-                <X size={11} aria-hidden="true" />
-              </button>
+                icon={<X size={12} aria-hidden="true" />}
+                className="absolute right-1 top-1/2 -translate-y-1/2"
+              />
             )}
           </div>
 
           {/* Company list */}
           <div
-            className="border border-border-default rounded-md overflow-hidden max-h-72 overflow-y-auto"
+            className="card divide-y divide-border-default overflow-hidden max-h-72 overflow-y-auto"
             role="list"
             aria-label="Tracked companies"
           >
             {filteredCompanies.length === 0 ? (
               <div className="px-4 py-6 text-center text-label text-text-4">No companies match</div>
             ) : (
-              filteredCompanies.map((company, i) => (
+              filteredCompanies.map(company => (
                 <div
                   key={company.name}
                   role="listitem"
                   className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 group',
-                    i > 0 && 'border-t border-border-default',
+                    'flex items-center gap-3 px-3 h-10 group',
                     !company.enabled && 'opacity-50',
                   )}
                 >
@@ -1483,7 +1484,7 @@ function PortalsTab() {
                     aria-label={`${company.enabled ? 'Disable' : 'Enable'} scanning for ${company.name}`}
                     onClick={() => toggleCompany(company.name)}
                     className={cn(
-                      'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
+                      'relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
                       company.enabled ? 'bg-accent' : 'bg-border-strong',
                     )}
                   >
@@ -1493,39 +1494,41 @@ function PortalsTab() {
                     )} aria-hidden="true" />
                   </button>
 
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {/* Click the name → open the careers page in the
-                          system browser. Falls back to plain text if
-                          there's no careers_url on the entry. */}
-                      {company.careers_url ? (
-                        <button
-                          onClick={() => ipc.openExternal(company.careers_url)}
-                          aria-label={`Open ${company.name} careers page`}
-                          title={company.careers_url}
-                          className="text-label text-text-1 font-medium truncate hover:text-accent hover:underline underline-offset-2 transition-colors text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
-                        >
-                          {company.name}
-                        </button>
-                      ) : (
-                        <span className="text-label text-text-1 font-medium truncate">{company.name}</span>
-                      )}
-                      <ScanMethodBadge method={company.scan_method} />
-                    </div>
+                  {/* Info — name, scan method and notes on one 40px line;
+                      the full notes ride on the title. */}
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    {/* Click the name → open the careers page in the
+                        system browser. Falls back to plain text if
+                        there's no careers_url on the entry. */}
+                    {company.careers_url ? (
+                      <button
+                        type="button"
+                        onClick={() => ipc.openExternal(company.careers_url)}
+                        aria-label={`Open ${company.name} careers page`}
+                        title={company.careers_url}
+                        className="text-body font-medium text-text-1 truncate max-w-[45%] shrink-0 hover:text-accent-text hover:underline underline-offset-2 transition-colors text-left rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                      >
+                        {company.name}
+                      </button>
+                    ) : (
+                      <span className="text-body font-medium text-text-1 truncate max-w-[45%] shrink-0">{company.name}</span>
+                    )}
+                    <ScanMethodBadge method={company.scan_method} />
                     {company.notes && (
-                      <div className="text-micro text-text-4 truncate mt-0.5">{company.notes}</div>
+                      <span className="text-label text-text-3 truncate min-w-0" title={company.notes}>{company.notes}</span>
                     )}
                   </div>
 
                   {/* Remove */}
-                  <button
+                  <Button
+                    tone="ghost"
+                    size="xs"
+                    iconOnly
                     onClick={() => handleRemoveCompany(company.name)}
                     aria-label={`Remove ${company.name}`}
-                    className="opacity-0 group-hover:opacity-100 p-1 rounded text-text-4 hover:text-danger transition-all focus-visible:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-danger/45"
-                  >
-                    <Trash2 size={12} aria-hidden="true" />
-                  </button>
+                    icon={<Trash2 size={13} aria-hidden="true" />}
+                    className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-danger"
+                  />
                 </div>
               ))
             )}
@@ -1533,47 +1536,53 @@ function PortalsTab() {
 
           {/* Add company */}
           {showAddCompany ? (
-            <div className="flex gap-2 mt-1" role="group" aria-label="Add a new company">
+            <div className="flex items-center gap-2 pt-1" role="group" aria-label="Add a new company">
               <label htmlFor="new-company-name" className="sr-only">Company name</label>
               <input
                 id="new-company-name"
                 value={newCompanyName}
                 onChange={e => setNewCompanyName(e.target.value)}
                 placeholder="Company name"
-                className="flex-1 px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors text-[12px]"
+                className="input flex-1"
               />
               <label htmlFor="new-company-url" className="sr-only">Careers page URL</label>
               <input
                 id="new-company-url"
                 value={newCompanyUrl}
                 onChange={e => setNewCompanyUrl(e.target.value)}
-                placeholder="careers URL"
-                className="flex-1 px-3 h-8 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors text-[12px]"
+                placeholder="Careers URL"
+                className="input flex-1"
                 onKeyDown={e => { if (e.key === 'Enter') handleAddCompany() }}
               />
-              <button
+              <Button
+                tone="secondary"
+                size="sm"
                 onClick={handleAddCompany}
                 disabled={!newCompanyName.trim()}
-                className="px-3 h-8 rounded-md bg-accent/20 border border-accent/30 text-accent-text text-label hover:bg-accent/30 disabled:opacity-40 transition-colors text-[12px] focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+                className="shrink-0"
               >
                 Add
-              </button>
-              <button
+              </Button>
+              <Button
+                tone="ghost"
+                size="xs"
+                iconOnly
                 onClick={() => { setShowAddCompany(false); setNewCompanyName(''); setNewCompanyUrl('') }}
                 aria-label="Cancel adding company"
-                className="px-2 h-8 rounded-md border border-border-default text-text-4 hover:text-text-2 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
-              >
-                <X size={12} aria-hidden="true" />
-              </button>
+                icon={<X size={13} aria-hidden="true" />}
+                className="shrink-0"
+              />
             </div>
           ) : (
-            <button
+            <Button
+              tone="ghost"
+              size="xs"
               onClick={() => setShowAddCompany(true)}
-              className="flex items-center gap-1.5 text-label text-text-4 hover:text-text-2 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+              icon={<Plus size={13} aria-hidden="true" />}
+              className="-ml-2"
             >
-              <Plus size={12} aria-hidden="true" />
               Add company
-            </button>
+            </Button>
           )}
         </div>
       </SettingRow>
@@ -1589,7 +1598,6 @@ function PortalsTab() {
           input={addLang}
           setInput={setAddLang}
           onAdd={() => addTag(langKeywords, setLangKeywords, addLang, setAddLang)}
-          color="text-warning bg-warning/10 border-warning/30"
           className="mt-3"
           aria-label="Language blocklist keywords"
         />
@@ -1597,15 +1605,17 @@ function PortalsTab() {
 
       {/* Advanced */}
       <SettingRow title="Advanced" description="Edit search_queries, seniority_boost, and raw company config directly.">
-        <button
+        <Button
+          tone="ghost"
+          size="xs"
           onClick={() => setShowRaw(v => !v)}
           aria-expanded={showRaw}
           aria-controls="portals-raw-editor"
-          className="mt-3 flex items-center gap-1.5 text-label text-accent hover:opacity-75 transition-opacity focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
+          icon={<ChevronRight size={13} className={cn('transition-transform duration-200 ease-quart', showRaw && 'rotate-90')} aria-hidden="true" />}
+          className="mt-3 -ml-2"
         >
-          <ChevronRight size={13} className={cn('transition-transform duration-200', showRaw && 'rotate-90')} aria-hidden="true" />
           {showRaw ? 'Hide' : 'Edit'} raw portals.yml
-        </button>
+        </Button>
         {showRaw && (
           <>
             <label htmlFor="portals-raw-editor" className="sr-only">Raw portals.yml content</label>
@@ -1613,27 +1623,29 @@ function PortalsTab() {
               id="portals-raw-editor"
               value={rawText}
               onChange={e => setRawText(e.target.value)}
-              className="mt-3 w-full h-80 px-3 py-2.5 bg-bg-elevated border border-border-default rounded-md font-mono text-[12px] text-text-2 outline-none focus:border-accent/60 focus-visible:ring-1 focus-visible:ring-accent/45 resize-none"
+              className="input mt-3 h-80 py-2 font-mono text-label text-text-2 resize-none"
               spellCheck={false}
             />
           </>
         )}
       </SettingRow>
 
-      <div className="px-6 py-4 flex items-center justify-between border-t border-border-default">
-        <p className="text-label text-text-4">
-          Saved to <code className="text-accent/70 bg-bg-elevated px-1 py-0.5 rounded text-micro">user/portals.yml</code>
+      <div className="px-5 py-4 flex items-center justify-between gap-3">
+        <p className="text-label text-text-3">
+          Saved to <code className="font-mono text-micro text-text-2 bg-bg-elevated px-1 py-0.5 rounded-sm">user/portals.yml</code>
         </p>
-        <button
+        <Button
+          tone="primary"
+          size="sm"
           onClick={handleSave}
           disabled={saving}
           aria-busy={saving}
           aria-label={saving ? 'Saving portals…' : saved ? 'Portals saved' : 'Save portals'}
-          className="flex items-center gap-2 px-4 py-2 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45"
+          icon={saved ? <Check size={13} aria-hidden="true" /> : undefined}
+          className="shrink-0"
         >
-          {saved ? <Check size={13} aria-hidden="true" /> : null}
           {saving ? 'Saving…' : saved ? 'Saved' : 'Save'}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -1648,48 +1660,66 @@ function SettingRow({ title, description, children }: {
   const descId = useId()
   return (
     <div
-      className="px-6 py-5 border-b border-border-default"
+      className="px-5 py-5 border-b border-border-default"
       role="group"
       aria-labelledby={headingId}
       aria-describedby={descId}
     >
       <div className="max-w-2xl">
-        <h3 id={headingId} className="text-body text-text-1 font-medium">{title}</h3>
-        <p id={descId} className="text-label text-text-4 mt-0.5 leading-snug">{description}</p>
+        <h3 id={headingId} className="text-section text-text-1">{title}</h3>
+        <p id={descId} className="text-label text-text-3 mt-0.5">{description}</p>
         {children}
       </div>
     </div>
   )
 }
 
+// Scan method is a property of the entry, not a state — neutral chip.
 function ScanMethodBadge({ method }: { method: 'api' | 'websearch' | 'unknown' }) {
   if (method === 'api') {
     return (
-      <span
+      <Chip
+        size="sm"
         title="Direct API scan — Greenhouse / Ashby / Lever / SmartRecruiters / Workday. Zero-token."
-        className="text-[9.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-success/35 bg-success/10 text-success shrink-0"
+        className="shrink-0"
       >
         API
-      </span>
+      </Chip>
     )
   }
   if (method === 'websearch') {
     return (
-      <span
+      <Chip
+        size="sm"
         title="Websearch fallback — no public API. Slower, costs WebSearch calls during evaluation runs."
-        className="text-[9.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-warning/35 bg-warning/10 text-warning shrink-0"
+        className="shrink-0"
       >
-        WEB
-      </span>
+        Web
+      </Chip>
     )
   }
   return (
-    <span
+    <Chip
+      size="sm"
       title="Probe pending — the Add Company spawn is still detecting which ATS this company uses."
-      className="text-[9.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-border-default bg-bg-elevated text-text-4 shrink-0"
+      className="shrink-0"
     >
       …
-    </span>
+    </Chip>
+  )
+}
+
+// 16px ghost control inside a chip (remove / reorder). Icon-only: the
+// caller supplies the accessible name and any aria-disabled.
+function ChipControl({ className, children, ...rest }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      className={cn('btn btn-ghost h-4 w-4 px-0 rounded-sm text-text-4 hover:bg-bg-panel', className)}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -1701,44 +1731,46 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: {
   const inputId = useId()
   return (
     <div>
-      {label && <label htmlFor={inputId} className="block text-label text-text-3 mb-1">{label}</label>}
+      {label && <label htmlFor={inputId} className="label block mb-1">{label}</label>}
       <input
         id={inputId}
         type={type}
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        className="w-full px-3 h-9 bg-bg-elevated border border-border-default focus:border-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/45 outline-none rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors"
+        className="input"
       />
     </div>
   )
 }
 
-function TagInput({ tags, onRemove, input, setInput, onAdd, color, className, 'aria-label': ariaLabel }: {
+// Keyword list editor. Every list renders neutral chips — the section title
+// says whether it includes or excludes; a keyword list is not a state.
+function TagInput({ tags, onRemove, input, setInput, onAdd, className, 'aria-label': ariaLabel }: {
   tags: string[]; onRemove: (t: string) => void
   input: string; setInput: (v: string) => void
-  onAdd: () => void; color: string; className?: string
+  onAdd: () => void; className?: string
   'aria-label'?: string
 }) {
   const inputId = useId()
   const label = ariaLabel ?? 'Tag list'
   return (
     <div
-      className={cn('flex flex-wrap gap-1.5 p-3 bg-bg-elevated border border-border-default rounded-md min-h-[52px]', className)}
+      className={cn(
+        'card p-2.5 flex flex-wrap items-center gap-1.5 min-h-[46px] transition-colors duration-150',
+        'focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/20',
+        className,
+      )}
       role="group"
       aria-label={label}
     >
       {tags.map(t => (
-        <span key={t} className={cn('inline-flex items-center gap-1 px-2 py-0.5 rounded text-label border', color)}>
+        <Chip key={t} size="md">
           {t}
-          <button
-            onClick={() => onRemove(t)}
-            aria-label={`Remove ${t}`}
-            className="hover:opacity-70 transition-opacity focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45 rounded-sm"
-          >
-            <X size={10} aria-hidden="true" />
-          </button>
-        </span>
+          <ChipControl onClick={() => onRemove(t)} aria-label={`Remove ${t}`} className="-mr-1">
+            <X size={11} aria-hidden="true" />
+          </ChipControl>
+        </Chip>
       ))}
       <label htmlFor={inputId} className="sr-only">Add a keyword — press Enter or comma to confirm</label>
       <input
@@ -1747,7 +1779,7 @@ function TagInput({ tags, onRemove, input, setInput, onAdd, color, className, 'a
         onChange={e => setInput(e.target.value)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); onAdd() } }}
         placeholder="Type and press Enter…"
-        className="flex-1 min-w-24 bg-transparent outline-none text-label text-text-1 placeholder:text-text-4"
+        className="flex-1 min-w-24 h-6 px-1 bg-transparent outline-none text-body text-text-1 placeholder:text-text-4"
       />
     </div>
   )
@@ -1755,7 +1787,7 @@ function TagInput({ tags, onRemove, input, setInput, onAdd, color, className, 'a
 
 function LoadingRows() {
   return (
-    <div className="p-6 space-y-3">
+    <div className="p-5 space-y-3">
       {[48, 72, 48, 60].map((w, i) => (
         <div key={i} className="shimmer h-3 rounded" style={{ width: `${w}%` }} />
       ))}
@@ -1779,11 +1811,11 @@ function FeatureToggle({ label, sub, value, onChange }: {
   return (
     <div className="flex items-start justify-between gap-6 py-1">
       <div className="min-w-0" id={descId}>
-        <div className="text-label text-text-1 font-medium">{label}</div>
-        <div className="text-[11px] text-text-4 leading-snug mt-0.5">{sub}</div>
+        <div className="text-body font-medium text-text-1">{label}</div>
+        <div className="text-label text-text-3 mt-0.5">{sub}</div>
       </div>
       <div
-        className="flex rounded-md overflow-hidden border border-border-default shrink-0"
+        className="flex rounded border border-border-default overflow-hidden divide-x divide-border-default shrink-0"
         role="group"
         aria-label={label}
         aria-describedby={descId}
@@ -1791,13 +1823,12 @@ function FeatureToggle({ label, sub, value, onChange }: {
         {options.map(opt => (
           <button
             key={String(opt.id)}
+            type="button"
             onClick={() => onChange(opt.id)}
             aria-pressed={value === opt.id}
             className={cn(
-              'px-3 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
-              value === opt.id
-                ? 'bg-accent/20 text-accent-text'
-                : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
+              'btn btn-xs rounded-none focus-visible:ring-inset',
+              value === opt.id ? 'btn-tinted' : 'btn-ghost',
             )}
           >
             {opt.name}
@@ -1823,11 +1854,11 @@ function ModelChoice({ label, sub, value, onChange, disabled = false }: {
   return (
     <div className={cn('flex items-start justify-between gap-6 py-1', disabled && 'opacity-60')}>
       <div className="min-w-0" id={descId}>
-        <div className="text-label text-text-1 font-medium">{label}</div>
-        <div className="text-[11px] text-text-4 leading-snug mt-0.5">{sub}</div>
+        <div className="text-body font-medium text-text-1">{label}</div>
+        <div className="text-label text-text-3 mt-0.5">{sub}</div>
       </div>
       <div
-        className="flex rounded-md overflow-hidden border border-border-default shrink-0"
+        className="flex rounded border border-border-default overflow-hidden divide-x divide-border-default shrink-0"
         role="group"
         aria-label={`Model for ${label}`}
         aria-describedby={descId}
@@ -1835,16 +1866,14 @@ function ModelChoice({ label, sub, value, onChange, disabled = false }: {
         {options.map(opt => (
           <button
             key={opt.id}
+            type="button"
             onClick={() => !disabled && onChange(opt.id)}
             disabled={disabled}
             aria-pressed={value === opt.id}
             title={disabled ? 'Locked' : opt.tag}
             className={cn(
-              'px-3 py-1.5 text-[12px] font-medium transition-colors whitespace-nowrap focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent/45',
-              value === opt.id
-                ? 'bg-accent/20 text-accent-text'
-                : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
-              disabled && 'cursor-not-allowed hover:bg-transparent hover:text-text-3',
+              'btn btn-xs rounded-none focus-visible:ring-inset',
+              value === opt.id ? 'btn-tinted' : 'btn-ghost',
             )}
           >
             {opt.name}

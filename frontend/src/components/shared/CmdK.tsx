@@ -15,6 +15,16 @@ import { isViewEnabled } from '@/lib/features'
 import { switchTargets } from '@/lib/profiles'
 import { toCompanySlug } from '@/components/shared/CompanyLink'
 
+// One look for every palette row: 34px, 6px radius, accent wash when selected.
+const ITEM_CLS =
+  'flex items-center gap-2.5 h-[34px] px-2.5 rounded cursor-pointer text-body text-text-2 ' +
+  'data-[selected=true]:bg-accent-soft data-[selected=true]:text-text-1 transition-colors duration-150 ease-quart'
+
+// Group heading: a sentence-case `.label`.
+function GroupHeading({ children }: { children: React.ReactNode }) {
+  return <span className="label block px-2.5 pt-2 pb-1">{children}</span>
+}
+
 export function CmdK() {
   const [open, setOpen] = useState(false)
   const scoreHistory = useDataStore(s => s.scoreHistory)
@@ -65,24 +75,24 @@ export function CmdK() {
       className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh]"
       onClick={() => setOpen(false)}
     >
-      <div className="w-[600px] bg-bg-panel border border-border-strong rounded-lg shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+      <div className="w-[600px] bg-bg-base border border-border-default rounded-xl shadow-lift overflow-hidden" onClick={e => e.stopPropagation()}>
         <Command className="text-body">
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-border-default">
-            <Search size={15} className="text-text-3 shrink-0" />
+          <div className="flex items-center gap-2.5 h-11 px-4 border-b border-border-default">
+            <Search size={15} className="text-text-3 shrink-0" aria-hidden />
             <Command.Input
               autoFocus
               placeholder="Search companies, views, actions…"
-              className="flex-1 bg-transparent outline-none text-text-1 placeholder:text-text-4"
+              className="flex-1 h-full border-0 bg-transparent outline-none text-body text-text-1 placeholder:text-text-4"
             />
-            <kbd className="text-[10px] text-text-4 bg-bg-elevated border border-border-default rounded px-1.5 py-0.5">ESC</kbd>
+            <kbd className="kbd">Esc</kbd>
           </div>
 
-          <Command.List className="max-h-80 overflow-y-auto p-2">
+          <Command.List className="max-h-80 overflow-y-auto p-1.5">
             <Command.Empty className="py-6 text-center text-label text-text-4">
               No results.
             </Command.Empty>
 
-            <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Navigate</span>}>
+            <Command.Group heading={<GroupHeading>Navigate</GroupHeading>}>
               {/* Former standalone views kept as entries targeting their new
                   sub-tab home, so muscle-memory searches still land right:
                   Network → Outreach › Network, Score Trend → Trends › Score
@@ -97,7 +107,7 @@ export function CmdK() {
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-                { view: 'trends',   label: 'Score Trend', icon: Route, tab: 'scoretrend' },
+                { view: 'trends',   label: 'Score trend', icon: Route, tab: 'scoretrend' },
                 { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
                 { view: 'scan',     label: 'Activity', icon: Activity   },
                 { view: 'settings', label: 'Settings', icon: Settings   },
@@ -114,7 +124,7 @@ export function CmdK() {
                   key={label}
                   value={label}
                   onSelect={() => go(view, '', 'tab' in rest ? rest.tab : undefined)}
-                  className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+                  className={ITEM_CLS}
                 >
                   <Icon size={14} className="text-text-3" />
                   {label}
@@ -122,30 +132,30 @@ export function CmdK() {
               ))}
             </Command.Group>
 
-            <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Actions</span>}>
+            <Command.Group heading={<GroupHeading>Actions</GroupHeading>}>
               <Command.Item
                 value="add listing url paste evaluate"
                 onSelect={() => {
                   useAddListingStore.getState().show()
                   setOpen(false)
                 }}
-                className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+                className={ITEM_CLS}
               >
-                <Plus size={14} className="text-accent" />
+                <Plus size={14} className="text-accent-text" />
                 Add listing (paste URL)
               </Command.Item>
               <Command.Item
                 value="log a touch outreach contact nudge"
                 onSelect={() => go('outreach')}
-                className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+                className={ITEM_CLS}
               >
-                <Users size={14} className="text-accent" />
+                <Users size={14} className="text-text-3" />
                 Log outreach touch
               </Command.Item>
               <Command.Item
                 value="open activity"
                 onSelect={() => go('scan')}
-                className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+                className={ITEM_CLS}
               >
                 <Activity size={14} className="text-text-3" />
                 Open Activity
@@ -153,7 +163,7 @@ export function CmdK() {
             </Command.Group>
 
             {profileTargets.length > 0 && (
-              <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Profiles</span>}>
+              <Command.Group heading={<GroupHeading>Profiles</GroupHeading>}>
                 {profileTargets.map(p => (
                   <Command.Item
                     key={p.slug}
@@ -164,7 +174,7 @@ export function CmdK() {
                       void useProfilesStore.getState().switchTo(p.slug)
                       setOpen(false)
                     }}
-                    className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+                    className={ITEM_CLS}
                   >
                     <ArrowRightLeft size={14} className="text-text-3" />
                     Switch to profile: {p.label || p.slug}
@@ -174,13 +184,13 @@ export function CmdK() {
             )}
 
             {companies.length > 0 && (
-              <Command.Group heading={<span className="text-micro text-text-4 uppercase px-2">Companies</span>}>
+              <Command.Group heading={<GroupHeading>Companies</GroupHeading>}>
                 {companies.slice(0, 15).map(company => (
                   <Command.Item
                     key={company}
                     value={company}
                     onSelect={() => goCompany(company)}
-                    className="flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer text-text-2 data-[selected=true]:bg-accent/15 data-[selected=true]:text-text-1 transition-colors"
+                    className={ITEM_CLS}
                   >
                     <Building2 size={14} className="text-text-3" />
                     {company}

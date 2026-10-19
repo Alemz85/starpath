@@ -2,10 +2,27 @@
 
 import './globals.css'
 import { useEffect } from 'react'
+import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
 import { useAppStore } from '@/store/app'
 import { AppShell } from '@/components/layout/AppShell'
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate'
 import { TailoringScreen } from '@/components/onboarding/TailoringScreen'
+
+// Self-hosted through next/font: downloaded at build time, served from
+// _next/static, no runtime request to Google. The CSS variables feed
+// tailwind.config.ts (`font-sans` / `font-mono`).
+const sans = IBM_Plex_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-sans',
+  display: 'swap',
+})
+const mono = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-mono',
+  display: 'swap',
+})
 
 export default function RootLayout({ children: _children }: { children: React.ReactNode }) {
   const init = useAppStore(s => s.init)
@@ -21,9 +38,9 @@ export default function RootLayout({ children: _children }: { children: React.Re
   const needsTailoring  = isOnboarded && !!repoPath && !tailoringComplete
 
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
-        <title>career-ops</title>
+        <title>starpath</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body>

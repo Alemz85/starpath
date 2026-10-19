@@ -22,7 +22,7 @@ import {
 import { livenessKey } from '@/lib/scanHistory'
 import { filterNearUpgrades } from '@/lib/tierLevers'
 import { TrendingUp, EyeOff } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Button, PageHeader } from '@/components/ui'
 import type { ScoreEntry } from '@/types'
 
 export function DatabaseView() {
@@ -127,59 +127,50 @@ export function DatabaseView() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex flex-col h-full min-h-0">
-        {/* Top bar — extends to y=0 with pt-7 clearing the macOS traffic-light zone */}
-        <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-          <h1 className="text-body text-text-1 font-medium">Database</h1>
-          <span className="text-label text-text-4 font-mono" title={loaded ? `${visibleRows.length} matching / ${scoreHistory.length} total` : undefined}>
-            {loaded ? `${visibleRows.length} / ${scoreHistory.length}` : '…'}
-          </span>
-          <div className="flex-1" />
-          {/* "Untapped only" — hide roles already in the pipeline. */}
-          <button
-            type="button"
-            onClick={() => setUntappedOnly(v => !v)}
-            title="Hide listings you've already applied to, are interviewing at, or rejected — shows only scored-but-not-yet-pursued roles"
-            aria-pressed={untappedOnly}
-            className={cn(
-              'titlebar-no-drag inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-label font-medium transition-colors',
-              untappedOnly
-                ? 'bg-accent/10 text-accent border border-accent/30'
-                : 'text-text-3 border border-transparent hover:bg-bg-elevated hover:text-text-2',
-            )}
-          >
-            <EyeOff size={12} aria-hidden />
-            Untapped
-          </button>
-          {/* "Near upgrade" quick-filter — one nudge from a better tier. */}
-          <button
-            type="button"
-            onClick={() => setNearUpgradeOnly(v => !v)}
-            title="Show only listings one modest single-dimension bump from a better tier"
-            aria-pressed={nearUpgradeOnly}
-            className={cn(
-              'titlebar-no-drag inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-label font-medium transition-colors',
-              nearUpgradeOnly
-                ? 'bg-accent/10 text-accent border border-accent/30'
-                : 'text-text-3 border border-transparent hover:bg-bg-elevated hover:text-text-2',
-            )}
-          >
-            <TrendingUp size={12} aria-hidden />
-            Near upgrade
-          </button>
-          <ExportMenu rows={exportRows} />
-          <label className="titlebar-no-drag flex items-center gap-1.5 text-label text-text-3 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showClosed}
-              onChange={e => setShowClosed(e.target.checked)}
-              className="accent-accent"
-            />
-            Show unscored
-          </label>
-        </div>
+        <PageHeader
+          title="Database"
+          meta={loaded ? `${visibleRows.length} of ${scoreHistory.length} listings` : 'Loading…'}
+          actions={
+            <>
+              {/* "Untapped only" — hide roles already in the pipeline. */}
+              <Button
+                tone={untappedOnly ? 'tinted' : 'ghost'}
+                size="sm"
+                icon={<EyeOff size={13} aria-hidden />}
+                onClick={() => setUntappedOnly(v => !v)}
+                title="Hide listings you've already applied to, are interviewing at, or rejected — shows only scored-but-not-yet-pursued roles"
+                aria-pressed={untappedOnly}
+              >
+                Untapped
+              </Button>
+              {/* "Near upgrade" quick-filter — one nudge from a better tier. */}
+              <Button
+                tone={nearUpgradeOnly ? 'tinted' : 'ghost'}
+                size="sm"
+                icon={<TrendingUp size={13} aria-hidden />}
+                onClick={() => setNearUpgradeOnly(v => !v)}
+                title="Show only listings one modest single-dimension bump from a better tier"
+                aria-pressed={nearUpgradeOnly}
+              >
+                Near upgrade
+              </Button>
+              <ExportMenu rows={exportRows} />
+              <span className="w-px h-4 bg-border-default" aria-hidden />
+              <label className="flex items-center gap-1.5 pl-1 text-label text-text-3 hover:text-text-2 cursor-pointer select-none transition-colors duration-150">
+                <input
+                  type="checkbox"
+                  checked={showClosed}
+                  onChange={e => setShowClosed(e.target.checked)}
+                  className="w-[13px] h-[13px] accent-accent cursor-pointer"
+                />
+                Show unscored
+              </label>
+            </>
+          }
+        />
 
-        {/* Search bar */}
-        <div className="px-4 py-2 border-b border-border-default bg-bg-chrome shrink-0">
+        {/* Search row */}
+        <div className="h-11 flex items-center px-4 border-b border-border-default bg-bg-cosmos shrink-0">
           <FilterBar value={query} onChange={setQuery} />
         </div>
 
@@ -191,7 +182,7 @@ export function DatabaseView() {
           )}
 
           {/* Table */}
-          <div className="flex-1 min-w-0 overflow-hidden">
+          <div className="flex-1 min-w-0 overflow-hidden bg-bg-base">
             {loaded ? (
               <DatabaseTable
                 rows={visibleRows}
@@ -201,12 +192,7 @@ export function DatabaseView() {
                 selectedEntry={selectedEntry}
               />
             ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="flex flex-col items-center gap-2">
-                  <div className="w-5 h-5 rounded-full border-2 border-border-default border-t-accent animate-spin" aria-hidden />
-                  <div className="text-label text-text-4">Loading database…</div>
-                </div>
-              </div>
+              <TableSkeleton />
             )}
           </div>
         </div>
@@ -244,6 +230,41 @@ export function DatabaseView() {
           onClose={() => setSelectedEntry(null)}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Loading skeleton ────────────────────────────────────────────────────────
+//
+// Shimmer rows in the table's own shape (header strip, 40px rows with a logo,
+// two text lines and the numeric columns) so the layout doesn't jump when the
+// data lands. `.shimmer` stops animating under prefers-reduced-motion.
+
+const SKELETON_ROWS = 12
+
+function TableSkeleton() {
+  return (
+    <div className="h-full overflow-hidden" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Loading database…</span>
+      <div className="h-9 border-b border-border-default" aria-hidden />
+      {Array.from({ length: SKELETON_ROWS }, (_, i) => (
+        <div
+          key={i}
+          className="h-10 flex items-center gap-2.5 pl-9 pr-4 border-b border-border-default"
+          style={{ opacity: 1 - i * 0.06 }}
+          aria-hidden
+        >
+          <div className="shimmer w-7 h-7 rounded shrink-0" />
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="shimmer h-2.5 rounded-sm" style={{ width: `${32 + ((i * 17) % 28)}%` }} />
+            <div className="shimmer h-2 rounded-sm" style={{ width: `${44 + ((i * 23) % 30)}%` }} />
+          </div>
+          <div className="shimmer h-3 w-8 rounded-sm shrink-0" />
+          <div className="shimmer h-2.5 w-14 rounded-sm shrink-0 ml-6" />
+          <div className="shimmer h-2.5 w-16 rounded-sm shrink-0 ml-6" />
+          <div className="shimmer h-2.5 w-20 rounded-sm shrink-0 ml-6" />
+        </div>
+      ))}
     </div>
   )
 }

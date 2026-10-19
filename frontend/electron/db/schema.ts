@@ -10,7 +10,7 @@ import type Database from 'better-sqlite3'
 // applications.md's optional Deadline column) instead of by header name, so a
 // cache built before the fix can hold rows with Report/Notes shifted one cell;
 // force a rebuild since those mtime stamps are current-yet-stale.
-// v7: reserved (Redesign branch bumps to 7 independently).
+// v7: no shape change — the design-system v2 redesign forced a rebuild.
 // v8: scoring v2 (docs/scoring-v2.md §8). score_history drops the v1 rollups
 // (current_fit / aspirational_fit / overall / ease_of_entry / strategic_fit /
 // sales_trap_risk) for experience_bar / competition / ease / role_content /

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, KeyboardEvent } from 'react'
 import { Search, X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { clsx } from 'clsx'
 
 const TOKEN_SUGGESTIONS = [
   { token: 'company:',   hint: 'filter by company name' },
@@ -95,45 +95,44 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
   }, [])
 
   return (
-    <div className="relative">
-      <div
-        className={cn(
-          'flex items-center gap-2.5 px-3 py-2 rounded-lg border bg-bg-elevated transition-colors duration-150',
-          focused ? 'border-accent/50 ring-1 ring-accent/20' : 'border-border-default hover:border-border-strong',
+    <div className="relative w-full">
+      <Search
+        size={14}
+        className={clsx(
+          'absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none transition-colors duration-150',
+          focused ? 'text-accent-text' : 'text-text-4',
         )}
-      >
-        <Search size={14} className={cn('shrink-0 transition-colors', focused ? 'text-accent' : 'text-text-4')} />
-        <input
-          ref={inputRef}
-          type="text"
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setTimeout(() => setFocused(false), 150)}
-          onKeyDown={handleKey}
-          placeholder="Search listings or type a token filter…"
-          aria-label="Search and filter listings"
-          aria-expanded={showSuggestions}
-          aria-haspopup="listbox"
-          aria-activedescendant={activeIdx >= 0 ? `token-suggestion-${activeIdx}` : undefined}
-          role="combobox"
-          className="flex-1 bg-transparent outline-none text-[13px] text-text-1 placeholder:text-text-4 min-w-0"
-          spellCheck={false}
-        />
+        aria-hidden
+      />
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        onKeyDown={handleKey}
+        placeholder="Search listings or type a token filter…"
+        aria-label="Search and filter listings"
+        aria-expanded={showSuggestions}
+        aria-haspopup="listbox"
+        aria-activedescendant={activeIdx >= 0 ? `token-suggestion-${activeIdx}` : undefined}
+        role="combobox"
+        className="input pl-8 pr-9"
+        spellCheck={false}
+      />
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
         {!isEmpty && (
           <button
+            type="button"
             onMouseDown={e => { e.preventDefault(); onChange('') }}
-            className="text-text-4 hover:text-text-2 p-0.5 -m-0.5 rounded transition-colors"
+            className="inline-flex items-center justify-center w-5 h-5 rounded text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors duration-150"
             aria-label="Clear search"
           >
-            <X size={13} />
+            <X size={13} aria-hidden />
           </button>
         )}
-        {isEmpty && (
-          <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 rounded text-[9.5px] font-mono text-text-4 bg-bg-base border border-border-default">
-            /
-          </kbd>
-        )}
+        {isEmpty && <kbd className="kbd pointer-events-none">/</kbd>}
       </div>
 
       {showSuggestions && (
@@ -141,39 +140,33 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
           ref={listRef}
           role="listbox"
           aria-label="Token filter suggestions"
-          className="absolute top-full left-0 right-0 mt-1.5 bg-bg-base border border-border-strong rounded-lg shadow-card z-20 overflow-hidden"
+          className="absolute top-full left-0 right-0 mt-1 bg-bg-base border border-border-default rounded-lg shadow-menu z-20 p-1"
         >
-          <div className="px-3 py-2 border-b border-border-default flex items-center justify-between">
-            <span className="text-micro text-text-4 uppercase tracking-wider">Token filters</span>
-            <span className="text-[10px] text-text-4">↑↓ navigate · Enter to insert</span>
+          <div className="flex items-center justify-between gap-3 px-2 pt-1.5 pb-2">
+            <span className="label">Token filters</span>
+            <span className="text-label text-text-4">↑↓ to navigate · Enter to insert</span>
           </div>
-          <div className="p-1.5">
-            {TOKEN_SUGGESTIONS.map(({ token, hint }, idx) => {
-              const isActive = idx === activeIdx
-              return (
-                <button
-                  key={token}
-                  id={`token-suggestion-${idx}`}
-                  role="option"
-                  aria-selected={isActive}
-                  onMouseDown={e => { e.preventDefault(); insertToken(token) }}
-                  onMouseEnter={() => setActiveIdx(idx)}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-2.5 py-2 rounded-md transition-colors text-left group',
-                    isActive ? 'bg-accent/[0.09]' : 'hover:bg-accent/[0.06]',
-                  )}
-                >
-                  <span className={cn(
-                    'text-[11.5px] font-mono w-24 shrink-0 transition-colors',
-                    isActive ? 'text-accent-hover' : 'text-accent group-hover:text-accent-hover',
-                  )}>
-                    {token}
-                  </span>
-                  <span className="text-[11.5px] text-text-3 truncate">{hint}</span>
-                </button>
-              )
-            })}
-          </div>
+          {TOKEN_SUGGESTIONS.map(({ token, hint }, idx) => {
+            const isActive = idx === activeIdx
+            return (
+              <button
+                key={token}
+                type="button"
+                id={`token-suggestion-${idx}`}
+                role="option"
+                aria-selected={isActive}
+                onMouseDown={e => { e.preventDefault(); insertToken(token) }}
+                onMouseEnter={() => setActiveIdx(idx)}
+                className={clsx(
+                  'w-full h-8 flex items-center gap-3 px-2 rounded text-left transition-colors duration-150',
+                  isActive ? 'bg-accent-soft' : 'hover:bg-bg-elevated',
+                )}
+              >
+                <span className="text-body font-medium text-accent-text w-24 shrink-0">{token}</span>
+                <span className="text-label text-text-3 truncate">{hint}</span>
+              </button>
+            )
+          })}
         </div>
       )}
     </div>

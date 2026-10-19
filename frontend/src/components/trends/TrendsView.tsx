@@ -8,13 +8,17 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { Globe } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { ViewTabs, viewPanelId, viewTabId, type ViewTab } from '@/components/shared/ViewTabs'
 import { ScoreTrendPanel } from '@/components/scoretrend/ScoreTrendView'
-import { scoreColor as galaxyScoreColor } from '@/lib/tier'
+import {
+  Button, Chip, Panel, PageHeader, StatStrip, Stat, type ChipTone,
+} from '@/components/ui'
+import { scoreColor } from '@/lib/tier'
 import { analyzeScoreTrend } from '@/lib/scoreTrend'
 import { WantEase } from '@/components/shared/WantEase'
 import {
@@ -28,21 +32,19 @@ import {
 } from '@/lib/trendsAnalytics'
 
 // Multi-series chart palette — sourced from the documented categorical
-// chart tokens (DESIGN-meta.md § Data Viz palette). Aurora-tuned cousins
-// of galaxy violet so adjacent lines actually contrast instead of
-// collapsing into one violet ladder.
+// chart tokens (DESIGN-meta.md § Charts). Charts only, never chrome.
 //
-// Series order maps to the DIMENSIONS array below: galaxy violet for Want and aurora teal for Ease — scoring v2 states every
-// trend on the two axes separately (there is no Overall line). The
-// remaining slots fan out warm/cool/warm/cool so adjacent series
-// contrast at first glance.
+// Series order maps to the DIMENSIONS array below: galaxy violet for Want
+// and aurora teal for Ease — scoring v2 states every trend on the two axes
+// separately (there is no rolled-up line). The remaining slots fan out
+// warm/cool/warm/cool so adjacent series contrast at first glance.
 const DIM_COLORS = [
   '#7C5CFF',  // chart-1 — galaxy violet, Want (brand anchor)
   '#2EB8A8',  // chart-3 — aurora teal, Ease
-  '#E84F8E',  // chart-4 — nebula pink, Skills Match
-  '#F2A837',  // chart-5 — cosmic amber, Brand Value
+  '#E84F8E',  // chart-4 — nebula pink, Skills match
+  '#F2A837',  // chart-5 — cosmic amber, Brand value
   '#4D8DFF',  // chart-6 — azure, Growth
-  '#8595A4',  // chart-7 — slate, Work-Life (intentionally muted)
+  '#8595A4',  // chart-7 — slate, Work-life (intentionally muted)
 ]
 
 type DimKey = 'avg_want' | 'avg_ease' | 'avg_skills_match' | 'avg_brand_value' | 'avg_growth' | 'avg_wlb'
@@ -50,14 +52,14 @@ type DimKey = 'avg_want' | 'avg_ease' | 'avg_skills_match' | 'avg_brand_value' |
 const DIMENSIONS: Array<{ key: DimKey; label: string }> = [
   { key: 'avg_want',             label: 'Want'             },
   { key: 'avg_ease',             label: 'Ease'             },
-  { key: 'avg_skills_match',     label: 'Skills Match'     },
-  { key: 'avg_brand_value',      label: 'Brand Value'      },
+  { key: 'avg_skills_match',     label: 'Skills match'     },
+  { key: 'avg_brand_value',      label: 'Brand value'      },
   { key: 'avg_growth',           label: 'Growth'           },
-  { key: 'avg_wlb',              label: 'Work-Life'        },
+  { key: 'avg_wlb',              label: 'Work-life'        },
 ]
 
 // Sub-tabs under the title bar: the landscape analytics (Overview) and the
-// re-evaluation trajectory panel (Score Trend, absorbed from the retired
+// re-evaluation trajectory panel (Score trend, absorbed from the retired
 // standalone scoretrend view). 'scoretrend' doubles as the deep-link key —
 // navigate('trends', '', '', 'scoretrend') lands on that tab via the nav
 // store's one-shot viewTab request.
@@ -65,7 +67,7 @@ type TrendsTab = 'overview' | 'scoretrend'
 
 const TRENDS_TABS: ReadonlyArray<ViewTab<TrendsTab>> = [
   { key: 'overview',   label: 'Overview'    },
-  { key: 'scoretrend', label: 'Score Trend' },
+  { key: 'scoretrend', label: 'Score trend' },
 ]
 
 // dataKey → human label, used by the custom chart tooltip to name each
@@ -77,6 +79,10 @@ const DIM_LABEL_BY_KEY: Record<string, string> =
 // dots match the line colors regardless of which dims are toggled on.
 const DIM_COLOR_BY_KEY: Record<string, string> =
   Object.fromEntries(DIMENSIONS.map((d, i) => [d.key, DIM_COLORS[i % DIM_COLORS.length]]))
+
+// The analytics lib labels dimensions in title case ("Skills Match"); the UI
+// is sentence case everywhere.
+const sentenceCase = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
 
 export function TrendsView() {
   const loaded = useDataStore(s => s.loaded)
@@ -132,10 +138,10 @@ export function TrendsView() {
     // and count in the eligibility split instead (docs/scoring-v2.md §9).
     const scored = scoredOnly(filtered)
     return {
-      total:      filtered.length,
-      blocked:    filtered.length - scored.length,
-      avgWant:    scored.length ? avg(scored, 'want').toFixed(2) : '—',
-      avgEase:    scored.length ? avg(scored, 'ease').toFixed(2) : '—',
+      total:   filtered.length,
+      blocked: filtered.length - scored.length,
+      avgWant: scored.length ? avg(scored, 'want').toFixed(2) : '—',
+      avgEase: scored.length ? avg(scored, 'ease').toFixed(2) : '—',
     }
   }, [filtered])
 
@@ -182,51 +188,49 @@ export function TrendsView() {
     })
   }
 
+
+  // Title-bar caption for the Score trend tab. Docs § 4 rule 1
+  // (docs/scoring-statistical-design.md): the caption states the samples the
+  // panel below rests on, and — when anything has been re-evaluated — how many
+  // of those moves actually cleared their metric's noise floor (Want 0.30,
+  // Ease 0.35). No direction is claimed up here.
+  const scoreTrendCaption = tab === 'scoretrend' && loaded && scoreTrendMeta && !scoreTrendMeta.error ? (
+    <span
+      title={`Movement is counted against the Want ${scoreTrendMeta.metadata?.contract.noiseFloors.want ?? 0.30} / Ease ${scoreTrendMeta.metadata?.contract.noiseFloors.ease ?? 0.35} noise floors (${scoreTrendMeta.metadata?.contract.doc ?? 'docs/scoring-statistical-design.md'}); a corpus verdict needs ${scoreTrendMeta.metadata?.contract.minPerWindowForVerdict ?? 10} evaluations per calendar window.`}
+    >
+      {scoreTrendMeta.metadata?.evaluated ?? 0} evaluations · {scoreTrendMeta.trajectorySummary?.reevaluated ?? 0} re-evaluated
+      {(scoreTrendMeta.trajectorySummary?.reevaluated ?? 0) > 0 &&
+        ` · ${scoreTrendMeta.trajectorySummary?.detectable ?? 0} past the noise floor`}
+    </span>
+  ) : null
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Title bar — the meta caption and the time-range control follow the
-          active tab: the range only filters the Overview analytics (Score
-          Trend always reads the full history), so it renders only there. */}
-      <div className="title-bar gap-3 px-4 border-b border-border-default bg-bg-chrome">
-        <h1 className="text-body text-text-1 font-medium">Trends</h1>
-        {tab === 'overview' && stats && (
-          <span className="text-label text-text-4 font-mono">{stats.total} evaluations</span>
-        )}
-        {tab === 'scoretrend' && loaded && scoreTrendMeta && !scoreTrendMeta.error && (
-          // Docs § 4 rule 1 (docs/scoring-statistical-design.md): the caption
-          // states the samples the panel below rests on, and — when anything
-          // has been re-evaluated — how many of those moves actually cleared
-          // their metric's noise floor (Want 0.30, Ease 0.35). No direction
-          // is claimed up here.
-          <span
-            className="text-label text-text-4 font-mono"
-            title={`Movement is counted against the Want ${scoreTrendMeta.metadata?.contract.noiseFloors.want ?? 0.30} / Ease ${scoreTrendMeta.metadata?.contract.noiseFloors.ease ?? 0.35} noise floors (${scoreTrendMeta.metadata?.contract.doc ?? 'docs/scoring-statistical-design.md'}); a corpus verdict needs ${scoreTrendMeta.metadata?.contract.minPerWindowForVerdict ?? 10} evaluations per calendar window.`}
-          >
-            {scoreTrendMeta.metadata?.evaluated ?? 0} evaluations · {scoreTrendMeta.trajectorySummary?.reevaluated ?? 0} re-evaluated
-            {(scoreTrendMeta.trajectorySummary?.reevaluated ?? 0) > 0 &&
-              ` · ${scoreTrendMeta.trajectorySummary?.detectable ?? 0} past the noise floor`}
-          </span>
-        )}
-        <div className="flex-1" />
-        {tab === 'overview' && (
-          <div className="titlebar-no-drag flex rounded-md overflow-hidden border border-border-default">
+      {/* The meta caption and the time-range control follow the active tab:
+          the range only filters the Overview analytics (Score trend always
+          reads the full history), so it renders only there. */}
+      <PageHeader
+        title="Trends"
+        meta={tab === 'overview'
+          ? (stats ? `${stats.total} evaluations` : null)
+          : scoreTrendCaption}
+        actions={tab === 'overview' ? (
+          <div className="flex items-center gap-0.5 rounded border border-border-default p-0.5">
             {(['all', '1y', '6m', '1m'] as const).map(r => (
-              <button
+              <Button
                 key={r}
+                tone={timeRange === r ? 'tinted' : 'ghost'}
+                size="xs"
                 onClick={() => setTimeRange(r)}
-                className={cn(
-                  'px-2.5 py-1 text-label transition-colors',
-                  timeRange === r ? 'bg-accent/20 text-accent-text' : 'text-text-4 hover:text-text-2',
-                )}
               >
                 {TIME_RANGE_LABEL[r]}
-              </button>
+              </Button>
             ))}
           </div>
-        )}
-      </div>
+        ) : undefined}
+      />
 
-      {/* With Score Trend deactivated only Overview remains — a one-tab strip
+      {/* With Score trend deactivated only Overview remains — a one-tab strip
           is chrome without a choice, so it hides entirely. */}
       {tabs.length > 1 && (
         <ViewTabs
@@ -240,69 +244,62 @@ export function TrendsView() {
 
       {/* Tab panels share one scroll container; inactive panels unmount so
           neither tab pays for the other's charts. */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <div
           role="tabpanel"
           id={viewPanelId('trends', 'overview')}
           aria-labelledby={viewTabId('trends', 'overview')}
           hidden={tab !== 'overview'}
-          className="p-4 space-y-4"
         >
           {tab === 'overview' && (
-            <>
+            <div className="p-5 flex flex-col gap-4">
               {stats && (
-                <div className="grid grid-cols-4 gap-3">
-                  {[
-                    { label: 'Total evaluated',      value: stats.total },
-                    { label: 'Avg Want',             value: stats.avgWant },
-                    { label: 'Avg Ease',             value: stats.avgEase },
-                    { label: 'Blocked',              value: stats.blocked },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="bg-bg-panel border border-border-default rounded-lg p-3">
-                      <div className="text-micro text-text-4 uppercase mb-1">{label}</div>
-                      <div className="text-section font-mono text-text-1 font-medium">{value}</div>
-                    </div>
-                  ))}
-                </div>
+                <StatStrip>
+                  <Stat value={stats.total} label="Total evaluated" />
+                  <Stat value={stats.avgWant} label="Avg Want" />
+                  <Stat value={stats.avgEase} label="Avg Ease" />
+                  <Stat value={stats.blocked} label="Blocked" title="Eligibility red: no Want or Ease, excluded from the averages" />
+                </StatStrip>
               )}
 
+              {/* Series toggles. The dot carries the series colour; the chip
+                  itself stays neutral. At least one series stays on. */}
               <div className="flex flex-wrap gap-1.5">
-                {DIMENSIONS.map(({ key, label }, i) => (
-                  <button
-                    key={key}
-                    onClick={() => toggleDim(key)}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2.5 py-1 rounded-full text-label border transition-colors',
-                      activeDims.has(key)
-                        ? 'border-transparent text-white'
-                        : 'border-border-default text-text-4 hover:text-text-2',
-                    )}
-                    style={activeDims.has(key) ? {
-                      backgroundColor: DIM_COLORS[i % DIM_COLORS.length] + '33',
-                      borderColor: DIM_COLORS[i % DIM_COLORS.length] + '80',
-                      color: DIM_COLORS[i % DIM_COLORS.length],
-                    } : {}}
-                  >
-                    <span
-                      className="w-2 h-2 rounded-full shrink-0"
-                      style={{ background: activeDims.has(key) ? DIM_COLORS[i % DIM_COLORS.length] : 'var(--divider-gray)' }}
-                    />
-                    {label}
-                  </button>
-                ))}
+                {DIMENSIONS.map(({ key, label }, i) => {
+                  const on = activeDims.has(key)
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => toggleDim(key)}
+                      className={cn(
+                        'chip chip-md transition-colors duration-150',
+                        on
+                          ? 'bg-bg-base border-border-strong text-text-1'
+                          : 'text-text-4 hover:text-text-2',
+                      )}
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ background: on ? DIM_COLORS[i % DIM_COLORS.length] : 'var(--divider-gray)' }}
+                        aria-hidden
+                      />
+                      {label}
+                    </button>
+                  )
+                })}
               </div>
 
               {!loaded ? (
                 <div className="h-64 shimmer rounded-lg" />
               ) : byDate.length === 0 ? (
-                <div className="flex items-center justify-center h-64 rounded-lg border border-border-default bg-bg-panel/40">
+                <div className="card h-64 flex items-center justify-center">
                   <EmptyState
                     title="No score history yet"
                     hint="Run a Filter to Database scan to populate the trend chart."
                   />
                 </div>
               ) : (
-                <div className="galaxy-bg border border-border-default rounded-lg p-4" style={{ height: 340 }}>
+                <Panel className="h-[340px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={byDate} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
                       <CartesianGrid stroke="#DEE3E9" strokeDasharray="3 3" />
@@ -338,60 +335,52 @@ export function TrendsView() {
                       )}
                     </LineChart>
                   </ResponsiveContainer>
-                </div>
+                </Panel>
               )}
 
-              {/* Score distribution — the *shape* of pipeline quality, which
+              {/* Verdict distribution — the *shape* of pipeline quality, which
                   neither the time-series (averages) nor the top-X panels (best
-                  performers) reveal. Bands map 1:1 to the documented score-
-                  interpretation scale (`_shared.md` § Score interpretation), and
-                  an accent bracket marks the 7.0 apply threshold so the headline
+                  performers) reveal. Bands map 1:1 to the scoring-v2 verdicts
+                  (docs/scoring-v2.md §4), and an accent bracket marks the
+                  apply-worthy verdicts (Go / Stretch / Solid) so the headline
                   read is "what fraction of what I evaluate is worth applying to". */}
               {loaded && filtered.length > 0 && (
                 <ScoreDistributionCard dist={distribution} />
               )}
 
               {/* Dimension profile — the only panel that explains *why* a role
-                  scores well for this user. Ranks the seven scoring dimensions by
-                  how much they separate an apply-worthy role (Go / Stretch / Solid) from the
-                  full corpus, turning the raw score columns into a targeting
-                  cheat-sheet: chase roles strong on the high-delta dimensions. */}
+                  scores well for this user. Ranks the scoring dimensions by how
+                  much they separate an apply-worthy role (Go / Stretch / Solid) from the
+                  full corpus: chase roles strong on the high-delta dimensions. */}
               {loaded && profile.scoredCount > 0 && (
                 <DimensionProfileCard profile={profile} />
               )}
 
-              {/* Targeting momentum — the only panel about the *direction* of pipeline
-                  quality. Splits the window into an earlier vs recent half and asks
-                  whether the roles you evaluate are getting better-fit as you refine
-                  targeting. Needs at least two scored rows to split; the card itself
-                  falls back to a hint when either half is too thin for a verdict. */}
+              {/* Targeting momentum — the only panel about the *direction* of
+                  pipeline quality. Splits the window into an earlier vs recent
+                  half; needs at least two scored rows to split, and the card
+                  falls back to a hint when the halves are too thin (or share
+                  one date) for a verdict. */}
               {loaded && momentum.scoredCount >= 2 && (
                 <TargetingMomentumCard momentum={momentum} />
               )}
 
-              {/* Archetype mix — the only panel about *where the evaluation effort
-                  goes* rather than how good it is. Share-of-attention per canonical
-                  archetype, a concentration cue (focused vs scattered), and — when the
-                  window has two real halves — how that allocation drifted earlier→
-                  recent. Gated on at least two distinct archetypes so a single-bucket
-                  corpus (nothing to compose) doesn't render a one-bar "mix". */}
+              {/* Archetype mix — where the evaluation effort goes rather than
+                  how good it is. Gated on at least two distinct archetypes so a
+                  single-bucket corpus doesn't render a one-bar "mix". */}
               {loaded && archetypeMix.distinct >= 2 && (
                 <ArchetypeMixCard mix={archetypeMix} />
               )}
 
-              {/* Pipeline conversion — the downstream counterpart to the score
-                  analytics: of everything you actually applied to, how far did it
-                  get? Cumulative funnel (a status implies every earlier stage was
-                  reached), gated on having sent at least one application so it
-                  never shows an all-zero funnel. */}
+              {/* Pipeline conversion — of everything you applied to, how far did
+                  it get? Gated on at least one sent application so it never
+                  shows an all-zero funnel. */}
               {loaded && funnel.sent > 0 && (
                 <ConversionFunnelCard funnel={funnel} />
               )}
 
-              {/* Top-X panels: separate rhythms for archetype (horizontal bars,
-                  structural shape) vs companies/locations (logo + count, more
-                  scannable). Time-series chart and these panels share the same
-                  time range so the cross-section reads cleanly. */}
+              {/* Top-X panels share the chart's time range so the cross-section
+                  reads cleanly. */}
               {loaded && filtered.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                   <TopCompaniesCard items={topCompanies} />
@@ -399,12 +388,12 @@ export function TrendsView() {
                   <TopArchetypesCard items={topArchetypes} />
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
 
-        {/* Score Trend — re-evaluation trajectories, absorbed from the retired
-            standalone view. The panel carries its own p-4 body padding. */}
+        {/* Score trend — re-evaluation trajectories. The panel carries its own
+            body padding. */}
         <div
           role="tabpanel"
           id={viewPanelId('trends', 'scoretrend')}
@@ -423,17 +412,14 @@ export function TrendsView() {
 function ScoreDistributionCard({ dist }: { dist: Distribution }) {
   const { bands, max, applyPct, total, scored, medianWant, medianEase, eligibility } = dist
   return (
-    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
-      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Verdict Distribution</span>
-        <span className="text-[11px] font-mono tabular-nums text-text-4">
-          <span className="text-accent-text font-semibold">{applyPct}%</span>
-          <span> apply-worthy</span>
-          {scored > 0 && <span> · median W {medianWant.toFixed(1)} · E {medianEase.toFixed(1)}</span>}
-          {total > 0 && <span> · {eligibility.red} blocked · {eligibility.amber} check first</span>}
-        </span>
-      </div>
-
+    <Panel
+      title="Verdict distribution"
+      meta={<>
+        <span className="text-accent-text font-medium">{applyPct}%</span> apply-worthy
+        {scored > 0 && ` · median Want ${medianWant.toFixed(1)} · Ease ${medianEase.toFixed(1)}`}
+        {total > 0 && ` · ${eligibility.red} blocked · ${eligibility.amber} check first`}
+      </>}
+    >
       {/* Bars track — fixed height; bar heights cap at 88% of the track so the
           count label sitting above the tallest bar never clips. */}
       <div className="flex items-end gap-2.5" style={{ height: 132 }}>
@@ -442,17 +428,17 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
           return (
             <div key={b.key} className="flex-1 flex flex-col justify-end items-center h-full">
               <span
-                className="text-[11px] font-mono tabular-nums font-semibold mb-1"
+                className="text-micro tabular-nums mb-1"
                 style={{ color: b.count > 0 ? b.color : '#8595A4' }}
               >
                 {b.count}
               </span>
               <div
-                className="w-full rounded-t-[5px]"
+                className="w-full rounded-t-sm"
                 style={{
                   height: `${h}%`,
                   minHeight: b.count > 0 ? 3 : 0,
-                  background: `linear-gradient(180deg, ${b.color} 0%, ${b.color}cc 100%)`,
+                  background: b.color,
                 }}
               />
             </div>
@@ -464,22 +450,23 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
       <div className="flex gap-2.5 mt-2">
         {bands.map(b => (
           <div key={b.key} className="flex-1 text-center">
-            <div className="text-[11px] text-text-2 leading-tight">{b.label}</div>
+            <div className="text-label text-text-2">{b.label}</div>
           </div>
         ))}
       </div>
 
       {/* Apply-worthy bracket — spans the three apply-worthy verdicts (the
-          first 3 of 7 equal columns: Go / Stretch / Solid). */}
+          first 3 of 7 equal columns: Go / Stretch / Solid). The 3:4 flex split
+          lines the accent rule up under those columns. */}
       <div className="flex gap-2.5 mt-1.5">
         <div className="flex-[3] flex items-center gap-1.5">
           <span className="h-px flex-1 bg-accent/30" />
-          <span className="text-[9px] uppercase tracking-[0.1em] text-accent/80 font-semibold whitespace-nowrap">apply-worthy</span>
+          <span className="text-micro text-accent-text whitespace-nowrap">Apply-worthy</span>
           <span className="h-px flex-1 bg-accent/30" />
         </div>
         <div className="flex-[4]" aria-hidden />
       </div>
-    </div>
+    </Panel>
   )
 }
 
@@ -489,32 +476,28 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
 // (the baseline "what every role offers"); the violet inner bar shows the
 // apply-worthy subset's average for the same dimension. When the violet bar
 // overshoots the grey one, that dimension *lifts* a role into apply-worthy
-// territory — a positive delta, badged in violet on the right. A negative delta
-// (winners score lower here) badges in slate: it's a tradeoff the user accepts.
+// territory — a positive delta, in violet on the right. A negative delta
+// (winners score lower here) reads in slate: it's a tradeoff the user accepts.
 // Both bars are on the same 0–10 scale so the eye reads magnitude directly.
 
 function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
   const { dims, scoredCount, winnerCount, lowSignal } = profile
   return (
-    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
-      <div className="flex items-baseline justify-between gap-3 mb-1 pb-2 border-b border-border-default/60">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">What drives your fit</span>
-        <span className="text-[11px] font-mono tabular-nums text-text-4">
-          {lowSignal
-            ? <span>{scoredCount} scored · ranked by average</span>
-            : <><span className="text-accent-text font-semibold">{winnerCount}</span><span> apply-worthy of {scoredCount}</span></>}
-        </span>
-      </div>
-
+    <Panel
+      title="What drives your fit"
+      meta={lowSignal
+        ? `${scoredCount} scored · ranked by average`
+        : <><span className="text-accent-text font-medium">{winnerCount}</span> apply-worthy of {scoredCount}</>}
+    >
       {/* Legend — names the two bars so the magnitudes are unambiguous. The
           delta column is only meaningful with enough winners, so its legend
           entry hides under the low-signal fallback. */}
-      <div className="flex items-center gap-3.5 mb-3 mt-2">
+      <div className="flex items-center gap-4 mb-3">
         <LegendDot color="#CED0D4" label="All scored" />
         {!lowSignal && <LegendDot color="#7C5CFF" label="Apply-worthy (Go / Stretch / Solid)" />}
       </div>
 
-      <ul className="space-y-2.5">
+      <ul className="flex flex-col gap-2.5">
         {dims.map(d => {
           const allPct     = Math.max(0, Math.min(d.avgAll, 10)) * 10
           const winnersPct = Math.max(0, Math.min(d.avgWinners, 10)) * 10
@@ -524,8 +507,8 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
           return (
             <li key={String(d.field)}>
               <div className="flex items-baseline justify-between gap-2 mb-1">
-                <span className="text-[12px] text-text-1">{d.label}</span>
-                <span className="flex items-baseline gap-2 text-[11px] font-mono tabular-nums shrink-0">
+                <span className="text-label text-text-1">{sentenceCase(d.label)}</span>
+                <span className="flex items-baseline gap-2 text-label tabular-nums shrink-0">
                   <span className="text-text-3">{d.avgAll.toFixed(1)}</span>
                   {showWinners && <DeltaBadge delta={d.delta} />}
                 </span>
@@ -539,13 +522,10 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
                 />
                 {showWinners && (
                   <div
-                    className="absolute inset-y-0 left-0 rounded-pill"
+                    className="absolute inset-y-0 left-0 rounded-pill transition-[width] duration-200 ease-quart"
                     style={{
                       width: `${winnersPct}%`,
-                      background: d.delta >= 0
-                        ? 'linear-gradient(90deg, #7C5CFF 0%, #5B3FE8 100%)'
-                        : 'linear-gradient(90deg, #A89CD9 0%, #94A3B8 100%)',
-                      transition: 'width 320ms ease',
+                      background: d.delta >= 0 ? '#7C5CFF' : '#94A3B8',
                     }}
                   />
                 )}
@@ -556,34 +536,34 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
       </ul>
 
       {lowSignal && (
-        <p className="text-[10.5px] text-text-4 mt-3 leading-snug">
+        <p className="text-label text-text-3 mt-3">
           Evaluate a few more apply-worthy roles to compare what separates a strong fit from the rest.
         </p>
       )}
-    </div>
+    </Panel>
   )
 }
 
 function LegendDot({ color, label }: { color: string; label: string }) {
   return (
-    <span className="flex items-center gap-1.5 text-[10.5px] text-text-4">
-      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+    <span className="flex items-center gap-1.5 text-label text-text-3">
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} aria-hidden />
       {label}
     </span>
   )
 }
 
-// Signed delta badge — violet for "this dimension lifts a role into apply-
-// worthy territory", slate for "winners are weaker here (a tradeoff)". Near-
-// zero deltas read as flat so they don't masquerade as a signal.
+// Signed delta — violet for "this dimension lifts a role into apply-worthy
+// territory", slate for "winners are weaker here (a tradeoff)". Near-zero
+// deltas read as flat so they don't masquerade as a signal.
 function DeltaBadge({ delta }: { delta: number }) {
   const flat = Math.abs(delta) < 0.05
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±'
-  const color = flat ? '#8595A4' : delta > 0 ? '#7C5CFF' : '#5D6C7B'
+  const color = flat ? '#8595A4' : delta > 0 ? '#5B3FE8' : '#5D6C7B'
   return (
     <span
-      className="inline-flex items-center rounded-pill px-1.5 py-px text-[10px] font-semibold tabular-nums"
-      style={{ color, background: flat ? 'transparent' : `${color}1f` }}
+      className="text-micro font-medium tabular-nums"
+      style={{ color }}
       title="Apply-worthy average minus the full-corpus average for this dimension"
     >
       {flat ? '±0.0' : `${sign}${Math.abs(delta).toFixed(1)}`}
@@ -593,84 +573,80 @@ function DeltaBadge({ delta }: { delta: number }) {
 
 // ─── Targeting momentum card ─────────────────────────────────────────────────
 //
-// Two stat blocks (earlier half · recent half) sit either side of a verdict
-// pill, so the headline reads at a glance: "median 6.2 → 7.4, improving". The
-// verdict uses the SEMANTIC scale (success / danger / muted) because "is my
-// targeting getting better or worse" is a state, not a categorical series —
-// green = improving, red = declining, slate = steady/flat. Below the stats, a
-// compact strip shows the dimensions that moved most between the two halves so
-// the user can see *where* the shift came from (e.g. "Skills Match climbed,
-// Brand Value slipped"). Under the per-half floor the whole verdict layer
-// collapses to a single honest hint instead of asserting a trend on noise.
+// Two stat blocks (earlier half · recent half) sit either side of two verdict
+// chips, one per axis, so the headline reads at a glance: "median Want
+// 6.2 → 7.4, improving; Ease steady". Want and Ease each carry their own
+// direction against their own deadband (docs/scoring-v2.md §9). The
+// verdict uses the SEMANTIC tones (success / danger / muted) because "is my
+// targeting getting better or worse" is a state, not a categorical series.
+// Below the stats, a compact strip shows the dimensions that moved most between
+// the two halves so the user can see *where* the shift came from. Under the
+// per-half floor (or on a same-day corpus) the whole verdict layer collapses to
+// a single honest hint instead of asserting a trend on noise.
 
-// Verdict vocabulary, keyed to the semantic palette (DESIGN-meta § Status scale).
-// `arrow` is the glyph in the pill; `color` drives pill text/tint and the recent-
-// median figure. Steady is intentionally muted text-4 so a flat trend recedes.
-const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string; color: string }> = {
-  improving: { label: 'Improving', arrow: '↑', color: '#007D1E' },   // success green
-  declining: { label: 'Declining', arrow: '↓', color: '#C80A28' },   // danger red
-  steady:    { label: 'Steady',    arrow: '→', color: '#8595A4' },   // muted slate
+// `arrow` is the glyph in the chip; `color` tints the recent-median figures.
+const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string; tone: ChipTone; color: string }> = {
+  improving: { label: 'Improving', arrow: '↑', tone: 'success', color: '#007D1E' },
+  declining: { label: 'Declining', arrow: '↓', tone: 'danger',  color: '#C80A28' },
+  steady:    { label: 'Steady',    arrow: '→', tone: 'muted',   color: '#050505' },
 }
+
+const signedTenths = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(n).toFixed(1)}`
 
 function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
   const { earlier, recent, wantMedianDelta, easeMedianDelta, applyPctDelta, wantDirection, easeDirection, dimShifts, lowSignal } = momentum
-  // Want and Ease each carry their own direction (own noise floor); the
-  // pill shows both, the recent block tints by Want.
-  const verdict = MOMENTUM_VERDICT[wantDirection]
+  const wantVerdict = MOMENTUM_VERDICT[wantDirection]
   const easeVerdict = MOMENTUM_VERDICT[easeDirection]
   // Lead with the dimensions that actually moved; a flat-everything corpus
   // shows nothing here rather than a row of ±0.0 badges.
   const movers = lowSignal ? [] : dimShifts.filter(s => Math.abs(s.delta) >= 0.05).slice(0, 3)
+  // Every scored row on one date: there is no timeline to split (the lib
+  // reports lowSignal for this case), so the hint says so plainly.
+  const sameDay = momentum.scoredCount >= 2 && earlier.dateFrom !== '' && earlier.dateFrom === recent.dateTo
 
   return (
-    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
-      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Targeting Momentum</span>
-        <span className="text-[11px] font-mono tabular-nums text-text-4">
-          {lowSignal
-            ? <span>recent vs earlier · {momentum.scoredCount} scored</span>
-            : <span>{earlier.count} earlier · {recent.count} recent</span>}
-        </span>
-      </div>
-
+    <Panel
+      title="Targeting momentum"
+      meta={lowSignal
+        ? `Recent vs earlier · ${momentum.scoredCount} scored`
+        : `${earlier.count} earlier · ${recent.count} recent`}
+    >
       {lowSignal ? (
-        <p className="text-[11px] text-text-4 leading-snug py-1">
-          Not enough scored evaluations on each side of the timeline to read a trend yet.
-          Evaluate a few more and this will show whether your recent picks are scoring higher than your earlier ones.
+        <p className="text-label text-text-3">
+          {sameDay
+            ? `All ${momentum.scoredCount} scored evaluations are from ${fmtDay(earlier.dateFrom)}, so there is no earlier and recent half to compare yet. Evaluate on a few more days and this will show whether your recent picks score higher than your earlier ones.`
+            : 'Not enough scored evaluations on each side of the timeline to read a trend yet. Evaluate a few more and this will show whether your recent picks are scoring higher than your earlier ones.'}
         </p>
       ) : (
         <>
           {/* Earlier → verdict → recent. The two halves use the same metric
-              rows; the centre pill carries the direction. */}
+              rows; the centre chip carries the direction. */}
           <div className="flex items-stretch gap-3">
-            <HalfBlock title="Earlier" median={earlier.medianWant} ease={earlier.medianEase} applyPct={earlier.applyPct} from={earlier.dateFrom} to={earlier.dateTo} muted />
-            <div className="flex flex-col items-center justify-center gap-1.5 shrink-0 px-1">
-              {([['Want', verdict, wantMedianDelta], ['Ease', easeVerdict, easeMedianDelta]] as const).map(([axis, v, d]) => (
-                <span key={axis} className="flex flex-col items-center gap-0.5">
-                  <span
-                    className="inline-flex items-center gap-1 rounded-pill px-2 py-0.5 text-[11px] font-semibold"
-                    style={{ color: v.color, background: `${v.color}1f` }}
-                  >
+            <HalfBlock title="Earlier" want={earlier.medianWant} ease={earlier.medianEase} from={earlier.dateFrom} to={earlier.dateTo} muted />
+            <div className="flex flex-col items-center justify-center gap-2.5 shrink-0 px-1">
+              {([['Want', wantVerdict, wantMedianDelta], ['Ease', easeVerdict, easeMedianDelta]] as const).map(([axis, v, d]) => (
+                <span key={axis} className="flex flex-col items-center gap-1">
+                  <Chip tone={v.tone} size="md">
                     <span aria-hidden>{v.arrow}</span>{axis} {v.label.toLowerCase()}
-                  </span>
-                  <span className="text-[10px] font-mono tabular-nums text-text-4">
-                    {d > 0 ? '+' : d < 0 ? '−' : '±'}{Math.abs(d).toFixed(1)} median
+                  </Chip>
+                  <span className="text-micro tabular-nums text-text-4">
+                    {signedTenths(d)} median
                   </span>
                 </span>
               ))}
             </div>
-            <HalfBlock title="Recent" median={recent.medianWant} ease={recent.medianEase} applyPct={recent.applyPct} from={recent.dateFrom} to={recent.dateTo} accent={verdict.color} />
+            <HalfBlock title="Recent" want={recent.medianWant} ease={recent.medianEase} from={recent.dateFrom} to={recent.dateTo} wantAccent={wantVerdict.color} easeAccent={easeVerdict.color} />
           </div>
 
           {/* Apply-rate movement — the apply-worthy verdict share, earlier→recent. */}
-          <div className="flex items-baseline justify-between gap-3 mt-3 pt-2.5 border-t border-border-default/60 text-[11px]">
+          <div className="flex items-baseline justify-between gap-3 mt-3 pt-2.5 border-t border-border-default text-label">
             <span className="text-text-3">Apply-worthy share (Go / Stretch / Solid)</span>
-            <span className="font-mono tabular-nums">
+            <span className="tabular-nums">
               <span className="text-text-4">{earlier.applyPct}%</span>
               <span className="text-text-4 px-1">→</span>
-              <span className="text-text-2 font-semibold">{recent.applyPct}%</span>
+              <span className="text-text-2 font-medium">{recent.applyPct}%</span>
               {applyPctDelta !== 0 && (
-                <span className="ml-1.5" style={{ color: applyPctDelta > 0 ? '#007D1E' : '#C80A28' }}>
+                <span className={cn('ml-1.5', applyPctDelta > 0 ? 'text-success' : 'text-danger')}>
                   ({applyPctDelta > 0 ? '+' : '−'}{Math.abs(applyPctDelta)}pt)
                 </span>
               )}
@@ -680,21 +656,20 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
           {/* Biggest dimension movers between the halves — where the shift came
               from. Hidden entirely when nothing moved meaningfully. */}
           {movers.length > 0 && (
-            <div className="mt-2.5">
-              <div className="text-[10px] text-text-4 uppercase tracking-[0.06em] mb-1.5">Biggest shifts</div>
+            <div className="mt-3">
+              <div className="label mb-1.5">Biggest shifts</div>
               <ul className="flex flex-wrap gap-1.5">
                 {movers.map(s => (
-                  <li
-                    key={String(s.field)}
-                    className="inline-flex items-center gap-1.5 rounded-pill border border-border-default/70 bg-bg-elevated px-2 py-0.5 text-[11px]"
-                  >
-                    <span className="text-text-2">{s.label}</span>
-                    <span
-                      className="font-mono tabular-nums font-semibold"
-                      style={{ color: s.delta > 0 ? '#7C5CFF' : '#5D6C7B' }}
-                    >
-                      {s.delta > 0 ? '+' : '−'}{Math.abs(s.delta).toFixed(1)}
-                    </span>
+                  <li key={String(s.field)}>
+                    <Chip size="md">
+                      <span className="text-text-2">{sentenceCase(s.label)}</span>
+                      <span
+                        className="tabular-nums"
+                        style={{ color: s.delta > 0 ? '#5B3FE8' : '#5D6C7B' }}
+                      >
+                        {s.delta > 0 ? '+' : '−'}{Math.abs(s.delta).toFixed(1)}
+                      </span>
+                    </Chip>
                   </li>
                 ))}
               </ul>
@@ -702,36 +677,32 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
           )}
         </>
       )}
-    </div>
+    </Panel>
   )
 }
 
-// One half of the momentum comparison: median Want · Ease (the headline pair) with
-// the apply-worthy share and the date span beneath. The recent block tints its
-// median to the verdict colour; the earlier block stays muted so the eye reads
+// One half of the momentum comparison: median Want and Ease (the headline
+// pair) with the date span beneath. The recent block tints each median to its
+// axis's verdict colour; the earlier block stays muted so the eye reads
 // left→right as "from → to".
 function HalfBlock({
-  title, median, ease, applyPct, from, to, muted, accent,
+  title, want, ease, from, to, muted, wantAccent, easeAccent,
 }: {
-  title: string; median: number; ease: number; applyPct: number; from: string; to: string
-  muted?: boolean; accent?: string
+  title: string; want: number; ease: number; from: string; to: string
+  muted?: boolean; wantAccent?: string; easeAccent?: string
 }) {
   const span = from && to ? (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`) : '—'
+  const tint = (accent?: string) => (muted ? '#5D6C7B' : (accent ?? '#050505'))
   return (
-    <div className="flex-1 min-w-0 rounded-md border border-border-default/70 bg-bg-elevated/60 px-3 py-2.5">
-      <div className="text-[10px] text-text-4 uppercase tracking-[0.06em] mb-1">{title}</div>
+    <div className="flex-1 min-w-0 rounded-lg bg-bg-elevated px-3 py-2.5">
+      <div className="label mb-1.5">{title} · median</div>
       <div className="flex items-baseline gap-1.5">
-        <span
-          className="text-[22px] leading-none font-mono tabular-nums font-semibold"
-          style={{ color: muted ? '#5D6C7B' : (accent ?? '#050505') }}
-        >
-          {median.toFixed(1)}
-        </span>
-        <span className="text-[10px] text-text-4">Want</span>
-        <span className="text-[13px] font-mono tabular-nums text-text-2 ml-1">{ease.toFixed(1)}</span>
-        <span className="text-[10px] text-text-4">Ease · median</span>
+        <span className="text-label text-text-4">Want</span>
+        <span className="text-stat tabular-nums" style={{ color: tint(wantAccent) }}>{want.toFixed(1)}</span>
+        <span className="text-label text-text-4 ml-2">Ease</span>
+        <span className="text-stat tabular-nums" style={{ color: tint(easeAccent) }}>{ease.toFixed(1)}</span>
       </div>
-      <div className="text-[10.5px] font-mono tabular-nums text-text-4 mt-1.5 truncate" title={span}>{span}</div>
+      <div className="text-label tabular-nums text-text-4 mt-1.5 truncate" title={span}>{span}</div>
     </div>
   )
 }
@@ -742,22 +713,22 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 function fmtDay(iso: string): string {
   const [, m, d] = iso.split('-')
   const mi = Number(m) - 1
-  return mi >= 0 && mi < 12 ? `${MONTHS[mi]} ${Number(d)}` : iso
+  return mi >= 0 && mi < 12 ? `${MONTHS[mi]} ${Number((d ?? '').slice(0, 2))}` : iso
 }
 
 // ─── Archetype mix card ──────────────────────────────────────────────────────
 //
 // Each row is a canonical archetype, ordered by how much of the corpus it
 // accounts for (biggest focus on top). The bar is share-of-attention; the right
-// rail carries the archetype's avg fit (galaxy-tier coloured, so the eye reads
-// "lots of attention on a low-scoring bucket" as a warning) and — when the
-// window has two trustworthy halves — a signed share-shift badge showing whether
-// that archetype is taking a growing or shrinking slice of recent attention.
+// rail carries the archetype's avg Want · Ease (score-ladder coloured, so "lots of
+// attention on a low-scoring bucket" reads as a warning) and — when the window
+// has two trustworthy halves — a signed share shift showing whether that
+// archetype is taking a growing or shrinking slice of recent attention.
 //
-// Bars use the categorical chart palette (DESIGN-meta § chart-1…chart-7), NOT
-// the score-tier scale: an archetype is a category, not a quality, so colour
-// here means "which bucket", never "how good". The avg-fit figure on the right
-// is the only place tier colour belongs.
+// Bars use the categorical chart palette (DESIGN-meta § Charts), NOT the score
+// ladder: an archetype is a category, not a quality, so colour here means
+// "which bucket", never "how good". The Want · Ease pair is the only place the
+// score colour belongs.
 
 function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
   const { slices, scoredCount, distinct, concentration, lowSignal } = mix
@@ -776,16 +747,26 @@ function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
     : 'Balanced'
 
   return (
-    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
-      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Archetype Mix</span>
-        <span className="text-[11px] font-mono tabular-nums text-text-4">
-          <span className="text-accent-text font-semibold">{focus}</span>
-          <span> · {distinct} archetypes · {scoredCount} scored</span>
+    <Panel
+      title="Archetype mix"
+      meta={<>
+        <span className="text-accent-text font-medium">{focus}</span> · {distinct} archetypes · {scoredCount} scored
+      </>}
+    >
+      {/* Column headings for the right rail. */}
+      <div className="flex items-baseline justify-between gap-2 mb-2 text-micro text-text-4">
+        <span>Archetype</span>
+        <span className="flex items-baseline gap-2 shrink-0">
+          {!lowSignal && (
+            <span className="w-8 text-right" title="Recent-half minus earlier-half share of attention (percentage points)">Shift</span>
+          )}
+          <span className="w-20 text-right" title="Average Want · Ease for this archetype">Want · Ease</span>
+          <span className="w-9 text-right" title="Share of scored evaluations">Share</span>
+          <span className="w-6 text-right" title="Scored evaluations">n</span>
         </span>
       </div>
 
-      <ul className="space-y-2.5">
+      <ul className="flex flex-col gap-2.5">
         {shown.map((s, i) => {
           const color = DIM_COLORS[i % DIM_COLORS.length]
           const barPct = maxShare ? (s.sharePct / maxShare) * 100 : 0
@@ -793,28 +774,26 @@ function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
             <li key={s.label}>
               <div className="flex items-baseline justify-between gap-2 mb-1">
                 <span className="flex items-baseline gap-1.5 min-w-0">
-                  <span className="w-2 h-2 rounded-full shrink-0 self-center" style={{ background: color }} />
-                  <span className="text-[12px] text-text-1 truncate">{s.label}</span>
+                  <span className="w-2 h-2 rounded-full shrink-0 self-center" style={{ background: color }} aria-hidden />
+                  <span className="text-label text-text-1 truncate">{s.label}</span>
                 </span>
-                <span className="flex items-baseline gap-2 text-[11px] font-mono tabular-nums shrink-0">
-                  {!lowSignal && <ShareShiftBadge shift={s.shareShift} />}
-                  <span
-                    className="font-semibold w-8 text-right"
-                    style={{ color: scoreTierColor(s.avgWant) }}
-                    title={`Average Want ${s.avgWant.toFixed(1)} · Ease ${s.avgEase.toFixed(1)} for this archetype`}
-                  >
-                    {s.avgWant.toFixed(1)}
+                <span className="flex items-baseline gap-2 text-label tabular-nums shrink-0">
+                  {!lowSignal && (
+                    <span className="w-8 text-right"><ShareShiftBadge shift={s.shareShift} /></span>
+                  )}
+                  <span className="w-20 text-right">
+                    <WantEase want={s.avgWant} ease={s.avgEase} size="sm" bare />
                   </span>
                   <span className="text-text-3 w-9 text-right">{s.sharePct}%</span>
-                  <span className="text-text-4 w-5 text-right">{s.count}</span>
+                  <span className="text-text-4 w-6 text-right">{s.count}</span>
                 </span>
               </div>
               {/* Bar length is share-of-attention (scaled to the busiest bucket
                   so the leader fills the track); colour is the categorical hue. */}
               <div className="h-1.5 bg-bg-elevated rounded-pill overflow-hidden">
                 <div
-                  className="h-full rounded-pill"
-                  style={{ width: `${barPct}%`, background: color, transition: 'width 320ms ease' }}
+                  className="h-full rounded-pill transition-[width] duration-200 ease-quart"
+                  style={{ width: `${barPct}%`, background: color }}
                 />
               </div>
             </li>
@@ -822,36 +801,30 @@ function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
         })}
       </ul>
 
-      {/* Column legend + tail rollup. The right-rail numbers are unlabelled in
-          the rows (space), so name them once here. */}
-      <div className="flex items-baseline justify-between gap-3 mt-3 pt-2 border-t border-border-default/60 text-[10px] text-text-4">
-        <span>
-          {restCount > 0
-            ? <>+{rest.length} more archetype{rest.length === 1 ? '' : 's'} · {restCount} eval{restCount === 1 ? '' : 's'}</>
-            : lowSignal
-              ? <span>Shift hidden — too few on each side of the timeline yet</span>
-              : <span>Shift = recent vs earlier share of attention</span>}
-        </span>
-        <span className="font-mono uppercase tracking-[0.06em] shrink-0">
-          {!lowSignal && 'Δ · '}AVG · SHARE · N
-        </span>
-      </div>
-    </div>
+      {/* Tail rollup, or what the shift column means. */}
+      <p className="mt-3 pt-2 border-t border-border-default text-micro text-text-4">
+        {restCount > 0
+          ? <>+{rest.length} more archetype{rest.length === 1 ? '' : 's'} · {restCount} eval{restCount === 1 ? '' : 's'}</>
+          : lowSignal
+            ? 'Shift hidden: too few evaluations on each side of the timeline yet'
+            : 'Shift is the recent minus earlier share of attention'}
+      </p>
+    </Panel>
   )
 }
 
 // Signed share-of-attention shift for an archetype, in percentage points
 // (recent half minus earlier half). Violet when an archetype is gaining focus,
 // slate when it's fading; near-zero reads as flat so a stable bucket doesn't
-// masquerade as a mover. Mirrors DeltaBadge's vocabulary so the two cards rhyme.
+// masquerade as a mover. Mirrors DeltaBadge so the two cards rhyme.
 function ShareShiftBadge({ shift }: { shift: number }) {
   const flat = Math.abs(shift) < 1            // sub-1pt is rounding noise, not a drift
   const sign = shift > 0 ? '+' : shift < 0 ? '−' : '±'
-  const color = flat ? '#8595A4' : shift > 0 ? '#7C5CFF' : '#5D6C7B'
+  const color = flat ? '#8595A4' : shift > 0 ? '#5B3FE8' : '#5D6C7B'
   return (
     <span
-      className="inline-flex items-center rounded-pill px-1.5 py-px text-[10px] font-semibold tabular-nums"
-      style={{ color, background: flat ? 'transparent' : `${color}1f` }}
+      className="text-micro font-medium tabular-nums"
+      style={{ color }}
       title="Recent-half minus earlier-half share of attention (percentage points)"
     >
       {flat ? '±0' : `${sign}${Math.abs(shift)}`}
@@ -874,22 +847,25 @@ interface ChartTooltipProps {
 function ChartTooltip({ active, label, payload }: ChartTooltipProps) {
   if (!active || !payload?.length) return null
   const count = payload[0]?.payload?.count
+  const blocked = payload[0]?.payload?.blocked
   return (
-    <div className="rounded-xl border border-border-default bg-white px-3 py-2 shadow-card min-w-[150px]">
+    <div className="card shadow-menu rounded-lg px-3 py-2 min-w-[150px] text-label">
       <div className="flex items-baseline justify-between gap-4 mb-1.5">
-        <span className="text-[12px] font-semibold text-text-1">{label}</span>
+        <span className="font-medium text-text-1">{label}</span>
         {typeof count === 'number' && (
-          <span className="text-[10px] font-mono text-text-4 tabular-nums">n={count}</span>
+          <span className="text-text-4 tabular-nums">
+            n={count}{typeof blocked === 'number' && blocked > 0 && ` · ${blocked} blocked`}
+          </span>
         )}
       </div>
-      <ul className="space-y-1">
+      <ul className="flex flex-col gap-1">
         {payload.map(p => {
           const key = String(p.dataKey ?? '')
           return (
-            <li key={key} className="flex items-center gap-2 text-[11.5px]">
-              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color ?? DIM_COLOR_BY_KEY[key] }} />
+            <li key={key} className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color ?? DIM_COLOR_BY_KEY[key] }} aria-hidden />
               <span className="text-text-3 flex-1">{DIM_LABEL_BY_KEY[key] ?? key}</span>
-              <span className="font-mono tabular-nums text-text-1 font-medium">
+              <span className="tabular-nums text-text-1 font-medium">
                 {typeof p.value === 'number' ? p.value.toFixed(1) : p.value}
               </span>
             </li>
@@ -902,44 +878,43 @@ function ChartTooltip({ active, label, payload }: ChartTooltipProps) {
 
 // ─── Conversion funnel card ──────────────────────────────────────────────────
 
-// Stage colours track the kanban / STATUS_COLORS semantics: Applied + Responded
-// in the violet family (deepening as you advance), Interview amber, Offer green.
+// Stage colours follow the lifecycle semantics: Applied + Responded in the
+// violet family (deepening as you advance), Interview amber, Offer green.
+// `text` is the on-white text tone for the percentage (amber needs the darker
+// warning-text to stay legible).
 function ConversionFunnelCard({ funnel }: { funnel: Funnel }) {
   const { sent, responded, interview, offer, rejected } = funnel
   const pct = (n: number) => (sent ? Math.round((n / sent) * 100) : 0)
-  const stages: Array<{ label: string; count: number; color: string }> = [
-    { label: 'Applied',   count: sent,      color: '#7C5CFF' },
-    { label: 'Responded', count: responded, color: '#5B3FE8' },
-    { label: 'Interview', count: interview, color: '#F7B928' },
-    { label: 'Offer',     count: offer,     color: '#007D1E' },
+  const stages: Array<{ label: string; count: number; color: string; text: string }> = [
+    { label: 'Applied',   count: sent,      color: '#7C5CFF', text: '#5B3FE8' },
+    { label: 'Responded', count: responded, color: '#5B3FE8', text: '#5B3FE8' },
+    { label: 'Interview', count: interview, color: '#F7B928', text: '#8A5A00' },
+    { label: 'Offer',     count: offer,     color: '#007D1E', text: '#007D1E' },
   ]
   return (
-    <div className="bg-bg-panel border border-border-default rounded-lg p-4">
-      <div className="flex items-baseline justify-between gap-3 mb-3 pb-2 border-b border-border-default/60">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">Pipeline Conversion</span>
-        <span className="text-[11px] font-mono tabular-nums text-text-4">
-          <span className="text-accent-text font-semibold">{pct(responded)}%</span>
-          <span> response rate · {sent} sent</span>
-          {rejected > 0 && <span> · {rejected} rejected</span>}
-        </span>
-      </div>
-
-      <div className="space-y-2">
+    <Panel
+      title="Pipeline conversion"
+      meta={<>
+        <span className="text-accent-text font-medium">{pct(responded)}%</span> response rate · {sent} sent
+        {rejected > 0 && ` · ${rejected} rejected`}
+      </>}
+    >
+      <div className="flex flex-col gap-2">
         {stages.map(s => {
           const barPct = sent ? Math.max((s.count / sent) * 100, s.count > 0 ? 3 : 0) : 0
           return (
             <div key={s.label} className="flex items-center gap-3">
-              <span className="w-[68px] shrink-0 text-[11px] text-text-2">{s.label}</span>
-              <div className="flex-1 h-5 rounded-pill bg-bg-elevated overflow-hidden">
+              <span className="w-[72px] shrink-0 text-label text-text-2">{s.label}</span>
+              <div className="flex-1 h-4 rounded bg-bg-elevated overflow-hidden">
                 <div
-                  className="h-full rounded-pill"
-                  style={{ width: `${barPct}%`, background: s.color, transition: 'width 320ms ease' }}
+                  className="h-full rounded transition-[width] duration-200 ease-quart"
+                  style={{ width: `${barPct}%`, background: s.color }}
                 />
               </div>
-              <span className="w-6 text-right text-[11px] font-mono tabular-nums text-text-2">{s.count}</span>
+              <span className="w-6 text-right text-label tabular-nums text-text-2">{s.count}</span>
               <span
-                className="w-10 text-right text-[11px] font-mono tabular-nums"
-                style={{ color: s.count > 0 ? s.color : '#8595A4' }}
+                className="w-10 text-right text-label tabular-nums"
+                style={{ color: s.count > 0 ? s.text : '#8595A4' }}
               >
                 {pct(s.count)}%
               </span>
@@ -947,58 +922,56 @@ function ConversionFunnelCard({ funnel }: { funnel: Funnel }) {
           )
         })}
       </div>
-    </div>
+    </Panel>
   )
 }
 
 // ─── Top-X panels ────────────────────────────────────────────────────────────
 
-// Each card uses the same header rhythm: title on the left, "AVG / N"
-// column hints on the right. The header doubles as the column legend so
-// the user knows what the two right-side numbers mean without hovering.
+// Each card names its two right-hand columns in the heading meta so the
+// numbers read without hovering.
+const TOP_META = <span title="Average Want · Ease · number of scored evaluations">Want · Ease · count</span>
 
 function TopCompaniesCard({ items }: { items: TopRow[] }) {
   return (
-    <PanelCard title="Top Companies">
+    <Panel title="Top companies" meta={TOP_META}>
       {items.length === 0 ? <EmptyHint /> : (
-        <ul className="divide-y divide-border-default/40">
-          {items.map(({ label, count, avgWant, avgEase }) => {
-            return (
-              <li key={label} className="flex items-center gap-2.5 py-2">
-                <CompanyLogo company={label} size={22} className="shrink-0" />
-                <span className="flex-1 min-w-0 text-[12.5px] text-text-1 font-medium truncate">{label}</span>
-                <WantEase want={avgWant} ease={avgEase} className="shrink-0" />
-                <span className="text-[11px] font-mono tabular-nums text-text-4 shrink-0 w-6 text-right">{count}</span>
-              </li>
-            )
-          })}
+        <ul className="divide-y divide-border-default">
+          {items.map(({ label, count, avgWant, avgEase }) => (
+            <li key={label} className="h-9 flex items-center gap-2.5">
+              <CompanyLogo company={label} size={20} className="shrink-0" />
+              <span className="flex-1 min-w-0 text-body text-text-1 truncate">{label}</span>
+              <WantEase want={avgWant} ease={avgEase} size="sm" bare className="shrink-0" />
+              <span className="w-6 shrink-0 text-right text-label tabular-nums text-text-4">{count}</span>
+            </li>
+          ))}
         </ul>
       )}
-    </PanelCard>
+    </Panel>
   )
 }
 
 function TopLocationsCard({ items }: { items: TopRow[] }) {
   return (
-    <PanelCard title="Top Locations">
+    <Panel title="Top locations" meta={TOP_META}>
       {items.length === 0 ? <EmptyHint /> : (
-        <ul className="divide-y divide-border-default/40">
+        <ul className="divide-y divide-border-default">
           {items.map(({ label, count, avgWant, avgEase }) => {
             const flag = locationFlag(label)
             return (
-              <li key={label} className="flex items-center gap-2.5 py-2">
-                <span className="text-[16px] leading-none w-5 text-center shrink-0" aria-hidden>
-                  {flag ?? '🌐'}
+              <li key={label} className="h-9 flex items-center gap-2.5">
+                <span className="w-5 shrink-0 flex items-center justify-center text-section leading-none" aria-hidden>
+                  {flag ?? <Globe size={13} className="text-text-4" />}
                 </span>
-                <span className="flex-1 min-w-0 text-[12.5px] text-text-1 truncate">{label}</span>
-                <WantEase want={avgWant} ease={avgEase} className="shrink-0" />
-                <span className="text-[11px] font-mono tabular-nums text-text-4 shrink-0 w-6 text-right">{count}</span>
+                <span className="flex-1 min-w-0 text-body text-text-1 truncate">{label}</span>
+                <WantEase want={avgWant} ease={avgEase} size="sm" bare className="shrink-0" />
+                <span className="w-6 shrink-0 text-right text-label tabular-nums text-text-4">{count}</span>
               </li>
             )
           })}
         </ul>
       )}
-    </PanelCard>
+    </Panel>
   )
 }
 
@@ -1007,25 +980,24 @@ function TopArchetypesCard({ items }: { items: TopRow[] }) {
   // Want · Ease pair, never Priority itself.
   const max = items.length ? Math.max(...items.map(i => i.avgPriority)) : 0
   return (
-    <PanelCard title="Top Archetypes">
+    <Panel title="Top archetypes" meta={TOP_META}>
       {items.length === 0 ? <EmptyHint /> : (
-        <ul className="space-y-2.5 mt-1">
+        <ul className="flex flex-col gap-2.5">
           {items.map(({ label, count, avgWant, avgEase, avgPriority }) => {
             const pct = max ? (avgPriority / max) * 100 : 0
-            const color = scoreTierColor(avgWant)
             return (
               <li key={label}>
                 <div className="flex items-baseline justify-between gap-2 mb-1">
-                  <span className="text-[12px] text-text-1 truncate">{label}</span>
-                  <span className="text-[11px] font-mono tabular-nums shrink-0">
-                    <WantEase want={avgWant} ease={avgEase} />
-                    <span className="text-text-4"> · {count}</span>
+                  <span className="text-body text-text-1 truncate">{label}</span>
+                  <span className="flex items-baseline gap-2 shrink-0">
+                    <WantEase want={avgWant} ease={avgEase} size="sm" bare />
+                    <span className="w-6 text-right text-label tabular-nums text-text-4">{count}</span>
                   </span>
                 </div>
                 <div className="h-1.5 bg-bg-elevated rounded-pill overflow-hidden">
                   <div
-                    className="h-full rounded-pill"
-                    style={{ width: `${pct}%`, background: color, transition: 'width 320ms ease' }}
+                    className="h-full rounded-pill transition-[width] duration-200 ease-quart"
+                    style={{ width: `${pct}%`, background: scoreColor(avgWant) }}
                   />
                 </div>
               </li>
@@ -1033,29 +1005,10 @@ function TopArchetypesCard({ items }: { items: TopRow[] }) {
           })}
         </ul>
       )}
-    </PanelCard>
-  )
-}
-
-function PanelCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-bg-panel border border-border-default rounded-lg p-3.5">
-      <div className="flex items-baseline justify-between mb-2 pb-1.5 border-b border-border-default/60">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">{title}</span>
-        <span className="text-[9.5px] font-mono uppercase tracking-[0.08em] text-text-4 shrink-0">
-          AVG · N
-        </span>
-      </div>
-      {children}
-    </div>
+    </Panel>
   )
 }
 
 function EmptyHint() {
-  return <p className="text-[11px] text-text-4 py-4 text-center">No data</p>
+  return <p className="text-label text-text-4 py-4 text-center">No data</p>
 }
-
-// Same galaxy palette as the rest of the app (Database scoreColor,
-// ReportSlideOver hero, etc) — sourced from the shared `lib/tier.ts`
-// module so a number reads as the same color everywhere it appears.
-const scoreTierColor = galaxyScoreColor

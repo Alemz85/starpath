@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect } from 'react'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
+import { Button } from '@/components/ui'
 
 // Shared "Unsaved changes" modal used in two places:
 //
@@ -46,44 +47,27 @@ export function UnsavedChangesModal({
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="w-[420px] rounded-xl bg-bg-panel border border-border-strong shadow-lift overflow-hidden"
+        className="w-[420px] rounded-xl bg-bg-base border border-border-default shadow-lift overflow-hidden"
       >
-        <div className="px-5 pt-5 pb-3">
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-lg bg-warning/10 border border-warning/30 flex items-center justify-center shrink-0">
-              <AlertTriangle size={18} className="text-warning" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h3 className="text-[15px] font-semibold text-text-1 leading-tight">Unsaved changes</h3>
-              <p className="text-[12.5px] text-text-3 mt-1.5 leading-relaxed">
-                You have edits on this tab. Save them before switching to <span className="font-medium text-text-2">{targetLabel}</span>, or discard.
-              </p>
-            </div>
-          </div>
+        <div className="px-5 pt-4 pb-4">
+          <h3 className="text-title text-text-1 flex items-center gap-2">
+            <AlertTriangle size={15} className="text-warning-text shrink-0" aria-hidden />
+            Unsaved changes
+          </h3>
+          <p className="text-body text-text-3 mt-1.5">
+            You have edits on this tab. Save them before switching to <span className="font-medium text-text-2">{targetLabel}</span>, or discard.
+          </p>
         </div>
-        <div className="px-5 py-3 flex items-center justify-end gap-2 bg-bg-chrome border-t border-border-default">
-          <button
-            onClick={onCancel}
-            disabled={saving}
-            className="px-3 py-1.5 text-label text-text-2 rounded-md hover:bg-bg-elevated disabled:opacity-40 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onDiscard}
-            disabled={saving}
-            className="px-3 py-1.5 text-label text-danger bg-danger/10 border border-danger/30 rounded-md hover:bg-danger/15 disabled:opacity-40 transition-colors"
-          >
+        <div className="px-5 py-3 flex items-center gap-2 bg-bg-elevated/60 border-t border-border-default">
+          <Button tone="secondary" size="sm" onClick={onDiscard} disabled={saving} className="mr-auto">
             Discard
-          </button>
-          <button
-            onClick={onSave}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-label text-accent-text bg-accent/20 border border-accent/35 rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors font-medium"
-          >
-            {saving && <Loader2 size={12} className="animate-spin" />}
+          </Button>
+          <Button tone="ghost" size="sm" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button tone="primary" size="sm" onClick={onSave} loading={saving}>
             {saving ? 'Saving…' : 'Save and switch'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

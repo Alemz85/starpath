@@ -3,14 +3,15 @@
 // The priority weights panel: one 0–5 importance dial per factor. Weights are
 // relative — the engine normalizes them to sum to 1 — so the panel shows the
 // resulting normalized share next to each so the user sees how their priorities
-// translate into the ranking. A "Reset to equal" returns to the neutral
+// translate into the ranking. A "Reset" returns to the neutral equal-weight
 // fallback. Nothing here encodes a candidate's priorities as a default; the
 // view seeds it with uniform weights (modes/ofertas.md keeps the system
 // fallback neutral on purpose).
 
-import { Scale, RotateCcw } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FACTORS, FACTOR_LABELS, normalizeWeights, type Factor, type FactorScores } from '@/lib/offerCompare'
+import { Button, Panel } from '@/components/ui'
 
 interface WeightsPanelProps {
   weights: FactorScores
@@ -26,35 +27,29 @@ export function WeightsPanel({ weights, onChange, onReset }: WeightsPanelProps) 
   const isUniform = FACTORS.every((f) => weights[f] === weights.comp)
 
   return (
-    <div className="rounded-2xl border border-border-default bg-bg-panel p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <Scale size={14} className="text-accent" />
-        <h2 className="text-section text-text-1">Your priorities</h2>
-        <span className="text-label text-text-4">— how much each factor counts</span>
-        <div className="flex-1" />
-        <button
+    <Panel
+      title="Weights"
+      meta="How much each factor counts"
+      action={
+        <Button
+          tone="ghost"
+          size="xs"
+          icon={<RotateCcw size={12} aria-hidden />}
           onClick={onReset}
           disabled={isUniform}
-          className={cn(
-            'inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11.5px] transition-colors',
-            isUniform
-              ? 'text-text-4 cursor-not-allowed'
-              : 'text-text-3 hover:text-text-1 hover:bg-bg-elevated',
-          )}
           title="Weight every factor equally"
         >
-          <RotateCcw size={11} />
-          Reset to equal
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+          Reset
+        </Button>
+      }
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
         {FACTORS.map((f: Factor) => {
           const share = Math.round(normalized[f] * 100)
           return (
             <div key={f} className="flex items-center gap-3">
               <span className="text-label text-text-2 w-[108px] shrink-0 truncate">{FACTOR_LABELS[f]}</span>
-              <div className="flex gap-1 flex-1" role="radiogroup" aria-label={`${FACTOR_LABELS[f]} importance`}>
+              <div className="flex gap-0.5 flex-1" role="radiogroup" aria-label={`${FACTOR_LABELS[f]} importance`}>
                 {STEPS.map((step) => {
                   const active = weights[f] >= step && step > 0
                   const isZeroSelected = weights[f] === 0 && step === 0
@@ -67,12 +62,13 @@ export function WeightsPanel({ weights, onChange, onReset }: WeightsPanelProps) 
                       aria-label={`${FACTOR_LABELS[f]} importance ${step}`}
                       onClick={() => onChange(f, step)}
                       className={cn(
-                        'h-4 flex-1 rounded-[3px] transition-colors duration-150 ease-quart cursor-pointer',
+                        'h-4 flex-1 rounded-sm transition-colors duration-150 ease-quart cursor-pointer',
+                        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
                         active
-                          ? 'bg-accent'
+                          ? 'bg-accent hover:bg-accent-hover'
                           : isZeroSelected
                             ? 'bg-border-strong'
-                            : 'bg-[var(--dolly-bg-grey)] hover:bg-border-default',
+                            : 'bg-bg-panel hover:bg-border-default',
                       )}
                       title={step === 0 ? 'Ignore this factor' : `Importance ${step}`}
                     />
@@ -80,10 +76,7 @@ export function WeightsPanel({ weights, onChange, onReset }: WeightsPanelProps) 
                 })}
               </div>
               <span
-                className={cn(
-                  'w-9 text-right text-label font-mono tabular-nums shrink-0',
-                  share === 0 ? 'text-text-4' : 'text-text-3',
-                )}
+                className={`w-9 text-right text-label tabular-nums shrink-0 ${share === 0 ? 'text-text-4' : 'text-text-3'}`}
                 title="Normalized share of the ranking"
               >
                 {share}%
@@ -92,6 +85,6 @@ export function WeightsPanel({ weights, onChange, onReset }: WeightsPanelProps) 
           )
         })}
       </div>
-    </div>
+    </Panel>
   )
 }

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { ipc } from '@/lib/ipc'
 import { useAppStore } from '@/store/app'
 import { FileText, BookOpen } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { clsx } from 'clsx'
 import {
   findCvFile,
   findCvSidecar,
@@ -20,8 +20,8 @@ interface FilesStripProps {
 }
 
 // Visual indicator for which generated artifacts exist for a given listing.
-// Solid icon = file present (clickable, opens with the system viewer).
-// Faded outline icon = not generated yet (visual only).
+// Tinted square = file present (clickable, opens with the system viewer).
+// Dashed outline square = not generated yet (visual only).
 //
 // The CV icon additionally carries an **ATS-coverage badge** when a tailored CV
 // has been ATS-measured: pdf mode persists the measured keyword coverage to a
@@ -97,7 +97,7 @@ export function FilesStrip({ company, role, size = 'md', className }: FilesStrip
   }
 
   return (
-    <div className={cn('inline-flex items-center gap-1', className)}>
+    <div className={clsx('inline-flex items-center gap-1', className)}>
       <FileIcon
         icon={FileText}
         label="Tailored CV"
@@ -132,13 +132,13 @@ function FileIcon({
   // Only the CV icon receives ATS readiness; the prep icon leaves it undefined.
   ats?: AtsReadiness | null
 }) {
-  const dims  = size === 'sm' ? 'w-6 h-6' : 'w-[26px] h-[26px]'
-  const iconN = size === 'sm' ? 11 : 12
+  // Both sizes share the 24px control square; `size` only nudges the glyph.
+  const iconN = size === 'sm' ? 12 : 13
 
   // The badge only renders when there's a coverage signal worth showing — a CV
   // that's been ATS-measured (strong/ok/low) or a CV present-but-unchecked.
-  // 'absent' (no tailored CV at all) shows nothing; the faded outline icon below
-  // already conveys "not generated yet".
+  // 'absent' (no tailored CV at all) shows nothing; the dashed outline square
+  // below already conveys "not generated yet".
   const showBadge = !!ats && ats.verdict !== 'absent'
   // For measured coverage we show the rounded %; for an unchecked CV there's no
   // number, so we render a bare dot so the user still sees "present but
@@ -148,11 +148,7 @@ function FileIcon({
   if (!exists) {
     return (
       <span
-        className={cn(
-          'inline-flex items-center justify-center rounded-md border border-dashed',
-          'text-text-4 border-border-default opacity-55 select-none',
-          dims,
-        )}
+        className="inline-flex items-center justify-center w-6 h-6 rounded border border-dashed border-border-default text-text-4 opacity-60 select-none"
         title={`${label} — not yet generated`}
         aria-label={`${label} — not yet generated`}
       >
@@ -169,26 +165,23 @@ function FileIcon({
 
   return (
     <button
+      type="button"
       onClick={(e) => { e.stopPropagation(); onClick() }}
-      className={cn(
-        'relative inline-flex items-center justify-center rounded-md border transition-colors',
-        'text-accent border-accent/40 bg-accent/[0.08] hover:bg-accent/[0.16] hover:border-accent/60',
-        dims,
-      )}
+      className="btn btn-tinted btn-xs btn-icon relative"
       title={title}
       aria-label={title}
     >
       <Icon size={iconN} />
       {showBadge && ats && (
         <span
-          className={cn(
+          className={clsx(
             'absolute -top-1.5 -right-1.5 inline-flex items-center justify-center',
-            'rounded-full ring-1 ring-bg-base shadow-subtle select-none',
-            'text-[8px] font-semibold leading-none tabular-nums',
+            'rounded-pill ring-2 ring-bg-base select-none',
+            'text-micro leading-none tabular-nums',
             ATS_BADGE_CLASS[ats.tone],
             // A measured % needs width for up to 3 digits; an unchecked CV has no
             // number, so it collapses to a compact status dot.
-            badgeText !== '' ? 'min-w-[14px] h-[14px] px-[3px]' : 'w-[8px] h-[8px]',
+            badgeText !== '' ? 'min-w-[14px] h-[14px] px-[3px]' : 'w-2 h-2',
           )}
           aria-hidden="true"
         >

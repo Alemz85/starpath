@@ -18,8 +18,8 @@ export function EmptyState({ title, hint, className }: EmptyStateProps) {
     )}>
       <ConstellationGlyph />
       <div className="space-y-1">
-        <p className="text-section text-text-2">{title}</p>
-        {hint && <p className="text-label text-text-4 max-w-[40ch]">{hint}</p>}
+        <p className="text-section text-text-1">{title}</p>
+        {hint && <p className="text-label text-text-3 max-w-[44ch]">{hint}</p>}
       </div>
     </div>
   )

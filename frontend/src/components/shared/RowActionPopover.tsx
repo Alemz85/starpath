@@ -7,13 +7,22 @@ import { livenessOf } from '@/lib/databaseRows'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { WantEase } from '@/components/shared/WantEase'
 import { VerdictChip } from '@/components/shared/EligibilityChip'
 import { blockedReason, isBlocked, verdictOf } from '@/lib/scoreBands'
+import { clsx } from 'clsx'
+import { Button, Chip, type ChipTone } from '@/components/ui'
 import type { ScoreEntry } from '@/types'
 
 const POPOVER_WIDTH = 280
+
+// Liveness → chip tone. Liveness is process state, so it may carry the
+// semantic hues (live = green, going stale = amber, closed = muted).
+const LIVENESS_CHIP: Record<'active' | 'stale' | 'closed', { tone: ChipTone; label: string }> = {
+  active: { tone: 'success', label: 'Active' },
+  stale:  { tone: 'warning', label: 'Stale' },
+  closed: { tone: 'muted',   label: 'Closed' },
+}
 
 interface Props {
   entry: ScoreEntry
@@ -70,35 +79,36 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
     r.role.trim().toLowerCase() === entry.role.trim().toLowerCase()
   )
 
+  const live = liveness ? LIVENESS_CHIP[liveness] : undefined
+
   return (
     <div
       ref={ref}
       role="menu"
-      className="fixed z-50 rounded-lg border border-border-strong bg-bg-base shadow-lift overflow-hidden"
+      className="fixed z-50 rounded-xl border border-border-default bg-bg-base shadow-menu"
       style={{ left, top, width: POPOVER_WIDTH, animation: 'chip-appear 160ms ease both' }}
     >
       {/* Header */}
-      <div className="flex items-start gap-2 px-3 py-2.5 border-b border-border-default">
-        <CompanyLogo company={entry.company} size={26} className="shrink-0 mt-0.5" />
+      <div className="flex items-start gap-2.5 px-3 pt-3 pb-2.5 border-b border-border-default">
+        <CompanyLogo company={entry.company} size={28} className="shrink-0" />
         <div className="min-w-0 flex-1">
-          <div className="text-label text-text-1 font-medium truncate">{entry.company}</div>
-          <div className="text-[11px] text-text-3 truncate">{entry.role}</div>
-          <div className="flex items-center gap-1.5 mt-1 text-[10px] text-text-4 font-mono">
+          <div className="text-[13px] font-semibold leading-tight text-text-1 truncate" title={entry.company}>{entry.company}</div>
+          <div className="text-label text-text-3 truncate" title={entry.role}>{entry.role}</div>
+          <div className="flex items-center gap-1.5 mt-1.5">
             <VerdictChip verdict={verdictOf(entry)} />
-            <WantEase want={entry.want} ease={entry.ease} blockedReason={isBlocked(entry) ? blockedReason(entry) : null} className="max-w-[160px]" />
-            {liveness && <><span>·</span><span className={cn(
-              liveness === 'active' ? 'text-success' :
-              liveness === 'stale'  ? 'text-warning' : 'text-text-4',
-            )}>{liveness}</span></>}
+            <WantEase want={entry.want} ease={entry.ease} size="sm" blockedReason={isBlocked(entry) ? blockedReason(entry) : null} className="min-w-0 max-w-[160px]" />
+            {live && <Chip tone={live.tone}>{live.label}</Chip>}
           </div>
         </div>
-        <button
+        <Button
+          tone="ghost"
+          size="xs"
+          iconOnly
           onClick={onClose}
-          className="shrink-0 p-1 -mt-0.5 -mr-1 rounded text-text-4 hover:text-text-2 hover:bg-bg-elevated transition-colors"
+          className="shrink-0 -mt-1 -mr-1"
           aria-label="Close"
-        >
-          <X size={12} />
-        </button>
+          icon={<X size={13} aria-hidden />}
+        />
       </div>
 
       {/* Apply + URL row — primary actions live here, side by side, so
@@ -106,19 +116,20 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
       <div className="px-3 py-2.5 border-b border-border-default flex items-center gap-2">
         <ApplyAction company={entry.company} role={entry.role} scoreEntry={entry} size="sm" />
         {url && (
-          <button
+          <Button
+            tone="secondary"
+            size="sm"
+            icon={<ExternalLink size={13} aria-hidden />}
             onClick={() => { ipc.openExternal(url); onClose() }}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-pill border border-border-default bg-bg-elevated text-text-2 hover:text-text-1 hover:border-border-strong text-[11.5px] transition-colors"
             title="Open job posting"
           >
-            <ExternalLink size={11} />
-            URL
-          </button>
+            Open listing
+          </Button>
         )}
       </div>
 
       {/* Action list */}
-      <div className="py-1">
+      <div className="p-1">
         <Item
           icon={FileText}
           label="View full report"
@@ -152,7 +163,7 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
           label="Prep application"
           onClick={() => { spawnPerListing('Prep Application', 'modes/interview-prep.md', entry, 'interviewPrep'); onClose() }}
         />
-        <div className="my-1 border-t border-border-default" />
+        <div className="my-1 mx-1 border-t border-border-default" />
         <Item
           icon={X}
           label="Mark not interested"
@@ -181,13 +192,21 @@ function Item({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={cn(
-        'w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors',
-        tone === 'muted' ? 'text-text-4 hover:text-danger hover:bg-danger/5' : 'text-text-2 hover:bg-bg-elevated hover:text-text-1',
+      className={clsx(
+        'group w-full h-8 flex items-center gap-2.5 px-2 rounded text-body text-left transition-colors duration-150',
+        'focus-visible:bg-bg-elevated',
+        tone === 'muted'
+          ? 'text-text-3 hover:text-danger hover:bg-danger/5'
+          : 'text-text-2 hover:bg-bg-elevated hover:text-text-1',
       )}
     >
-      <Icon size={13} className="shrink-0 opacity-80" />
+      <Icon
+        size={14}
+        className={clsx('shrink-0', tone === 'muted' ? 'text-current' : 'text-text-3 group-hover:text-text-2')}
+        aria-hidden
+      />
       <span className="truncate">{label}</span>
     </button>
   )
@@ -204,11 +223,11 @@ function ItemDisabled({
     <div
       title={tooltip}
       aria-disabled="true"
-      className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left text-text-4 opacity-50 cursor-not-allowed select-none"
+      className="w-full h-8 flex items-center gap-2.5 px-2 rounded text-body text-left text-text-4 cursor-not-allowed select-none"
     >
-      <Icon size={13} className="shrink-0 opacity-70" />
+      <Icon size={14} className="shrink-0 text-text-4" aria-hidden />
       <span className="truncate">{label}</span>
-      <span className="ml-auto text-[10px] text-text-4 italic shrink-0">expired</span>
+      <span className="ml-auto text-label text-text-4 shrink-0">Listing expired</span>
     </div>
   )
 }

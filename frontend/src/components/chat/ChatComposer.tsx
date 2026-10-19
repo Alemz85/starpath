@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { ArrowUp } from 'lucide-react'
+import { Button } from '@/components/ui'
 
 interface ChatComposerProps {
   value: string
@@ -27,7 +28,7 @@ export function ChatComposer({ value, disabled, onChange, onSend }: ChatComposer
   return (
     <div className="shrink-0 px-6 pb-6 pt-2">
       <div className="mx-auto w-full max-w-[720px]">
-        <div className="flex items-end gap-2 p-2 rounded-md bg-bg-base border border-border-strong focus-within:border-accent transition-colors duration-200 ease-quart">
+        <div className="card rounded-lg flex items-end gap-2 p-2 focus-within:border-accent/60 focus-within:ring-2 focus-within:ring-accent/20 transition-colors duration-150 ease-quart">
           <textarea
             ref={ref}
             rows={1}
@@ -42,17 +43,18 @@ export function ChatComposer({ value, disabled, onChange, onSend }: ChatComposer
             }}
             placeholder={disabled ? 'Working on the last message…' : 'Ask about your search…'}
             aria-label="Message"
-            className="flex-1 resize-none bg-transparent px-1.5 py-1 text-body text-text-2 placeholder:text-text-4 outline-none disabled:text-text-4 selectable"
+            className="flex-1 resize-none border-0 bg-transparent px-1.5 py-1 text-body text-text-1 placeholder:text-text-4 outline-none disabled:text-text-4 selectable"
           />
-          <button
-            type="button"
+          <Button
+            tone="primary"
+            size="sm"
+            iconOnly
+            icon={<ArrowUp size={14} aria-hidden />}
             onClick={onSend}
             disabled={disabled || !value.trim()}
             aria-label="Send message"
-            className="shrink-0 w-8 h-8 rounded-pill bg-accent text-white flex items-center justify-center shadow-pill hover:bg-accent-hover active:scale-95 disabled:bg-border-default disabled:text-text-4 disabled:shadow-none disabled:cursor-not-allowed transition-[background-color,transform,box-shadow] duration-200 ease-quart"
-          >
-            <ArrowUp size={15} aria-hidden />
-          </button>
+            className="shrink-0"
+          />
         </div>
         <p className="mt-1.5 text-label text-text-4">
           Enter to send · Shift+Enter for a new line. Chat never sends anything on your behalf.

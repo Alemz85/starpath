@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { Check, X, Plus } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { useAppStore } from '@/store/app'
 import { useConfigDirty } from '@/store/configDirty'
-import { cn } from '@/lib/utils'
+import { Button, Chip, SectionHeading } from '@/components/ui'
 
 // ─── Reference data ──────────────────────────────────────────────────────────
 
@@ -314,7 +314,7 @@ export function ProfileEditPanel() {
 
   if (raw === null) {
     return (
-      <div className="rounded-xl bg-bg-panel border border-border-default p-5 space-y-3">
+      <div className="card p-5 space-y-3">
         <div className="shimmer h-3 rounded w-1/3" />
         <div className="shimmer h-3 rounded w-1/2" />
         <div className="shimmer h-3 rounded w-2/5" />
@@ -323,27 +323,29 @@ export function ProfileEditPanel() {
   }
 
   return (
-    <div className="rounded-xl bg-bg-panel border border-border-default overflow-hidden">
+    <div className="card overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border-default bg-bg-chrome">
-        <div>
-          <h2 className="text-[14px] font-semibold text-text-1">Edit profile</h2>
-          <p className="text-micro text-text-4 mt-0.5">
-            Patches <code className="text-accent/70 bg-bg-elevated px-1 rounded">user/profile.yml</code> — comments and structure are preserved.
+      <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-border-default">
+        <div className="min-w-0">
+          <h2 className="text-title text-text-1">Edit profile</h2>
+          <p className="text-label text-text-3 mt-0.5">
+            Patches <code className="font-mono text-text-2">user/profile.yml</code>; comments and structure are preserved.
           </p>
         </div>
-        <button
+        <Button
+          tone="primary"
+          size="sm"
           onClick={handleSave}
           disabled={saving || !form.full_name.trim() || !form.email.trim()}
           title="Save changes. If anything changed, a Sonnet run will incrementally update _profile.md and (when relevant) portals.yml — visible in the Activity tab."
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-accent/20 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/30 disabled:opacity-40 transition-colors"
+          icon={justSaved ? <Check size={13} aria-hidden="true" /> : undefined}
+          className="shrink-0"
         >
-          {justSaved ? <Check size={12} /> : null}
           {saving ? 'Saving…' : justSaved ? 'Saved' : 'Save'}
-        </button>
+        </Button>
       </div>
 
-      <div className="px-5 py-4 space-y-6">
+      <div className="px-5 py-5 space-y-6">
         {/* Identity */}
         <Section title="Identity" hint="Used in report headers, generated CVs, and outreach drafts.">
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -366,10 +368,11 @@ export function ProfileEditPanel() {
             value={form.headline}
             onChange={e => set('headline', e.target.value)}
             placeholder="e.g. Senior Frontend Engineer · 5y product experience"
-            className="w-full px-3 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors focus:border-accent/50 outline-none"
+            aria-label="Headline"
+            className="input"
           />
           {form.headline && (
-            <p className={cn('mt-1 text-micro tabular-nums', form.headline.length > 80 ? 'text-warning' : 'text-text-4')}>
+            <p className={`mt-1 text-label ${form.headline.length > 80 ? 'text-warning-text' : 'text-text-4'}`}>
               {form.headline.length} / 80
             </p>
           )}
@@ -405,10 +408,10 @@ export function ProfileEditPanel() {
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section>
-      <div className="flex items-baseline justify-between gap-3 pb-1.5 mb-3 border-b border-border-default/60">
-        <h3 className="text-[12px] font-semibold uppercase tracking-[0.06em] text-text-3">{title}</h3>
-        {hint && <p className="text-micro text-text-4 max-w-[420px] text-right truncate" title={hint}>{hint}</p>}
-      </div>
+      <SectionHeading
+        title={title}
+        meta={hint ? <span className="block max-w-[420px] truncate" title={hint}>{hint}</span> : undefined}
+      />
       {children}
     </section>
   )
@@ -421,15 +424,17 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: {
   placeholder?: string
   type?: string
 }) {
+  const inputId = useId()
   return (
     <div className="min-w-0">
-      {label && <label className="block text-label text-text-3 mb-1">{label}</label>}
+      {label && <label htmlFor={inputId} className="label block mb-1">{label}</label>}
       <input
+        id={inputId}
         type={type}
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors focus:border-accent/50 outline-none"
+        className="input"
       />
     </div>
   )
@@ -438,30 +443,34 @@ function Field({ label, value, onChange, placeholder, type = 'text' }: {
 function NumberField({ label, value, onChange, placeholder }: {
   label: string; value: string; onChange: (v: string) => void; placeholder?: string
 }) {
+  const inputId = useId()
   return (
     <div className="min-w-0">
-      <label className="block text-label text-text-3 mb-1">{label}</label>
+      <label htmlFor={inputId} className="label block mb-1">{label}</label>
       <input
+        id={inputId}
         type="text"
         inputMode="numeric"
         pattern="[0-9]*"
         value={value}
         onChange={e => onChange(e.target.value.replace(/[^\d]/g, ''))}
         placeholder={placeholder}
-        className="w-full px-3 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 font-mono tabular-nums placeholder:text-text-4 transition-colors focus:border-accent/50 outline-none"
+        className="input tabular-nums"
       />
     </div>
   )
 }
 
 function CurrencySelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const selectId = useId()
   return (
     <div className="min-w-0">
-      <label className="block text-label text-text-3 mb-1">Currency</label>
+      <label htmlFor={selectId} className="label block mb-1">Currency</label>
       <select
+        id={selectId}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full px-2 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 transition-colors focus:border-accent/50 outline-none cursor-pointer"
+        className="input px-2 cursor-pointer"
       >
         {CURRENCIES.map(c => (
           <option key={c.code} value={c.code}>{c.code}</option>
@@ -476,14 +485,16 @@ function PhoneField({ cc, num, onChange }: {
   num: string
   onChange: (cc: string, num: string) => void
 }) {
+  const inputId = useId()
   return (
     <div className="min-w-0">
-      <label className="block text-label text-text-3 mb-1">Phone</label>
+      <label htmlFor={inputId} className="label block mb-1">Phone</label>
       <div className="flex gap-2">
         <select
           value={cc}
           onChange={e => onChange(e.target.value, num)}
-          className="px-2 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 transition-colors focus:border-accent/50 outline-none cursor-pointer font-mono shrink-0"
+          aria-label="Country code"
+          className="input px-2 cursor-pointer shrink-0"
           style={{ width: 80 }}
         >
           {COUNTRY_CODES.map(c => (
@@ -491,12 +502,13 @@ function PhoneField({ cc, num, onChange }: {
           ))}
         </select>
         <input
+          id={inputId}
           type="tel"
           inputMode="tel"
           value={num}
           onChange={e => onChange(cc, formatNational(e.target.value))}
           placeholder="123 456 789"
-          className="flex-1 min-w-0 px-3 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 font-mono tabular-nums placeholder:text-text-4 transition-colors focus:border-accent/50 outline-none"
+          className="input flex-1 min-w-0 tabular-nums"
         />
       </div>
     </div>
@@ -526,25 +538,23 @@ function LanguagesField({ languages, onChange }: {
 
   return (
     <div>
-      <div className="flex flex-wrap gap-2 mb-3">
+      <div className="flex flex-wrap gap-1.5 mb-3">
         {languages.length === 0 && (
-          <span className="text-micro text-text-4 italic py-1">No languages added yet.</span>
+          <span className="text-label text-text-4 py-0.5">No languages added yet.</span>
         )}
         {languages.map(l => (
-          <span
-            key={l.name}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-bg-elevated border border-border-default text-label text-text-2"
-          >
-            <span className="font-medium text-text-1">{l.name}</span>
-            <span className="text-micro text-text-4">({l.level})</span>
+          <Chip key={l.name} size="md">
+            <span className="text-text-1">{l.name}</span>
+            <span className="text-text-4 font-normal">{l.level}</span>
             <button
+              type="button"
               onClick={() => remove(l.name)}
               aria-label={`Remove ${l.name}`}
-              className="ml-0.5 -mr-1 p-0.5 rounded hover:bg-danger/15 hover:text-danger transition-colors"
+              className="btn btn-ghost h-4 w-4 px-0 -mr-1 rounded-sm text-text-4 hover:bg-bg-panel"
             >
-              <X size={11} />
+              <X size={11} aria-hidden="true" />
             </button>
-          </span>
+          </Chip>
         ))}
       </div>
       <div className="flex gap-2">
@@ -553,25 +563,27 @@ function LanguagesField({ languages, onChange }: {
           onChange={e => setName(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
           placeholder="Language (e.g. English, Italian, Spanish)"
-          className="flex-1 px-3 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 placeholder:text-text-4 transition-colors focus:border-accent/50 outline-none"
+          aria-label="Language"
+          className="input flex-1"
         />
         <select
           value={level}
           onChange={e => setLevel(e.target.value as LangLevel)}
-          className="px-2 h-9 bg-bg-elevated border border-border-default rounded-md text-body text-text-1 transition-colors focus:border-accent/50 outline-none cursor-pointer"
+          aria-label="Proficiency"
+          className="input w-auto px-2 cursor-pointer"
         >
           {LANGUAGE_LEVELS.map(l => (
             <option key={l} value={l}>{l}</option>
           ))}
         </select>
-        <button
+        <Button
+          tone="secondary"
           onClick={add}
           disabled={!name.trim()}
-          className="flex items-center gap-1 px-3 h-9 bg-accent/15 border border-accent/30 text-accent-text text-label rounded-md hover:bg-accent/25 disabled:opacity-40 transition-colors"
+          icon={<Plus size={13} aria-hidden="true" />}
         >
-          <Plus size={12} />
           Add
-        </button>
+        </Button>
       </div>
     </div>
   )

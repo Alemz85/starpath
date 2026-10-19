@@ -95,16 +95,16 @@ export function ChatTranscript({
         {empty ? (
           <div className="pt-10">
             <EmptyState
-              title="Ask about your search."
-              hint="Answers are read live from your own pipeline, reports, and trackers — not from a summary."
+              title="Ask about your search"
+              hint="Answers are read live from your own pipeline, reports and trackers, not from a summary."
             />
-            <div className="mt-6 flex flex-col items-center gap-2">
+            <div className="mt-2 flex flex-col items-center gap-2">
               {SUGGESTIONS.map(prompt => (
                 <button
                   key={prompt}
                   type="button"
                   onClick={() => onSuggestion(prompt)}
-                  className="suggestion-chip inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-dashed border-border-strong text-text-3 text-label hover:border-accent/50 hover:text-accent-text hover:bg-accent/10 active:scale-95 transition-all duration-150"
+                  className="suggestion-chip chip chip-md cursor-pointer text-text-2 hover:border-border-strong hover:text-text-1 transition-colors duration-150 ease-quart focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                 >
                   {prompt}
                 </button>
@@ -170,7 +170,7 @@ export function ChatTranscript({
 function UserTurn({ content }: { content: string }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[85%] px-3.5 py-2.5 rounded-lg bg-accent/10 border border-accent/20 text-body text-text-2 whitespace-pre-wrap selectable">
+      <div className="max-w-[70%] px-3 py-2 rounded-lg bg-bg-elevated text-body text-text-1 whitespace-pre-wrap selectable">
         {content}
       </div>
     </div>
@@ -212,7 +212,7 @@ function AssistantTurn({
       {segments.map((segment, index) => {
         if (segment.kind === 'markdown') {
           return (
-            <div key={`md-${index}`} className="prose-report">
+            <div key={`md-${index}`} className="prose-report max-w-[72ch]">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{segment.text}</ReactMarkdown>
               {streaming && index === lastIndex && (
                 <span
@@ -267,11 +267,11 @@ function WorkLog({ runtime }: { runtime: ChatRuntimeSnapshot }) {
         aria-expanded={open}
         className="inline-flex items-center gap-1.5 max-w-full hover:text-text-2 transition-colors duration-200 ease-quart"
       >
-        <Terminal size={11} className="shrink-0" aria-hidden />
+        <Terminal size={12} className="shrink-0" aria-hidden />
         <span className="truncate font-mono">{latest.label}</span>
         <span className="shrink-0 text-text-4 tabular-nums">{entries.length}</span>
         <ChevronRight
-          size={11}
+          size={12}
           className={cn('shrink-0 transition-transform duration-200 ease-quart', open && 'rotate-90')}
           aria-hidden
         />

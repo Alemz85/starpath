@@ -176,7 +176,7 @@ const Orbiter = memo(({
       {config.content}
       {hover && (
         <span
-          className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-1 rounded-md bg-galaxy-matte text-white text-[10px] tracking-tight whitespace-nowrap pointer-events-none"
+          className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-galaxy-matte text-white text-micro font-normal whitespace-nowrap pointer-events-none"
           style={{ boxShadow: '0 4px 12px rgba(10, 8, 32, 0.30)' }}
         >
           {config.label}

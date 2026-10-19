@@ -1,7 +1,6 @@
 'use client'
 
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Keyboard } from 'lucide-react'
 import { useNavStore } from '@/store/nav'
 import {
   reduceChord,
@@ -83,28 +82,23 @@ export function ShortcutsOverlay() {
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="w-[460px] rounded-xl bg-bg-panel border border-border-strong shadow-lift overflow-hidden"
+        className="w-[460px] rounded-xl bg-bg-base border border-border-default shadow-lift overflow-hidden"
       >
-        <div className="px-5 pt-5 pb-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-accent/10 border border-accent/30 flex items-center justify-center shrink-0">
-            <Keyboard size={18} className="text-accent" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-[15px] font-semibold text-text-1 leading-tight">Keyboard shortcuts</h3>
-            <p className="text-[12.5px] text-text-3 mt-1 leading-relaxed">
-              Jump anywhere without the mouse. Press <Kbd>?</Kbd> any time to reopen this.
-            </p>
-          </div>
+        <div className="px-5 pt-4 pb-3 border-b border-border-default">
+          <h3 className="text-title text-text-1">Keyboard shortcuts</h3>
+          <p className="text-label text-text-3 mt-1">
+            Jump anywhere without the mouse. Press <Kbd>?</Kbd> any time to reopen this.
+          </p>
         </div>
 
-        <div className="px-5 pb-2">
+        <div className="px-5 py-2">
           {shortcutGroups().map(group => (
             <div key={group.heading} className="py-2">
-              <div className="text-micro text-text-4 uppercase mb-1.5">{group.heading}</div>
+              <div className="label mb-1">{group.heading}</div>
               <div className="flex flex-col">
                 {group.rows.map(row => (
-                  <div key={row.label} className="flex items-center justify-between gap-4 py-1.5">
-                    <span className="text-label text-text-2 min-w-0 truncate">{row.label}</span>
+                  <div key={row.label} className="flex items-center justify-between gap-4 h-8">
+                    <span className="text-body text-text-2 min-w-0 truncate">{row.label}</span>
                     <KeyHint row={row} />
                   </div>
                 ))}
@@ -113,9 +107,9 @@ export function ShortcutsOverlay() {
           ))}
         </div>
 
-        <div className="px-5 py-3 bg-bg-chrome border-t border-border-default">
-          <p className="text-micro text-text-4">
-            <Kbd>Esc</Kbd> <span className="ml-1.5">to close</span>
+        <div className="px-5 py-2.5 bg-bg-elevated/60 border-t border-border-default">
+          <p className="text-label text-text-4 flex items-center gap-1.5">
+            <Kbd>Esc</Kbd> to close
           </p>
         </div>
       </div>
@@ -123,13 +117,9 @@ export function ShortcutsOverlay() {
   )
 }
 
-// A single key chip, matching the ⌘K palette's ESC hint styling.
+// A single key chip — the shared `.kbd` class, same as the ⌘K palette's Esc hint.
 function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="text-[10px] text-text-4 bg-bg-elevated border border-border-default rounded px-1.5 py-0.5">
-      {children}
-    </kbd>
-  )
+  return <kbd className="kbd">{children}</kbd>
 }
 
 // Renders a row's key hint: chips joined by a faint "then" (sequential chord)
@@ -140,7 +130,7 @@ function KeyHint({ row }: { row: ShortcutRow }) {
     <span className="flex items-center gap-1 shrink-0">
       {row.keys.map((key, i) => (
         <Fragment key={i}>
-          {i > 0 && <span className="text-micro text-text-4">{sep}</span>}
+          {i > 0 && <span className="text-label text-text-4">{sep}</span>}
           <Kbd>{key}</Kbd>
         </Fragment>
       ))}

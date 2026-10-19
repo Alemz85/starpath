@@ -1,8 +1,9 @@
 'use client'
 
-import { Check, ExternalLink, FilePlus2, Loader2, RotateCcw, Tag } from 'lucide-react'
+import { Check, ExternalLink, FilePlus2, RotateCcw, Tag } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ipc } from '@/lib/ipc'
+import { Button, Chip } from '@/components/ui'
 import { describeProposal } from '@/lib/chat/proposals'
 import type { ChatProposal } from '@/lib/chat/proposals'
 import type { ChatProposalDecision } from '@/lib/chat/types'
@@ -53,28 +54,24 @@ export function ChatProposalCard({
   return (
     <div
       className={cn(
-        'rounded-md border bg-bg-base px-3.5 py-3 transition-colors duration-200 ease-quart',
-        decision?.status === 'applied'
-          ? 'border-success/30'
-          : resolved
-            ? 'border-border-default'
-            : 'border-border-strong shadow-subtle',
+        'card p-3 transition-colors duration-150 ease-quart',
+        decision?.status === 'applied' && 'border-success/30',
       )}
     >
-      <div className="flex items-center gap-1.5 text-micro uppercase tracking-wider text-text-4">
-        <Icon size={11} className="shrink-0" aria-hidden />
+      <div className="flex items-center gap-1.5 text-label text-text-3">
+        <Icon size={12} className="shrink-0" aria-hidden />
         {summary.kindLabel}
       </div>
 
-      <p className={cn('mt-1 text-body font-medium', resolved ? 'text-text-3' : 'text-text-1')}>
+      <p className={cn('mt-1 text-[13px] font-medium', resolved ? 'text-text-3' : 'text-text-1')}>
         {summary.subject}
       </p>
 
-      <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+      <dl className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
         {summary.changes.map(change => (
           <div key={change.label} className="flex items-baseline gap-1.5 min-w-0">
-            <dt className="text-micro text-text-4 shrink-0">{change.label}</dt>
-            <dd className="text-label text-text-2 truncate" title={change.value}>{change.value}</dd>
+            <dt className="text-label text-text-4 shrink-0">{change.label}</dt>
+            <dd className="text-label text-text-3 truncate" title={change.value}>{change.value}</dd>
           </div>
         ))}
       </dl>
@@ -83,9 +80,9 @@ export function ChatProposalCard({
         <button
           type="button"
           onClick={() => void ipc.openExternal(proposal.url!)}
-          className="mt-2 inline-flex items-center gap-1 max-w-full text-label text-text-3 hover:text-accent-text transition-colors duration-200 ease-quart"
+          className="mt-1.5 inline-flex items-center gap-1 max-w-full rounded text-label text-text-3 hover:text-accent-text transition-colors duration-150 ease-quart"
         >
-          <ExternalLink size={11} className="shrink-0" aria-hidden />
+          <ExternalLink size={12} className="shrink-0" aria-hidden />
           <span className="truncate">{proposal.url}</span>
         </button>
       )}
@@ -99,27 +96,19 @@ export function ChatProposalCard({
               <p role="alert" className="mb-2 text-label text-danger">{error}</p>
             )}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+              <Button
+                tone="primary"
+                size="sm"
                 onClick={onConfirm}
                 disabled={disabled}
-                className="inline-flex items-center gap-1.5 rounded-pill border-2 border-accent/40 bg-accent/10 px-3 py-1 text-[12px] text-accent hover:bg-accent/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ease-quart"
+                loading={applying}
+                icon={error ? <RotateCcw size={12} aria-hidden /> : <Check size={12} aria-hidden />}
               >
-                {applying
-                  ? <Loader2 size={12} className="animate-spin" aria-hidden />
-                  : error
-                    ? <RotateCcw size={12} aria-hidden />
-                    : <Check size={12} aria-hidden />}
                 {applying ? 'Applying…' : error ? 'Retry' : 'Confirm'}
-              </button>
-              <button
-                type="button"
-                onClick={onDismiss}
-                disabled={disabled}
-                className="rounded-pill border border-border-strong px-3 py-1 text-[12px] text-text-3 hover:bg-bg-elevated disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 ease-quart"
-              >
+              </Button>
+              <Button tone="ghost" size="sm" onClick={onDismiss} disabled={disabled}>
                 Dismiss
-              </button>
+              </Button>
               {lock && !busy && (
                 <span className="text-label text-text-4">{LOCK_HINT[lock]}</span>
               )}
@@ -145,17 +134,13 @@ function ResolvedChip({ decision, appliedLabel }: {
   const applied = decision.status === 'applied'
   const at = formatDecidedAt(decision.at)
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-pill border px-2.5 py-0.5 text-micro',
-        applied
-          ? 'border-success/40 bg-success/10 text-success'
-          : 'border-border-default bg-bg-elevated text-text-3',
-      )}
+    <Chip
+      tone={applied ? 'success' : 'muted'}
+      size="md"
+      icon={applied ? <Check size={12} aria-hidden /> : undefined}
     >
-      {applied && <Check size={11} aria-hidden />}
       {applied ? appliedLabel : 'Dismissed'}
-      {at && <span className="text-text-4 tabular-nums">· {at}</span>}
-    </span>
+      {at && <span className="text-text-4 font-normal tabular-nums">· {at}</span>}
+    </Chip>
   )
 }

@@ -55,53 +55,56 @@ export function AddOfferMenu({ roles, usedKeys, onPickRole, onAddBlank }: AddOff
   return (
     <div className="relative" ref={ref}>
       <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-accent text-white text-[13px] font-medium hover:bg-accent-hover transition-colors shadow-sm"
+        className="btn btn-primary btn-sm titlebar-no-drag"
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        <Plus size={14} />
+        <Plus size={13} aria-hidden />
         Add offer
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-[340px] z-30 rounded-xl border border-border-strong bg-bg-base shadow-cosmos-lift overflow-hidden">
+        <div className="absolute right-0 mt-1.5 w-[360px] z-30 card rounded-lg shadow-menu overflow-hidden text-left">
           {/* Blank-offer path */}
-          <button
-            onClick={() => {
-              onAddBlank()
-              setOpen(false)
-            }}
-            className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left border-b border-border-default hover:bg-bg-elevated transition-colors"
-          >
-            <FilePlus2 size={15} className="text-accent shrink-0" />
-            <div className="min-w-0">
-              <div className="text-body text-text-1">Blank offer</div>
-              <div className="text-[11px] text-text-4">Enter all six factor scores by hand</div>
-            </div>
-          </button>
+          <div className="p-1 border-b border-border-default">
+            <button
+              type="button"
+              onClick={() => {
+                onAddBlank()
+                setOpen(false)
+              }}
+              className="w-full h-8 flex items-center gap-2 px-2 rounded text-left hover:bg-bg-elevated transition-colors duration-150 ease-quart"
+            >
+              <FilePlus2 size={14} className="text-text-3 shrink-0" aria-hidden />
+              <span className="text-body text-text-1 shrink-0">Blank offer</span>
+              <span className="text-label text-text-4 truncate">Score all six factors by hand</span>
+            </button>
+          </div>
 
           {roles.length > 0 && (
             <>
-              <div className="flex items-center gap-2 px-3.5 py-2 border-b border-border-default">
-                <Search size={13} className="text-text-4 shrink-0" />
+              <div className="flex items-center gap-2 h-9 px-3 border-b border-border-default">
+                <Search size={14} className="text-text-3 shrink-0" aria-hidden />
                 <input
                   ref={inputRef}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Prefill from an evaluated role…"
-                  className="flex-1 bg-transparent outline-none text-label text-text-1 placeholder:text-text-4"
+                  className="flex-1 bg-transparent outline-none text-body text-text-1 placeholder:text-text-4"
                   spellCheck={false}
                 />
               </div>
-              <div className="max-h-72 overflow-y-auto py-1">
+              <div className="max-h-72 overflow-y-auto p-1">
                 {filtered.length === 0 ? (
-                  <div className="px-3.5 py-4 text-center text-label text-text-4">No matching roles.</div>
+                  <div className="px-3 py-4 text-center text-label text-text-4">No matching roles.</div>
                 ) : (
                   filtered.map((r) => {
                     const used = usedKeys.has(r.key)
                     return (
                       <button
+                        type="button"
                         key={r.key}
                         disabled={used}
                         onClick={() => {
@@ -109,17 +112,17 @@ export function AddOfferMenu({ roles, usedKeys, onPickRole, onAddBlank }: AddOff
                           setOpen(false)
                         }}
                         className={cn(
-                          'w-full flex items-center gap-2.5 px-3.5 py-2 text-left transition-colors',
+                          'w-full h-8 flex items-center gap-2.5 px-2 rounded text-left transition-colors duration-150 ease-quart',
                           used ? 'opacity-50 cursor-not-allowed' : 'hover:bg-bg-elevated',
                         )}
                         title={used ? 'Already in this comparison' : `Prefill ${r.company} — ${r.role}`}
                       >
-                        <WantEase want={r.want} ease={r.ease} className="shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <div className="text-body text-text-1 truncate">{r.company}</div>
-                          <div className="text-[11px] text-text-4 truncate">{r.role || '—'}</div>
-                        </div>
-                        {used && <Check size={13} className="text-success shrink-0" />}
+                        <WantEase want={r.want} ease={r.ease} size="sm" className="shrink-0" />
+                        <span className="min-w-0 flex-1 flex items-baseline gap-1.5">
+                          <span className="text-body text-text-1 truncate shrink-0 max-w-[55%]">{r.company}</span>
+                          <span className="text-label text-text-4 truncate">{r.role || '—'}</span>
+                        </span>
+                        {used && <Check size={13} className="text-success shrink-0" aria-hidden />}
                       </button>
                     )
                   })

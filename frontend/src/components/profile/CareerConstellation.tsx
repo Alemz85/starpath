@@ -17,6 +17,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { OrbitingSystem, type OrbiterConfig } from '@/components/ui/orbiting'
+import { SectionHeading } from '@/components/ui'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { scoreColor } from '@/lib/tier'
 import { priorityOf } from '@/lib/scoreBands'
@@ -92,29 +93,27 @@ export function CareerConstellation({ initials }: Props) {
 
   const outerOrbit: OrbiterConfig[] = archetypes.map((a, i) => ({
     id: `a-${a.name}`,
-    size: 70,
+    size: 72,
     glow: scoreColor(a.avg),
     phase: (i * 2 * Math.PI) / Math.max(archetypes.length, 1),
     label: `${a.name} · ${a.count} ${a.count === 1 ? 'eval' : 'evals'}${a.avg > 0 ? ` · avg ${a.avg.toFixed(1)}` : ''}`,
     onClick: () => navigate('database', `archetype:${a.name}`),
     content: (
-      <span className="text-[9.5px] text-text-2 font-medium tracking-tight px-2 leading-[1.15] text-center">
+      <span className="text-micro text-text-2 px-1.5 leading-tight text-center" title={a.name}>
         {shortLabel(a.name)}
       </span>
     ),
   }))
 
   return (
-    <div className="relative rounded-xl bg-bg-panel border border-border-default overflow-hidden">
-      <div className="flex items-baseline justify-between px-4 pt-3 pb-1">
-        <span className="text-[10.5px] text-text-3 uppercase tracking-[0.08em] font-semibold">
-          Your career constellation
-        </span>
-        <span className="text-micro text-text-4">
-          {companies.length} {companies.length === 1 ? 'company' : 'companies'} · {archetypes.length} {archetypes.length === 1 ? 'archetype' : 'archetypes'}
-        </span>
-      </div>
-      <div className="relative flex items-center justify-center py-6">
+    <section className="card relative overflow-hidden" aria-label="Career constellation">
+      <SectionHeading
+        title="Career constellation"
+        meta={`${companies.length} ${companies.length === 1 ? 'company' : 'companies'} · ${archetypes.length} ${archetypes.length === 1 ? 'archetype' : 'archetypes'}`}
+        rule={false}
+        className="px-4 pt-3"
+      />
+      <div className="relative flex items-center justify-center pb-5">
         {/* Soft galaxy wash behind the orbit — accent radial that fades
             so the rings sit on a tinted surface rather than flat panel */}
         <div
@@ -133,22 +132,31 @@ export function CareerConstellation({ initials }: Props) {
           innerSpeed={0.20}
           outerSpeed={-0.12}
           center={(
-            <div className="relative">
-              <div className="absolute inset-0 rounded-full bg-accent/35 blur-md scale-110" />
-              <div className="relative w-[60px] h-[60px] rounded-full bg-gradient-to-br from-accent via-accent-hover to-accent-press flex items-center justify-center text-white font-semibold text-[18px] shadow-lift">
-                {initials}
-              </div>
+            <div className="w-[60px] h-[60px] rounded-full bg-accent flex items-center justify-center text-white text-page select-none">
+              {initials}
             </div>
           )}
         />
       </div>
-    </div>
+    </section>
   )
 }
 
+// Orbit-node label: the archetype's first segment ("Rotational / Graduate /
+// Early-Careers Program" → "Rotational"), kept to whole words within 14
+// characters so it fits the 72px node. The full name rides on `title` and
+// on the orbiter's hover label.
+const SHORT_LABEL_MAX = 14
+
 function shortLabel(name: string): string {
-  if (name.length <= 16) return name
-  // Drop trailing parenthetical or trailing words past the first 16 chars
-  const trimmed = name.slice(0, 15).replace(/\s+\S*$/, '')
-  return `${trimmed}…`
+  const head = name.split('/')[0].trim() || name.trim()
+  if (head.length <= SHORT_LABEL_MAX) return head
+  const words = head.split(/\s+/)
+  let out = ''
+  for (const w of words) {
+    const next = out ? `${out} ${w}` : w
+    if (next.length > SHORT_LABEL_MAX) break
+    out = next
+  }
+  return out || `${head.slice(0, SHORT_LABEL_MAX - 1)}…`
 }

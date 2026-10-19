@@ -1,94 +1,59 @@
-// Tier and score-color source of truth.
+// Tier and score-colour source of truth.
 //
-// The values mirror the `tier-1`…`tier-4` Tailwind tokens (see
-// `tailwind.config.ts`) and the documented galaxy-violet tier scale in
-// `DESIGN-meta.md` § Color Palette / Tier scale. SVG attributes and
-// inline styles can't reference Tailwind tokens directly, so this module
-// exposes the same hexes as constants.
+// One ordinal ladder serves both tier chips and floating score numbers: the
+// deeper the violet, the stronger the fit. Values mirror the `tier-*` tokens in
+// tailwind.config.ts; SVG attributes and inline styles can't reach Tailwind
+// tokens, so the hexes live here too.
 //
-// `TIER_HEX` (this file) ≠ `TIER_COLORS` from `@/types` — the latter is
-// a chip class map (bg/text/border tailwind classes) and stays the
-// source of truth for tier chips; this file owns the raw hexes for SVG
-// strokes / inline `style` props / canvas-confetti palettes.
+// `TIER_HEX` (this file) ≠ `TIER_COLORS` from `@/types` — the latter is a chip
+// class map; this file owns the raw hexes for SVG strokes / inline styles.
 
 import type { TierKey, Verdict } from '@/types'
-import { TIER_COLORS } from '@/types'
-import { VERDICT_ACTIONS, VERDICT_LABELS, VERDICT_TIER } from './scoreBands'
+import { normalizeVerdict, VERDICT_ACTIONS, VERDICT_LABELS, VERDICT_TIER } from './scoreBands'
 export type { TierKey }
 
 export const TIER_HEX: Record<TierKey, string> = {
-  T1:        '#3D2BB5', // tier-1 — deep galaxy indigo
-  T2:        '#7C5CFF', // tier-2 — galaxy violet (matches accent)
-  T3:        '#A89CD9', // tier-3 — muted lavender
-  T4:        '#94A3B8', // tier-4 — faded slate
+  T1:        '#3D2BB5', // deep galaxy indigo — strongest
+  T2:        '#7C5CFF', // galaxy violet (matches accent)
+  T3:        '#8B7FC2', // muted lavender
+  T4:        '#94A3B8', // faded slate
 }
 
-// Lighter companion for each tier — used for gradient strokes / fills
-// where the dial or bar needs depth without leaving the tier hue.
+// Lighter companion per tier for gradient strokes / halos.
 export const TIER_HEX_LIGHT: Record<TierKey, string> = {
-  T1:        '#7C5CFF', // tier-2 (T1 dial fades into the brand violet)
-  T2:        '#B5A3FF', // accent-light
+  T1:        '#7C5CFF',
+  T2:        '#B5A3FF',
   T3:        '#C8BEEC',
   T4:        '#C9D2DD',
 }
 
 export const TIER_BG_HEX: Partial<Record<TierKey, string>> = {
-  T1: '#EFEAFF', // tier-1-bg
-  T2: '#F1ECFF', // tier-2-bg
-  T3: '#F4F1FA', // tier-3-bg
+  T1: '#EFEAFF',
+  T2: '#F1ECFF',
+  T3: '#F4F1FA',
+  T4: '#F1F4F7',
 }
 
-// Numeric score → display color. Used everywhere a single number needs
-// a galaxy color — in scoring v2 that is the Want and the Ease numbers
-// (Database Want · Ease pair, slide-over hero, Reports list, Trends). Each
-// number is coloured on its own; Priority is never rendered as a coloured
-// headline (docs/scoring-v2.md §5).
-//
-// Why this diverges from TIER_HEX directly: tier chips are a 4-state
-// discrete badge (T1/T2/T3/T4) where the lavender (#A89CD9) reads fine
-// because it sits inside `tier-3-bg #F4F1FA` with a "T3" label — chip
-// context tells you it's a tier marker. A floating score number on a
-// table cell has none of that context, so re-using the lavender there
-// made every 5–7 score look like a washed-out purple. Score colors
-// also differ from the chart palette — that one is *categorical*
-// (different series), this one is *ordinal* (magnitude). Rainbow-
-// encoding ordinal data is the classic bad-viz mistake; every band
-// here either runs cool (high) or fades neutral (low) so the eye can
-// always sort scores by hue saturation.
-//
-// 5 bands matched to `_shared.md` § Score interpretation:
-//   ≥ 9.0 → aurora teal (chart-3)   — Strong match; "stellar" tier
-//   ≥ 8.0 → deep galaxy indigo      — Good match; salient brand-deep
-//   ≥ 7.0 → galaxy violet           — Decent match; brand anchor at the apply threshold
-//   ≥ 5.0 → text-3 slate gray       — Below threshold; reads as "data, not hierarchy"
-//   <  5.0 → T4 faded slate          — Sub-floor; fully receded
-//
-// Aurora teal at the top is the only non-violet hue here. It earns
-// the slot because (a) it's the documented "cool counterpart" of
-// galaxy violet in the data-viz palette so it stays in the cosmic
-// family, (b) it breaks the all-violet monotone exactly where it's
-// rare and deserved (≥9.0 scores are uncommon — averaging across the
-// `data/scouting.md` corpus they're <10% of evaluations), and (c)
-// teal reads as "premium / exceptional" in adjacent design systems
-// (Stripe, GitHub Sponsor) without crossing into warm "warning" hues.
+// Numeric score → display colour. Scoring v2 colours the Want and the Ease
+// numbers each on their own with this ladder (Priority is never coloured as a
+// headline, docs/scoring-v2.md §5). One hue, so the eye sorts by depth, never
+// by category:
+//   ≥ 8.0 → deep indigo   (Strong / Stellar — apply)
+//   ≥ 7.0 → galaxy violet (Decent — apply if the pipeline is thin)
+//   ≥ 5.0 → slate         (below the apply threshold)
+//   <  5.0 → faded slate  (sub-floor)
 export function scoreColor(v: number): string {
-  if (v >= 9)   return '#2EB8A8'      // aurora teal (chart-3) — stellar
-  if (v >= 8)   return TIER_HEX.T1    // #3D2BB5 — deep galaxy indigo
-  if (v >= 7)   return TIER_HEX.T2    // #7C5CFF — galaxy violet (brand anchor)
-  if (v >= 5)   return '#5D6C7B'      // text-3 slate gray — below threshold
-  return '#94A3B8'                     // T4 faded slate — sub-floor
+  if (v >= 8)   return TIER_HEX.T1
+  if (v >= 7)   return TIER_HEX.T2
+  if (v >= 5)   return '#5D6C7B'
+  return '#94A3B8'
 }
 
-// Companion to scoreColor — returns the lighter tone used for gradient
-// strokes / fills (dial rim, orbit halo, bar fade). Each band's "light"
-// hue is the next band's "dark" hue (mostly), so when scores are laid
-// out in order the colour flow stays continuous.
 export function scoreColorLight(v: number): string {
-  if (v >= 9)   return TIER_HEX.T1          // teal fades into brand-deep indigo
-  if (v >= 8)   return TIER_HEX_LIGHT.T1    // #7C5CFF — fades into brand violet
-  if (v >= 7)   return TIER_HEX_LIGHT.T2    // #B5A3FF — accent-light
-  if (v >= 5)   return '#94A3B8'            // T4 base — slate's "halo"
-  return '#CED0D4'                           // border-strong — full fade-out
+  if (v >= 8)   return TIER_HEX_LIGHT.T1
+  if (v >= 7)   return TIER_HEX_LIGHT.T2
+  if (v >= 5)   return '#94A3B8'
+  return '#CED0D4'
 }
 
 export function tierHex(tier: TierKey | string | undefined | null): string {
@@ -99,44 +64,26 @@ export function tierHex(tier: TierKey | string | undefined | null): string {
   return TIER_HEX.T4
 }
 
-// Neutral fallback for non-numeric / missing scores. Matches `text-3`
-// (Slate Gray) so the cell reads as "secondary metadata" rather than a
-// muted-disabled state.
-export const NEUTRAL_SCORE_COLOR = '#5D6C7B' // text-3
-
-// ─── Verdict display (scoring v2) ────────────────────────────────────────────
-//
-// The ONE place a verdict key becomes copy + colour. A verdict has no palette
-// of its own: it borrows its storage tier's hex / chip classes through the
-// spec's verdict → tier map (docs/scoring-v2.md §4, DESIGN-meta § Tier and
-// Status Sections). Labels and actions come from lib/scoreBands, which
-// mirrors score-bands.mjs `VERDICT_LABELS`.
-
-export interface VerdictDisplay {
-  verdict: Verdict
-  /** Short label — "Go", "Stretch", "Growth target", … */
-  label: string
-  /** The action that goes with the cell — "apply with prep", … */
-  action: string
-  /** "Stretch — apply with prep" (the report header form). */
-  headline: string
-  tier: TierKey
-  /** Tier hex for SVG / inline styles. */
-  color: string
-  /** Tier chip classes (bg / text / border). */
-  chip: { bg: string; text: string; border: string }
+// The verdict copy (scoring v2, docs/scoring-v2.md §4) — the ONE place a
+// verdict key becomes words. `short` → the label ("Stretch"); default → the
+// label with its action ("Stretch — apply with prep"). A verdict has no colour
+// of its own: use `verdictTier(v)` with the tier tokens / TierChip.
+export function tierVerdict(verdict: Verdict | string | null | undefined, opts: { short?: boolean } = {}): string {
+  const v = normalizeVerdict(verdict ?? '')
+  if (!v) return '—'
+  return opts.short ? VERDICT_LABELS[v] : `${VERDICT_LABELS[v]} — ${VERDICT_ACTIONS[v]}`
 }
 
-export function verdictDisplay(v: Verdict | null | undefined): VerdictDisplay | null {
-  if (!v) return null
-  const tier = VERDICT_TIER[v]
-  return {
-    verdict: v,
-    label: VERDICT_LABELS[v],
-    action: VERDICT_ACTIONS[v],
-    headline: `${VERDICT_LABELS[v]} — ${VERDICT_ACTIONS[v]}`,
-    tier,
-    color: TIER_HEX[tier],
-    chip: TIER_COLORS[tier],
-  }
+/** The storage tier a verdict maps to (its colour source). */
+export function verdictTier(verdict: Verdict | string | null | undefined): TierKey | null {
+  const v = normalizeVerdict(verdict ?? '')
+  return v ? VERDICT_TIER[v] : null
 }
+
+export function tierLabel(tier: TierKey | string | undefined | null): string {
+  if (tier === 'T1' || tier === 'T2' || tier === 'T3' || tier === 'T4') return tier
+  return '—'
+}
+
+// Neutral fallback for non-numeric / missing scores.
+export const NEUTRAL_SCORE_COLOR = '#5D6C7B'

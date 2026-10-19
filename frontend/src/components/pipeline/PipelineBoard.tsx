@@ -1,12 +1,13 @@
 'use client'
 
 import { useMemo } from 'react'
-import { ExternalLink, ChevronRight } from 'lucide-react'
+import { ExternalLink, ArrowRight } from 'lucide-react'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { Button, Chip, ScoreNumber, type ChipTone } from '@/components/ui'
 import { ipc } from '@/lib/ipc'
 import { cn, deadlineLabel, deadlineUrgency, urgencyBadge } from '@/lib/utils'
 import { STATUS_GROUPS, groupByStatus, nextStage } from '@/lib/applyingBoard'
-import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
+import type { AppStatus, ApplicationEntry } from '@/types'
 
 // The status board is the Pipeline view's second half: a compact, columnar read
 // of where every active application stands (Evaluated → Offer). It deliberately
@@ -16,6 +17,7 @@ import { STATUS_COLORS, type AppStatus, type ApplicationEntry } from '@/types'
 // uses. Bucketing + ordering is pure (lib/applyingBoard.groupByStatus); the
 // view passes in the writeback handler.
 
+// Column-header dot: the status' own semantic hue (lifecycle state).
 const COLUMN_ACCENT: Record<AppStatus, string> = {
   Evaluated: 'bg-info',
   Applied:   'bg-accent',
@@ -25,6 +27,12 @@ const COLUMN_ACCENT: Record<AppStatus, string> = {
   Rejected:  'bg-text-4',
   Discarded: 'bg-text-4',
   SKIP:      'bg-text-4',
+}
+
+// "8.1/10" → 8.1. Null when the cell holds no number.
+function scoreValue(raw: string): number | null {
+  const m = /(\d+(?:\.\d+)?)/.exec(raw ?? '')
+  return m ? Number(m[1]) : null
 }
 
 export function PipelineBoard({
@@ -39,10 +47,10 @@ export function PipelineBoard({
 
   if (activeCount === 0) {
     return (
-      <section className="flex-1 grid place-items-center rounded-lg border border-border-default bg-bg-base p-10">
+      <section className="card flex-1 grid place-items-center p-10">
         <div className="text-center max-w-[20rem]">
-          <p className="text-[13px] text-text-2 font-medium">No active applications yet</p>
-          <p className="mt-1 text-[11.5px] text-text-3 leading-snug">
+          <p className="text-section text-text-1">No active applications yet</p>
+          <p className="mt-1.5 text-label text-text-3">
             Once you apply to a listing it appears here, moving across the stages from
             Evaluated through to Offer as you progress.
           </p>
@@ -75,15 +83,19 @@ function BoardColumn({
   onAdvance: (app: ApplicationEntry, to: AppStatus) => void
 }) {
   return (
-    <div className="flex flex-col w-[15rem] shrink-0 rounded-lg bg-bg-panel/60 border border-border-default overflow-hidden">
-      <header className="flex items-center gap-2 px-2.5 h-9 border-b border-border-default shrink-0">
-        <span className={cn('w-1.5 h-1.5 rounded-full', COLUMN_ACCENT[status])} />
-        <span className="text-[11px] font-semibold text-text-2 uppercase tracking-wide">{status}</span>
-        <span className="text-[10.5px] font-mono text-text-4">{cards.length}</span>
+    <div className="card flex flex-col w-60 shrink-0 overflow-hidden">
+      <header className="flex items-center gap-2 px-3 h-9 border-b border-border-default bg-bg-elevated/60 shrink-0">
+        <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', COLUMN_ACCENT[status])} aria-hidden />
+        <span className="text-label font-medium text-text-2">{status}</span>
+        <span className="text-label text-text-4 tabular-nums">{cards.length}</span>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto p-1.5 space-y-1.5">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-2">
         {cards.length === 0
-          ? <p className="px-2 py-3 text-[10.5px] text-text-4 text-center">—</p>
+          ? (
+            <div className="rounded border border-dashed border-border-default py-5 text-center">
+              <p className="text-label text-text-4">Empty</p>
+            </div>
+          )
           : cards.map((card, i) => (
               <BoardCard
                 key={`${card.company}-${card.role}-${i}`}
@@ -107,43 +119,46 @@ function BoardCard({
   const urgency = deadlineUrgency(card.deadline)
   const badge = urgencyBadge(urgency)
   const reportUrl = reportListingUrl(card)
+  // No urgency bucket → a quiet, borderless read of the date.
+  const deadlineTone: ChipTone = badge ? (badge.color.replace('chip-', '') as ChipTone) : 'plain'
 
   return (
-    <div className="group rounded-md border border-border-default bg-bg-base px-2 py-2 hover:border-border-strong transition-colors">
+    <div className="card group p-2.5 transition-colors duration-150 hover:border-border-strong">
       <div className="flex items-start gap-2">
         <CompanyLogo company={card.company} size={20} className="shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <span className="block text-[11.5px] text-text-2 font-medium truncate leading-tight">{card.company}</span>
-          <span className="block text-[10px] text-text-4 truncate leading-tight">{card.role}</span>
+          <span className="block text-[13px] font-medium text-text-1 truncate leading-tight">{card.company}</span>
+          <span className="block text-label text-text-3 truncate mt-0.5">{card.role}</span>
         </div>
         {reportUrl && (
-          <button
+          <Button
+            tone="ghost"
+            size="xs"
+            iconOnly
             onClick={() => ipc.openExternal(reportUrl)}
             title="Open the listing"
-            className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-pill text-text-4 opacity-0 group-hover:opacity-100 hover:text-accent transition-all"
-          >
-            <ExternalLink size={10} />
-          </button>
+            aria-label="Open the listing"
+            icon={<ExternalLink size={12} />}
+            className="shrink-0 -mt-0.5 -mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          />
         )}
       </div>
 
-      <div className="mt-1.5 flex items-center gap-1.5">
-        {card.score && (
-          <span className={cn('text-[10px] font-mono', STATUS_COLORS[card.status])}>{card.score}</span>
-        )}
-        {dl && (
-          <span className={cn('text-[9.5px] font-mono px-1 rounded border', badge?.color ?? 'text-text-4 border-transparent')}>{dl}</span>
-        )}
+      <div className="mt-2 flex items-center gap-1.5 min-h-6">
+        {card.score && <ScoreNumber value={scoreValue(card.score)} size="sm" denominator />}
+        {dl && <Chip tone={deadlineTone} size="sm" title={card.deadline}>{dl}</Chip>}
         <span className="flex-1" />
         {advanceTo && (
-          <button
+          <Button
+            tone="ghost"
+            size="xs"
             onClick={() => onAdvance(card, advanceTo)}
             title={`Advance to ${advanceTo}`}
-            className="inline-flex items-center gap-0.5 px-1.5 h-5 rounded-pill text-[9.5px] text-text-4 opacity-0 group-hover:opacity-100 hover:text-accent hover:bg-accent/10 transition-all"
+            trailing={<ArrowRight size={12} />}
+            className="-mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           >
             {advanceTo}
-            <ChevronRight size={9} />
-          </button>
+          </Button>
         )}
       </div>
     </div>
