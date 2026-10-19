@@ -28,7 +28,7 @@ import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawn
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { isViewEnabled } from '@/lib/features'
-import { buildCockpitFeed } from '@/lib/todayCockpit'
+import { buildTodaySummary } from '@/lib/todayCockpit'
 import { StarpathLogo } from '@/components/shared/Logos'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import { ProfileSwitcher } from '@/components/layout/ProfileSwitcher'
@@ -102,19 +102,15 @@ export function Sidebar() {
   const pipeline = useDataStore(s => s.pipeline)
   const applications = useDataStore(s => s.applications)
   const scouting = useDataStore(s => s.scouting)
-  const liveness = useDataStore(s => s.liveness)
   const reports = useDataStore(s => s.reports)
 
   const activeCount = applications.filter(a =>
     ['Applied', 'Responded', 'Interview', 'Offer'].includes(a.status)
   ).length
 
-  // Today's badge = the number of "act now" (critical/high) items the cockpit
-  // would surface. Computed from the same aggregation lib the view uses, minus
-  // the outreach log (not loaded into the store) — so the rail count is a
-  // floor; the Today view is the exact total. Outreach nudges are a small
-  // share, so the rail still reads honestly as "you have N pressing things".
-  const todayActionable = buildCockpitFeed({ applications, scouting, liveness }).actionable
+  // Today's badge = deadlines closing within the week, from the same
+  // aggregation lib the Today view uses.
+  const todayUrgent = buildTodaySummary(applications).urgent
 
   // Outreach's badge = contacts due a nudge. The log isn't in the SQLite cache
   // (it's a contacto-mode artifact), so read it off disk and recompute whenever
@@ -137,7 +133,7 @@ export function Sidebar() {
   // on the rail that means "act now" (mirrors the cockpit's pending dot)
   // rather than "inventory size". Today shares that accent — both mean "act".
   const badges: Partial<Record<ViewId, { count: number; accent?: boolean }>> = {
-    today:    { count: todayActionable, accent: true },
+    today:    { count: todayUrgent, accent: true },
     scouting: { count: pipeline.length, accent: true },
     applying: { count: activeCount },
     outreach: { count: outreachNudges, accent: true },

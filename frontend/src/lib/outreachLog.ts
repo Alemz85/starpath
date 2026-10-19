@@ -2,24 +2,38 @@
 //
 // The backend `contacto` mode appends touch rows to data/outreach.md; the
 // backend scripts/outreach-cadence.mjs owns the canonical cadence math for the
-// CLI. The Today cockpit needs the same classification at render time without
+// CLI. The Outreach lens needs the same classification at render time without
 // shelling out, so this module re-implements the *parse + collapse + classify*
 // pipeline as pure TypeScript against the identical table schema.
 //
 // Kept deliberately small and faithful to the backend contract:
 //   table schema: | # | Date | Company | Role | Contact | Title | Channel | Touch | Outcome | Notes |
 // If the file is absent (the common case until the user logs outreach) the
-// parser returns [] and the cockpit simply shows no outreach items.
+// parser returns [] and the lens simply shows no contacts.
 //
 // Pure: no I/O, injectable `now`. The view reads the file via ipc and feeds the
 // raw string here.
 
-import type { OutreachCadenceEntry } from './todayCockpit'
+// One contact's collapsed cadence record — what classifyOutreachLog() emits
+// and the Outreach / Network lenses render. Mirrors the backend
+// outreach-cadence collapse step; the cadence verdict is used verbatim.
+export interface OutreachCadenceEntry {
+  company: string
+  contact: string
+  role?: string
+  channel?: string
+  /** YYYY-MM-DD of the most recent touch. */
+  lastTouch?: string
+  daysSince?: number | null
+  /** The cadence verdict — only 'nudge' means "act now". */
+  action: 'nudge' | 'waiting' | 'cold' | 'done' | string
+  reason?: string
+}
 
 const DAY_MS = 1000 * 60 * 60 * 24
 
 // First-nudge / subsequent windows (days) and touch ceilings per channel
-// family — mirror scripts/outreach-core.mjs § CADENCE so the cockpit and the
+// family — mirror scripts/outreach-core.mjs § CADENCE so the lens and the
 // CLI agree on when a nudge is due.
 const CADENCE = {
   connection_first: 7,
@@ -127,7 +141,7 @@ function parseDate(s: string): Date | null {
 
 // Classify a collapsed contact to a cadence action — faithful port of
 // classifyContact() in outreach-core.mjs. Returns the subset of fields the
-// cockpit consumes.
+// Outreach lens consumes.
 function classify(
   c: { company: string; role: string; contact: string; channel: string; lastTouch: string; touches: number; outcome: string },
   now: Date,
@@ -168,7 +182,7 @@ function classify(
   return { ...base, action: 'waiting', reason: 'On track' }
 }
 
-// Parse the raw outreach.md → classified cadence entries the cockpit consumes.
+// Parse the raw outreach.md → classified cadence entries the Outreach lens consumes.
 // Pure; `now` injectable for tests.
 export function classifyOutreachLog(content: string | null, now: Date = new Date()): OutreachCadenceEntry[] {
   return collapse(parseOutreachLog(content)).map(c => classify(c, now))

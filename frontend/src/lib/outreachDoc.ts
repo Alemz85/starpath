@@ -17,14 +17,13 @@
 // code in the renderer (it writes the user's on-disk log) stays trivially
 // testable, free of zustand/ipc/React.
 //
-// The Outreach view also needs a richer per-contact record than the Today
-// cockpit's `OutreachCadenceEntry` (which carries only what the feed renders).
+// The Outreach view also needs a richer per-contact record than the lean
+// `OutreachCadenceEntry` from outreachLog.ts.
 // `buildOutreachBoard` produces the full collapsed+classified list — touch
 // count, title, notes, last outcome, cadence verdict — by reusing the same
 // parser and the same cadence math.
 
-import { parseOutreachLog, classifyOutreachLog, type OutreachTouch } from './outreachLog'
-import type { OutreachCadenceEntry } from './todayCockpit'
+import { parseOutreachLog, classifyOutreachLog, type OutreachTouch, type OutreachCadenceEntry } from './outreachLog'
 
 // Canonical column order — keep in lock-step with the schema documented in
 // scripts/outreach-cadence.mjs and the parser in outreachLog.ts.
