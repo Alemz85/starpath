@@ -2,7 +2,7 @@
 
 ---
 
-## 🔒 PII scrub from git history — DONE 2026-07-07
+## 🔒 PII scrub from git history — DONE 2026-07-07, second pass 2026-10-19
 
 Repo was made **private** (2026-06-25) after a leak — the user's phone number
 + school/grad-date were committed into (then-public) history. Resolved on
@@ -10,6 +10,14 @@ Repo was made **private** (2026-06-25) after a leak — the user's phone number
 `data/dedup-index.tsv` and `batch/scouting-additions/merged/` purged from all
 commits) and force-pushed; the four release DMGs (v0.1.0–v0.2.2), whose app
 bundles embedded the phone as a form placeholder, had their assets deleted.
+
+Second pass 2026-10-19: the first rewrite missed the user's school, capstone,
+employer and start date in the CLAUDE.md/AGENTS.md anti-pattern examples, old
+`modes/` worked examples and hygiene-guard comments, plus the phone and grad
+date quoted in three commit messages. Rewritten with `git filter-branch`
+(index + message filters), `main` and all five tags force-pushed. The guard now
+also scans AGENTS.md, and `data/`, `user/`, `interview-prep/` are gitignored
+wholesale (fail-closed).
 
 Remaining follow-ups:
 - Ask GitHub Support to purge cached views of the old (pre-rewrite) commit SHAs.

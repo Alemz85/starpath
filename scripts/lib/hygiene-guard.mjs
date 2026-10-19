@@ -297,7 +297,7 @@ const SYSTEM_LAYER_DIRS = [
 // had a blind spot for exactly the files most likely to accrete worked examples
 // with the user's real data. Glob-what-exists: only files present are scanned.
 const SYSTEM_LAYER_ROOT_FILES = [
-  'CLAUDE.md', 'README.md', 'TODO.md', 'DATA_CONTRACT.md',
+  'CLAUDE.md', 'AGENTS.md', 'README.md', 'TODO.md', 'DATA_CONTRACT.md',
   'DESIGN-meta.md', 'STRUCTURE.md', 'CONTEXT.md',
 ];
 

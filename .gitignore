@@ -1,16 +1,17 @@
-# Personal data (user fills these)
-data/applications.md
-data/pipeline.md
-data/scan-history.tsv
-data/scouting.md
-data/score-history.tsv
-data/comp-cache.tsv
-data/report-summaries.tsv
-data/dedup-index.tsv
-# Agent issue log — operational self-reports, shared across profiles (not a profile symlink)
-data/agent-log.tsv
-# Session handoff log — conversational thread state, shared across profiles (not a profile symlink)
-data/session-handoff.md
+# Personal data — whole folders, fail-closed: any file added under data/,
+# user/ or interview-prep/ stays local unless re-included below. The repo is
+# public, so personal files must never depend on being listed one by one.
+# Tracked exceptions: .gitkeep placeholders and the two public-reference
+# caches (numbeo cost-of-living + tax-rate lookups, no personal data).
+data/*
+!data/.gitkeep
+!data/col-cache.tsv
+!data/tax-cache.tsv
+!data/companies/
+data/companies/*
+!data/companies/.gitkeep
+# (data/ includes trackers, scan/score history, contacts — network.md,
+# outreach.md, follow-ups.md — the agent issue log and session handoff.)
 # All reports content is per-profile personal data; only the tracked
 # reports/.gitkeep survives (the six content subdirs are profile symlinks
 # managed by scripts/profile.mjs).
@@ -22,8 +23,8 @@ reports/*
 profiles/
 
 # Interview prep (personal)
-interview-prep/*.md
-interview-prep/**/*.md
+interview-prep/*
+!interview-prep/.gitkeep
 output/*
 !output/.gitkeep
 batch/logs/*
@@ -40,12 +41,9 @@ batch/scouting-additions/merged/
 jds/*
 !jds/.gitkeep
 
-# User config and customization (never auto-updated)
-user/profile.yml
-user/portals.yml
-user/_profile.md
-user/cv.md
-user/article-digest.md
+# User config and customization (never auto-updated) — CV, profile, portals
+user/*
+!user/.gitkeep
 .update-dismissed
 .update-lock
 
