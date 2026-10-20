@@ -55,18 +55,6 @@ const UNTRUSTED_MARKER = /Untrusted content/
 
 /** file → why it has no marker yet. Empty it as the rule lands. */
 const PENDING_RULE = {
-  'modes/scan.md': 'sends the agent to Playwright, WebFetch and WebSearch for career pages',
-  'modes/pipeline.md': 'verifies postings with Playwright and WebFetch, researches with WebSearch',
-  'modes/chat.md': 'lets chat call WebFetch and WebSearch',
-  'modes/deep.md': 'company research through WebSearch and WebFetch',
-  'modes/training.md': 'course research through WebSearch and WebFetch',
-  'modes/apply.md': 'drives the live application form with Playwright',
-  'modes/deadlines.md': 'checks posting pages with Playwright, WebFetch and WebSearch',
-  'modes/scouting.md': 'market and comp research through WebSearch',
-  'modes/contacto.md': 'looks up contacts with WebSearch',
-  'modes/interview-prep.md': 'looks up interview reports with WebSearch',
-  'modes/_shared.md': 'the shared verification and research sections name every web tool',
-  'batch/batch-prompt.md': 'the worker fetches the JD (WebFetch) and researches (WebSearch)',
   '.claude/skills/career-ops/SKILL.md': 'the router names Playwright for offer verification',
 }
 
