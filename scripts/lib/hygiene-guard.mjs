@@ -23,8 +23,8 @@
  * words and at least one word that is not generic job-title vocabulary;
  * otherwise only as a company+role pair on the same line, which always blocks.
  * Single-word terms match case-sensitively (as written, Capitalised or UPPER),
- * longer ones case-insensitively across punctuation, so `Quillfeather
- * Dynamics` also catches `quillfeather-dynamics`.
+ * longer ones case-insensitively across punctuation, so `Nimbus
+ * Robotics` also catches `nimbus-robotics`.
  *
  * Lines containing `hygiene-guard:allow` are skipped. Output never contains a
  * matched line or a full term: `path:line  [category]  Q·····s`.
