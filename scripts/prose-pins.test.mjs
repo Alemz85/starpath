@@ -38,16 +38,20 @@ const PROMPT_FILES = [...MODE_FILES, 'batch/batch-prompt.md', '.claude/skills/ca
 // A page fetched with WebFetch, a search result or a Playwright snapshot is
 // text a stranger wrote. A prompt that sends an agent there must say that the
 // fetched text is data, not instructions. The marker below is the literal
-// every such file has to carry. Session I1 (wave 3) is adding the rule; until
-// its text lands, each file that fails is named in PENDING_RULE with the
+// every such file has to carry. Wave 3 (I1) adds the rule on its branch; until
+// that is merged, each file that fails is named in PENDING_RULE with the
 // tools it uses, so the test is green but the gap is written down, and a file that
 // gains the marker has to leave the map (the stale-exclusion check below).
 
 /** The tools whose output is untrusted page text. */
 const WEB_TOOLS = /\b(WebFetch|WebSearch|Playwright|browser_navigate|browser_snapshot)\b/
 
-/** The literal the rule carries (one word, case-insensitive, so any phrasing of "untrusted content" counts). */
-const UNTRUSTED_MARKER = /untrusted/i
+/**
+ * The literal the rule carries: the `## Untrusted content` block in
+ * batch/batch-prompt.md and modes/_shared.md, and the `> **Untrusted content:**`
+ * pointer line in every other mode (agreed with session I1).
+ */
+const UNTRUSTED_MARKER = /Untrusted content/
 
 /** file → why it has no marker yet. Empty it as the rule lands. */
 const PENDING_RULE = {
@@ -170,19 +174,23 @@ test('the report header has the same lines in the same order in the batch prompt
   assert.deepEqual(batch, scouting)
 })
 
-test('the header carries TL;DR between Verdict and Tier, and the URL last (plus any Posted line, in the same place everywhere)', () => {
+test('the header carries TL;DR between Verdict and Tier, URL after Tier, and any Posted lines follow the URL in every file', () => {
   const scouting = headerLabels(read('modes/scouting.md'))
   const iVerdict = scouting.indexOf('Verdict')
   assert.equal(scouting[iVerdict + 1], 'TL;DR')
   assert.equal(scouting[iVerdict + 2], 'Tier')
-  assert.equal(scouting.at(-1), 'URL')
+  assert.equal(scouting[iVerdict + 3], 'URL')
   const batch = headerLabels(read('batch/batch-prompt.md'))
-  assert.equal(batch.at(-1 - [...BATCH_ONLY].filter((l) => batch.includes(l)).length), 'URL', 'batch-only lines follow the URL')
-  assert.deepEqual(batch.slice(-2), ['Verification', 'Batch ID'])
-  // Posted is added by wave 3 (I1); once any file has it, all three must.
-  const sharedLabels = sharedHeaderLabels(read('modes/_shared.md'))
-  const withPosted = [scouting, batch, sharedLabels].filter((l) => l.includes('Posted'))
-  assert.ok(withPosted.length === 0 || withPosted.length === 3, 'Posted appears in the batch prompt, scouting mode and _shared.md together')
+  for (const l of BATCH_ONLY) assert.ok(batch.includes(l), `the batch prompt's header carries ${l}`)
+  assert.equal(batch.at(-1), 'Batch ID', 'the run id closes the batch header')
+  // Wave 3 (I1) adds **Posted:** and **Posting check:** after the URL. Once
+  // any file has them, the batch prompt, the scouting template and _shared.md
+  // (which lists them in the sentence above its six-line block) must all say so.
+  const afterUrl = (labels) => labels.slice(labels.indexOf('URL') + 1).filter((l) => !BATCH_ONLY.has(l))
+  const shared = read('modes/_shared.md')
+  const mentions = [afterUrl(scouting).includes('Posted'), afterUrl(batch).includes('Posted'), shared.includes('**Posted:**')]
+  assert.ok(mentions.every(Boolean) || mentions.every((m) => !m), `Posted must appear in scouting.md, the batch prompt and _shared.md together (scouting, batch, shared: ${mentions.join(', ')})`)
+  assert.deepEqual(afterUrl(batch), afterUrl(scouting), 'the lines after the URL agree')
 })
 
 test('_shared.md header block is the tail of the scouting header, in order', () => {
