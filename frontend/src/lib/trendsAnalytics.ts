@@ -18,6 +18,7 @@
 import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict } from '@/types'
 import { GATES, NOISE_FLOORS, describeSample, type ConfidenceTier } from '@/lib/scoringStats'
 import { isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
+import { parseCities } from '@/lib/entityId'
 
 /** Rows a score analytic may use: Want and Ease present, not blocked. */
 export function scoredOnly(rows: ScoreEntry[]): ScoreEntry[] {
@@ -249,6 +250,27 @@ export interface TopRow { label: string; count: number; avgWant: number; avgEase
 export const isNoiseLabel = (s: string): boolean => {
   const t = s.trim().toLowerCase()
   return !t || t === 'n/d' || t === '—' || t === '-' || t === 'unknown'
+}
+
+// A multi-city listing lists its places "; "-separated, the scored city first
+// (modes/scouting.md), and Want's City score is computed for that city. So a
+// listing's location for grouping is its FIRST listed place, with its country
+// when that place named one: "Lyon, France; Vienna, Austria" → "Lyon, France",
+// grouped with a plain "Lyon, France". The first segment is taken here, not
+// via parseCities' primary, so the rule doesn't depend on its known-city list.
+// Unusable fields ("Remote", "n/d") fall through unchanged.
+export function primaryPlace(location: string): string {
+  const raw = location ?? ''
+  const first = raw
+    .replace(/\([^)]*\)/g, '')
+    .split(/\s*(?:;|\||·|•|\/)\s*/)
+    .map(t => t.trim())
+    .find(t => t && !/^remote$/i.test(t))
+  if (!first) return raw.trim()
+  const p = parseCities(first)
+  const city = p.cities[0]
+  if (!city) return raw.trim()
+  return !p.isMulti && p.country && city !== p.country ? `${city}, ${p.country}` : city
 }
 
 /** One row per listing: its latest evaluation (undated rows rank oldest; a
