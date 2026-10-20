@@ -16,7 +16,7 @@ import { orphanScoreEntry } from '@/components/reports/ReportsView'
 import { Button, PageHeader, Stat, StatStrip } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import {
-  STATUS_GROUPS, boardMoveTarget, groupByStatus, inferredRejectionLabel, rejectionInfo,
+  STATUS_GROUPS, boardLabel, boardMoveTarget, groupByStatus, inferredRejectionLabel, rejectionInfo,
   rejectionStageOptions, type RejectionInfo,
 } from '@/lib/applyingBoard'
 import { dateCue, listingDateKey } from '@/lib/listingDates'
@@ -543,7 +543,7 @@ function KanbanColumn({ status, items, dragging, onDropOnColumn, renderCard }: C
         setHover(false)
         onDropOnColumn()
       }}
-      aria-label={`${status}: ${items.length}`}
+      aria-label={`${boardLabel(status)}: ${items.length}`}
       className={cn(
         'rounded-lg bg-bg-panel/50 border border-border-default/60 flex flex-col flex-1 min-w-[220px] overflow-hidden h-full transition-colors duration-150',
         isDropTarget && hover && 'border-accent/60 bg-accent/[0.04]',
@@ -551,7 +551,7 @@ function KanbanColumn({ status, items, dragging, onDropOnColumn, renderCard }: C
     >
       <div className="flex items-center gap-2 px-3 h-9 border-b border-border-default/60 shrink-0">
         <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', STATUS_FILL[status])} aria-hidden />
-        <span className="text-label font-medium text-text-2">{status}</span>
+        <span className="text-label font-medium text-text-2">{boardLabel(status)}</span>
         <span className="text-label text-text-4 tabular-nums">{items.length}</span>
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">

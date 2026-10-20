@@ -10,7 +10,7 @@ import { WantEase } from '@/components/shared/WantEase'
 import { Button, ScoreNumber, StatusChip } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { parseScoreCell } from '@/lib/scoreBands'
-import { stagesFor, type RejectionInfo } from '@/lib/applyingBoard'
+import { boardLabel, stagesFor, type RejectionInfo } from '@/lib/applyingBoard'
 import type { DateCue, DateCueKind } from '@/lib/listingDates'
 import type { AppStatus, ApplicationEntry } from '@/types'
 
@@ -146,6 +146,7 @@ export function ApplicationCard({
             size="xs"
             quiet
             statuses={stagesFor(app.status)}
+            labelFor={boardLabel}
             readOnlyTitle={readOnlyTitle}
           />
         ) : (

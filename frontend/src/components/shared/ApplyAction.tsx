@@ -80,7 +80,7 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
 
 /** The status picker. The Applying cards reuse it (quiet, board stages only). */
 export function StatusDropdown({
-  current, busy, onChange, size, readOnlyTitle, statuses = STATUSES, quiet = false,
+  current, busy, onChange, size, readOnlyTitle, statuses = STATUSES, quiet = false, labelFor = statusLabel,
 }: {
   current: AppStatus
   busy: boolean
@@ -90,6 +90,8 @@ export function StatusDropdown({
   readOnlyTitle?: string
   /** The statuses offered (default: every canonical status). */
   statuses?: readonly AppStatus[]
+  /** Display label per status (default: sentence case, SKIP → "Skipped"). */
+  labelFor?: (s: AppStatus) => string
   /** Ghost button instead of secondary, for dense cards. */
   quiet?: boolean
 }) {
@@ -127,7 +129,7 @@ export function StatusDropdown({
         {busy
           ? <Loader2 size={12} className="animate-spin shrink-0" aria-hidden />
           : <StatusDot status={current} />}
-        {statusLabel(current)}
+        {labelFor(current)}
         <ChevronDown
           size={12}
           className={clsx('shrink-0 text-text-4 transition-transform duration-150', open && 'rotate-180')}
@@ -156,7 +158,7 @@ export function StatusDropdown({
               )}
             >
               <StatusDot status={s} />
-              <span className="flex-1 truncate">{statusLabel(s)}</span>
+              <span className="flex-1 truncate">{labelFor(s)}</span>
               {s === current && <Check size={13} className="shrink-0 text-accent-text" aria-hidden />}
             </button>
           ))}
