@@ -129,18 +129,18 @@ test('a redundant nav without payload keeps the active sub-tab request', () => {
   assert.equal(nav().viewTab, 'network')
 })
 
-test('navigate to pipeline sets the view and clears the company slug', () => {
+test('navigate to trends sets the view and clears the company slug', () => {
   nav().navigate('company', '', 'acme')
-  nav().navigate('pipeline')
-  assert.equal(nav().view, 'pipeline')
+  nav().navigate('trends')
+  assert.equal(nav().view, 'trends')
   assert.equal(nav().companySlug, '')
-  assert.equal(VIEW_LABELS.pipeline, 'Pipeline')
+  assert.equal(VIEW_LABELS.trends, 'Trends')
 })
 
 test('VIEW_LABELS covers every ViewId including company', () => {
   const ids: ViewId[] = [
     'today', 'scouting', 'applying', 'outreach', 'offers', 'database', 'reports', 'trends',
-    'pipeline', 'scan', 'settings', 'profile', 'company',
+    'scan', 'settings', 'profile', 'company',
   ]
   for (const id of ids) {
     assert.equal(typeof VIEW_LABELS[id], 'string')

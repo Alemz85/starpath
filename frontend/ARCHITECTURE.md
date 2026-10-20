@@ -89,6 +89,10 @@ The renderer never touches the database directly. `electron/preload.ts` exposes 
 | `db:applications-with-scores` | Applications joined with score history |
 | `db:trends`                   | Pre-aggregated buckets (byDate, byArchetype, tierDistribution) |
 | `db:resync`                   | Force a full resync from disk |
+| `tracker:set-status`          | The one status write: `scripts/lib/status-ledger.mjs` under the tracker lock, logged to `status-log.tsv`; `{ ok, changed, to, date, entries }` or `{ ok: false, error, code }` |
+| `tracker:status-history`      | Status-log entries, oldest first (one application, or all) |
+| `tracker:amend-status`        | Correct the date / stage of the latest logged move to a status (status-ledger `amendStatusAsync`); only the log changes |
+| `listings:dates`              | Deadline / posting date / first-scan date per listing from `data/scan-history.tsv`, joined in main by `indexListingDates` (`scripts/lib/merge-staging-core.mjs`); keyed by each query's `key` |
 | `db:rebuild`                  | Drop the current `cache-<slug>.db` and rebuild |
 | `db:changed` (event)          | Emitted by main after a watcher-driven sync |
 | `network:overview`            | Whole-network overview (roster × pipeline × outreach cadence) — see below |
@@ -123,7 +127,7 @@ persisted; markdown stays canonical.
 
 ## Renderer data flow
 
-`src/store/data.ts` (Zustand) holds the canonical view-model arrays the rest of the renderer consumes (`applications`, `scouting`, `scoreHistory`, `pipeline`, `reports`). It populates from `db:*` calls on mount and again when `db:changed` fires.
+`src/store/data.ts` (Zustand) holds the canonical view-model arrays the rest of the renderer consumes (`applications`, `scouting`, `scoreHistory`, `pipeline`, `reports`, `statusLog`, `listingDates`). It populates from `db:*` calls on mount and again when `db:changed` fires; `listingDates` follows in a second step (`listings:dates` with one query per application and evaluated listing, `lib/listingDates.ts`).
 
 Three views bypass the store and hit IPC directly:
 
@@ -133,7 +137,7 @@ Three views bypass the store and hit IPC directly:
 
 One cockpit surface delegates its math to the repo's scripts instead of the cache: **CommandCenter's DailyBriefPanel** runs `node scripts/daily-brief.mjs --json` through the one-shot `shell:run` channel (main process, cwd = repoPath, `STARPATH_DATA` set for the demo) and parses the result via the pure `lib/dailyBrief.ts` bridge — the ranking/"do this first" logic stays single-sourced in `scripts/lib/daily-brief-core.mjs`, never re-implemented in the renderer. It re-runs (debounced) whenever the data store re-mirrors disk, and renders nothing when the brief is empty.
 
-All other views (`DatabaseView`, `ProfileView`, `PipelineView`, `CommandCenter`, `ScanView`, `SettingsView`) consume the store. ProfileView's heatmap/streak/badges run in-memory over a few dozen rows and don't currently warrant a per-feature SQL endpoint; if `score_history` grows past a few thousand rows, replace `buildHeatmap`/`computeStreak`/`badges` with a `db:profile-stats` query that returns `{ heatmap, streak, badges }` pre-computed.
+All other views (`DatabaseView`, `ProfileView`, `ApplyingView`, `CommandCenter`, `ScanView`, `SettingsView`) consume the store. ProfileView's heatmap/streak/badges run in-memory over a few dozen rows and don't currently warrant a per-feature SQL endpoint; if `score_history` grows past a few thousand rows, replace `buildHeatmap`/`computeStreak`/`badges` with a `db:profile-stats` query that returns `{ heatmap, streak, badges }` pre-computed.
 
 `refresh()` is in-flight-coalesced so rapid clicks (and chokidar bursts) don't stack. Pass `{ resync: true }` to force a full SQL rebuild from disk — wired to shift-click on the Settings → Refresh data button for debugging cache divergence.
 

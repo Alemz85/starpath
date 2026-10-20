@@ -6,7 +6,8 @@ import { normalizeEligibility, normalizeVerdict } from '@/lib/scoreBands'
 import { normalizeTier } from '@/lib/tierLevers'
 import { canWriteNow } from './dataRoot'
 import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus } from '@/types'
-import type { StatusChangeResult, StatusLogEntry } from '@/lib/statusLog'
+import type { StatusAmendResult, StatusChangeResult, StatusLogEntry } from '@/lib/statusLog'
+import { buildListingDateQueries, type ListingDatesMap } from '@/lib/listingDates'
 
 /** Optional detail for a status change (all recorded in the status log). */
 export interface StatusChangeDetail {
@@ -36,6 +37,11 @@ interface DataState {
    *  oldest first. Pair with `historyFor` / `rejectionStage` from
    *  `@/lib/statusLog` to read one application's history. */
   statusLog:    StatusLogEntry[]
+  /** Deadline / posting date / first-scan date per listing from
+   *  scan-history.tsv, keyed by `listingDateKey(company, role)` (every
+   *  application and evaluated listing the scans saw). Filled just after the
+   *  rest of a load; empty until then. */
+  listingDates: ListingDatesMap
   loaded:       boolean
   loading:      boolean
 
@@ -59,6 +65,10 @@ interface DataState {
    *  (scripts/lib/status-ledger.mjs). Resolves to the result (`ok: false`
    *  carries the reason), or null when writes are off (demo). */
   setApplicationStatus: (company: string, role: string, status: AppStatus, detail?: StatusChangeDetail) => Promise<StatusChangeResult | null>
+  /** Correct the date and/or stage of the latest logged move to `status`
+   *  (e.g. a rejection backfilled with an approximate date). Only the status
+   *  log changes; `stage: ''` clears it. Null when writes are off (demo). */
+  amendStatusEntry: (company: string, role: string, status: AppStatus, detail: { date?: string; stage?: string }) => Promise<StatusAmendResult | null>
   /** Tombstone-discard for "Not interested". Appends to data/discarded.tsv
    *  so the listing disappears from Database/Scouting views. If the entry
    *  also exists in applications.md (already applied), its status is
@@ -77,6 +87,7 @@ export const useDataStore = create<DataState>((set) => ({
   liveness:     {},
   discarded:    new Set<string>(),
   statusLog:    [],
+  listingDates: {},
   loaded:       false,
   loading:      false,
 
@@ -135,6 +146,17 @@ export const useDataStore = create<DataState>((set) => ({
     })
     if (!result) return null
     if (!result.ok) console.error(`[status] ${company} — ${role} → ${status}: ${result.error}`)
+    else if (result.changed) await useDataStore.getState().refresh()
+    return result
+  },
+
+  amendStatusEntry: async (company, role, status, detail) => {
+    if (!canWriteNow()) return null
+    const result = await ipc.tracker.amendStatus({
+      company, role, status, date: detail.date, stage: detail.stage, source: 'app',
+    })
+    if (!result) return null
+    if (!result.ok) console.error(`[status] amend ${company} — ${role} (${status}): ${result.error}`)
     else if (result.changed) await useDataStore.getState().refresh()
     return result
   },
@@ -199,10 +221,12 @@ async function loadAll() {
     ipc.tracker.statusHistory(),
   ])
 
+  const applications = (apps ?? []).map(toApplicationEntry)
+  const scoreHistory = (scoreRows ?? []).map(toScoreEntry)
   useDataStore.setState({
-    applications: (apps         ?? []).map(toApplicationEntry),
+    applications,
     scouting:     (scouting     ?? []).map(toScoutingEntry),
-    scoreHistory: (scoreRows    ?? []).map(toScoreEntry),
+    scoreHistory,
     pipeline:     (pipelineRows ?? []).map(toPipelineUrl),
     reports:      (reportRows   ?? []).map(toReportFile),
     scansThisMonth: countScansThisMonth(scanHistRaw),
@@ -210,6 +234,11 @@ async function loadAll() {
     discarded:    parseDiscarded(discardedRaw),
     statusLog:    statusLog ?? [],
   })
+
+  // Dates second: main joins every listing to scan-history in one pass, and
+  // nothing above waits on it.
+  const listingDates = await ipc.listings.dates(buildListingDateQueries(applications, scoreHistory)).catch(() => null)
+  useDataStore.setState({ listingDates: listingDates ?? {} })
 }
 
 // ─── Scan-history derivations ───────────────────────────────────────────────

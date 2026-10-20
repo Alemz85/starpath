@@ -46,6 +46,23 @@ export type StatusChangeResult =
   | { ok: true; changed: boolean; to: AppStatus; date: string; entries: StatusLogEntry[] }
   | { ok: false; error: string; code: string | null }
 
+/** Correct the date and/or stage of an application's latest logged move to
+ *  `status` (scripts/lib/status-ledger.mjs `amendStatus*`). Fields left out
+ *  are kept; `stage: ''` clears it. applications.md is not touched. */
+export interface StatusAmendRequest {
+  num?: number
+  company?: string
+  role?: string
+  status: AppStatus
+  date?: string
+  stage?: string
+  source?: 'app' | 'chat'
+}
+
+export type StatusAmendResult =
+  | { ok: true; changed: boolean; entry: StatusLogEntry }
+  | { ok: false; error: string; code: string | null }
+
 /** Filter for a history read; empty reads the whole log. */
 export interface StatusHistoryQuery {
   num?: number
@@ -81,13 +98,15 @@ export function historyFor(
  * Where a rejection happened: the explicit `stage` on the latest move to
  * Rejected, else the status it was rejected from (Applied = no reply beyond
  * the application, Interview = after interviewing, …). Null when the history
- * has no move to Rejected.
+ * has no move to Rejected, or when that move came from Evaluated: nothing was
+ * sent, so it isn't a rejection (it would skew response rates).
  */
 export function rejectionStage(history: StatusLogEntry[]): { stage: string; from: string; date: string; explicit: boolean } | null {
   const sorted = sortStatusLog(history)
   for (let i = sorted.length - 1; i >= 0; i--) {
     const e = sorted[i]
     if (e.to !== 'Rejected') continue
+    if (e.from === 'Evaluated') return null
     if (e.stage) return { stage: e.stage, from: e.from, date: e.date, explicit: true }
     return { stage: e.from || 'unknown', from: e.from, date: e.date, explicit: false }
   }

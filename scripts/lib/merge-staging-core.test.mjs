@@ -546,6 +546,7 @@ import {
   postingIdKey,
   listingIdentity,
   lookupListingDates,
+  indexListingDates,
 } from './merge-staging-core.mjs';
 import { HISTORY_COLUMNS } from './scan-history.mjs';
 
@@ -652,4 +653,21 @@ test('lookupListingDates: matches by canonical URL, then by (company, role); pic
 test('lookupListingDates: works on an old file whose header has only the original 8 columns', () => {
   const text = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates\nhttps://x.example/c\t2026-04-03\tgreenhouse-api\tBuyer\tNimbus\tAldervale\tadded\t2026-04-03\n';
   assert.deepEqual(lookupListingDates(text, { company: 'Nimbus', role: 'Buyer' }).display, { kind: 'scanned', date: '2026-04-03' });
+});
+
+test('indexListingDates: one parse answers many lookups, same answers as lookupListingDates', () => {
+  const header = HISTORY_COLUMNS.join('\t');
+  const rows = [
+    wide({ url: 'https://x.example/a', first_seen: '2026-04-01', title: 'Analyst', company: 'Nimbus', posted_date: '2026-03-30' }),
+    wide({ url: 'https://x.example/a2', first_seen: '2026-04-05', title: 'Analyst', company: 'Nimbus', deadline: '2026-07-01' }),
+  ].join('\n');
+  const text = `${header}\n${rows}\n`;
+  const lookup = indexListingDates(text);
+  for (const q of [{ url: 'https://x.example/a2' }, { company: 'nimbus', role: 'ANALYST' }, { url: 'https://x.example/zz', company: 'Nimbus', role: 'Analyst' }, { company: 'Nope', role: 'x' }]) {
+    assert.deepEqual(lookup(q), lookupListingDates(text, q));
+  }
+  // The URL wins over the (company, role) key; the first row with a key wins among key matches.
+  assert.equal(lookup({ url: 'https://x.example/a2', company: 'Nimbus', role: 'Analyst' }).display.kind, 'deadline');
+  assert.equal(lookup({ company: 'Nimbus', role: 'Analyst' }).display.kind, 'posted');
+  assert.equal(indexListingDates('')({ company: 'Nimbus', role: 'Analyst' }), null);
 });

@@ -11,7 +11,6 @@ export type ViewId =
   | 'database'
   | 'reports'
   | 'trends'
-  | 'pipeline'
   | 'scan'
   | 'settings'
   | 'profile'
@@ -30,7 +29,6 @@ export const VIEW_LABELS: Record<ViewId, string> = {
   database: 'Database',
   reports:  'Reports',
   trends:   'Trends',
-  pipeline: 'Pipeline',
   scan:     'Activity',
   settings: 'Settings',
   profile:  'Profile',

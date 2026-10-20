@@ -98,9 +98,11 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold leading-tight text-text-1 truncate" title={entry.company}>{entry.company}</div>
           <div className="text-label text-text-3 truncate" title={entry.role}>{entry.role}</div>
-          <div className="flex items-center gap-1.5 mt-1.5">
+          {/* Wraps instead of squeezing: WantEase never shrinks, so a fixed
+              width let the liveness chip sit on top of the Ease number. */}
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1.5">
             <VerdictChip verdict={verdictOf(entry)} />
-            <WantEase want={entry.want} ease={entry.ease} size="sm" blockedReason={isBlocked(entry) ? blockedReason(entry) : null} className="min-w-0 max-w-[160px]" />
+            <WantEase want={entry.want} ease={entry.ease} size="sm" blockedReason={isBlocked(entry) ? blockedReason(entry) : null} className="min-w-0 max-w-full" />
             {live && <Chip tone={live.tone}>{live.label}</Chip>}
           </div>
         </div>

@@ -255,6 +255,83 @@ export async function setStatusAsync(req) {
   try { return setStatusUnlocked(req) } finally { handle.release() }
 }
 
+/* ───── Corrections ──────────────────────────────────────────────── */
+
+/**
+ * Correct the date and/or stage of an application's latest logged move to
+ * `to` (a rejection backfilled with an approximate date, say). Pure: takes the
+ * parsed ledger rows and the application row, returns
+ * { rows, entry, changed, appended }. The row is edited in place, keeps its
+ * `logged_at`, and gets a "corrected <today>" note so the log shows it moved.
+ * When the log has no such move but the application has that status now (a
+ * row older than the log), one entry is added with `from` empty, like an
+ * origin row. `date` / `stage` left undefined are kept; `stage: ''` clears it.
+ */
+export function planAmend(ledgerRows, app, to, { date, stage, source = 'cli' } = {}, { now = new Date() } = {}) {
+  const today = todayLocal(now)
+  if (date !== undefined) {
+    const bad = dateError(date, today)
+    if (bad) throw fail('EBADDATE', bad)
+  }
+  const mine = sortHistory(ledgerRows.filter((e) => entryMatches(e, app) && e.to === to))
+  const last = mine[mine.length - 1]
+  const mark = `corrected ${today}`
+  if (last) {
+    const next = { ...last }
+    if (date !== undefined) next.date = date
+    if (stage !== undefined) next.stage = cleanCell(stage)
+    const changed = next.date !== last.date || next.stage !== last.stage
+    if (!changed) return { rows: ledgerRows, entry: last, changed: false, appended: false }
+    if (!String(next.note ?? '').includes(mark)) next.note = [last.note, mark].filter(Boolean).join('; ')
+    return { rows: ledgerRows.map((e) => (e === last ? next : e)), entry: next, changed: true, appended: false }
+  }
+  if (app.status !== to) throw fail('ENOENTRY', `${app.company} — ${app.role} has no move to ${to} on record`)
+  const entry = {
+    num: app.num, date: date ?? today, company: app.company, role: app.role,
+    from: '', to, stage: cleanCell(stage ?? ''), source, note: `recorded after the fact; ${mark}`,
+    logged_at: now.toISOString(),
+  }
+  return { rows: [...ledgerRows, { ...entry, _i: ledgerRows.length }], entry, changed: true, appended: true }
+}
+
+/** The whole correction, assuming the caller holds the applications.md lock. */
+export function amendStatusUnlocked(req) {
+  const { appsFile, statesFile, now = new Date() } = req
+  const states = loadStates(statesFile)
+  const to = canonicalStatus(req.to, states)
+  if (!to) throw fail('EBADSTATUS', `"${req.to}" is not a status (use ${states.map((s) => s.label).join(', ')})`)
+  const source = req.source ? String(req.source) : 'cli'
+  if (!SOURCES.includes(source)) throw fail('EBADSOURCE', `source must be one of ${SOURCES.join(', ')}`)
+  if (!existsSync(appsFile)) throw fail('ENOAPP', 'applications.md does not exist')
+  const num = req.num == null || req.num === '' ? null : Number(req.num)
+  if (num === null && (!req.company || !req.role)) throw fail('EBADTARGET', 'give an application number, or company and role')
+  const hit = matchingRows(readFileSync(appsFile, 'utf-8').split('\n'), { num, company: req.company, role: req.role })[0]
+  if (!hit) throw fail('ENOAPP', `${num != null ? `#${num}` : `${req.company} — ${req.role}`} is not in applications.md`)
+  const date = req.date === undefined || req.date === null || req.date === '' ? undefined : String(req.date).trim()
+  const ledgerFile = ledgerPathFor(appsFile)
+  const { header, rows } = readLedger(ledgerFile)
+  const plan = planAmend(rows, hit.row, to, { date, stage: req.stage, source }, { now })
+  if (!plan.changed) return { changed: false, entry: stripIndex(plan.entry) }
+  if (plan.appended) appendLedger(ledgerFile, [plan.entry])
+  else writeFileAtomic(ledgerFile, [header.join('\t'), ...plan.rows.map((e) => formatLedgerRow(e, header))].join('\n') + '\n')
+  return { changed: true, entry: stripIndex(plan.entry) }
+}
+
+const stripIndex = ({ _i, ...rest }) => rest
+
+/** Synchronous correction (CLI). */
+export function amendStatus(req) {
+  if (!existsSync(req.appsFile)) throw fail('ENOAPP', 'applications.md does not exist')
+  return withLockSync(lockPathFor(req.appsFile), () => amendStatusUnlocked(req), { label: `amend-status ${req.source ?? 'cli'}`, ...req.lockOpts })
+}
+
+/** Async correction (Electron main). */
+export async function amendStatusAsync(req) {
+  if (!existsSync(req.appsFile)) throw fail('ENOAPP', 'applications.md does not exist')
+  const handle = await acquireLock(lockPathFor(req.appsFile), { label: `amend-status ${req.source ?? 'app'}`, ...req.lockOpts })
+  try { return amendStatusUnlocked(req) } finally { handle.release() }
+}
+
 /**
  * Status history. With { num } or { company, role }: that application's
  * entries, oldest first. With neither: every entry, oldest first (the

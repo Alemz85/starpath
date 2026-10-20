@@ -94,7 +94,6 @@ frontend/
 │   │   ├── command-center/     # Scouting cockpit (CommandCenter.tsx, also re-exports
 │   │   │                       # ActionButton / ActivityPanel / HoverDescriptionRow / pickVisible)
 │   │   ├── applying/           # ApplyingView (active-applications list)
-│   │   ├── pipeline/           # PipelineView (Kanban + Inbox)
 │   │   ├── database/           # DatabaseView, OffersTable, FilterBar
 │   │   ├── reports/            # ReportsView, ReportSlideOver
 │   │   ├── trends/, scan/, settings/, profile/

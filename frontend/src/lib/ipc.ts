@@ -7,7 +7,9 @@ import type { ProfileListResult, ProfileMutationResult } from './profiles'
 import type { DataRootInfo, PrivateInitResult } from './dataRoot'
 import type {
   StatusChangeRequest, StatusChangeResult, StatusHistoryQuery, StatusLogEntry,
+  StatusAmendRequest, StatusAmendResult,
 } from './statusLog'
+import type { ListingDatesMap, ListingDatesQuery } from './listingDates'
 import type {
   ChatProposalDecisionStatus, ChatRuntimeEnvelope, ChatRuntimeSnapshot,
   ChatSession, ChatSessionMeta,
@@ -84,6 +86,18 @@ export const ipc = {
                      api().trackerSetStatus(req) as Promise<StatusChangeResult | null>,
     statusHistory: (query: StatusHistoryQuery = {}) =>
                      api().trackerStatusHistory(query) as Promise<StatusLogEntry[] | null>,
+    /** Correct the date / stage of the latest logged move to a status (a
+     *  rejection recorded late, say). Only the status log changes. */
+    amendStatus:   (req: StatusAmendRequest) =>
+                     api().trackerAmendStatus(req) as Promise<StatusAmendResult | null>,
+  },
+
+  /** Deadline, posting date and first-scan date per listing, joined in main
+   *  from data/scan-history.tsv. Keyed by each query's `key`; listings the
+   *  scans never saw are absent. */
+  listings: {
+    dates: (queries: ListingDatesQuery[]) =>
+             api().listingDates(queries) as Promise<ListingDatesMap | null>,
   },
 
   // Logo cache

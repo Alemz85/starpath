@@ -14,7 +14,6 @@ import {
   Database,
   FileText,
   TrendingUp,
-  GitBranch,
   Scale,
   Search,
   Settings,
@@ -69,7 +68,6 @@ const SECONDARY_NAV: NavItem[] = [
   { view: 'database', label: 'Database', icon: Database   },
   { view: 'reports',  label: 'Reports',  icon: FileText   },
   { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-  { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
   { view: 'scan',     label: 'Activity', icon: Activity   },
 ]
 

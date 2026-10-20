@@ -585,7 +585,8 @@ export function ReportsView() {
 
 // A report with no score-history row (orphan) still opens the slide-over:
 // a blank v2 entry — every score null, never 0 — keyed on its folder tier.
-function orphanScoreEntry(r: ReportFile): ScoreEntry {
+// Applying uses it for an application with no evaluation on record.
+export function orphanScoreEntry(r: ReportFile): ScoreEntry {
   return {
     date: '', archetype: '',
     skills_match: null, experience_bar: null, competition: null, ease: null,

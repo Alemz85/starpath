@@ -13,8 +13,8 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  LEDGER_COLUMNS, backfill, canonicalStatus, dateError, ledgerPathFor, loadStates, parseLedger,
-  planBackfill, planStatusChange, readHistory, setStatus, setStatusAsync, statusChangeEntries,
+  LEDGER_COLUMNS, amendStatus, amendStatusAsync, backfill, canonicalStatus, dateError, ledgerPathFor, loadStates, parseLedger,
+  planAmend, planBackfill, planStatusChange, readHistory, setStatus, setStatusAsync, statusChangeEntries,
 } from './status-ledger.mjs'
 import { APPLICATIONS_SCAFFOLD } from './profile-core.mjs'
 import { parseAppRow } from './tracker-core.mjs'
@@ -229,4 +229,61 @@ test('statusChangeEntries: dated today, one entry per change, source must be kno
     date: '2026-07-10', stage: '', source: 'normalize', note: 'tidied', logged_at: NOW.toISOString(),
   }])
   assert.throws(() => statusChangeEntries([], { source: 'renderer' }), (e) => e.code === 'EBADSOURCE')
+})
+
+test('amendStatus corrects the date and stage of the latest move to a status, keeping logged_at', () => {
+  const { root, appsFile } = makeRoot()
+  try {
+    setStatus({ appsFile, statesFile: STATES, num: 1, to: 'Rejected', date: '2026-07-01', source: 'app', now: NOW })
+    const before = ledger(appsFile).rows.find((e) => e.to === 'Rejected')
+    const out = amendStatus({ appsFile, statesFile: STATES, num: 1, to: 'rejected', date: '2026-06-20', stage: 'after the final round', source: 'app', now: NOW })
+    assert.equal(out.changed, true)
+    const rows = ledger(appsFile).rows
+    assert.equal(rows.length, 1, 'edited in place, nothing appended')
+    assert.equal(rows[0].date, '2026-06-20')
+    assert.equal(rows[0].stage, 'after the final round')
+    assert.equal(rows[0].logged_at, before.logged_at)
+    assert.match(rows[0].note, /corrected 2026-07-10/)
+    assert.equal(rowOf(appsFile, 1).status, 'Rejected', 'applications.md untouched')
+    // Same values again: no change, no second note.
+    assert.equal(amendStatus({ appsFile, statesFile: STATES, num: 1, to: 'Rejected', date: '2026-06-20', source: 'app', now: NOW }).changed, false)
+    // Clearing the stage.
+    amendStatus({ appsFile, statesFile: STATES, company: 'nimbus robotics', role: 'strategy analyst', to: 'Rejected', stage: '', source: 'app', now: NOW })
+    assert.equal(ledger(appsFile).rows[0].stage, '')
+    assert.equal(ledger(appsFile).rows[0].note.match(/corrected/g).length, 1)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('amendStatus refuses a future date and a status the application never had', () => {
+  const { root, appsFile } = makeRoot()
+  try {
+    setStatus({ appsFile, statesFile: STATES, num: 1, to: 'Rejected', source: 'app', now: NOW })
+    assert.throws(() => amendStatus({ appsFile, statesFile: STATES, num: 1, to: 'Rejected', date: '2026-08-01', now: NOW }), { code: 'EBADDATE' })
+    assert.throws(() => amendStatus({ appsFile, statesFile: STATES, num: 2, to: 'Rejected', date: '2026-07-01', now: NOW }), { code: 'ENOENTRY' })
+    assert.throws(() => amendStatus({ appsFile, statesFile: STATES, num: 9, to: 'Rejected', date: '2026-07-01', now: NOW }), { code: 'ENOAPP' })
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('planAmend records a rejection older than the log as one origin-style entry', () => {
+  const app = { num: 4, company: 'Tailspin Toys', role: 'Buyer', status: 'Rejected' }
+  const plan = planAmend([], app, 'Rejected', { date: '2026-05-02', stage: 'after the case study', source: 'app' }, { now: NOW })
+  assert.equal(plan.appended, true)
+  assert.equal(plan.entry.from, '')
+  assert.equal(plan.entry.date, '2026-05-02')
+  assert.equal(plan.entry.stage, 'after the case study')
+  assert.equal(plan.entry.source, 'app')
+})
+
+test('amendStatusAsync appends to a ledger that does not exist yet', async () => {
+  const { root, appsFile } = makeRoot({ linked: false })
+  try {
+    // Row 3 is at Interview; pretend it was rejected before the log existed.
+    writeFileSync(appsFile, readFileSync(appsFile, 'utf-8').replace('| Interview |', '| Rejected |'))
+    const out = await amendStatusAsync({ appsFile, statesFile: STATES, num: 3, to: 'Rejected', date: '2026-06-30', source: 'app', now: NOW })
+    assert.equal(out.changed, true)
+    const { header, rows } = ledger(appsFile)
+    assert.deepEqual(header, LEDGER_COLUMNS)
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].date, '2026-06-30')
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
