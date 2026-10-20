@@ -21,8 +21,12 @@ import {
   buildCapabilityInventory,
   buildPipelineSummary,
   buildProfileChecks,
+  buildPrivateRootChecks,
+  findTrackedPersonal,
+  BACKUP_WARN_DAYS,
 } from './doctor-checks.mjs';
 import { PROFILE_PATHS, relativeLinkTarget } from './profile-core.mjs';
+import { LINKED_PATHS } from './data-root.mjs';
 
 // ── countTsvDataRows ──────────────────────────────────────────────────────
 
@@ -650,4 +654,194 @@ test('buildProfileChecks: link checks are blocked (not guessed) when active is u
   const checks = buildProfileChecks(layout);
   assert.ok(checks.some(c => !c.pass && /blocked/.test(c.label)));
   assert.ok(!checks.some(c => c.label.includes('canonical paths are symlinks into')));
+});
+
+// ── Private root ──────────────────────────────────────────────────────────
+
+const DAY = 86400000;
+const NOW = Date.UTC(2026, 9, 20, 12, 0, 0);
+const okLinks = () => LINKED_PATHS.map((e) => ({ path: e.path, kind: e.kind, state: 'linked', ok: true, target: e.link }));
+
+/** A healthy migrated checkout; override fields per test. */
+function healthy(over = {}) {
+  return {
+    privateExists: true,
+    links: okLinks(),
+    legacyPaths: [],
+    dataRoot: { root: '/work/starpath/private', kind: 'private', source: 'default' },
+    git: { isRepo: true, branch: 'main', remote: 'git@example.test:dana/private-data.git', uncommitted: 0, lastCommitAt: NOW - DAY, unpushed: 0 },
+    now: NOW,
+    publicRepo: true,
+    ignored: true,
+    trackedPersonal: [],
+    hooksPath: '.githooks',
+    demoPresent: true,
+    overrides: [],
+    ...over,
+  };
+}
+
+const failures = (checks) => checks.filter((c) => !c.pass);
+const warnings = (checks) => checks.filter((c) => c.pass && c.warn);
+const find = (checks, re) => checks.find((c) => re.test(c.label));
+
+test('buildPrivateRootChecks: a healthy private root passes with no warnings', () => {
+  const checks = buildPrivateRootChecks(healthy());
+  assert.deepEqual(failures(checks), []);
+  assert.deepEqual(warnings(checks), []);
+  assert.ok(find(checks, /all 13 repo-root links point into private\//));
+  assert.ok(find(checks, /own git repo \(branch main\)/));
+  assert.ok(find(checks, /last backup 1 day ago/));
+  assert.ok(find(checks, /gitignored by the public repo/));
+  assert.ok(find(checks, /no personal paths tracked/));
+  assert.ok(find(checks, /hooks installed/));
+  assert.ok(find(checks, /demo dataset present/));
+  assert.ok(find(checks, /no private overrides/));
+});
+
+test('buildPrivateRootChecks: missing / dangling links fail with the link fix', () => {
+  const links = okLinks();
+  links[5] = { ...links[5], state: 'absent', ok: false, target: null };
+  links[8] = { ...links[8], state: 'dangling', ok: false, target: '../gone/logs' };
+  links[1] = { ...links[1], state: 'linked', ok: false }; // link fine, private/data missing
+  const checks = buildPrivateRootChecks(healthy({ links }));
+  const f = failures(checks);
+  assert.equal(f.length, 1);
+  assert.match(f[0].label, /3 links missing or broken: data \(private\/data missing\), jds \(absent\), batch\/logs \(dangling\)/);
+  assert.equal(f[0].fix, 'Run: npm run private -- link');
+  assert.ok(!find(checks, /all 13 repo-root links/));
+});
+
+test('buildPrivateRootChecks: a real folder at a link path is a shadow (FAIL), a wrong link needs --force', () => {
+  const links = okLinks();
+  links[1] = { ...links[1], state: 'real', ok: false, target: null };
+  links[10] = { ...links[10], state: 'real', ok: false, target: null };
+  links[0] = { ...links[0], state: 'wrong', ok: false, target: '../elsewhere/user' };
+  const checks = buildPrivateRootChecks(healthy({ links }));
+  const shadow = find(checks, /shadow/);
+  assert.equal(shadow.pass, false);
+  assert.match(shadow.label, /data, batch\/batch-state\.tsv/);
+  assert.match(shadow.fix[0], /npm run private -- init/);
+  const wrong = find(checks, /pointing elsewhere/);
+  assert.equal(wrong.pass, false);
+  assert.match(wrong.label, /user → \.\.\/elsewhere\/user/);
+  assert.match(wrong.fix, /link --force/);
+});
+
+test('buildPrivateRootChecks: no private/ — legacy folders warn "not migrated", nothing at all is a first-run hint', () => {
+  const legacy = buildPrivateRootChecks(healthy({ privateExists: false, git: null, legacyPaths: ['user', 'data', 'profiles'] }));
+  const nm = find(legacy, /not migrated/);
+  assert.equal(nm.pass, true);
+  assert.equal(nm.warn, true);
+  assert.match(nm.label, /user, data, profiles/);
+  assert.match(nm.fix, /npm run private -- init/);
+  assert.ok(!find(legacy, /git repo/), 'no private-repo checks without private/');
+  assert.deepEqual(failures(legacy), []);
+
+  const fresh = buildPrivateRootChecks(healthy({ privateExists: false, git: null }));
+  const fr = find(fresh, /first run/);
+  assert.equal(fr.warn, true);
+  assert.match(fr.fix, /npm run private -- init/);
+});
+
+test('buildPrivateRootChecks: private/ without git fails; no remote and stale backups warn', () => {
+  const noGit = buildPrivateRootChecks(healthy({ git: { isRepo: false } }));
+  assert.match(failures(noGit)[0].label, /not a git repo/);
+  assert.ok(!find(noGit, /remote/));
+
+  const noRemote = buildPrivateRootChecks(healthy({ git: { ...healthy().git, remote: null } }));
+  const r = find(noRemote, /no remote/);
+  assert.equal(r.warn, true);
+  assert.match(r.fix, /git -C private remote add origin <url> && npm run backup/);
+
+  const stale = buildPrivateRootChecks(healthy({ git: { ...healthy().git, lastCommitAt: NOW - (BACKUP_WARN_DAYS + 3) * DAY, uncommitted: 4, unpushed: 2 } }));
+  const s = find(stale, /last backup/);
+  assert.equal(s.warn, true);
+  assert.equal(s.label, 'last backup 10 days ago (4 uncommitted changes · 2 commits not pushed)');
+  assert.equal(s.fix, 'Run: npm run backup');
+
+  const fresh = buildPrivateRootChecks(healthy({ git: { ...healthy().git, lastCommitAt: NOW - BACKUP_WARN_DAYS * DAY, uncommitted: 1 } }));
+  const f = find(fresh, /last backup/);
+  assert.ok(!f.warn, 'exactly 7 days is still fine');
+  assert.equal(f.note, '1 uncommitted change');
+
+  const none = buildPrivateRootChecks(healthy({ git: { ...healthy().git, lastCommitAt: null } }));
+  assert.equal(find(none, /no commits yet/).warn, true);
+});
+
+test('buildPrivateRootChecks: public-repo safety — ignore rule and tracked personal paths FAIL, hooks warn', () => {
+  const checks = buildPrivateRootChecks(healthy({
+    ignored: false,
+    trackedPersonal: ['data/scouting.md', 'private/user/cv.md'],
+    hooksPath: null,
+  }));
+  const f = failures(checks).map((c) => c.label);
+  assert.ok(f.some((l) => /NOT ignored/.test(l)));
+  assert.ok(f.some((l) => /2 personal paths tracked by the public repo: data\/scouting\.md, private\/user\/cv\.md/.test(l)));
+  const hooks = find(checks, /hooks not installed/);
+  assert.equal(hooks.warn, true);
+  assert.equal(hooks.fix, 'Run: npm run hooks');
+
+  const notRepo = buildPrivateRootChecks(healthy({ publicRepo: false, ignored: null }));
+  assert.ok(!find(notRepo, /gitignored|tracked|hooks/), 'skipped outside a git checkout');
+});
+
+test('buildPrivateRootChecks: demo is info only', () => {
+  const c = find(buildPrivateRootChecks(healthy({ demoPresent: false })), /demo dataset/);
+  assert.equal(c.pass, true);
+  assert.ok(!c.warn);
+  assert.match(c.label, /npm run demo:build/);
+});
+
+test('buildPrivateRootChecks: overrides listed, drift / orphans / invalid ones warn', () => {
+  const overrides = [
+    { rel: 'modes/scouting.append.md', target: 'modes/scouting.md', mode: 'append', valid: true, defaultExists: true, drift: true },
+    { rel: 'templates/cv-template.html', target: 'templates/cv-template.html', mode: 'replace', valid: true, defaultExists: true, drift: false },
+    { rel: 'modes/retired.md', target: 'modes/retired.md', mode: 'replace', valid: true, defaultExists: false, drift: false },
+    { rel: 'scripts/scan.mjs', target: 'scripts/scan.mjs', mode: 'replace', valid: false, defaultExists: true, drift: false },
+  ];
+  const checks = buildPrivateRootChecks(healthy({ overrides }));
+  assert.equal(find(checks, /overrides active/).label,
+    '3 overrides active: modes/retired.md (replace), modes/scouting.md (append), templates/cv-template.html (replace)');
+  const drift = find(checks, /default changed since your override/);
+  assert.equal(drift.warn, true);
+  assert.match(drift.label, /modes\/scouting\.md$/);
+  assert.match(drift.fix[0], /git log -p -- modes\/scouting\.md/);
+  assert.equal(find(checks, /no repo default/).warn, true);
+  assert.equal(find(checks, /not overridable/).warn, true);
+  assert.deepEqual(failures(checks), []);
+  assert.ok(!find(buildPrivateRootChecks(healthy({ overrides: null })), /override/), 'no data root → no override lines');
+});
+
+test('buildPrivateRootChecks: a data root other than private/ is noted', () => {
+  const c = find(buildPrivateRootChecks(healthy({ dataRoot: { root: '/work/starpath/demo', kind: 'demo', source: 'env' } })), /private\/ exists/);
+  assert.match(c.note, /demo, from env/);
+});
+
+test('findTrackedPersonal: personal and private/ paths only', () => {
+  assert.deepEqual(findTrackedPersonal([
+    'scripts/doctor.mjs',
+    'batch/README.md',
+    'batch/batch-prompt.md',
+    'batch/logs/run.log',
+    'batch/batch-state.tsv',
+    'data/.gitkeep',
+    'user/cv.md',
+    'reports/tier-1/Fabrikam - Analyst.md',
+    'profiles/active',
+    'private/README.md',
+    'demo/user/profile.yml',
+    'demo/data/scouting.md',
+    'docs/REPO-GUIDE.md',
+    '',
+  ]), [
+    'batch/logs/run.log',
+    'batch/batch-state.tsv',
+    'data/.gitkeep',
+    'user/cv.md',
+    'reports/tier-1/Fabrikam - Analyst.md',
+    'profiles/active',
+    'private/README.md',
+  ]);
+  assert.deepEqual(findTrackedPersonal(null), []);
 });

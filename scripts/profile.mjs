@@ -20,7 +20,10 @@
  *   node scripts/profile.mjs eject [--force]
  *
  * Every command accepts --json (machine consumption; exact shapes in spec §3)
- * and --root <dir> (operate on another repo root — used by tests).
+ * and --root <dir> (operate on another root — used by tests). The default
+ * root is the DATA root (scripts/lib/data-root.mjs › dataRootFor): with a
+ * private root, profiles live in private/profiles/ and the canonical paths
+ * are the ones inside private/ (never a real profiles/ at the repo root).
  * Exit code 0 on ok, 1 on refusal/error (JSON still printed with --json).
  */
 
@@ -28,16 +31,17 @@ import {
   existsSync, readFileSync, writeFileSync, readdirSync, mkdirSync,
   renameSync, symlinkSync, unlinkSync, lstatSync, copyFileSync, rmSync,
 } from 'node:fs';
+import * as fs from 'node:fs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
   PROFILES_DIR, ACTIVE_POINTER, PROFILE_PATHS, PROFILE_REPORT_DIRS,
   validateSlug, parseActive, serializeActive, parseMeta,
   planInit, planCreate, planSwitch, planEject,
-  evaluateGuards, parseBatchStateRows, countPendingPipelineLines,
+  evaluateGuards, gatherGuardInputs, countPendingPipelineLines,
 } from './lib/profile-core.mjs';
 import { countMarkdownTableRows } from './lib/doctor-checks.mjs';
+import { dataRootFor, repoRootFrom } from './lib/data-root.mjs';
 
 /** The one literal slug the system ships: the `init` default. */
 const DEFAULT_INIT_SLUG = 'career';
@@ -52,7 +56,7 @@ function argValue(flag) {
   return i !== -1 && i + 1 < rawArgs.length ? rawArgs[i + 1] : null;
 }
 
-const ROOT = argValue('--root') || dirname(dirname(fileURLToPath(import.meta.url)));
+const ROOT = argValue('--root') || dataRootFor(repoRootFrom(import.meta.url));
 const FORCE = rawArgs.includes('--force');
 
 /** Positional args = everything that isn't a flag or a flag's value. */
@@ -117,33 +121,10 @@ function listProfileSlugs() {
     .sort();
 }
 
-/** Gather the pure guard inputs from disk (see evaluateGuards). */
-function gatherGuardInputs() {
-  const tsvsIn = (relDir) => {
-    try {
-      return readdirSync(join(ROOT, relDir), { withFileTypes: true })
-        .filter((e) => e.isFile() && e.name.endsWith('.tsv'))
-        .map((e) => e.name);
-    } catch {
-      return [];
-    }
-  };
-  const statePath = join(ROOT, 'batch/batch-state.tsv');
-  return {
-    trackerAdditionTsvs: tsvsIn('batch/tracker-additions'),
-    scoutingAdditionTsvs: tsvsIn('batch/scouting-additions'),
-    batchStateRows: existsSync(statePath)
-      ? parseBatchStateRows(readFileSync(statePath, 'utf-8'))
-      : [],
-    jobspyHistoryStagingPresent: existsSync(join(ROOT, 'data/scan-history.jobspy.tsv')),
-    jobspyPipelineStagingPresent: existsSync(join(ROOT, 'data/pipeline.jobspy.md')),
-  };
-}
-
 /** Refusal strings from the switch/init/eject guards ([] when --force). */
 function guardFailures() {
   if (FORCE) return [];
-  return evaluateGuards(gatherGuardInputs());
+  return evaluateGuards(gatherGuardInputs(ROOT, fs));
 }
 
 /**

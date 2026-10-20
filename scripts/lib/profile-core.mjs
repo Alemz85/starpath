@@ -9,7 +9,8 @@
  * rest of the system keeps working verbatim because it only ever sees "the"
  * database, which is the active profile's.
  *
- * This module is PURE: no filesystem, no process.exit. It owns
+ * This module is PURE: no filesystem, no process.exit (gatherGuardInputs
+ * takes its fs functions as an argument). It owns
  *   - the canonical path sets (which paths fork per profile),
  *   - slug validation + `profiles/active` parsing,
  *   - meta.yml parse/serialize,
@@ -489,6 +490,40 @@ export function evaluateGuards({
   }
 
   return failures;
+}
+
+/**
+ * Gather the evaluateGuards inputs from disk under `root` (a data root, or a
+ * repo root whose linked paths resolve into one). Shared by profile.mjs and
+ * private.mjs. The fs functions are INJECTED (pass node:fs) so this module
+ * keeps zero node imports: the frontend bundles it.
+ *
+ * @param {string} root
+ * @param {{ readdirSync: Function, existsSync: Function, readFileSync: Function }} fs
+ */
+export function gatherGuardInputs(root, { readdirSync, existsSync, readFileSync }) {
+  const at = (rel) => `${String(root).replace(/[\\/]+$/, '')}/${rel}`;
+  const tsvsIn = (relDir) => {
+    try {
+      return readdirSync(at(relDir), { withFileTypes: true })
+        .filter((e) => e.isFile() && e.name.endsWith('.tsv'))
+        .map((e) => e.name);
+    } catch {
+      return [];
+    }
+  };
+  let batchStateRows = [];
+  try {
+    const statePath = at('batch/batch-state.tsv');
+    if (existsSync(statePath)) batchStateRows = parseBatchStateRows(readFileSync(statePath, 'utf-8'));
+  } catch { /* unreadable state file — treated as no workers */ }
+  return {
+    trackerAdditionTsvs: tsvsIn('batch/tracker-additions'),
+    scoutingAdditionTsvs: tsvsIn('batch/scouting-additions'),
+    batchStateRows,
+    jobspyHistoryStagingPresent: existsSync(at('data/scan-history.jobspy.tsv')),
+    jobspyPipelineStagingPresent: existsSync(at('data/pipeline.jobspy.md')),
+  };
 }
 
 // ── Small counters for `profile list` ───────────────────────────────────────

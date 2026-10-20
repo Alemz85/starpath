@@ -17,6 +17,13 @@
  *   validateScoreHistoryHeader(cols) — check expected columns are present
  *   validateScanHistoryHeader(cols)  — check expected columns are present
  *   buildProfileChecks(layout)       — multi-profile symlink-layout health
+ *   buildPrivateRootChecks(facts)    — private root: layout + links, private
+ *                                      repo, ignore rule, tracked personal
+ *                                      paths, hooks, demo, overrides drift
+ *   findTrackedPersonal(paths)       — personal paths among `git ls-files`
+ *
+ * Results are { pass, label, fix?, note? }; `warn: true` (with pass: true)
+ * marks a warning — shown, counted, but not a failure.
  */
 
 import {
@@ -28,6 +35,8 @@ import {
 } from './profile-core.mjs';
 import { HISTORY_HEADER } from './merge-staging-core.mjs';
 import { isV2ScoutingHeader } from './scouting-core.mjs';
+import { isPersonalPath, PRIVATE_DIR } from './data-root.mjs';
+import { formatAge, remoteHint, groupOverrides } from './private-core.mjs';
 
 // ── Expected TSV headers ────────────────────────────────────────────────────
 
@@ -760,6 +769,235 @@ export function buildProfileChecks(layout) {
       label: `unexpected real child${unexpected.length === 1 ? '' : 'ren'} of reports/: ${unexpected.join(', ')}`,
       fix: 'reports/ content lives per-profile — move stray files into profiles/<active>/reports/<subdir>/ or delete them',
     });
+  }
+
+  return checks;
+}
+
+// ── Private root ────────────────────────────────────────────────────────────
+
+/** Days since the last private/ commit after which doctor warns. */
+export const BACKUP_WARN_DAYS = 7;
+
+/**
+ * Personal paths among the public repo's tracked files (`git ls-files`):
+ * anything isPersonalPath() claims, and anything under private/.
+ */
+export function findTrackedPersonal(paths) {
+  return (paths || []).filter((p) =>
+    p && (isPersonalPath(p) || p === PRIVATE_DIR || p.startsWith(PRIVATE_DIR + '/'))
+  );
+}
+
+const plural = (n, word, many = word + 's') => `${n} ${n === 1 ? word : many}`;
+const listSome = (items, max = 5) =>
+  items.slice(0, max).join(', ') + (items.length > max ? ` (+${items.length - max} more)` : '');
+
+/**
+ * Checks for the private root (DATA_CONTRACT.md § Private layer).
+ *
+ * @param {Object} facts — gathered by doctor.mjs (I/O side):
+ *   {
+ *     privateExists: boolean,               // <repo>/private is a folder
+ *     links: Array<{ path, kind, state, ok, target }>,  // one per LINKED_PATHS entry;
+ *                                           //   state from private-core › classifyRootPath
+ *     legacyPaths: string[],                // real personal folders at the repo root
+ *     dataRoot: { root, kind, source }|null,// resolveDataRoot(), for the info line
+ *     git: { isRepo, branch, remote, uncommitted, lastCommitAt, unpushed }|null,
+ *                                           //   lastCommitAt = epoch ms or null
+ *     now: number,                          // epoch ms
+ *     publicRepo: boolean,                  // the checkout is a git work tree
+ *     ignored: boolean|null,                // `git check-ignore -q private/`
+ *     trackedPersonal: string[],            // findTrackedPersonal(git ls-files)
+ *     hooksPath: string|null,               // `git config core.hooksPath`
+ *     demoPresent: boolean,                 // demo/user/profile.yml exists
+ *     overrides: Array|null,                // annotated overrides (null = no data root)
+ *   }
+ */
+export function buildPrivateRootChecks(facts) {
+  const {
+    privateExists = false,
+    links = [],
+    legacyPaths = [],
+    dataRoot = null,
+    git = null,
+    now = Date.now(),
+    publicRepo = false,
+    ignored = null,
+    trackedPersonal = [],
+    hooksPath = null,
+    demoPresent = false,
+    overrides = null,
+  } = facts || {};
+  const checks = [];
+
+  // ── Layout: private/ + the repo-root links ──────────────────────────────
+  if (privateExists) {
+    const elsewhere = dataRoot && dataRoot.kind !== 'private'
+      ? `this shell reads ${dataRoot.root} (${dataRoot.kind}, from ${dataRoot.source})`
+      : undefined;
+    checks.push({ pass: true, label: `${PRIVATE_DIR}/ exists (your data root)`, note: elsewhere });
+
+    const shadows = links.filter((l) => l.state === 'real');
+    const wrong = links.filter((l) => l.state === 'wrong');
+    const broken = links.filter((l) => !l.ok && l.state !== 'real' && l.state !== 'wrong');
+    if (!shadows.length && !wrong.length && !broken.length) {
+      checks.push({ pass: true, label: `all ${links.length} repo-root links point into ${PRIVATE_DIR}/` });
+    }
+    if (broken.length) {
+      checks.push({
+        pass: false,
+        label: `${plural(broken.length, 'link')} missing or broken: ${broken.map((l) => `${l.path} (${l.state === 'linked' ? `${PRIVATE_DIR}/${l.path} missing` : l.state})`).join(', ')}`,
+        fix: 'Run: npm run private -- link',
+      });
+    }
+    if (wrong.length) {
+      checks.push({
+        pass: false,
+        label: `${plural(wrong.length, 'link')} pointing elsewhere: ${wrong.map((l) => `${l.path} → ${l.target}`).join(', ')}`,
+        fix: 'Run: npm run private -- link --force  (re-points them; nothing behind the old targets is moved)',
+      });
+    }
+    if (shadows.length) {
+      checks.push({
+        pass: false,
+        label: `real ${shadows.length === 1 ? 'folder/file shadows its link' : 'folders/files shadow their links'}: ${shadows.map((l) => l.path).join(', ')} (writes there bypass ${PRIVATE_DIR}/)`,
+        fix: [
+          `Run: npm run private -- init  (moves it into ${PRIVATE_DIR}/ when ${PRIVATE_DIR}/<path> is absent)`,
+          `If both exist, merge it into ${PRIVATE_DIR}/<path> by hand, delete it, then run: npm run private -- link`,
+        ],
+      });
+    }
+  } else if (legacyPaths.length) {
+    checks.push({
+      pass: true,
+      warn: true,
+      label: `not migrated: personal folders still live at the repo root (${listSome(legacyPaths)})`,
+      fix: `Run: npm run private -- init  (moves them into ${PRIVATE_DIR}/, links them back, makes it its own git repo)`,
+    });
+  } else {
+    checks.push({
+      pass: true,
+      warn: true,
+      label: `first run: no ${PRIVATE_DIR}/ yet`,
+      fix: `Run: npm run private -- init  (creates ${PRIVATE_DIR}/ and the links), then onboard in Claude — or explore the demo in the app`,
+    });
+  }
+
+  // ── The private repo ────────────────────────────────────────────────────
+  if (privateExists) {
+    if (!git || !git.isRepo) {
+      checks.push({
+        pass: false,
+        label: `${PRIVATE_DIR}/ is not a git repo (no history, no backup)`,
+        fix: 'Run: npm run private -- init  (initialises git when missing; moves nothing that is already in place)',
+      });
+    } else {
+      checks.push({ pass: true, label: `${PRIVATE_DIR}/ is its own git repo${git.branch ? ` (branch ${git.branch})` : ''}` });
+      if (git.remote) {
+        checks.push({ pass: true, label: `${PRIVATE_DIR}/ has a remote (${git.remote})` });
+      } else {
+        checks.push({
+          pass: true,
+          warn: true,
+          label: `${PRIVATE_DIR}/ has no remote: backups stay on this machine`,
+          fix: `Run: ${remoteHint()}  (use a PRIVATE repository)`,
+        });
+      }
+      const age = git.lastCommitAt == null ? null : Math.max(0, Math.floor((now - git.lastCommitAt) / 86400000));
+      const extras = [
+        git.uncommitted ? plural(git.uncommitted, 'uncommitted change') : null,
+        git.unpushed ? `${plural(git.unpushed, 'commit')} not pushed` : null,
+      ].filter(Boolean).join(' · ');
+      if (age == null) {
+        checks.push({ pass: true, warn: true, label: `${PRIVATE_DIR}/ has no commits yet`, fix: 'Run: npm run backup' });
+      } else if (age > BACKUP_WARN_DAYS) {
+        checks.push({
+          pass: true,
+          warn: true,
+          label: `last backup ${formatAge(age)}${extras ? ` (${extras})` : ''}`,
+          fix: 'Run: npm run backup',
+        });
+      } else {
+        checks.push({ pass: true, label: `last backup ${formatAge(age)}`, note: extras || undefined });
+      }
+    }
+  }
+
+  // ── The public repo stays clean ─────────────────────────────────────────
+  if (publicRepo) {
+    if (ignored === false) {
+      checks.push({
+        pass: false,
+        label: `${PRIVATE_DIR}/ is NOT ignored by the public repo`,
+        fix: [`Restore the /${PRIVATE_DIR}/ line in .gitignore`, `Check with: git check-ignore -v ${PRIVATE_DIR}/`],
+      });
+    } else if (ignored === true) {
+      checks.push({ pass: true, label: `${PRIVATE_DIR}/ is gitignored by the public repo` });
+    }
+    if (trackedPersonal.length) {
+      checks.push({
+        pass: false,
+        label: `${plural(trackedPersonal.length, 'personal path')} tracked by the public repo: ${listSome(trackedPersonal)}`,
+        fix: [
+          'Untrack (keeps the files on disk): git rm -r --cached <path>, then commit',
+          'If it was already pushed, history still holds it: rewriting public history is your call',
+        ],
+      });
+    } else {
+      checks.push({ pass: true, label: 'no personal paths tracked by the public repo' });
+    }
+    if (hooksPath === '.githooks') {
+      checks.push({ pass: true, label: 'leak-gate hooks installed (core.hooksPath = .githooks)' });
+    } else {
+      checks.push({
+        pass: true,
+        warn: true,
+        label: `leak-gate hooks not installed (core.hooksPath is ${hooksPath ? `'${hooksPath}'` : 'unset'})`,
+        fix: 'Run: npm run hooks',
+      });
+    }
+  }
+
+  // ── Demo dataset (info only) ────────────────────────────────────────────
+  checks.push(demoPresent
+    ? { pass: true, label: 'demo dataset present (demo/)' }
+    : { pass: true, label: 'demo dataset not built (optional: npm run demo:build)' });
+
+  // ── Overrides ───────────────────────────────────────────────────────────
+  if (overrides) {
+    const groups = groupOverrides(overrides);
+    const active = groups.filter((g) => g.valid);
+    const ignoredOv = groups.filter((g) => !g.valid);
+    const drifted = active.filter((g) => g.drift);
+    const orphaned = active.filter((g) => g.defaultExists === false);
+    checks.push(active.length
+      ? { pass: true, label: `${plural(active.length, 'override')} active: ${active.map((g) => `${g.target} (${g.modes.join(' + ')})`).join(', ')}` }
+      : { pass: true, label: 'no private overrides (repo defaults everywhere)' });
+    if (drifted.length) {
+      checks.push({
+        pass: true,
+        warn: true,
+        label: `default changed since your override: ${drifted.map((g) => g.target).join(', ')}`,
+        fix: [`Review: git log -p -- ${drifted.map((g) => g.target).join(' ')}`, 'Then update your override (saving it clears the flag)'],
+      });
+    }
+    if (orphaned.length) {
+      checks.push({
+        pass: true,
+        warn: true,
+        label: `override with no repo default: ${orphaned.map((g) => g.target).join(', ')} (renamed or removed upstream?)`,
+        fix: 'Move it to the new path or delete it (npm run overrides lists them)',
+      });
+    }
+    if (ignoredOv.length) {
+      checks.push({
+        pass: true,
+        warn: true,
+        label: `not overridable, ignored: ${ignoredOv.map((g) => g.target).join(', ')}`,
+        fix: 'Overridable: modes/*.md, batch/batch-prompt.md, templates/**, config/profile.example.yml, .claude/skills/career-ops*/SKILL.md',
+      });
+    }
   }
 
   return checks;
