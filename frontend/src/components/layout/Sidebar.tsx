@@ -22,9 +22,12 @@ import {
   Activity,
   User,
   AlertTriangle,
+  Mail,
 } from 'lucide-react'
 import { useSpawnsStore, isAnyRunning, unackedFailureCount } from '@/store/spawns'
 import { useDataStore } from '@/store/data'
+import { useMessagesStore } from '@/store/messages'
+import { messagesBadge } from '@/lib/messages'
 import { useAppStore } from '@/store/app'
 import { isViewEnabled } from '@/lib/features'
 import { buildTodaySummary } from '@/lib/todayCockpit'
@@ -71,7 +74,10 @@ const SECONDARY_NAV: NavItem[] = [
   { view: 'scan',     label: 'Activity', icon: Activity   },
 ]
 
+// Messages: notes agents leave the user (scripts/messages.mjs). Sits with the
+// personal items at the foot; its badge counts the open ones.
 const BOTTOM_ITEMS: NavItem[] = [
+  { view: 'messages', label: 'Messages', icon: Mail     },
   { view: 'profile',  label: 'Profile',  icon: User     },
   { view: 'settings', label: 'Settings', icon: Settings },
 ]
@@ -101,6 +107,10 @@ export function Sidebar() {
   const applications = useDataStore(s => s.applications)
   const scouting = useDataStore(s => s.scouting)
   const reports = useDataStore(s => s.reports)
+  const messages = useMessagesStore(s => s.messages)
+  const loadMessages = useMessagesStore(s => s.load)
+  useEffect(() => { void loadMessages() }, [loadMessages])
+  const openMessages = useMemo(() => messagesBadge(messages), [messages])
 
   const activeCount = applications.filter(a =>
     ['Applied', 'Responded', 'Interview', 'Offer'].includes(a.status)
@@ -137,6 +147,8 @@ export function Sidebar() {
     applying: { count: activeCount },
     outreach: { count: outreachNudges, accent: true },
     reports:  { count: reports.length },
+    // Accent (act now) only while an approval or alert is open.
+    messages: openMessages,
   }
 
   const handleNav = (item: NavItem) => {

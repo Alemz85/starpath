@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User,
+  TrendingUp, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User, Mail,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { useProfilesStore } from '@/store/profiles'
@@ -109,6 +109,7 @@ export function CmdK() {
                 { view: 'scan',     label: 'Activity', icon: Activity   },
                 { view: 'settings', label: 'Settings', icon: Settings   },
                 { view: 'profile',  label: 'Profile',  icon: User       },
+                { view: 'messages', label: 'Messages', icon: Mail       },
               ] as const)
                 // Deactivated features drop their entries (isViewEnabled).
                 .filter(({ view }) => isViewEnabled(view, features))

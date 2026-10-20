@@ -20,6 +20,7 @@ import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
 import { ProfileView } from '@/components/profile/ProfileView'
 import { CompanyView } from '@/components/company/CompanyView'
+import { MessagesView } from '@/components/messages/MessagesView'
 import { AddListingModal } from '@/components/scouting/AddListingModal'
 import { AuthBanner } from '@/components/shared/AuthBanner'
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary'
@@ -98,6 +99,7 @@ export function AppShell() {
           {view === 'settings' && <SettingsView />}
           {view === 'profile'  && <ProfileView />}
           {view === 'company'  && <CompanyView slug={companySlug} />}
+          {view === 'messages' && <MessagesView />}
         </ErrorBoundary>
       </main>
       <CmdK />

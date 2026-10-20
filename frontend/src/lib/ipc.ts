@@ -10,6 +10,7 @@ import type {
   StatusAmendRequest, StatusAmendResult,
 } from './statusLog'
 import type { ListingDatesMap, ListingDatesQuery } from './listingDates'
+import type { AgentMessage, MessageStatus, MessageStatusResult } from './messages'
 import type {
   ChatProposalDecisionStatus, ChatRuntimeEnvelope, ChatRuntimeSnapshot,
   ChatSession, ChatSessionMeta,
@@ -90,6 +91,17 @@ export const ipc = {
      *  rejection recorded late, say). Only the status log changes. */
     amendStatus:   (req: StatusAmendRequest) =>
                      api().trackerAmendStatus(req) as Promise<StatusAmendResult | null>,
+  },
+
+  /** Agent → user Messages. `list` is every message, folded in main from
+   *  data/agent-messages.jsonl; `setStatus` resolves / dismisses / reopens one
+   *  (appended under the file's lock; `{ ok: false }` on refusal, never a
+   *  throw); `onChanged` fires when the file changes on disk. */
+  messages: {
+    list:      () => api().messagesList() as Promise<AgentMessage[] | null>,
+    setStatus: (req: { id: string; status: MessageStatus; note?: string }) =>
+                 api().messagesSetStatus(req) as Promise<MessageStatusResult | null>,
+    onChanged: (cb: () => void) => api().onMessagesChanged(cb),
   },
 
   /** Deadline, posting date and first-scan date per listing, joined in main
