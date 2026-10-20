@@ -68,8 +68,6 @@ import {
   getCell,
   setCells,
 } from './lib/scan-history.mjs';
-import { appendHealthRows, reviewFromFiles } from './lib/portal-health-io.mjs';
-import { renderReview } from './lib/portal-health-core.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -638,10 +636,6 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
 
   // 4. Fetch all APIs
   const date = new Date().toISOString().slice(0, 10);
-  // One portal-health record per company per run (data/portal-health.tsv):
-  // what the board answered and how much of it fit. The review at the end
-  // suggests fixes / pauses / promotions from the accumulated runs.
-  const healthRecords = [];
   let totalFound = 0;
   let totalFiltered = 0;
   let totalLangFiltered = 0;
@@ -756,12 +750,10 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
       }
       const took = ((Date.now() - startedAt) / 1000).toFixed(1);
       log(`  ✓ ${company.name} · ${jobs.length} jobs · ${kept} kept (${took}s)`);
-      healthRecords.push({ date, company: company.name, source: `${type}-api`, outcome: 'ok', jobs: jobs.length, kept });
     } catch (err) {
       const took = ((Date.now() - startedAt) / 1000).toFixed(1);
       log(`  ✗ ${company.name} · ${err.message} (${took}s)`);
       errors.push({ company: company.name, error: err.message });
-      healthRecords.push({ date, company: company.name, source: `${type}-api`, outcome: 'error', jobs: 0, kept: 0, note: err.message });
     }
   });
 
@@ -826,15 +818,6 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
   }
 
   log(`\n→ Run /career-ops pipeline to evaluate new offers.`);
-
-  // ── Portal health: record this run, then suggest what to fix / pause / track ──
-  if (!dryRun) {
-    try { appendHealthRows(healthRecords); } catch (err) { log(`  (portal-health not recorded: ${err.message})`); }
-  }
-  try {
-    const review = renderReview(reviewFromFiles());
-    if (review) log(`\n${review}`);
-  } catch { /* the review is advisory */ }
 
   // ── Silent filter health check (runs every scan, reports conditionally) ──────
 

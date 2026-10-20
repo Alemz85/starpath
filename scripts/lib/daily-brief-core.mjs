@@ -40,7 +40,6 @@
 import { parseScoreCell, displayScoreCell, scoreCellPriority } from './tracker-core.mjs'
 import { verdictFromCells } from './scouting-core.mjs'
 import { computePriority } from './score-bands.mjs'
-import { portalHeadsUp } from './portal-health-core.mjs'
 
 /* ───── Section model ───────────────────────────────────────────────────────
  *
@@ -857,7 +856,7 @@ export function assembleBrief(inputs = {}, opts = {}) {
     warmpaths: warmPathItems(inputs.warmOutreach, opts),
     newhits: newHitItems(inputs.digest, opts),
     triage: triageItems(inputs.triage, opts),
-    headsup: [...patternHeadsUp(inputs.patterns), ...portalHeadsUp(inputs.portalHealth)],
+    headsup: patternHeadsUp(inputs.patterns),
     insight: insightItems(inputs.positioningIntel),
   }
 

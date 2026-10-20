@@ -52,7 +52,6 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
 import { dataRootFor } from './lib/data-root.mjs'
-import { reviewFromFiles } from './lib/portal-health-io.mjs'
 
 import { parseScoreHistory } from './lib/targeting-core.mjs'
 import { parseScanHistory, buildDigest } from './lib/whats-new-core.mjs'
@@ -384,16 +383,8 @@ function getCrossProfileSummaries() {
 
 /* ───── Assemble + emit ──────────────────────────────────────────────────────*/
 
-// 2c. Portal health — fix / pause / promote suggestions from the scanner's
-//     per-run log (scripts/lib/portal-health-core.mjs). Advisory: a missing or
-//     unreadable log is simply no items.
-function getPortalHealth() {
-  try { return reviewFromFiles({ root: DATA }) } catch { return null }
-}
-
 const inputs = {
   digest: getDigest(),
-  portalHealth: getPortalHealth(),
   followupResult: getFollowupResult(),
   patterns: getPatternsResult(),
   outreachResult: getOutreachResult(),
