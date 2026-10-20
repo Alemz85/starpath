@@ -424,7 +424,13 @@ function cmdInit() {
 
   if (DRY_RUN) {
     result.git.wouldInitialise = !existsSync(join(PRIV, '.git'))
-    result.ok = result.conflicts.length === 0
+    if (result.conflicts.length) {
+      Object.assign(result, {
+        ok: false,
+        error: 'conflicts',
+        message: `${result.conflicts.length} path${result.conflicts.length === 1 ? '' : 's'} would be left in place (conflict)`,
+      })
+    }
     emit(result, humanInit(result, plan.ops), result.ok ? 0 : 1)
   }
 
