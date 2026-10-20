@@ -290,22 +290,30 @@ const PARSERS = { greenhouse: parseGreenhouse, ashby: parseAshby, lever: parseLe
 
 // ── Workday paginated fetch ────────────────────────────────────────
 
-async function fetchWorkdayJobs(client, apiUrl, companyName, baseUrl) {
+// Workday reports `total` on the first page only; later pages carry
+// `total: 0`, so the count is remembered from the first page that states it.
+// Without one (a tenant that never says), paging continues until an empty
+// page, capped by WORKDAY_MAX_OFFSET.
+const WORKDAY_PAGE = 20;
+const WORKDAY_MAX_OFFSET = 3000;
+
+export async function fetchWorkdayJobs(client, apiUrl, companyName, baseUrl) {
   const allJobs = [];
   let offset = 0;
-  const limit = 20;
+  let total = null;
   while (true) {
     const json = await client.postJson(apiUrl, {
       appliedFacets: {},
-      limit,
+      limit: WORKDAY_PAGE,
       offset,
       searchText: '',
     }, { type: 'workday' });
     const jobs = parseWorkday(json, companyName, baseUrl);
     allJobs.push(...jobs);
-    const total = json.total || 0;
-    offset += limit;
-    if (allJobs.length >= total || jobs.length === 0 || offset > 3000) break;
+    if (total === null && Number(json.total) > 0) total = Number(json.total);
+    offset += WORKDAY_PAGE;
+    if (jobs.length === 0 || offset > WORKDAY_MAX_OFFSET) break;
+    if (total !== null && allJobs.length >= total) break;
   }
   return allJobs;
 }
