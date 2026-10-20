@@ -93,6 +93,7 @@ The renderer never touches the database directly. `electron/preload.ts` exposes 
 | `tracker:status-history`      | Status-log entries, oldest first (one application, or all) |
 | `tracker:amend-status`        | Correct the date / stage of the latest logged move to a status (status-ledger `amendStatusAsync`); only the log changes |
 | `listings:dates`              | Deadline / posting date / first-scan date per listing from `data/scan-history.tsv`, joined in main by `indexListingDates` (`scripts/lib/merge-staging-core.mjs`); keyed by each query's `key` |
+| `messages:list` · `messages:set-status` | Agent → user Messages (`data/agent-messages.jsonl`): the folded list, and Resolve / Dismiss / Reopen appended under the file's dir lock (`scripts/lib/messages-store.mjs`, same code as `npm run messages`); `{ ok, changed, message }` or `{ ok: false, error, code }`. A stat-polling watch on the file pushes `messages:changed`; `src/store/messages.ts` reloads on it |
 | `db:rebuild`                  | Drop the current `cache-<slug>.db` and rebuild |
 | `db:changed` (event)          | Emitted by main after a watcher-driven sync |
 | `network:overview`            | Whole-network overview (roster × pipeline × outreach cadence) — see below |

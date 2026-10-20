@@ -50,6 +50,16 @@ const electronAPI = {
   trackerStatusHistory: (query?: unknown) => ipcRenderer.invoke('tracker:status-history', query ?? {}),
   trackerAmendStatus:   (req: unknown) => ipcRenderer.invoke('tracker:amend-status', req),
 
+  // Agent → user Messages (data/agent-messages.jsonl, scripts/lib/messages-store.mjs
+  // in main). messages:changed fires when the file changes on disk.
+  messagesList:      ()             => ipcRenderer.invoke('messages:list'),
+  messagesSetStatus: (req: unknown) => ipcRenderer.invoke('messages:set-status', req),
+  onMessagesChanged: (cb: () => void) => {
+    const listener = () => cb()
+    ipcRenderer.on('messages:changed', listener)
+    return () => ipcRenderer.removeListener('messages:changed', listener)
+  },
+
   // Deadline / posting / first-scan dates per listing (data/scan-history.tsv).
   listingDates: (queries: unknown) => ipcRenderer.invoke('listings:dates', queries),
 

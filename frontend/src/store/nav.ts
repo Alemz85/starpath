@@ -15,6 +15,7 @@ export type ViewId =
   | 'settings'
   | 'profile'
   | 'company'
+  | 'messages'
 
 // Display labels for each view — used by AppShell's nav-guard modal copy,
 // the error-boundary label, and the Company view's "back to …" affordance.
@@ -33,6 +34,7 @@ export const VIEW_LABELS: Record<ViewId, string> = {
   settings: 'Settings',
   profile:  'Profile',
   company:  'Company',
+  messages: 'Messages',
 }
 
 interface NavState {

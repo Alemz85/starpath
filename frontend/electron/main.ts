@@ -37,6 +37,7 @@ import type {
   StatusChangeRequest, StatusChangeResult, StatusHistoryQuery, StatusLogEntry,
 } from '../src/lib/statusLog'
 import type { ListingDates, ListingDatesMap } from '../src/lib/listingDates'
+import type { AgentMessage, MessageStatus, MessageStatusResult } from '../src/lib/messages'
 
 const execAsync = promisify(exec)
 
@@ -916,6 +917,73 @@ ipcMain.handle('tracker:status-history', async (_e, query: unknown): Promise<Sta
   } catch (e) {
     console.error('[tracker] status history failed:', e)
     return []
+  }
+})
+
+// ─── IPC: Messages ───────────────────────────────────────────────────────────
+//
+// Agent → user notes in data/agent-messages.jsonl (append-only; the current
+// state is a fold of post + update records). Main runs the same code as
+// `npm run messages` (scripts/lib/messages-store.mjs): reads fold the file,
+// Resolve / Dismiss / Reopen append an update under the file's dir lock.
+// A stat-polling watch on the resolved file pushes `messages:changed`, so a
+// message posted from the CLI or a scheduled run shows up without a reload;
+// it follows the data root (re-armed on every list, which the renderer calls
+// after a root or profile change).
+
+interface MessagesStoreModule {
+  readMessages: (file: string) => AgentMessage[]
+  setMessageStatusAsync: (file: string, id: string, status: MessageStatus, opts?: { note?: string }) =>
+    Promise<{ changed: boolean; message: AgentMessage }>
+}
+
+let watchedMessagesFile: string | null = null
+
+function watchMessagesFile(abs: string): void {
+  if (watchedMessagesFile === abs) return
+  if (watchedMessagesFile) fs.unwatchFile(watchedMessagesFile)
+  watchedMessagesFile = abs
+  fs.watchFile(abs, { interval: 1500 }, (cur, prev) => {
+    if (cur.mtimeMs !== prev.mtimeMs || cur.size !== prev.size) mainWindow?.webContents.send('messages:changed')
+  })
+}
+
+async function messagesTarget() {
+  const hit = await resolveForRenderer('data/agent-messages.jsonl')
+  if (!hit || !hit.s.repoPath) return null
+  return hit
+}
+
+ipcMain.handle('messages:list', async (): Promise<AgentMessage[]> => {
+  const hit = await messagesTarget()
+  if (!hit) return []
+  watchMessagesFile(hit.r.abs)
+  try {
+    const store = await importRepoModule<MessagesStoreModule>(hit.s.repoPath!, 'scripts/lib/messages-store.mjs')
+    return store.readMessages(hit.r.abs)
+  } catch (e) {
+    // Older checkouts have no messages scripts: an empty list, not an error.
+    console.error('[messages] list failed:', e)
+    return []
+  }
+})
+
+ipcMain.handle('messages:set-status', async (_e, req: unknown): Promise<MessageStatusResult> => {
+  try {
+    if (!req || typeof req !== 'object') throw new Error('request must be an object')
+    const r = req as { id?: unknown; status?: unknown; note?: unknown }
+    const id = validateString(r.id, 'id').slice(0, 80)
+    if (r.status !== 'resolved' && r.status !== 'dismissed' && r.status !== 'open') throw new Error('status must be resolved, dismissed or open')
+    const hit = await messagesTarget()
+    if (!hit) return { ok: false, error: 'No repo path configured', code: 'ENOREPO' }
+    const refusal = demoWriteRefusal(hit.s.kind, hit.r, hit.s.isPersonal)
+    if (refusal) return { ok: false, error: refusal, code: 'EDEMO' }
+    const store = await importRepoModule<MessagesStoreModule>(hit.s.repoPath!, 'scripts/lib/messages-store.mjs')
+    const out = await store.setMessageStatusAsync(hit.r.abs, id, r.status, { note: optString(r.note, 'note', 2000) ?? '' })
+    return { ok: true, changed: out.changed, message: out.message }
+  } catch (e) {
+    const err = e as Error & { code?: string }
+    return { ok: false, error: err.message, code: err.code ?? null }
   }
 })
 

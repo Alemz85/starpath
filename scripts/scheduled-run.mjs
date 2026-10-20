@@ -15,6 +15,7 @@
  *              --eval             evaluate in this run even if the saved setting is off
  *              --no-eval          scan + triage only (zero tokens); recorded as "partial"
  *              --trigger <t>      "scheduled" (what launchd passes) or "manual" (default)
+ *              --no-message       don't post the failure alert / run summary to the app's Messages
  *              --top N --parallel N --model M --jobspy   override the saved options
  *   suggest    print the 3 quietest weekly slots from Claude usage and Mac wake times
  *              [--weeks N] [--json]
@@ -35,7 +36,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, realpathSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -50,6 +51,8 @@ import { runScheduled, resolveOptions, DEFAULT_OPTIONS } from './lib/scheduled-r
 import {
   DEFAULT_PLIST_DIR, installJob, jobPath, jobStatus, plistPathFor, resolveBinary, uninstallJob,
 } from './lib/schedule-launchd.mjs'
+import { messageForRun, runStartDate, topPicksSince } from './lib/scheduled-run-messages.mjs'
+import { MESSAGES_REL, postMessage } from './lib/messages-store.mjs'
 import { DEFAULT_WEEKS, FALLBACK_SLOT, awakeHistogram, formatSlot, rankSlots, usageHistogram } from './lib/idle-slot-core.mjs'
 import { collectAwakeIntervals, collectClaudeTimestamps } from './lib/idle-slot-io.mjs'
 
@@ -276,8 +279,30 @@ async function cmdRun({ root, flags }) {
       jobspy: flags.jobspy === true ? true : undefined,
     },
   })
+  if (!dryRun && flags['no-message'] !== true) postRunMessage({ root, result, trigger, log })
   if (flags.json) console.log(JSON.stringify(result))
   return result.outcome === 'failed' || result.outcome === 'blocked' ? 1 : 0
+}
+
+/**
+ * Tell the user in the app's Messages view when a run failed, or what it
+ * found (scheduled-run-messages.mjs decides; quiet runs post nothing).
+ * Best effort: a message that cannot be written never fails the run.
+ */
+function postRunMessage({ root, result, trigger, log }) {
+  try {
+    const since = runStartDate(result.run)
+    let picks = []
+    if (since) {
+      try { picks = topPicksSince(readFileSync(join(root, 'data/score-history.tsv'), 'utf-8'), since) } catch { /* no history yet */ }
+    }
+    const msg = messageForRun(result, { picks, trigger })
+    if (!msg) return
+    const { posted, message } = postMessage(join(root, MESSAGES_REL), msg)
+    log(posted ? `message for the app: ${message.title}` : `message already open: ${message.title}`)
+  } catch (e) {
+    log(`could not leave a message for the app: ${e.message}`)
+  }
 }
 
 async function cmdSuggest({ root, flags }) {
