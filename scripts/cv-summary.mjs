@@ -25,13 +25,15 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { renderCvSummary, profileStampMatches } from './lib/cv-summary-core.mjs'
 import { ACTIVE_POINTER, parseActive } from './lib/profile-core.mjs'
+import { dataRootFor } from './lib/data-root.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const CV_PATH = join(ROOT, 'user/cv.md')
 const PROFILE_PATH = join(ROOT, 'user/profile.yml')
 const OUT_PATH = join(ROOT, 'batch/cv-summary.md')
 const OUT_REL = 'batch/cv-summary.md'
-const ACTIVE_PATH = join(ROOT, ACTIVE_POINTER)
+// profiles live in the data root (private/), not at the repo root
+const ACTIVE_PATH = join(dataRootFor(ROOT), ACTIVE_POINTER)
 
 const args = process.argv.slice(2)
 const ifStale = args.includes('--if-stale')

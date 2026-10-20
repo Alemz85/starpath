@@ -24,7 +24,7 @@
 - `isPersonalPath(rel)`: which repo-relative paths are personal (the linked paths and `profiles/`). The Electron main process maps those to the data root in `resolveRepoPath`, so renderer call sites keep passing `data/applications.md`.
 - `LINKED_PATHS`: the link list `npm run private -- init` creates and `npm run doctor` checks.
 
-**Commands.** `npm run private -- init [--dry-run]` (create `private/`, move legacy folders in by rename, link, verify a sha256 manifest, `git init`, first commit) · `npm run private -- status` · `npm run private -- link` (repair links) · `npm run backup` (commit + push `private/`) · `npm run doctor` (layout, links, ignore rule, remote, last backup, hooks, overrides drift).
+**Commands.** `npm run private -- init [--dry-run]` (create `private/`, move legacy folders in by rename, link, verify a sha256 manifest, `git init`, first commit; refuses while batch/merge work is in flight, while the app runs from this checkout, when a link inside a moved folder would stop resolving, or when `private/` sits on another filesystem; `--force` overrides the first three) · `npm run private -- status` · `npm run private -- link` (repair links) · `npm run backup` (commit + push `private/`) · `npm run doctor` (layout, links, ignore rule, remote, last backup, hooks, overrides drift).
 
 **Private repo guard.** `private/.githooks/pre-commit` refuses code files (`*.mjs`, `*.ts`, `package.json`…), so app code never lands in the private repo.
 
@@ -38,7 +38,7 @@
 Three layers keep personal data out of the public repo:
 1. **Git hooks** in `.githooks/` (tracked; `npm run hooks` sets `core.hooksPath`; doctor warns when missing): `pre-commit` refuses staged personal paths and scans the staged diff, `commit-msg` scans the message, `pre-push` scans every added line and commit message in the push range and blocks the push. A blocked push means fix the commits (amend/rebase), never `--no-verify`.
 2. **The scanner** is `scripts/lib/hygiene-guard.mjs` (`npm run leak-check` scans all tracked files; `--staged`, `--range a..b`, `--message <file>`, `--generic-only`, `--json`). Terms are derived at run time from the data root, never stored in the repo: identity (name, email, phone) from `user/profile.yml`, schools / employers / projects from `user/cv.md`, people from `data/network.md`, companies and roles from the trackers and report filenames, plus `private/leak-terms.txt` (one term per line, `#` comments, `!term` to allow one). From a linked worktree it finds the main checkout's `private/`. Output is `file:line  [category]  masked-term`, never the line. World-famous brand names on their own only warn (they appear in rubric tables); full role strings and company+role pairs block. Lines with `hygiene-guard:allow` are skipped.
-3. **CI backup net**: `.github/workflows/leak-scan.yml` runs the generic patterns (emails, phone numbers, `/Users/<name>` paths, API keys; salary-looking figures as warnings) on every push and PR. It runs after the push, so the hook is the real protection.
+3. **CI backup net**: `.github/workflows/leak-scan.yml` runs the generic patterns (emails, phone numbers, home-directory paths, API keys; salary-looking figures as warnings) on every push and PR. It runs after the push, so the hook is the real protection.
 
 To protect a term the gate can't infer (a contact's name, an address, a company you only discussed in chat), add it to `private/leak-terms.txt`.
 
