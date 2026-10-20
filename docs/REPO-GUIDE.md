@@ -169,6 +169,13 @@ The desktop app under `frontend/` is branded **starpath** (the project itself st
 
 **Cache.** The app mirrors `data/*` and `reports/**` (resolved through the data root) into a SQLite cache at `{userData}/cache-<profile>.db` (`cache-default.db` without profiles, `cache-demo.db` for the demo). It is fully derived from the Markdown/TSV files and rebuilds on launch via mtime comparison + a chokidar watcher. Markdown/TSV remain canonical; backend modes never read or write the cache.
 
+**Isolated runs** (tests, screenshots, a second instance beside the user's own). `frontend/electron/main.ts` honours:
+- `STARPATH_USER_DATA=<folder>`: a throwaway app-data folder, so the real config, cache and chat are never touched. With it set, the window opens with `showInactive()` instead of `show()`: it never takes focus or switches the user onto another macOS Space. The normal app keeps `show()`.
+- `STARPATH_DEV_URL=http://localhost:<port>`: the dev server to load (default `http://localhost:3000`), so a second instance can run on another port.
+- `STARPATH_DATA=<folder>`: the data root (see [Private root and overrides](#private-root-and-overrides)). The demo is read-only, so to test writes, point it at a scratch copy of `demo/`.
+
+Launch in the background, never in front: `open -g -j -n -a frontend/node_modules/electron/dist/Electron.app --env NODE_ENV=development --env STARPATH_USER_DATA=<scratch> --env STARPATH_DEV_URL=http://localhost:3300 --args <frontend dir> --remote-debugging-port=9533`. Drive it over CDP (Playwright `connectOverCDP`), and stop it with `pkill -f remote-debugging-port=9533`.
+
 ## Tracker TSV
 
 One file per evaluation at `batch/tracker-additions/{num}-{company-slug}.tsv`, a single line of 10 tab-separated columns:
