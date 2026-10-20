@@ -26,7 +26,6 @@ import { HEADER as DEDUP_HEADER, buildIndexLines } from '../lib/dedup-index.mjs'
 import { parseStoryBank, validateBank, resultIsQuantified } from '../lib/story-bank.mjs'
 import { assignVerdict } from '../lib/score-bands.mjs'
 import { dataRootFor } from '../lib/data-root.mjs'
-import { extractPersonalData } from '../lib/hygiene-guard.mjs'
 
 const BUILD = join(REPO_ROOT, 'scripts', 'demo', 'build-demo.mjs')
 const temps = []
@@ -293,10 +292,15 @@ test('demo/ names no real brand and no contact detail outside example.com', () =
   assert.deepEqual(hits, [])
 })
 
-test('demo/ contains no term derived from a private data root (terms are never printed)', (t) => {
+test('demo/ contains no term derived from a private data root (terms are never printed)', async (t) => {
   const root = dataRootFor(REPO_ROOT, { env: {} })
   if (!existsSync(join(root, 'user', 'profile.yml')) && !existsSync(join(root, 'user', 'cv.md'))) {
     t.skip('no private data root in this checkout')
+    return
+  }
+  const { extractPersonalData } = await import('../lib/hygiene-guard.mjs')
+  if (typeof extractPersonalData !== 'function') {
+    t.skip('hygiene-guard has no extractPersonalData(); the leak gate covers demo/ instead')
     return
   }
   const pd = extractPersonalData(root)

@@ -108,6 +108,8 @@ function slug(s) {
 }
 
 const num = (n) => (n == null ? '' : String(n))
+/** Code-point order, so sorting never depends on the machine's locale. */
+const byCodePoint = (a, b) => (a < b ? -1 : a > b ? 1 : 0)
 const tsvSafe = (s) => String(s ?? '').replace(/[\t\n]+/g, ' ')
 const cellReason = (s) => String(s).replace(/[;\n]+/g, ',').replace(/\|/g, '/').trim()
 
@@ -491,7 +493,7 @@ export async function buildDemo({ asOf }) {
       url: rec.url, seen: rec.L.seen, lastSeen: rec.L.lastSeen, portal: rec.L.portal, title: rec.role, company: rec.company, location: rec.L.location,
     })),
     ...pendingEntries,
-  ].sort((a, b) => a.seen - b.seen || (b.relevance ?? 0) - (a.relevance ?? 0) || a.url.localeCompare(b.url))
+  ].sort((a, b) => a.seen - b.seen || (b.relevance ?? 0) - (a.relevance ?? 0) || byCodePoint(a.url, b.url))
   put('data/scan-history.tsv', SCAN_HEADER + '\n' + scanned.map(scanRow).join('\n') + '\n')
 
   // ── data/pipeline.md ──
@@ -513,7 +515,7 @@ export async function buildDemo({ asOf }) {
     return `relevance ${e.relevance.toFixed(1)} — ${reasons.join(', ')}`
   }
   const pendingLines = [...pendingEntries]
-    .sort((a, b) => a.seen - b.seen || b.relevance - a.relevance || a.url.localeCompare(b.url))
+    .sort((a, b) => a.seen - b.seen || b.relevance - a.relevance || byCodePoint(a.url, b.url))
     .map(e => `- [ ] ${e.url} | ${e.company} | ${e.title} | ${relevanceNote(e)}`)
   const processedLines = recs.map(rec => rec.verdict === 'blocked'
     ? `- [x] #${rec.num} | ${rec.url} | ${rec.company} | ${rec.role} | BLOCKED | T4 | ${cellReason(rec.r.eligibility.blocking_reason)}`
@@ -532,7 +534,7 @@ export async function buildDemo({ asOf }) {
   const taxRows = [...new Map(recs.filter(r => r.tax).map(r => {
     const country = seed.places[r.L.city].country
     return [`${country}\t${r.tax.band}`, [country, r.tax.band, r.tax.rate, TAX_SOURCE, day(-30)].join('\t')]
-  })).entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, row]) => row)
+  })).entries()].sort(([a], [b]) => byCodePoint(a, b)).map(([, row]) => row)
   put('data/tax-cache.tsv', 'country\tgross_band_eur\teffective_rate\tsource\tlast_updated\n' + taxRows.join('\n') + '\n')
   const compRows = recs.filter(r => r.L.compBand).map(r =>
     [r.company, r.L.archetype, r.L.city, 'EUR', r.L.compBand.min, r.L.compBand.max, 'demo', r.L.compBand.confidence, r.date].join('\t'))
