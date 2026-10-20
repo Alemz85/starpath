@@ -39,8 +39,6 @@ export const FEATURE_IDS = [
   'outreachView',
   /** Offers tab — weighted offer-comparison view. */
   'offersView',
-  /** Trends › Score Trend sub-tab (re-evaluation trajectory). */
-  'scoreTrendTab',
   /** Daily-brief digest panel embedded in the Scouting cockpit. */
   'dailyBriefPanel',
   /** Peers column in the Database table + peer-context card in the report slide-over. */
@@ -59,7 +57,6 @@ export const DEFAULT_FEATURE_PREFS: FeaturePrefs = {
   todayView:       true,
   outreachView:    true,
   offersView:      true,
-  scoreTrendTab:   true,
   dailyBriefPanel: true,
   peerContext:     true,
   closedLane:      true,

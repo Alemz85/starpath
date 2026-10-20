@@ -58,7 +58,7 @@ export function classifyOutcome(status: AppStatus): Outcome | null {
 // Minimum DECIDED applications before any lesson is trustworthy. Under this the
 // win/loss split is a coin flip on one or two listings — the cockpit shows no
 // heads-up rather than asserting a pattern. Mirrors the spirit of
-// MIN_WINNERS_FOR_DELTA / MIN_PER_HALF_FOR_MOMENTUM in trendsAnalytics.
+// MIN_PER_HALF_FOR_MOMENTUM in trendsAnalytics.
 export const MIN_DECIDED = 5
 // Each side of the contrast needs at least this many rows for the comparison to
 // be a real contrast and not "the 4 wins vs the 1 loss".

@@ -315,6 +315,29 @@ Ease, each against its own floor, and the actionable share). It asserts a direct
   with the shortfall) and renders no direction — the § 4 rules apply to it in
   full.
 
+### 3.6 Listings per period — `frontend/src/lib/trendsAnalytics.ts` (`buildByPeriod`)
+
+The Trends time chart counts distinct listings per week or month and overlays
+the **mean Want** of the scored listings first evaluated in each period. The
+count is a tally, not a score claim, and is ungated. The mean is a window mean,
+so it takes § 3.3's gate unchanged:
+
+- **Gate: ≥ 10 scored listings in the period** (`GATES.trendMinPerWindowForVerdict`,
+  re-exported as `MIN_SCORED_PER_PERIOD_FOR_WANT`). § 3.3's derivation applies
+  as is: no single listing may move a period mean by more than the Want noise
+  floor, and `3.0 / k ≤ 0.30` gives `k ≥ 10`.
+- **Below the gate the point is withheld**, so the line breaks there. It is
+  never drawn at 0 and never interpolated. The tooltip states the shortfall
+  ("Withheld: 4 scored, 10 needed"), and a footnote under the chart names the
+  gate.
+- **Above the gate** the tooltip states n and the § 3.1 confidence tier with
+  `g = 10`.
+- **The line is a level, not a verdict.** It carries no arrows, signs or
+  directional verbs. Direction claims belong to § 3.5.
+- **What counts.** Blocked listings count in the bars and never in the mean. A
+  re-evaluated listing counts once, in the period it was first evaluated, at
+  its latest Want.
+
 ## 4. Presentation rules
 
 These bind every renderer: CLI summaries, mode prose, report blocks, and any UI

@@ -451,7 +451,6 @@ function GeneralTab() {
   const FEATURE_ROWS: Array<{ key: FeatureId; label: string; sub: string }> = [
     { key: 'outreachView',    label: 'Outreach tab',         sub: 'Outreach tracker plus the Network warm-path sub-tab. data/outreach.md and the outreach CLIs keep working while it\'s off.' },
     { key: 'offersView',      label: 'Offers tab',           sub: 'Weighted offer-comparison view. Worth re-enabling when live offers land.' },
-    { key: 'scoreTrendTab',   label: 'Score Trend sub-tab',  sub: 'Re-evaluation trajectory panel under Trends (npm run score-trend still has the numbers).' },
     { key: 'dailyBriefPanel', label: 'Daily brief panel',    sub: 'The daily-brief digest embedded in the Scout tab (npm run brief is unaffected).' },
     { key: 'peerContext',     label: 'Peer context',         sub: 'Peers column in the Database table and the peer-rank card in report slide-overs. Scores are untouched.' },
     { key: 'closedLane',      label: 'Closed applications lane', sub: 'The Rejected/Discarded strip on Applying. Closed rows stay visible in Database and Pipeline.' },
