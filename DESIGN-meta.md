@@ -153,6 +153,8 @@ Import from `@/components/ui`.
 - **Eligibility chip** (`components/shared/EligibilityChip`): `Chip` with tone success "Eligible" (green), warning "Check first" (amber), danger "Blocked" (red). The reason goes in the tooltip or in plain `text-label text-3` beside it. A compact dot form exists for dense table cells.
 - **Verdict** labels come from `tierVerdict()` only: Go, Stretch, Growth target, Solid, If pipeline thin, Skip, Blocked; `tierVerdict(v)` appends the action ("Stretch — apply with prep"), `{ short: true }` gives the label alone. A verdict has no colour of its own: `VerdictChip` is a `TierChip` coloured by the verdict's tier (`verdictTier()`: go T1; stretch, solid, thin T2; growth T3; skip, blocked T4).
 - **ViewTabs** (shared) for sub-surfaces. **EmptyState** for "no data yet" surfaces.
+- **Demo badge** (`components/layout/DemoBadge`): while the app shows the fictional demo, the sidebar slot the profile switcher normally uses holds a quiet `nav-input` row (Telescope icon in `text-nav-accent`, "Demo data · read-only" in `text-label text-nav-text`) plus one ghost action ("Use my own data" or "Set up my own search"); collapsed sidebar = icon button only. No new colours or shapes.
+- **Read-only gating**: in demo mode every action that writes or spawns work stays visible but disabled (`useWriteGate()`), with the tooltip "Demo data is read-only". Never hide the action: the demo should show what the app can do.
 - CSS classes for plain markup: `.input`, `.input-sm`, `.kbd`, `.th` (table header cell), `.card`, `.label`.
 
 Every interactive element has hover, focus-visible, disabled and (where it applies) loading and active states. Icons come from `lucide-react` at 14px (buttons, headings), 13px (chips, dense rows) or 12px (inline), never hand-drawn and never emoji.
@@ -185,6 +187,7 @@ Retired: the Meta-store hero cards, pill buttons, ring dials, the teal "stellar"
 
 Newest first; every entry below landed on 2026-10-20. The audit that started this is `docs/design-audit-2026-10-20.md`.
 
+- **Demo mode.** Onboarding opens on a choice (Explore the demo / Set up my own search); the demo badge sits in the profile-switcher slot; write actions are disabled with a "Demo data is read-only" tooltip; Settings › General gains a Data row with the Show demo data switch.
 - **Colour themes.** Switchable colour themes: every colour became a role token in `app/themes.css` (Blue hour default; Aurora, Star chart, Observatory, Galaxy), Settings › Appearance picker, primary buttons on their own `action` role, the sidebar on `nav-*` roles with a per-theme sky, Tailwind's default palette removed, and two guard tests (theme completeness + contrast, colour literals). Fixed in passing: `bg-accent/12` (off Tailwind's opacity scale) had silently dropped the active-nav and count-badge highlight.
 - **Dossier outline.** The dossier's first card is the "Summary" outline entry; the markdown "Recommendation" section keeps its own name, so the outline never lists Verdict twice.
 - **Report sheet.** Report panel becomes a 1040px `.sheet` with a lit edge, deep tinted shadow and a dimmed, blurred backdrop.
