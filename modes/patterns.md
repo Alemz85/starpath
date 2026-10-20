@@ -51,8 +51,11 @@ Parse the JSON output. It contains:
 | `scoreThreshold` | Recommended minimum score + reasoning |
 | `techStackGaps` | Most frequent tech gaps in negative outcomes |
 | `recommendations` | Top 5 actionable items with reasoning and impact level |
+| `rejections` | **Read from the status log, not from status text** (`scripts/lib/outcome-stats.mjs`): `rejections`, `afterProgress` (rejected after a reply or interview), `byStage` (where they happened: the explicit stage, else the status rejected from), `timing` (fast ≤ 2 days after sending / normal / late > 30 days, with its gated `medianDays` and `fastShare`), and per-slice rejection counts (`slices.easeBand / archetype / city / companySize`) each with its `sample` |
 
-If the script returns `error`, display the error message and exit.
+If the script returns `error` (fewer than 5 applications beyond Evaluated), display the error message, then still show the `rejections` block: it is always present and states its own gates.
+
+**Rejection questions ("why am I getting rejected?", "am I hitting ATS filters?") are answered from `rejections` and from `node scripts/outcomes.mjs --chat`** (its why table: one row per application with stage, days, materials and the user's notes). The rules of `docs/scoring-statistical-design.md` § 3.7 apply: below a gate, give the counts and describe the applications; never a rate or a pattern. A fast rejection is *consistent with* an automated screen, not proof of one. A rejection that matches a low Ease score is not a finding.
 
 ## Step 2 — Generate Report
 
@@ -128,9 +131,9 @@ Example:
 > **Pattern Analysis Complete** (24 applications, Apr 7-8)
 >
 > Key findings:
-> - Geo-restricted roles are 0% conversion (7 of 24) -- stop evaluating US/Canada-only postings
-> - Regional/global remote roles convert at 57-67% -- these are your sweet spot
-> - No positive outcomes below 4.2/5 -- consider this your score floor
+> - 9 of 11 exactly dated rejections came within 2 days of sending (moderate confidence) -- consistent with automated screening; 7 of them were roles asking for a language the CV doesn't list
+> - Regional/global remote roles: 6 of 10 got a reply (moderate); geo-restricted: 0 of 7 -- withheld (8 needed), but every one was a US/Canada-only posting
+> - Nothing that scored below Solid got a reply (counts only: 0 of 6)
 >
 > Full report: `reports/pattern-analysis-2026-04-08.md`
 
@@ -184,7 +187,7 @@ For reference, outcomes are classified as:
 
 | Status | Outcome |
 |--------|---------|
-| Interview, Offer, Responded, Applied | **Positive** (invested effort or got traction) |
+| Interview, Offer, Responded, Applied | **Positive** (invested effort or got traction — *not* "it worked": for that, use `rejections` and `scripts/outcomes.mjs`, which read the dated history) |
 | Rejected, Discarded | **Negative** (company said no or offer closed) |
 | SKIP, NO APLICAR | **Self-filtered** (user decided not to apply) |
 | Evaluated | **Pending** (no action taken yet) |

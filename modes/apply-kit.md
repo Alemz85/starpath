@@ -60,6 +60,7 @@ gap the checklist reports.
 - `data/outreach.md` — the outreach log
 - `interview-prep/story-bank.md` — supporting signal
 - `data/applications.md` — only for `--all` (to enumerate tracked listings)
+- Past outcomes (optional) — `node scripts/outcomes.mjs --chat`: what earlier applications sent (materials column, when the materials index is configured) and how each went. Context for the user, never a verdict: below the gates it prints, no material "works" or "fails".
 
 ## Step 1 — Run the checker
 

@@ -152,6 +152,40 @@ export const GATES = Object.freeze({
   momentumMinPerHalf: 5,
 })
 
+/**
+ * Application-outcome gates (docs § 3.7, outcome-stats.mjs). Kept apart from
+ * GATES because they count applications, not evaluations, and the app's
+ * scoringStats.ts mirror does not read them.
+ */
+export const OUTCOME_GATES = Object.freeze({
+  /** A rate in a slice (reply / progress / interview): same zero-conversion
+   *  shape as calibrationMinApplied — 0.8^n < ~1-in-6 at n = 8. Counted over
+   *  RESOLVED applications (progressed + rejected + no-response). */
+  minResolved: 8,
+
+  /** Timing ("most rejections are fast", median days): under a coin flip,
+   *  ≥6 of 8 fast has P ≈ 0.14, the same ~1-in-6 bar. Counted over rejections
+   *  whose sent and rejection dates are both exact (no backfill). */
+  minTimedRejections: 8,
+
+  /** Ease-band gap persistence: each band compared carries at least this many
+   *  resolved applications in EACH chronological half (half the rate gate). */
+  minPerHalfBand: 4,
+})
+
+/** Classification constants for outcomes (docs § 3.7). Not gates: they decide
+ *  what an application's outcome is, not whether a claim may be made.
+ *  noResponseDays is the default; user/profile.yml `outcomes.no_response_days`
+ *  may change it. */
+export const OUTCOME_RULES = Object.freeze({
+  /** Still Applied this many days after sending → no-response (else pending). */
+  noResponseDays: 30,
+  /** Rejected within this many days of sending → fast (consistent with an ATS filter). */
+  fastRejectionDays: 2,
+  /** Rejected more than this many days after sending → late. */
+  lateRejectionDays: 30,
+})
+
 /* ───── 4. Confidence tiers (docs § 3.1) ──────────────────────────────────── */
 
 export const CONFIDENCE_TIERS = Object.freeze(['insufficient', 'low', 'moderate', 'high'])

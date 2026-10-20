@@ -130,7 +130,9 @@ Then **STOP.** Do not send. Do not write the status.
 
 Only **after** the user says they actually sent the reply:
 
-1. **Pipeline status** — update the matching `data/applications.md` row's `Status` to the suggested canonical value (`Responded`; `Interview` once a screen/take-home is scheduled; `Rejected` for a rejection). Canonical states only (`templates/states.yml`): no `**bold**`, no dates, no extra text in the status cell. **Update the existing row in place — never add a new entry** (per CLAUDE.md). The frontend status dropdown does the same writeback.
+1. **Pipeline status** — move the matching application to the suggested canonical value (`Responded`; `Interview` once a screen/take-home is scheduled; `Rejected` for a rejection) through the one status write path, dated with the day the recruiter's message arrived:
+   `node scripts/set-status.mjs <num> <Status> --date YYYY-MM-DD [--stage "after the phone screen"]`.
+   It updates the existing row in place and logs the change in the status log, which is where outcome stats (`scripts/outcomes.mjs`) read reply and rejection timing from; a hand edit of the Status cell skips the log. Canonical states only (`templates/states.yml`). The frontend status dropdown goes through the same path. (In the app's chat, propose a `starpath:status` card with `date` and `stage` instead — `modes/chat.md` § Proposals.)
 2. **Outreach log (optional, read the convention from `modes/contacto.md` — do not duplicate its logic here).** If the candidate keeps a `data/outreach.md` log and this reply maps to a tracked contact, you *may* append a touch row (`Channel = Email`/`Message`, `Touch = N+1`, `Outcome = Replied`/`Pending`) using that file's existing schema. The outreach log is the relationship record; the application `Status` is the pipeline record — keep them distinct. If no log exists, don't create one just for a recruiter reply; the application status is enough.
 
 ## Rules

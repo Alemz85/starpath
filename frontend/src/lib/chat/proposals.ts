@@ -78,6 +78,11 @@ export interface StatusProposal {
   company: string
   role: string
   status: AppStatus
+  /** When it happened (`YYYY-MM-DD`), for a change the user reports late;
+   *  the status log rejects a future date. Absent = today. */
+  date?: string
+  /** Where it happened (a rejection's stage, say), free text. */
+  stage?: string
 }
 
 export type ChatProposal = ApplyProposal | StatusProposal
@@ -179,11 +184,23 @@ function parseDeadline(raw: unknown): FieldResult<string | undefined> {
   if (!ISO_DATE_RE.test(value)) {
     return { ok: false, reason: 'deadline must be YYYY-MM-DD, "Rolling", or "n/d"' }
   }
-  // Reject 2026-13-40: Date round-trips a real date back to the same string.
+  if (!isRealDate(value)) return { ok: false, reason: 'deadline is not a real calendar date' }
+  return { ok: true, value }
+}
+
+// Reject 2026-13-40: Date round-trips a real date back to the same string.
+function isRealDate(value: string): boolean {
   const parsed = new Date(`${value}T00:00:00Z`)
-  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
-    return { ok: false, reason: 'deadline is not a real calendar date' }
-  }
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
+}
+
+/** A status change's `date`: `YYYY-MM-DD`, a real date (the log refuses future ones). */
+function parseEventDate(raw: unknown): FieldResult<string | undefined> {
+  if (raw === undefined || raw === null || raw === '') return { ok: true, value: undefined }
+  if (typeof raw !== 'string') return { ok: false, reason: 'date must be a string' }
+  const value = raw.trim()
+  if (!ISO_DATE_RE.test(value)) return { ok: false, reason: 'date must be YYYY-MM-DD' }
+  if (!isRealDate(value)) return { ok: false, reason: 'date is not a real calendar date' }
   return { ok: true, value }
 }
 
@@ -231,10 +248,14 @@ export function validateProposal(
   if (tag === 'starpath:status') {
     const status = parseStatus(json.status, true)
     if (!status.ok) return { ok: false, reason: status.reason }
-    return {
-      ok: true,
-      proposal: { kind: 'status', company: company.value, role: role.value, status: status.value! },
-    }
+    const date = parseEventDate(json.date)
+    if (!date.ok) return { ok: false, reason: date.reason }
+    const stage = optionalText(json.stage, 'stage', MAX_FIELD_CHARS)
+    if (!stage.ok) return { ok: false, reason: stage.reason }
+    const proposal: StatusProposal = { kind: 'status', company: company.value, role: role.value, status: status.value! }
+    if (date.value) proposal.date = date.value
+    if (stage.value) proposal.stage = stage.value
+    return { ok: true, proposal }
   }
 
   const status = parseStatus(json.status, false)
@@ -466,7 +487,11 @@ export function describeProposal(proposal: ChatProposal): ProposalSummary {
     return {
       kindLabel: 'Status change',
       subject,
-      changes: [{ label: 'Status', value: proposal.status }],
+      changes: [
+        { label: 'Status', value: proposal.status },
+        ...(proposal.date ? [{ label: 'Date', value: proposal.date }] : []),
+        ...(proposal.stage ? [{ label: 'Stage', value: proposal.stage }] : []),
+      ],
       appliedLabel: `Status set to ${proposal.status}`,
     }
   }

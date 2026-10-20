@@ -17,6 +17,7 @@ When the user asks to prep for an interview at a specific company+role, or when 
 4. **Story bank** at `interview-prep/story-bank.md` — read for existing prepared stories
 5. **CV** at `user/cv.md` + `user/article-digest.md` — read for proof points
 6. **Profile** at `user/profile.yml` + `user/_profile.md` — read for candidate context
+7. **Past outcomes** — `node scripts/outcomes.mjs --chat`: the why table lists every application sent, how far it got, where it was rejected (stage) and the user's notes. Use it to point prep at the stages that went badly before ("the last two case rounds ended in a rejection: more time on case practice"), naming the applications. Below the gates it prints (`docs/scoring-statistical-design.md` § 3.7) these are individual cases, not a pattern: never write "you fail case rounds" from two of them.
 
 ## Step 0 — Cache check (before any WebSearch)
 

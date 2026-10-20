@@ -217,6 +217,20 @@ test('status proposals ignore apply-only fields', () => {
   assert.deepEqual(r.ok && r.proposal, { kind: 'status', company: 'A', role: 'B', status: 'Offer' })
 })
 
+test('status proposals carry an optional past date and stage', () => {
+  const r = validateProposal('starpath:status', {
+    company: 'Fabrikam', role: 'Analyst', status: 'Rejected', date: '2026-10-02', stage: 'after the phone screen',
+  })
+  assert.deepEqual(r.ok && r.proposal, {
+    kind: 'status', company: 'Fabrikam', role: 'Analyst', status: 'Rejected', date: '2026-10-02', stage: 'after the phone screen',
+  })
+  assert.equal(validateProposal('starpath:status', { company: 'A', role: 'B', status: 'Rejected', date: '2026-13-40' }).ok, false)
+  assert.equal(validateProposal('starpath:status', { company: 'A', role: 'B', status: 'Rejected', date: 'last week' }).ok, false)
+  assert.equal(validateProposal('starpath:status', { company: 'A', role: 'B', status: 'Rejected', stage: 'a|b' }).ok, false)
+  const d = describeProposal({ kind: 'status', company: 'A', role: 'B', status: 'Rejected', date: '2026-10-02', stage: 'after applying' })
+  assert.deepEqual(d.changes.map((c) => c.label), ['Status', 'Date', 'Stage'])
+})
+
 // ─── fence extraction ─────────────────────────────────────────────────────────
 
 test('a proposal fence is lifted out and the surrounding prose is preserved', () => {

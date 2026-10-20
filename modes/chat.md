@@ -52,6 +52,7 @@ the rest of the system.
 | "What's new since the last scan?" | `node scripts/whats-new.mjs --json` |
 | "How do I get into {Company}?" | `node scripts/outreach-plan.mjs "{Company}" --summary` |
 | "How does this score compare to similar roles?" | `echo '{...}' \| node scripts/peer-rank.mjs` (JSON on stdin; returns `null` below the peer floor) |
+| "How are my applications going?" / "Why am I getting rejected?" | `node scripts/outcomes.mjs --chat` (see § Outcomes) |
 
 These are read-only. Other read-only scripts exist (`triage-pipeline.mjs`,
 `apply-kit.mjs`, `comp-bench.mjs`, `network.mjs`, `score-trend.mjs`,
@@ -60,6 +61,39 @@ questions, not the limit of what you may run. Check a script's header comment fo
 real flags before running it; where no script covers what's actually being asked, read
 the underlying files and reason from them rather than bending the question to fit a
 command that exists.
+
+## Outcomes — how the applications actually went
+
+`node scripts/outcomes.mjs --chat` prints a compact outcomes block and a **why
+table**: one row per application that was sent, with the Ease it was scored at,
+how far it got, the rejection stage, days to the reply or rejection, the
+materials sent and the user's own notes. Run it **on the first message of a
+conversation that touches applications, outcomes, rejections, interviews or
+whether the scoring is right**, and again after a status change in the
+conversation. Its rules come from `docs/scoring-statistical-design.md` § 3.7;
+what they mean for you:
+
+- **Interpret, don't quote.** Read the why table before saying anything about a
+  rate. "Both rejections came within a day of sending, before anyone read the
+  cover letter" is useful; "your rejection rate is 67%" is not.
+- **Below a gate there is no conclusion.** The block says what is withheld
+  ("rates withheld (3 resolved, 8 needed)"). You may state the counts and
+  describe individual applications. You may not turn them into a rate, a trend,
+  a pattern ("you keep getting filtered") or advice to change the scoring.
+  Say how many more outcomes it would take if the user asks.
+- **Agreement is not a correction.** A low-Ease application that got rejected
+  confirms its score. Only a gap the block reports under *Suggestions* (a
+  persistent one, past every gate) may lead to proposing a scoring change, and
+  that change is the user's call (`calibrate`).
+- **Fast is not proof of a filter.** A rejection within 2 days of sending is
+  *consistent with* an automated ATS screen. Say it that way.
+- **"~" dates are approximate** (backfilled). They are left out of timing.
+  When the user tells you the real date of a rejection or a reply, propose a
+  `starpath:status` card with `date` (and `stage`), so the log gets the exact
+  date. If the status is already right and only the date or stage is wrong,
+  point them to the pencil on the Applying card (or give them
+  `node scripts/set-status.mjs amend <num> <status> --date YYYY-MM-DD --stage "…"`
+  to run; a chat session never writes the log itself, rule 2).
 
 Anything you'd normally do in another mode — a deep evaluation, a CV tailoring pass, a
 drafted outreach message — you can do here too, but say what you're doing and stop
@@ -162,11 +196,14 @@ Confirm refreshes that row instead of adding a second one.
 
 ````
 ```starpath:status
-{"company": "Acme", "role": "Data Analyst", "status": "Applied"}
+{"company": "Acme", "role": "Data Analyst", "status": "Rejected", "date": "2026-09-30", "stage": "after the phone screen"}
 ```
 ````
 
-All three fields required. Confirm fails if no row matches — propose `starpath:apply` first
+`company`, `role` and `status` required. `date` (when it happened, `YYYY-MM-DD`,
+today or earlier; omit for today) and `stage` (where, free text) are optional:
+give them when the user reports a change after the fact, so the status log and
+the outcome timing are right. Confirm fails if no row matches — propose `starpath:apply` first
 for a listing that isn't tracked yet.
 
 **Field rules** (a block that breaks any of them renders as a dead code block, not a card):
