@@ -164,7 +164,7 @@ export function ScoutingActionPanel({
   const handleFullScan = () => {
     if (fullScan?.status === 'running') { kill(FULL_SCAN_ID); return }
     if (fullScan) clear(FULL_SCAN_ID)
-    start(FULL_SCAN_ID, 'Full scan', 'claude', claudeArgs('/career-ops scan', 'sonnet'))
+    start(FULL_SCAN_ID, 'Full scan', 'claude', claudeArgs('/career-ops scan', 'sonnet', 'scan'))
     startJobspyIfIdle()
   }
   const handleApiScan = () => {
@@ -337,7 +337,7 @@ function FilteredScanButton({ disabled, title }: { disabled?: boolean; title?: s
       `Skip every other tracked_company. Skip the search_queries section entirely. ` +
       `For each named company, follow its scan_method (api → direct API call; websearch → WebSearch with the company's scan_query). ` +
       `Append new URLs to data/pipeline.md per the standard scan mode; respect data/scan-history.tsv for dedup.`
-    start(FILTERED_SCAN_ID, `Filtered scan (${selected.size})`, 'claude', claudeArgs(slash, 'sonnet'))
+    start(FILTERED_SCAN_ID, `Filtered scan (${selected.size})`, 'claude', claudeArgs(slash, 'sonnet', 'scan'))
     setOpen(false)
   }
 

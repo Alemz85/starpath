@@ -12,7 +12,7 @@ import { type PeriodBucket, type PeriodGranularity } from '@/lib/trendsAnalytics
 
 // Listings posted per period (DESIGN-meta § Charts, "Count bars"). Bars count
 // distinct listings by the period they were posted (scan-history's posting
-// date, else their first evaluation): the wanted ones at the foot in the
+// date, else the report's `**Posted:**` date, else their first evaluation): the wanted ones at the foot in the
 // top-score colour (Want ≥ WANT_HIGH, the colour a Want of 8 takes
 // everywhere), the rest above, blocked ones on top in the eligibility red.
 // Counts only, so nothing is gated (docs/scoring-statistical-design.md § 3.6);
@@ -91,8 +91,8 @@ export function ListingsChart({
         {postedCount === listings
           ? '. '
           : postedCount === 0
-            ? `: no posting dates on file yet, so the ${granularity} it was first evaluated. `
-            : ` (${postedCount} of ${listings} have a posting date from the scans; the rest use the ${granularity} they were first evaluated). `}
+            ? `: no posting dates on file, so the ${granularity} it was first evaluated. `
+            : ` (${postedCount} of ${listings} have a posting date from the scans or their report; the rest use the ${granularity} they were first evaluated). `}
         Wanted means Want {WANT_HIGH.toFixed(1)} or more and not blocked (a Go, Stretch or Growth target verdict).
       </p>
     </Panel>

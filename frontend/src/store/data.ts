@@ -7,7 +7,8 @@ import { normalizeTier } from '@/lib/tierLevers'
 import { canWriteNow } from './dataRoot'
 import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus } from '@/types'
 import type { StatusAmendResult, StatusChangeResult, StatusLogEntry } from '@/lib/statusLog'
-import { buildListingDateQueries, type ListingDatesMap } from '@/lib/listingDates'
+import { buildListingDateQueries, listingDateKey, type ListingDatesMap } from '@/lib/listingDates'
+import { isoDayOf, parseReportPosted } from '@/lib/postedDate'
 
 /** Optional detail for a status change (all recorded in the status log). */
 export interface StatusChangeDetail {
@@ -42,6 +43,11 @@ interface DataState {
    *  application and evaluated listing the scans saw). Filled just after the
    *  rest of a load; empty until then. */
   listingDates: ListingDatesMap
+  /** Posting date from the report's `**Posted:**` header line, keyed by
+   *  `listingDateKey(company, role)`. Only listings the scans have no posting
+   *  date for are read (a URL-added listing has no other source), so it is
+   *  filled a moment after `listingDates` and may be empty until then. */
+  reportPosted: Record<string, string>
   loaded:       boolean
   loading:      boolean
 
@@ -88,6 +94,7 @@ export const useDataStore = create<DataState>((set) => ({
   discarded:    new Set<string>(),
   statusLog:    [],
   listingDates: {},
+  reportPosted: {},
   loaded:       false,
   loading:      false,
 
@@ -239,6 +246,36 @@ async function loadAll() {
   // nothing above waits on it.
   const listingDates = await ipc.listings.dates(buildListingDateQueries(applications, scoreHistory)).catch(() => null)
   useDataStore.setState({ listingDates: listingDates ?? {} })
+
+  // Report posting dates third, off the load's critical path: only for the
+  // listings scan-history gave no posting date.
+  void loadReportPosted(useDataStore.getState().reports, listingDates ?? {})
+}
+
+// path@mtime → the report's `**Posted:**` day (null = read, none there), so a
+// reload re-reads only reports that changed.
+const reportPostedCache = new Map<string, string | null>()
+const REPORT_READ_CONCURRENCY = 6
+
+async function loadReportPosted(reports: ReportFile[], dates: ListingDatesMap) {
+  const todo = reports.filter(r => !isoDayOf(dates[listingDateKey(r.company, r.role)]?.postedDate))
+  const out: Record<string, string> = {}
+  let next = 0
+  const worker = async () => {
+    while (next < todo.length) {
+      const r = todo[next++]
+      const ck = `${r.path}@${r.mtime ?? 0}`
+      let day = reportPostedCache.get(ck)
+      if (day === undefined) {
+        try { day = parseReportPosted(await ipc.readFile(r.path)) } catch { day = null }
+        reportPostedCache.set(ck, day)
+      }
+      const key = listingDateKey(r.company, r.role)
+      if (day && !out[key]) out[key] = day
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(REPORT_READ_CONCURRENCY, todo.length) }, worker))
+  useDataStore.setState({ reportPosted: out })
 }
 
 // ─── Scan-history derivations ───────────────────────────────────────────────
@@ -381,6 +418,7 @@ function toReportFile(row: DbReportRow): ReportFile {
     role:    row.role,
     tier:    row.tier,
     url:     row.url ?? '',
+    mtime:   row.mtime,
   }
 }
 

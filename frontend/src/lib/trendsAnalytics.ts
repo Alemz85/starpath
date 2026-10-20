@@ -106,8 +106,9 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 //
 // Counting rules:
 //   • a listing counts ONCE, in the period it was POSTED: its posting date
-//     from scan-history when the caller has one (`postedDate`), else the
-//     period it was first evaluated — a re-evaluation is not a new listing
+//     (scan-history's, else the report's; the caller resolves it with
+//     `pickPostedDate` and passes `postedDate`), else the period it was first
+//     evaluated — a re-evaluation is not a new listing
 //     (key: URL, else company|role);
 //   • "wanted" = the high-Want row of the verdict grid (docs/scoring-v2.md
 //     §4): Want ≥ WANT_HIGH and not blocked, i.e. a Go, Stretch or Growth

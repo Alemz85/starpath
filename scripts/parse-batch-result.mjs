@@ -6,11 +6,13 @@
 // single `claude -p --output-format json` spawn) and prints ONE tab-separated
 // line the runner can `read` back:
 //
-//   status \t score \t input_tokens \t cache_creation \t cache_read \t output_tokens \t cost_usd \t duration_ms \t num_turns \t verdict
+//   status \t score \t input_tokens \t cache_creation \t cache_read \t output_tokens \t cost_usd \t duration_ms \t num_turns \t verdict \t denied
 //
 // `score` is the worker's Priority (sqrt(want × ease), docs/scoring-v2.md
 // §8.6); a Blocked listing has no Priority, so score is '-' and verdict is
-// 'blocked'. Missing values print as '-'. Exits 0 even for mangled logs
+// 'blocked'. `denied` is the `;`-joined calls the CLI refused (the worker's
+// permissions, scripts/lib/worker-capabilities.mjs); the runner fails the
+// listing when it is not '-'. Missing values print as '-'. Exits 0 even for mangled logs
 // (accounting must never fail the batch); exits 1 only on usage error.
 //
 // Usage: node scripts/parse-batch-result.mjs <logfile>
@@ -37,5 +39,6 @@ process.stdout.write(
   [
     p.status, p.score, p.inputTokens, p.cacheCreationTokens, p.cacheReadTokens,
     p.outputTokens, p.costUsd, p.durationMs, p.numTurns, p.blocked ? 'blocked' : p.verdict,
+    p.denied.length > 0 ? p.denied.join('; ').replace(/[\t\n]+/g, ' ') : null,
   ].map(cell).join('\t') + '\n',
 )

@@ -76,6 +76,29 @@ export function extractClaudeCliFailure(event: unknown): string | null {
   return null
 }
 
+/**
+ * The calls the CLI refused from a `result` event's `permission_denials`
+ * (`["Bash: rm x", "Write: /abs/file"]`), or null for any other event. Same
+ * shape as deniedTools() in scripts/lib/worker-capabilities.mjs.
+ */
+export function extractPermissionDenials(event: unknown): string[] | null {
+  if (!isRecord(event) || event.type !== 'result' || !Array.isArray(event.permission_denials)) return null
+  return event.permission_denials.map((d: unknown) => {
+    const rec = isRecord(d) ? d : {}
+    const input = isRecord(rec.tool_input) ? rec.tool_input : {}
+    const what = [input.command, input.file_path, input.url, input.query, input.pattern]
+      .find((v): v is string => typeof v === 'string')
+    const name = typeof rec.tool_name === 'string' ? rec.tool_name : 'tool'
+    return what ? `${name}: ${what.slice(0, 120)}` : name
+  })
+}
+
+/** The failure line for a chat turn that hit its read-only permissions. */
+export function permissionDenialMessage(denied: string[]): string {
+  return `Chat is read-only and the reply tried ${denied.length === 1 ? 'an action' : `${denied.length} actions`} ` +
+    `outside that (${denied.slice(0, 3).join('; ')}). Ask it to propose the change instead.`
+}
+
 /** Map one parsed stream-json event to the directives it implies. */
 export function interpretChatEvent(
   event: unknown,

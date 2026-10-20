@@ -145,7 +145,18 @@ test('parses a full successful worker log', () => {
     costUsd: 0.8123,
     durationMs: 184223,
     numTurns: 41,
+    denied: [],
   })
+})
+
+test('a worker whose calls were refused is failed, with each refused call named', () => {
+  const ev = {
+    ...RESULT_EVENT,
+    permission_denials: [{ tool_name: 'Write', tool_use_id: 't1', tool_input: { file_path: '/repo/user/cv.md', content: 'x' } }],
+  }
+  const parsed = parseWorkerLog(JSON.stringify(ev))
+  assert.equal(parsed.status, 'failed')
+  assert.deepEqual(parsed.denied, ['Write: /repo/user/cv.md'])
 })
 
 test('flags is_error results as failed', () => {

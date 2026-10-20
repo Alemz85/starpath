@@ -173,7 +173,7 @@ function UploadMode({ onComplete }: { onComplete: () => void }) {
       `Use # for the candidate name, ## for major sections, ### for sub-entries, regular markdown lists for bullets. ` +
       `Include the contact line right under the name. Do NOT invent content; only transcribe what's in the PDF. ` +
       `Do NOT print any commentary — just write the file and exit.`
-    startSpawn(CV_PDF_SPAWN_ID, 'Convert CV PDF → markdown', 'claude', claudeArgs(slash, 'sonnet'))
+    startSpawn(CV_PDF_SPAWN_ID, 'Convert CV PDF → markdown', 'claude', claudeArgs(slash, 'sonnet', 'cv-import'))
     setConfirmed(true)
   }
 

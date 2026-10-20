@@ -68,6 +68,8 @@ import {
   interpretChatEvent,
   newChatStreamState,
   splitStreamChunk,
+  extractPermissionDenials,
+  permissionDenialMessage,
 } from '../src/lib/chat/stream'
 
 const PERSIST_THROTTLE_MS = 200
@@ -87,6 +89,9 @@ export interface ChatDeps {
   resolveSystemPrompt: (rel: string) => Promise<string>
   /** A refusal message when sending is not allowed (demo mode), else null. */
   refuseSend: () => Promise<string | null>
+  /** The chat worker's permission flags (scripts/lib/worker-capabilities.mjs,
+   *  kind `chat`: read-only). A failure refuses the send. */
+  getPermissionArgs: () => Promise<string[]>
 }
 
 // ─── Persisted runtime ────────────────────────────────────────────────────────
@@ -252,6 +257,7 @@ async function sendMessage(
   // one synchronous stretch, so two racing sends still meet the `active`
   // guard below rather than both spawning.
   const systemPromptFile = await d.resolveSystemPrompt(CHAT_SYSTEM_PROMPT_FILE)
+  const permissionArgs = await d.getPermissionArgs()
   const store = runtime
   if (!store) throw new Error('Chat is not ready yet.')
   if (active || store.isLive()) throw new Error('A chat reply is already running.')
@@ -298,6 +304,7 @@ async function sendMessage(
   if (session.claudeSessionId) dispatch({ type: 'resume-available', available: true })
 
   const args = buildChatClaudeArgs(prompt, {
+    permissionArgs,
     resumeId: session.claudeSessionId,
     model: d.getModel() ?? null,
     systemPromptFile,
@@ -330,10 +337,12 @@ async function sendMessage(
   let stderr = ''
   let spawnError: string | null = null
   let cliFailure: string | null = null
+  let denied: string[] = []
   const sessionRowId = session.id
 
   const handleEvent = (event: unknown): void => {
     cliFailure = extractClaudeCliFailure(event) ?? cliFailure
+    denied = extractPermissionDenials(event) ?? denied
     for (const directive of interpretChatEvent(event, streamState)) {
       if (directive.kind === 'session') {
         writeSessions(setClaudeSessionId(readSessions(ownSessionsPath), sessionRowId, directive.id), ownSessionsPath)
@@ -376,7 +385,11 @@ async function sendMessage(
       }), ownSessionsPath)
     }
 
-    if (code === 0 || stopped) {
+    // Chat is read-only: a call outside its permissions fails the turn
+    // visibly instead of reading as an answer that quietly skipped a step.
+    if (denied.length > 0 && !stopped) {
+      dispatchOwn({ type: 'failed', message: permissionDenialMessage(denied) })
+    } else if (code === 0 || stopped) {
       dispatchOwn({ type: 'completed' })
     } else {
       const detail =

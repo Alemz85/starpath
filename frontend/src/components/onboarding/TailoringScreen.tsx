@@ -5,6 +5,7 @@ import { motion } from 'framer-motion'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { ipc } from '@/lib/ipc'
+import { WORKER_FLAG } from '@/lib/spawnFormat'
 import { StarpathLogo, ClaudeLogo } from '@/components/shared/Logos'
 
 type State = 'running' | 'done' | 'error'
@@ -36,7 +37,7 @@ export function TailoringScreen() {
   }, [state])
 
   useEffect(() => {
-    ipc.spawn(SPAWN_ID, 'claude', ['-p', '@.claude/skills/career-ops-setup/SKILL.md'])
+    ipc.spawn(SPAWN_ID, 'claude', [WORKER_FLAG, 'setup', '-p', '@.claude/skills/career-ops-setup/SKILL.md'])
 
     const unsubOut = ipc.onSpawnOutput((id, chunk) => {
       if (id !== SPAWN_ID) return

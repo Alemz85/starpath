@@ -39,6 +39,12 @@
  *   echo '{ ...inputs... }' | node scripts/score-listing.mjs --write-cache
  *   echo '{ "eligibility_facts": {...} }' | node scripts/score-listing.mjs --eligibility-only
  *   echo '{ "company": "...", "role": "...", "url": "..." }' | node scripts/score-listing.mjs --prior-only
+ *   node scripts/score-listing.mjs --input batch/work/<id>-score.json [--flags]
+ *
+ * `--input <file>` reads the JSON from a file inside the checkout instead of
+ * stdin. Background workers use it: their shell permissions refuse some
+ * quoting (a JSON with an apostrophe escaped as '"'"'), and a file written
+ * with the Write tool needs no quoting at all.
  *
  * `--prior-only` returns { prior } — the previous evaluation's dimension
  * scores (or null) — so a re-score can start from them before judging.
@@ -94,7 +100,8 @@
  */
 
 import { readFile } from 'fs/promises'
-import { dirname, join } from 'path'
+import { readFileSync, realpathSync } from 'fs'
+import { dirname, join, sep } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
 
@@ -128,8 +135,30 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8')
 }
 
+/** `--input <file>`: a JSON file inside the checkout (null when not given). */
+function readInputFile(argv) {
+  const i = argv.indexOf('--input')
+  if (i === -1) return null
+  const file = argv[i + 1]
+  if (!file) {
+    process.stderr.write('score-listing: --input needs a file path\n')
+    process.exit(2)
+  }
+  let real
+  try { real = realpathSync(file) } catch {
+    process.stderr.write(`score-listing: cannot read ${file}\n`)
+    process.exit(1)
+  }
+  const roots = [realpathSync(process.cwd()), realpathSync(ROOT)]
+  if (!roots.some((r) => real === r || real.startsWith(r + sep))) {
+    process.stderr.write('score-listing: --input must be a file inside the checkout\n')
+    process.exit(2)
+  }
+  return readFileSync(real, 'utf8')
+}
+
 async function main() {
-  const raw = await readStdin()
+  const raw = readInputFile(process.argv) ?? await readStdin()
   if (!raw.trim()) {
     process.stderr.write('score-listing: empty stdin — pipe a JSON input\n')
     process.exit(1)

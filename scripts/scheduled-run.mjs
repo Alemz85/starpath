@@ -9,7 +9,7 @@
  *   run        scan → merge → triage → [evaluate] → merge trackers.
  *              Exits early when a full run finished in the last 7 days.
  *              Evaluations are OFF unless saved with `config --evaluate on` (or --eval for one run):
- *              the workers run `claude -p --dangerously-skip-permissions` unattended.
+ *              the workers (`claude -p`, least privilege: worker-capabilities.mjs) run unattended.
  *              --force            ignore the 7-day check
  *              --dry-run          print the plan, run only read-only stages, spawn no worker
  *              --eval             evaluate in this run even if the saved setting is off

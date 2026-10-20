@@ -1,4 +1,28 @@
 {
+  "permissions": {
+    "deny": [
+      "Bash(git commit *--no-verify*)",
+      "Bash(git push *--no-verify*)",
+      "Bash(git push *--force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * -f*)",
+      "Bash(sudo *)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.gnupg/**)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.netrc)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Edit(./.git/**)",
+      "Edit(./.githooks/**)",
+      "Edit(./private/.git/**)",
+      "Edit(./private/.githooks/**)",
+      "WebFetch(domain:localhost)",
+      "WebFetch(domain:127.0.0.1)",
+      "WebFetch(domain:169.254.169.254)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {

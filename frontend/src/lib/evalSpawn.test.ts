@@ -12,7 +12,7 @@ import {
   filterAllPrompt,
   top5ReportsPrompt,
 } from './evalSpawn'
-import { NON_INTERACTIVE_SUFFIX } from './spawnFormat'
+import { NON_INTERACTIVE_SUFFIX, WORKER_FLAG } from './spawnFormat'
 
 // ─── claudeEvalArgs ──────────────────────────────────────────────────────────
 
@@ -26,7 +26,8 @@ test('claudeEvalArgs loads the compact bundle as an appended system prompt', () 
 
 test('claudeEvalArgs keeps the non-interactive flag set from claudeArgs', () => {
   const args = claudeEvalArgs('task', 'opus')
-  assert.ok(args.includes('--dangerously-skip-permissions'))
+  assert.deepEqual(args.slice(0, 2), [WORKER_FLAG, 'eval-app'])
+  assert.ok(!args.some(a => a.includes('skip-permissions')))
   assert.ok(args.includes('stream-json'))
   assert.ok(args.includes('--verbose'))
   assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2), ['--model', 'opus'])

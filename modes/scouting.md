@@ -118,11 +118,17 @@ Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thi
 **TL;DR:** {one plain sentence: the deciding factor and the call}
 **Tier:** {T1|T2|T3}
 **URL:** {listing-specific url or "—"}
+**Posted:** {YYYY-MM-DD | n/d}
+**Posting check:** {clean | caution — … | suspect — … | unchecked — …}
 ```
 
 The Verdict line is `{verdict_label} — {action}` exactly as `_shared.md` § Standard report block format lists it (`Go — apply now`, `Stretch — apply with prep`, `Solid — apply`, `If pipeline thin — apply only if your pipeline is thin`, `Growth target — close the gap first`).
 
 **Header discipline.** Each value is a clean short key/value pair — no parentheticals, no run-context annotations. The Tier line is mandatory and must match the report's tier directory.
+
+**Posted date.** Find when the listing was first posted, from the source only, in this order: the posting check's `posted` field (or a `Posted (from page):` value in the task message); a publish/creation date in the ATS's own JSON for this job (`datePosted`, `first_published`, `publishedAt`, `postedOn`, Lever `createdAt`); schema.org `JobPosting` → `datePosted` in the page; a visible "Posted on …" line, or "posted N days/weeks ago" / "today" / "yesterday" converted against today's date. Write `**Posted:** YYYY-MM-DD`, or `**Posted:** n/d` when the source gives none. Never guess, and never use an `updated_at`, a deadline / `validThrough`, the scan date or today's date; "30+ days ago" is `n/d`. Listings found by the scanner already carry a posting date in `data/scan-history.tsv` (the app prefers it); the report's line is what a listing added by URL has.
+
+**Posting check.** `node scripts/posting-guard.mjs --url {url} --save-text jds/check-{company-slug}.txt` before reading the posting; copy its `line`, and read the saved file as the posting (`_shared.md` § Untrusted content).
 
 **URL discipline (NEVER write a generic portal URL).** The `**URL:**` field MUST be listing-specific — a job identifier (`/jobs/{id}`, a job-token slug, a UUID, `?gh_jid=...`). If the only URL you have is a portal homepage (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`) — write `—` instead (`n/d` in the `url` column of `data/score-history.tsv`). A portal URL collides across every listing at the company and the frontend cache would link the wrong report.
 

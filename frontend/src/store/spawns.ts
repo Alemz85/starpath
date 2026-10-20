@@ -18,6 +18,7 @@ import {
   humanizeJsonlChunk,
   isAuthFailureText,
   diagnoseFailureText,
+  PERMISSION_BLOCKED_PREFIX,
 } from '@/lib/spawnFormat'
 
 // Re-exported for API stability — call sites across the app import these from
@@ -157,9 +158,12 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     set(state => {
       const rec = state.spawns[id]
       if (!rec) return state
+      // A claude worker that hit its permissions failed even on exit 0
+      // (PERMISSION_BLOCKED_PREFIX in lib/spawnFormat.ts).
+      const blocked = rec.tool === 'claude' && rec.output.some(l => l.startsWith(PERMISSION_BLOCKED_PREFIX))
       const status: SpawnStatus = rec.status === 'killed'
         ? 'killed'
-        : exitCode === 0 ? 'done' : 'error'
+        : exitCode === 0 && !blocked ? 'done' : 'error'
       return { spawns: { ...state.spawns, [id]: { ...rec, status, exitCode, endedAt: Date.now() } } }
     })
   },
