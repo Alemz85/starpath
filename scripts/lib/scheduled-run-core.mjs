@@ -12,7 +12,7 @@
  *   scan          node scripts/scan.mjs                       (zero tokens)
  *   jobspy        python scripts/jobspy/scan.py + merge       (optional, zero tokens)
  *   triage        node scripts/triage-pipeline.mjs --emit-batch (zero tokens)
- *   evaluate      batch/batch-runner.sh --model sonnet        (the only token spend)
+ *   evaluate      batch/batch-runner.sh [--model M]           (the only token spend; OPT-IN)
  *   merge         merge-scouting, merge-tracker, verify-pipeline
  * Nothing here applies, sends or submits anything: the workers only write
  * evaluation reports and tracker rows.
@@ -25,7 +25,14 @@ import {
   lastFullRun, summarizeRun,
 } from './schedule-core.mjs'
 
-export const DEFAULT_OPTIONS = Object.freeze({ top: 15, parallel: 2, model: 'sonnet', jobspy: false })
+/**
+ * `evaluate` is off by default: the workers run `claude -p
+ * --dangerously-skip-permissions` unattended, so the user opts in. `model` is
+ * an optional override; empty means batch-runner.sh's own default (the latest
+ * Opus), which stays the single source of truth, so scheduled and manual
+ * evaluations are scored by the same model.
+ */
+export const DEFAULT_OPTIONS = Object.freeze({ top: 15, parallel: 2, model: '', evaluate: false, jobspy: false })
 
 const MIN = 60_000
 const HOUR = 60 * MIN
@@ -47,7 +54,8 @@ export function resolveOptions(...layers) {
   }
   out.top = Math.max(1, Math.floor(Number(out.top)) || DEFAULT_OPTIONS.top)
   out.parallel = Math.max(1, Math.floor(Number(out.parallel)) || DEFAULT_OPTIONS.parallel)
-  out.model = String(out.model || DEFAULT_OPTIONS.model)
+  out.model = out.model ? String(out.model) : ''
+  out.evaluate = out.evaluate === true
   out.jobspy = out.jobspy === true
   return out
 }
@@ -70,13 +78,13 @@ export function buildStages({ options, noEval = false, dryRun = false, nodePath 
   }
   stages.push({
     name: 'triage', cmd: nodePath,
-    args: ['scripts/triage-pipeline.mjs', '--top', String(o.top), ...(dryRun ? [] : ['--emit-batch'])],
+    args: ['scripts/triage-pipeline.mjs', '--top', String(o.top), ...(dryRun || !(o.evaluate && !noEval) ? [] : ['--emit-batch'])],
     required: true, abortOnFail: true, timeoutMs: 5 * MIN,
   })
-  if (!noEval) {
+  if (o.evaluate && !noEval) {
     stages.push({
       name: 'evaluate', cmd: 'bash',
-      args: ['batch/batch-runner.sh', '--model', o.model, '--parallel', String(o.parallel), ...(dryRun ? ['--dry-run'] : [])],
+      args: ['batch/batch-runner.sh', ...(o.model ? ['--model', o.model] : []), '--parallel', String(o.parallel), ...(dryRun ? ['--dry-run'] : [])],
       required: true, timeoutMs: 6 * HOUR,
     })
   }
@@ -114,6 +122,24 @@ export function tallyBatchLine(line, tally) {
   else tally.evalNoResult++
 }
 
+/** Sum of cost_usd in batch/logs/usage.tsv rows stamped at or after `sinceMs` (header-named columns). */
+export function sumUsageCost(text, sinceMs) {
+  const lines = String(text ?? '').split('\n').filter(Boolean)
+  if (lines.length < 2) return 0
+  const head = lines[0].split('\t')
+  const ti = head.indexOf('timestamp')
+  const ci = head.indexOf('cost_usd')
+  if (ti < 0 || ci < 0) return 0
+  let sum = 0
+  for (const line of lines.slice(1)) {
+    const cells = line.split('\t')
+    const at = Date.parse(cells[ti])
+    const cost = Number(cells[ci])
+    if (Number.isFinite(at) && at >= sinceMs && Number.isFinite(cost)) sum += cost
+  }
+  return Math.round(sum * 10_000) / 10_000
+}
+
 /** "triage: ... — 7 added, 2 already present" -> 7 */
 export function parseTriageAdded(line) {
   const m = /—\s*(\d+) added/.exec(line)
@@ -136,6 +162,7 @@ export async function runScheduled({
   root, exec, log = () => {}, now = () => Date.now(),
   trigger = 'manual', force = false, dryRun = false, noEval = false,
   options = {}, nodePath = 'node', pythonPath, exists = existsSync, runId, stopRequested = () => false,
+  readUsage = (r) => { try { return readFileSync(join(r, 'batch/logs/usage.tsv'), 'utf8') } catch { return '' } },
 }) {
   const t0 = now()
   const state0 = readState(root)
@@ -153,7 +180,7 @@ export async function runScheduled({
     const decision = decideRun({ state: state0, now: t0, force: true })
     const natural = decideRun({ state: state0, now: t0 })
     log(`cadence: ${natural.run ? 'a real run would start now' : 'a real run would be skipped: ' + natural.reason}`)
-    log(`options: top ${opts.top}, parallel ${opts.parallel}, model ${opts.model}, jobspy ${opts.jobspy ? 'on' : 'off'}`)
+    log(`options: evaluations ${opts.evaluate ? 'on' : 'off (enable with `config --evaluate on`, or `run --eval` for one run)'}, top ${opts.top}, parallel ${opts.parallel}, model ${opts.model || 'runner default'}, jobspy ${opts.jobspy ? 'on' : 'off'}`)
     const results = []
     for (const s of stages) {
       if (s.name === 'scan' || s.name === 'jobspy' || s.name === 'jobspy-merge') {
@@ -238,9 +265,13 @@ export async function runScheduled({
       persist()
     }
 
-    summary.evalCompleted = tally.evalCompleted
-    summary.evalFailed = tally.evalFailed
-    summary.evalNoResult = tally.evalNoResult
+    summary.evaluations = opts.evaluate && !noEval
+    if (run.stages.some((x) => x.name === 'evaluate' && x.status !== 'skipped')) {
+      summary.evalCompleted = tally.evalCompleted
+      summary.evalFailed = tally.evalFailed
+      summary.evalNoResult = tally.evalNoResult
+      summary.costUsd = sumUsageCost(readUsage(root), t0)
+    }
     summary.pendingAfter = countPending(root)
     let status = finalStatus(run.stages, summary)
     if (status !== 'failed' && noEval) status = 'partial'

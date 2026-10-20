@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   parseScheduleStatus, parseSlotSuggestion, slotArg, slotLabel, sameSlot, schedulerArgs,
-  runResultChip, jobStateLine, formatWhen, WEEKDAY_ORDER, type ScheduleStatus,
+  runResultChip, jobStateLine, formatWhen, WEEKDAY_ORDER, modelLabel, evaluationCapLine, formatCost, type ScheduleStatus,
 } from './schedule'
 
 const STATUS_JSON = JSON.stringify({
@@ -10,10 +10,10 @@ const STATUS_JSON = JSON.stringify({
   slot: { weekday: 3, hour: 12, minute: 0 }, slotLabel: 'Wednesday 12:00', running: false,
   lastRun: {
     id: 'r1', trigger: 'scheduled', startedAt: '2026-10-21T10:00:00.000Z', finishedAt: '2026-10-21T10:40:00.000Z',
-    status: 'completed-with-errors', stages: [], summary: {}, error: null, summaryText: '12 new listings, 8 evaluated, 1 failed',
+    status: 'completed-with-errors', stages: [], summary: { costUsd: 3.42, evalCompleted: 8 }, error: null, summaryText: '12 new listings, 8 evaluated, 1 failed',
   },
   lastFullRunAt: '2026-10-21T10:40:00.000Z', nextRunAt: '2026-10-28T11:00:00.000Z', dueNow: false,
-  options: { top: 15, parallel: 2, model: 'sonnet', jobspy: false },
+  options: { top: 15, parallel: 2, model: '', evaluate: true, jobspy: false },
   logPath: '/x/data/scheduled-runs.log', root: '/x', claudeFound: true,
 })
 
@@ -25,7 +25,10 @@ test('parseScheduleStatus reads the CLI json, even behind log lines', () => {
   assert.equal(s.slotLabel, 'Wednesday 12:00')
   assert.equal(s.lastRun?.status, 'completed-with-errors')
   assert.equal(s.lastRun?.summaryText, '12 new listings, 8 evaluated, 1 failed')
-  assert.equal(s.options.model, 'sonnet')
+  assert.equal(s.options.model, '')
+  assert.equal(s.options.evaluate, true)
+  assert.equal(s.lastRun?.costUsd, 3.42)
+  assert.equal(s.lastRun?.evaluated, 8)
   assert.equal(s.root, '/x')
 })
 
@@ -35,6 +38,8 @@ test('parseScheduleStatus tolerates a fresh install and rejects junk', () => {
   assert.equal(s.slot, null)
   assert.equal(s.lastRun, null)
   assert.equal(s.options.top, 15)
+  assert.equal(s.options.evaluate, false, 'evaluations are off unless the CLI says so')
+  assert.equal(s.lastRun, null)
   assert.equal(s.claudeFound, true)
   assert.equal(parseScheduleStatus(''), null)
   assert.equal(parseScheduleStatus('not json'), null)
@@ -70,6 +75,10 @@ test('schedulerArgs build the exact commands', () => {
   assert.deepEqual(schedulerArgs.install({ weekday: 4, hour: 8, minute: 15 }), ['scripts/scheduled-run.mjs', 'install', '--slot', 'thu 08:15'])
   assert.deepEqual(schedulerArgs.install(), ['scripts/scheduled-run.mjs', 'install'])
   assert.deepEqual(schedulerArgs.uninstall(), ['scripts/scheduled-run.mjs', 'uninstall'])
+  assert.deepEqual(schedulerArgs.setEvaluate(true), ['scripts/scheduled-run.mjs', 'config', '--evaluate', 'on'])
+  assert.deepEqual(schedulerArgs.setModel(''), ['scripts/scheduled-run.mjs', 'config', '--model', 'default'])
+  assert.deepEqual(schedulerArgs.setModel('sonnet'), ['scripts/scheduled-run.mjs', 'config', '--model', 'sonnet'])
+  assert.deepEqual(schedulerArgs.setTop(10), ['scripts/scheduled-run.mjs', 'config', '--top', '10'])
 })
 
 test('runResultChip covers every status', () => {
@@ -98,4 +107,13 @@ test('the weekday display order is Monday first and covers all seven days once',
   assert.equal(WEEKDAY_ORDER[0], 1)
   assert.equal(WEEKDAY_ORDER[6], 0)
   assert.deepEqual([...WEEKDAY_ORDER].sort(), [0, 1, 2, 3, 4, 5, 6])
+})
+
+test('the model label and cap line say the runner default is the latest Opus; cost formats', () => {
+  assert.equal(modelLabel(''), 'the default (latest Opus)')
+  assert.equal(modelLabel('sonnet'), 'Sonnet')
+  assert.equal(evaluationCapLine({ top: 15, parallel: 2, model: '', evaluate: true, jobspy: false }), 'Up to 15 listings per run, 2 at a time, on the default (latest Opus).')
+  assert.equal(formatCost(3.4189), '$3.42')
+  assert.equal(formatCost(null), '—')
+  assert.equal(formatCost(0), '—')
 })

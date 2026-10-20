@@ -218,8 +218,10 @@ export function summarizeRun(run) {
   if (Number.isFinite(s.scanNew)) parts.push(`${s.scanNew} new listing${s.scanNew === 1 ? '' : 's'}`)
   if (Number.isFinite(s.queued)) parts.push(`${s.queued} queued for evaluation`)
   if (Number.isFinite(s.evalCompleted)) parts.push(`${s.evalCompleted} evaluated`)
+  if (s.evaluations === false) parts.push('evaluations off')
   if ((s.evalFailed ?? 0) > 0) parts.push(`${s.evalFailed} failed`)
   if ((s.evalNoResult ?? 0) > 0) parts.push(`${s.evalNoResult} without a result`)
+  if (Number.isFinite(s.costUsd) && s.costUsd > 0) parts.push(`$${s.costUsd.toFixed(2)}`)
   return parts.length ? parts.join(', ') : run.status
 }
 

@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Check, FileText, Lightbulb, Eye } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/app'
 import { useWriteGate } from '@/store/dataRoot'
 import { ipc } from '@/lib/ipc'
 import { Button, Chip } from '@/components/ui'
 import { FeatureToggle } from '@/components/settings/FeatureToggle'
 import {
-  MINUTE_CHOICES, WEEKDAY_NAMES, WEEKDAY_ORDER, formatWhen, jobStateLine, parseScheduleStatus,
+  MINUTE_CHOICES, TOP_CHOICES, WEEKDAY_NAMES, WEEKDAY_ORDER, evaluationCapLine, formatWhen, jobStateLine, parseScheduleStatus,
   parseSlotSuggestion, runResultChip, sameSlot, schedulerArgs, slotLabel,
   type ScheduleSlot, type ScheduleStatus, type SlotSuggestion,
 } from '@/lib/schedule'
@@ -126,11 +127,56 @@ export function ScheduleSection() {
     <div className="mt-4 space-y-4">
       <FeatureToggle
         label="Run on its own"
-        sub={`${jobStateLine(status)} Scans the job boards, queues the best listings and evaluates them on ${status.options.model === 'sonnet' ? 'Sonnet' : status.options.model}, at most once every 7 days. It never applies or sends anything.`}
+        sub={`${jobStateLine(status)} Scans the job boards at most once every 7 days (counted from the last run, manual or scheduled) and ranks the new listings. It never applies or sends anything.`}
         value={status.installed}
         onChange={(on) => { if (on !== status.installed) void (on ? turnOn() : turnOff()) }}
         disabled={busy}
       />
+
+      <div className="space-y-3">
+        <FeatureToggle
+          label="Evaluate automatically"
+          sub={status.options.evaluate
+            ? `On. Each run also starts Claude workers that score the best new listings and write reports and tracker rows. They run unattended with permission prompts skipped, so nobody confirms their actions. ${evaluationCapLine(status.options)}`
+            : 'Off. Runs only scan and rank, which costs no Claude usage. Turn on to also start unattended Claude workers (permission prompts skipped) that score the best new listings.'}
+          value={status.options.evaluate}
+          onChange={(on) => { if (on !== status.options.evaluate) void apply('Changing evaluations', schedulerArgs.setEvaluate(on), on ? 'Scheduled runs will evaluate listings.' : 'Scheduled runs will only scan and rank.') }}
+          disabled={busy}
+        />
+        {status.options.evaluate && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-label">
+            <div className="flex items-center gap-2">
+              <span className="text-text-3" id="sched-model-label">Worker model</span>
+              <div className="flex rounded border border-border-default overflow-hidden divide-x divide-border-default" role="group" aria-labelledby="sched-model-label">
+                {([['', 'Default'], ['sonnet', 'Sonnet'], ['opus', 'Opus']] as const).map(([id, name]) => (
+                  <button
+                    key={id || 'default'}
+                    type="button"
+                    disabled={busy}
+                    aria-pressed={status.options.model === id}
+                    title={id === '' ? 'The batch runner\'s own default: the latest Opus, same as manual evaluations' : undefined}
+                    onClick={() => { if (status.options.model !== id) void apply('Changing the model', schedulerArgs.setModel(id), `Workers will use ${id ? name : 'the default model'}.`) }}
+                    className={cn('btn btn-xs rounded-none focus-visible:ring-inset', status.options.model === id ? 'btn-tinted' : 'btn-ghost')}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="flex items-center gap-2">
+              <span className="text-text-3">Listings per run</span>
+              <select
+                value={status.options.top}
+                disabled={busy}
+                onChange={e => void apply('Changing the cap', schedulerArgs.setTop(Number(e.target.value)), `Up to ${e.target.value} listings per run.`)}
+                className="input w-auto px-2 cursor-pointer"
+              >
+                {[...new Set<number>([...TOP_CHOICES, status.options.top])].sort((a, b) => a - b).map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
 
       <div>
         <div className="text-body font-medium text-text-1">Slot</div>

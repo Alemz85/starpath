@@ -6,10 +6,13 @@
  *   npm run schedule -- <command> [options]
  *
  * Commands
- *   run        scan → merge → triage → evaluate (Sonnet) → merge trackers.
+ *   run        scan → merge → triage → [evaluate] → merge trackers.
  *              Exits early when a full run finished in the last 7 days.
+ *              Evaluations are OFF unless saved with `config --evaluate on` (or --eval for one run):
+ *              the workers run `claude -p --dangerously-skip-permissions` unattended.
  *              --force            ignore the 7-day check
  *              --dry-run          print the plan, run only read-only stages, spawn no worker
+ *              --eval             evaluate in this run even if the saved setting is off
  *              --no-eval          scan + triage only (zero tokens); recorded as "partial"
  *              --trigger <t>      "scheduled" (what launchd passes) or "manual" (default)
  *              --top N --parallel N --model M --jobspy   override the saved options
@@ -20,7 +23,8 @@
  *              [--print] show the plist without installing
  *   uninstall  unload and remove the job (the saved slot and run history stay)
  *   status     [--json] the slot, last/next run, last result, whether the job is loaded
- *   config     [--top N] [--parallel N] [--model M] [--jobspy on|off]  saved options
+ *   config     [--evaluate on|off] [--top N] [--parallel N] [--model M|default] [--jobspy on|off]
+ *              saved options; the model defaults to batch-runner.sh's own (latest Opus)
  *
  * It never applies, sends or submits anything: the workers only write
  * evaluation reports and tracker rows. Scanning and triage cost no tokens; the
@@ -220,7 +224,8 @@ function printStatus(r) {
   console.log(`Last run:   ${r.lastRun ? `${r.lastRun.finishedAt ?? r.lastRun.startedAt} (${r.lastRun.trigger}), ${r.lastRun.status}: ${r.lastRun.summaryText}` : 'never'}`)
   console.log(`Next run:   ${r.nextRunAt ?? (r.installed ? 'unknown' : 'n/a (job not installed)')}`)
   console.log(`Running:    ${r.running ? 'yes' : 'no'}`)
-  console.log(`Options:    top ${r.options.top}, parallel ${r.options.parallel}, model ${r.options.model}, jobspy ${r.options.jobspy ? 'on' : 'off'}`)
+  console.log(`Evaluations: ${r.options.evaluate ? `on (up to ${r.options.top} listings per run, ${r.options.parallel} at a time, model ${r.options.model || 'runner default'})` : 'off (scan + triage only; enable with `config --evaluate on`)'}`)
+  console.log(`Options:    jobspy ${r.options.jobspy ? 'on' : 'off'}`)
   console.log(`claude CLI: ${r.claudePath ?? 'NOT FOUND on PATH: evaluations will fail'}`)
   console.log(`Log:        ${r.logPath}`)
 }
@@ -266,7 +271,8 @@ async function cmdRun({ root, flags }) {
     nodePath: tools.nodePath,
     options: {
       top: num(flags.top), parallel: num(flags.parallel),
-      model: typeof flags.model === 'string' ? flags.model : undefined,
+      model: typeof flags.model === 'string' ? (flags.model === 'default' ? '' : flags.model) : undefined,
+      evaluate: flags.eval === true ? true : undefined,
       jobspy: flags.jobspy === true ? true : undefined,
     },
   })
@@ -316,6 +322,8 @@ async function cmdInstall({ root, flags }) {
   console.log(`  plist: ${res.plistPath}`)
   console.log(`  slot:  ${formatSlot(slot)} (${source}); retries every ${RETRY_EVERY_HOURS}h the same day if a run fails (never the next day), and runs when the Mac wakes if it was asleep`)
   console.log(`  runs:  at most once every 7 days, counted from the last run`)
+  const o = resolveOptions(readState(root).options)
+  console.log(`  evaluations: ${o.evaluate ? `ON (up to ${o.top} listings per run on ${o.model || 'the runner default model'}, unattended claude workers)` : 'OFF (scan + triage only; turn on with `npm run schedule -- config --evaluate on`)'}`)
   return 0
 }
 
@@ -330,14 +338,15 @@ async function cmdConfig({ root, flags }) {
   const patch = {}
   if (num(flags.top) !== undefined) patch.top = num(flags.top)
   if (num(flags.parallel) !== undefined) patch.parallel = num(flags.parallel)
-  if (typeof flags.model === 'string') patch.model = flags.model
+  if (typeof flags.model === 'string') patch.model = flags.model === 'default' ? '' : flags.model
+  if (flags.evaluate === 'on' || flags.evaluate === 'off') patch.evaluate = flags.evaluate === 'on'
   if (flags.jobspy === 'on' || flags.jobspy === 'off') patch.jobspy = flags.jobspy === 'on'
   if (Object.keys(patch).length) {
     updateState(root, (s) => ({ ...s, options: resolveOptions(s.options, patch) }))
   }
   const o = resolveOptions(readState(root).options)
   if (flags.json) console.log(JSON.stringify(o))
-  else console.log(`top ${o.top}, parallel ${o.parallel}, model ${o.model}, jobspy ${o.jobspy ? 'on' : 'off'} (defaults: ${JSON.stringify(DEFAULT_OPTIONS)})`)
+  else console.log(`evaluate ${o.evaluate ? 'on' : 'off'}, top ${o.top}, parallel ${o.parallel}, model ${o.model || 'runner default'}, jobspy ${o.jobspy ? 'on' : 'off'} (defaults: ${JSON.stringify(DEFAULT_OPTIONS)})`)
   return 0
 }
 

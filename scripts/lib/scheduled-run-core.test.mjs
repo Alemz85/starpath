@@ -4,11 +4,14 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  runScheduled, buildStages, resolveOptions, missingPrereqs, countPending, parseTriageAdded, tallyBatchLine,
+  runScheduled as runScheduledCore, buildStages, sumUsageCost, DEFAULT_OPTIONS, resolveOptions, missingPrereqs, countPending, parseTriageAdded, tallyBatchLine,
 } from './scheduled-run-core.mjs'
 import { readState, updateState, acquireRunLock, upsertRun, summarizeRun } from './schedule-core.mjs'
 
 const DAY = 86_400_000
+
+// Evaluations are opt-in; most tests exercise the full pipeline, so they turn it on.
+const runScheduled = (args) => runScheduledCore({ ...args, options: { evaluate: true, ...(args.options ?? {}) } })
 
 function fixtureRoot() {
   const root = mkdtempSync(join(tmpdir(), 'sched-run-'))
@@ -39,26 +42,41 @@ const happy = {
   evaluate: { lines: ['    ✅ Completed (priority: 7.1, report: 12)', '    ✅ Completed (priority: 5.2, report: 13)', '    ❌ Failed (attempt 1, exit code 1)'] },
 }
 
-test('buildStages orders scan, triage, evaluate, merges and puts the model and slice on the command lines', () => {
-  const names = buildStages({ options: { top: 10, parallel: 3, model: 'sonnet' } })
+test('buildStages with evaluations on: scan, triage, evaluate, merges; slice and parallelism on the command lines, no --model by default', () => {
+  const names = buildStages({ options: { evaluate: true, top: 10, parallel: 3 } })
   assert.deepEqual(names.map((s) => s.name), ['scan', 'triage', 'evaluate', 'merge-scouting', 'merge-tracker', 'verify'])
-  const triage = names.find((s) => s.name === 'triage')
-  assert.deepEqual(triage.args, ['scripts/triage-pipeline.mjs', '--top', '10', '--emit-batch'])
-  const evaluate = names.find((s) => s.name === 'evaluate')
-  assert.deepEqual(evaluate.args, ['batch/batch-runner.sh', '--model', 'sonnet', '--parallel', '3'])
+  assert.deepEqual(names.find((s) => s.name === 'triage').args, ['scripts/triage-pipeline.mjs', '--top', '10', '--emit-batch'])
+  assert.deepEqual(names.find((s) => s.name === 'evaluate').args, ['batch/batch-runner.sh', '--parallel', '3'])
+})
+
+test('buildStages: the default options have no evaluate stage, no queueing and no model', () => {
+  assert.equal(DEFAULT_OPTIONS.evaluate, false)
+  assert.equal(DEFAULT_OPTIONS.model, '')
+  const names = buildStages({ options: {} })
+  assert.deepEqual(names.map((s) => s.name), ['scan', 'triage', 'merge-scouting', 'merge-tracker', 'verify'])
+  assert.ok(!names.find((s) => s.name === 'triage').args.includes('--emit-batch'), 'nothing is queued while evaluations are off')
+})
+
+test('buildStages: --model only appears when the user set one', () => {
+  const withModel = buildStages({ options: { evaluate: true, model: 'sonnet' } }).find((s) => s.name === 'evaluate')
+  assert.deepEqual(withModel.args.slice(0, 3), ['batch/batch-runner.sh', '--model', 'sonnet'])
+  const without = buildStages({ options: { evaluate: true, model: '' } }).find((s) => s.name === 'evaluate')
+  assert.ok(!without.args.includes('--model'))
 })
 
 test('buildStages: --no-eval drops the evaluation, jobspy adds its two stages, dry run never emits or merges', () => {
-  assert.ok(!buildStages({ options: {}, noEval: true }).some((s) => s.name === 'evaluate'))
+  assert.ok(!buildStages({ options: { evaluate: true }, noEval: true }).some((s) => s.name === 'evaluate'))
   assert.ok(buildStages({ options: { jobspy: true } }).some((s) => s.name === 'jobspy-merge'))
-  const dry = buildStages({ options: {}, dryRun: true })
+  const dry = buildStages({ options: { evaluate: true }, dryRun: true })
   assert.ok(!dry.find((s) => s.name === 'triage').args.includes('--emit-batch'))
   assert.ok(dry.find((s) => s.name === 'evaluate').args.includes('--dry-run'))
   assert.ok(!dry.some((s) => s.name.startsWith('merge')))
 })
 
 test('resolveOptions layers defaults, saved options and overrides, and clamps junk', () => {
-  assert.deepEqual(resolveOptions({ top: 5 }, { parallel: 4, model: undefined }), { top: 5, parallel: 4, model: 'sonnet', jobspy: false })
+  assert.deepEqual(resolveOptions({ top: 5 }, { parallel: 4, model: undefined }), { top: 5, parallel: 4, model: '', evaluate: false, jobspy: false })
+  assert.equal(resolveOptions({ model: 'sonnet' }, { model: '' }).model, '', 'an empty override clears the saved model')
+  assert.equal(resolveOptions({ evaluate: 'yes' }).evaluate, false, 'only a real true turns evaluations on')
   assert.equal(resolveOptions({ top: 'abc', parallel: -3 }).top, 15)
   assert.equal(resolveOptions({ parallel: -3 }).parallel, 1)
   assert.equal(resolveOptions({ unknown: 1 }).unknown, undefined)
@@ -305,5 +323,53 @@ test('a stop request (SIGTERM) ends the run: later stages never start, status is
     assert.deepEqual(calls, ['scan', 'triage'])
     const next = await runScheduled({ root, exec: fakeExec(root, happy).exec })
     assert.notEqual(next.outcome, 'skipped')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('with the default config a run is scan + triage + merges only: no worker, no queue, and it still counts as the weekly run', async () => {
+  const root = fixtureRoot()
+  try {
+    const { exec, calls } = fakeExec(root, happy)
+    const r = await runScheduledCore({ root, exec })
+    assert.equal(r.outcome, 'completed')
+    assert.deepEqual(calls, ['scan', 'triage', 'merge-scouting', 'merge-tracker', 'verify'])
+    assert.equal(r.run.summary.evaluations, false)
+    assert.equal(r.run.summary.evalCompleted, undefined)
+    assert.match(summarizeRun(r.run), /evaluations off/)
+    const next = await runScheduledCore({ root, exec: fakeExec(root).exec })
+    assert.equal(next.outcome, 'skipped')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('the saved evaluate setting turns the evaluation stage on', async () => {
+  const root = fixtureRoot()
+  try {
+    updateState(root, (s) => ({ ...s, options: { evaluate: true } }))
+    const { exec, calls } = fakeExec(root, happy)
+    await runScheduledCore({ root, exec, force: true })
+    assert.ok(calls.includes('evaluate'))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('sumUsageCost adds the cost of rows from this run only', () => {
+  const tsv = [
+    'timestamp\tbatch_id\treport_num\tstatus\tscore\tverdict\tinput_tokens\tcache_creation_tokens\tcache_read_tokens\toutput_tokens\tcost_usd\tduration_ms\tnum_turns',
+    '2026-10-01T09:00:00Z\t1\t1\tcompleted\t7\t-\t1\t1\t1\t1\t9.5\t1\t1',
+    '2026-10-20T09:10:00Z\t2\t2\tcompleted\t7\t-\t1\t1\t1\t1\t0.25\t1\t1',
+    '2026-10-20T09:20:00Z\t3\t3\tcompleted\t7\t-\t1\t1\t1\t1\t0.5\t1\t1',
+  ].join('\n')
+  assert.equal(sumUsageCost(tsv, Date.parse('2026-10-20T09:00:00Z')), 0.75)
+  assert.equal(sumUsageCost('', 0), 0)
+  assert.equal(sumUsageCost('a\tb\n1\t2', 0), 0)
+})
+
+test('the run records the evaluation cost from usage.tsv', async () => {
+  const root = fixtureRoot()
+  try {
+    const t0 = Date.parse('2026-10-20T09:00:00Z')
+    const usage = ['timestamp\tcost_usd', '2026-10-20T09:05:00Z\t0.4', '2026-10-20T09:06:00Z\t0.35'].join('\n')
+    const r = await runScheduled({ root, exec: fakeExec(root, happy).exec, now: () => t0, readUsage: () => usage })
+    assert.equal(r.run.summary.costUsd, 0.75)
+    assert.match(summarizeRun(r.run), /\$0\.75/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })

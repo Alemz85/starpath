@@ -18,6 +18,9 @@ export interface ScheduleRun {
   status: ScheduleRunStatus
   summaryText: string
   error: string | null
+  /** Claude spend of the run's evaluation workers, when it evaluated. */
+  costUsd: number | null
+  evaluated: number | null
 }
 
 export interface ScheduleStatus {
@@ -33,7 +36,8 @@ export interface ScheduleStatus {
   lastFullRunAt: string | null
   nextRunAt: string | null
   dueNow: boolean
-  options: { top: number; parallel: number; model: string; jobspy: boolean }
+  /** `model` '' = the batch runner's own default (the latest Opus). */
+  options: { top: number; parallel: number; model: string; evaluate: boolean; jobspy: boolean }
   logPath: string
   root: string
   claudeFound: boolean
@@ -50,6 +54,10 @@ export const schedulerArgs = {
   /** With no slot, the CLI installs the saved one, else the top suggestion. */
   install: (slot?: ScheduleSlot | null) => [SCHEDULER_SCRIPT, 'install', ...(slot ? ['--slot', slotArg(slot)] : [])],
   uninstall: () => [SCHEDULER_SCRIPT, 'uninstall'],
+  setEvaluate: (on: boolean) => [SCHEDULER_SCRIPT, 'config', '--evaluate', on ? 'on' : 'off'],
+  /** '' or 'default' = the runner's default model. */
+  setModel: (model: string) => [SCHEDULER_SCRIPT, 'config', '--model', model || 'default'],
+  setTop: (top: number) => [SCHEDULER_SCRIPT, 'config', '--top', String(top)],
 }
 
 const DAY_ARGS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
@@ -110,6 +118,8 @@ function toRun(v: unknown): ScheduleRun | null {
     status: v.status as ScheduleRunStatus,
     summaryText: typeof v.summaryText === 'string' ? v.summaryText : '',
     error: typeof v.error === 'string' ? v.error : null,
+    costUsd: isRecord(v.summary) && typeof v.summary.costUsd === 'number' ? v.summary.costUsd : null,
+    evaluated: isRecord(v.summary) && typeof v.summary.evalCompleted === 'number' ? v.summary.evalCompleted : null,
   }
 }
 
@@ -133,7 +143,8 @@ export function parseScheduleStatus(stdout: string): ScheduleStatus | null {
     options: {
       top: typeof opts.top === 'number' ? opts.top : 15,
       parallel: typeof opts.parallel === 'number' ? opts.parallel : 2,
-      model: typeof opts.model === 'string' ? opts.model : 'sonnet',
+      model: typeof opts.model === 'string' ? opts.model : '',
+      evaluate: opts.evaluate === true,
       jobspy: opts.jobspy === true,
     },
     logPath: typeof r.logPath === 'string' ? r.logPath : '',
@@ -187,4 +198,21 @@ export function jobStateLine(s: ScheduleStatus): string {
   if (!s.loaded) return 'Installed but not loaded. Switch it Off and On again to load it.'
   if (s.upToDate === false) return 'On, but needs attention (see below).'
   return 'On.'
+}
+
+export const TOP_CHOICES = [5, 10, 15, 20, 30] as const
+
+/** "Claude Opus (the runner's default)" / "Sonnet" for the worker model setting. */
+export function modelLabel(model: string): string {
+  if (!model) return 'the default (latest Opus)'
+  return model.charAt(0).toUpperCase() + model.slice(1)
+}
+
+/** The cap and model line shown beside the evaluation switch. */
+export function evaluationCapLine(o: ScheduleStatus['options']): string {
+  return `Up to ${o.top} listings per run, ${o.parallel} at a time, on ${modelLabel(o.model)}.`
+}
+
+export function formatCost(usd: number | null | undefined): string {
+  return typeof usd === 'number' && usd > 0 ? `$${usd.toFixed(2)}` : '—'
 }

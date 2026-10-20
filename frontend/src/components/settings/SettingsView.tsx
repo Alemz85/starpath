@@ -527,7 +527,7 @@ function GeneralTab() {
 
       <SettingRow
         title="Scheduled runs"
-        description="Let the app scan the job boards and evaluate the best new listings by itself, about once a week, in an hour you are not using Claude. Scanning is free; only the evaluations use Claude."
+        description="Let the app scan the job boards and rank the new listings by itself, about once a week, in an hour you are not using Claude. Scanning is free; evaluating the best listings with Claude workers is a separate switch, off by default."
       >
         <ScheduleSection />
       </SettingRow>
