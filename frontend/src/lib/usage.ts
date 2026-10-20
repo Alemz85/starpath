@@ -1,4 +1,4 @@
-// Token usage per spawn — the pure core behind the Activity view's usage panel.
+// Token usage per spawn — the pure core behind Settings › Token usage.
 //
 // Cost nothing at run time: a `claude -p --output-format stream-json` run ends
 // with one `result` event that already carries usage, cost, duration and turns

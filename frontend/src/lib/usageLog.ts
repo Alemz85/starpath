@@ -1,5 +1,5 @@
 // File side of the usage ledger: append one row per finished app spawn, read
-// both ledgers for the Activity view. The row format and parsing are the pure
+// both ledgers for Settings › Token usage. The row format and parsing are the pure
 // core in lib/usage.ts.
 
 import { ipc } from '@/lib/ipc'

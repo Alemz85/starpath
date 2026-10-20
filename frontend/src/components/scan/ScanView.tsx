@@ -5,7 +5,6 @@ import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning } from '@/store/spawns'
 import { ActivityPanel } from '@/components/command-center/CommandCenter'
 import { ActiveProcessesBar } from './ActiveProcessesBar'
-import { UsagePanel } from './UsagePanel'
 import { Chip, PageHeader } from '@/components/ui'
 
 /**
@@ -13,7 +12,6 @@ import { Chip, PageHeader } from '@/components/ui'
  * action buttons as Scouting; those moved to Scouting (the cockpit) and this
  * tab is now purely about watching things run:
  *   - top: ActiveProcessesBar — every running/recent spawn across the app
- *   - middle: UsagePanel — weekly token/cost total and the recent runs
  *   - bottom: ActivityPanel for the focused spawn's live log
  *
  * `focusedSpawnId` is local state. Default-focus follows the most recent
@@ -106,7 +104,6 @@ export function ScanView() {
           focusedId={focusedId}
           onFocus={setFocusedId}
         />
-        <UsagePanel />
         <ActivityPanel record={focused} />
       </div>
     </div>
