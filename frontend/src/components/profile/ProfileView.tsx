@@ -9,10 +9,11 @@ import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { cn } from '@/lib/utils'
-import { TIER_HEX } from '@/lib/tier'
+import { TIER_COLOR } from '@/lib/tier'
 import { buildHeatmap, computeStreak, badges, buildHighlights, tierHeatColor } from '@/lib/profileStats'
 import { PageHeader, Panel, StatStrip, Stat, Chip, TierChip } from '@/components/ui'
 import { CareerConstellation } from './CareerConstellation'
+import { themeColor } from '@/lib/themes'
 
 // ─── Profile YAML helpers ────────────────────────────────────────────────────
 
@@ -127,14 +128,14 @@ function Sparkline({ values }: { values: number[] }) {
       >
         <defs>
           <linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.18" />
-            <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+            <stop offset="0%" stopColor={themeColor('accent')} stopOpacity="0.18" />
+            <stop offset="100%" stopColor={themeColor('accent')} stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={areaPath} fill="url(#sg)" />
-        <path d={linePath} fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx={last.x} cy={last.y} r="3" fill="var(--accent)" />
-        <text x={last.x + 6} y={last.y + 1} fontSize="9" fill="#5D6C7B" dominantBaseline="middle">
+        <path d={linePath} fill="none" stroke={themeColor('accent')} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={last.x} cy={last.y} r="3" fill={themeColor('accent')} />
+        <text x={last.x + 6} y={last.y + 1} fontSize="9" fill={themeColor('text-3')} dominantBaseline="middle">
           {values[values.length - 1].toFixed(1)}
         </text>
       </svg>
@@ -353,11 +354,11 @@ export function ProfileView() {
                 <div className="flex items-center gap-3 mt-3 flex-wrap" aria-label="Heatmap legend: tier colors">
                   <span className="text-micro text-text-4">Less</span>
                   {[
-                    { color: '#F1F4F7',  label: 'None' },
-                    { color: TIER_HEX.T4, label: 'T4'   },
-                    { color: TIER_HEX.T3, label: 'T3'   },
-                    { color: TIER_HEX.T2, label: 'T2'   },
-                    { color: TIER_HEX.T1, label: 'T1'   },
+                    { color: themeColor('bg-panel'),  label: 'None' },
+                    { color: TIER_COLOR.T4, label: 'T4'   },
+                    { color: TIER_COLOR.T3, label: 'T3'   },
+                    { color: TIER_COLOR.T2, label: 'T2'   },
+                    { color: TIER_COLOR.T1, label: 'T1'   },
                   ].map(({ color, label }) => (
                     <span key={label} className="flex items-center gap-1">
                       <span

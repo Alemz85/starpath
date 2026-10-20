@@ -789,14 +789,14 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
 
   return (
     <div className={clsx(
-      'flex-1 min-h-0 relative rounded-lg overflow-hidden flex flex-col bg-galaxy-matte',
+      'flex-1 min-h-0 relative rounded-lg overflow-hidden flex flex-col bg-night',
       isIdle && 'galaxy-stars',
     )}>
       {/* Header strip — no static "Terminal" label. When the running spawn is
           a Claude invocation the brand mark sits next to the label so the user
           knows what's at the wheel. The elapsed readout ticks every second
           while running so a "stuck" run can never look like "instant" success. */}
-      <div className="shrink-0 h-8 px-4 flex items-center justify-between gap-3 border-b border-white/5 bg-galaxy-matte-2 text-label">
+      <div className="shrink-0 h-8 px-4 flex items-center justify-between gap-3 border-b border-white/5 bg-night-2 text-label">
         <span className="text-white/60 inline-flex items-center gap-1.5 min-w-0 truncate">
           {record?.tool === 'claude' && <ClaudeLogo size={12} />}
           {record ? `${record.label} ${statusGlyph(record)}` : 'Idle'}
@@ -815,8 +815,8 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
       {/* Body — the log itself is the one mono surface. */}
       <div
         ref={logRef}
-        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 font-mono text-[12px] leading-[1.6] relative"
-        style={{ userSelect: 'text', color: '#D4CFE6' }}
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-3 font-mono text-[12px] leading-[1.6] relative text-term-text"
+        style={{ userSelect: 'text' }}
       >
         {!record && (
           <p className="font-sans text-label text-white/40 italic">Pick a scan or generate reports above.</p>
@@ -828,11 +828,11 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
             className={clsx(
               'whitespace-pre-wrap break-all',
               // Order matters — check most specific patterns first.
-              line.startsWith('→ ')                       ? 'text-[#A795E8]' :  // tool-use one-liner — muted violet
-              line.startsWith('✓ Done')                   ? 'text-[#9AE3A8]' :  // final success capstone
-              /error/i.test(line)                         ? 'text-[#FF8FA3]' :
-              /warn/i.test(line)                          ? 'text-[#F7CC78]' :
-              /✓|^\s*✓|done|found|appended/i.test(line)   ? 'text-[#9AE3A8]' :
+              line.startsWith('→ ')                       ? 'text-term-tool' :  // tool-use one-liner — muted theme tint
+              line.startsWith('✓ Done')                   ? 'text-term-ok' :  // final success capstone
+              /error/i.test(line)                         ? 'text-term-err' :
+              /warn/i.test(line)                          ? 'text-term-warn' :
+              /✓|^\s*✓|done|found|appended/i.test(line)   ? 'text-term-ok' :
               ''
             )}
           >
@@ -876,8 +876,8 @@ function FailureCard({ record }: { record: SpawnRecord }) {
   const reason = diagnoseFailure(record)
 
   return (
-    <div className="mt-3 font-sans rounded-lg border border-[#FF8FA3]/25 bg-[#FF8FA3]/[0.07] px-3.5 py-3 flex items-start gap-3">
-      <AlertTriangle size={14} className="text-[#FF8FA3] shrink-0 mt-0.5" aria-hidden />
+    <div className="mt-3 font-sans rounded-lg border border-term-err/25 bg-term-err/[0.07] px-3.5 py-3 flex items-start gap-3">
+      <AlertTriangle size={14} className="text-term-err shrink-0 mt-0.5" aria-hidden />
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-medium text-white/85">
           Run failed

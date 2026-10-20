@@ -11,6 +11,7 @@ import { useProfilesStore } from '@/store/profiles'
 import { ProfileEditPanel } from '@/components/profile/ProfileEditPanel'
 import { ViewTabs, viewTabId, viewPanelId } from '@/components/shared/ViewTabs'
 import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
+import { ThemePicker } from '@/components/settings/ThemePicker'
 import { ipc } from '@/lib/ipc'
 import { slugValidationHint, formatProfileCounts, profileInitial, describeProfileFailure } from '@/lib/profiles'
 import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2, Star } from 'lucide-react'
@@ -470,6 +471,13 @@ function GeneralTab() {
 
   return (
     <div>
+      <SettingRow
+        title="Appearance"
+        description="The colour theme for the whole app. It applies right away and is remembered on this machine."
+      >
+        <ThemePicker />
+      </SettingRow>
+
       <SettingRow title="Repository" description="The local career-ops folder Claude reads and writes to.">
         <div className="flex items-center gap-2 mt-3">
           <div

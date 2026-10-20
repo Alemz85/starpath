@@ -1,5 +1,6 @@
 'use client'
 
+import './themes.css'
 import './globals.css'
 import { useEffect } from 'react'
 import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
@@ -7,6 +8,7 @@ import { useAppStore } from '@/store/app'
 import { AppShell } from '@/components/layout/AppShell'
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate'
 import { TailoringScreen } from '@/components/onboarding/TailoringScreen'
+import { PALETTE_BOOT_SCRIPT } from '@/lib/themes'
 
 // Self-hosted through next/font: downloaded at build time, served from
 // _next/static, no runtime request to Google. The CSS variables feed
@@ -40,6 +42,12 @@ export default function RootLayout({ children: _children }: { children: React.Re
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
+        {/* Colour theme, applied before first paint (lib/themes.ts). The
+            static export pre-renders this into the HTML, so the stored
+            theme is set before React hydrates. React never renders
+            data-palette itself, so it never resets it; with no attribute
+            the :root block (the default theme) applies. */}
+        <script dangerouslySetInnerHTML={{ __html: PALETTE_BOOT_SCRIPT }} />
         <title>starpath</title>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>

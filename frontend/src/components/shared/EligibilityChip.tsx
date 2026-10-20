@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils'
 import type { Eligibility, Verdict } from '@/types'
 import { ELIGIBILITY_LABELS } from '@/types'
 import { Chip, type ChipTone } from '@/components/ui/chip'
-import { tierHex, tierVerdict, verdictTier, TIER_BG_HEX } from '@/lib/tier'
+import { tierColor, tierVerdict, verdictTier, TIER_BG } from '@/lib/tier'
 
 const ELIGIBILITY_TONE: Record<Eligibility, ChipTone> = {
   green: 'success',
@@ -69,11 +69,11 @@ export function VerdictChip({
   if (!tier) return null
   // Same chip shape and tier colouring as `TierChip` (components/ui/chip),
   // with the verdict label instead of the tier symbol.
-  const color = tierHex(tier)
+  const color = tierColor(tier)
   return (
     <span
       className={cn('chip font-semibold', size === 'md' && 'chip-md', className)}
-      style={{ color, background: TIER_BG_HEX[tier] ?? '#F1F4F7', borderColor: `${color}33` }}
+      style={{ color, background: TIER_BG[tier] ?? TIER_BG.T4, borderColor: tierColor(tier, 0.2) }}
       title={`${tierVerdict(verdict)} (${tier})`}
     >
       {tierVerdict(verdict, { short: !showAction })}

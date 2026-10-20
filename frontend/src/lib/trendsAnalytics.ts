@@ -17,7 +17,7 @@
 
 import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict, Eligibility } from '@/types'
 import { TIER_COLORS } from '@/types'
-import { tierHex } from '@/lib/tier'
+import { tierColor } from '@/lib/tier'
 import { GATES, NOISE_FLOORS } from '@/lib/scoringStats'
 import { isScored, priorityOf, verdictOf, VERDICT_LABELS, VERDICT_TIER } from '@/lib/scoreBands'
 
@@ -192,7 +192,7 @@ export const SCORE_BANDS: ScoreBand[] = (['go', 'stretch', 'solid', 'growth', 't
   .map(v => ({
     key: v,
     label: VERDICT_LABELS[v],
-    color: tierHex(VERDICT_TIER[v]),
+    color: tierColor(VERDICT_TIER[v]),
     chip: TIER_COLORS[VERDICT_TIER[v]],
     applyWorthy: APPLY_WORTHY_VERDICTS.has(v),
   }))

@@ -1,37 +1,41 @@
 // Tier and score-colour source of truth.
 //
 // One ordinal ladder serves both tier chips and floating score numbers: the
-// deeper the violet, the stronger the fit. Values mirror the `tier-*` tokens in
-// tailwind.config.ts; SVG attributes and inline styles can't reach Tailwind
-// tokens, so the hexes live here too.
+// deeper the tier colour, the stronger the fit. The colours are theme tokens
+// (tier-1 … tier-4 in src/app/themes.css); these helpers return CSS colour
+// strings that read them — `rgb(var(--c-tier-1))` — so inline styles, SVG
+// attributes and chart props follow the active theme without a re-render.
 //
-// `TIER_HEX` (this file) ≠ `TIER_COLORS` from `@/types` — the latter is a chip
-// class map; this file owns the raw hexes for SVG strokes / inline styles.
+// `TIER_COLOR` (this file) ≠ `TIER_COLORS` from `@/types` — the latter is a chip
+// class map; this file owns the colours for SVG strokes / inline styles.
 
 import type { TierKey, Verdict } from '@/types'
+import { themeColor, type ChannelToken } from './themes'
 import { normalizeVerdict, VERDICT_ACTIONS, VERDICT_LABELS, VERDICT_TIER } from './scoreBands'
 export type { TierKey }
 
-export const TIER_HEX: Record<TierKey, string> = {
-  T1:        '#3D2BB5', // deep galaxy indigo — strongest
-  T2:        '#7C5CFF', // galaxy violet (matches accent)
-  T3:        '#8B7FC2', // muted lavender
-  T4:        '#94A3B8', // faded slate
+const TIER_TOKEN: Record<TierKey, ChannelToken> = { T1: 'tier-1', T2: 'tier-2', T3: 'tier-3', T4: 'tier-4' }
+
+export const TIER_COLOR: Record<TierKey, string> = {
+  T1: themeColor('tier-1'), // strongest
+  T2: themeColor('tier-2'),
+  T3: themeColor('tier-3'),
+  T4: themeColor('tier-4'), // faded
 }
 
 // Lighter companion per tier for gradient strokes / halos.
-export const TIER_HEX_LIGHT: Record<TierKey, string> = {
-  T1:        '#7C5CFF',
-  T2:        '#B5A3FF',
-  T3:        '#C8BEEC',
-  T4:        '#C9D2DD',
+export const TIER_COLOR_LIGHT: Record<TierKey, string> = {
+  T1: themeColor('tier-1-light'),
+  T2: themeColor('tier-2-light'),
+  T3: themeColor('tier-3-light'),
+  T4: themeColor('tier-4-light'),
 }
 
-export const TIER_BG_HEX: Partial<Record<TierKey, string>> = {
-  T1: '#EFEAFF',
-  T2: '#F1ECFF',
-  T3: '#F4F1FA',
-  T4: '#F1F4F7',
+export const TIER_BG: Record<TierKey, string> = {
+  T1: themeColor('tier-1-bg'),
+  T2: themeColor('tier-2-bg'),
+  T3: themeColor('tier-3-bg'),
+  T4: themeColor('tier-4-bg'),
 }
 
 // Numeric score → display colour. Scoring v2 colours the Want and the Ease
@@ -39,30 +43,29 @@ export const TIER_BG_HEX: Partial<Record<TierKey, string>> = {
 // headline, docs/scoring-v2.md §5). One hue, so the eye sorts by depth, never
 // by category. The colour is a magnitude cue only: whether to apply comes
 // from the verdict (Want × Ease grid), never from these cut-offs.
-//   ≥ 8.0 → deep indigo
-//   ≥ 7.0 → galaxy violet
-//   ≥ 5.0 → slate
-//   <  5.0 → faded slate
+//   ≥ 8.0 → tier-1
+//   ≥ 7.0 → tier-2
+//   ≥ 5.0 → score-mid (the theme's secondary text colour)
+//   <  5.0 → tier-4
 export function scoreColor(v: number): string {
-  if (v >= 8)   return TIER_HEX.T1
-  if (v >= 7)   return TIER_HEX.T2
-  if (v >= 5)   return '#5D6C7B'
-  return '#94A3B8'
+  if (v >= 8)   return TIER_COLOR.T1
+  if (v >= 7)   return TIER_COLOR.T2
+  if (v >= 5)   return themeColor('score-mid')
+  return TIER_COLOR.T4
 }
 
 export function scoreColorLight(v: number): string {
-  if (v >= 8)   return TIER_HEX_LIGHT.T1
-  if (v >= 7)   return TIER_HEX_LIGHT.T2
-  if (v >= 5)   return '#94A3B8'
-  return '#CED0D4'
+  if (v >= 8)   return TIER_COLOR_LIGHT.T1
+  if (v >= 7)   return TIER_COLOR_LIGHT.T2
+  if (v >= 5)   return TIER_COLOR.T4
+  return themeColor('track')
 }
 
-export function tierHex(tier: TierKey | string | undefined | null): string {
-  if (!tier) return TIER_HEX.T4
-  if (tier === 'T1' || tier === 'T2' || tier === 'T3' || tier === 'T4') {
-    return TIER_HEX[tier]
-  }
-  return TIER_HEX.T4
+/** A tier's colour, optionally translucent (`tierColor('T1', 0.2)` for a chip
+ *  border). Unknown tiers fall back to T4. */
+export function tierColor(tier: TierKey | string | undefined | null, alpha?: number): string {
+  const key: TierKey = tier === 'T1' || tier === 'T2' || tier === 'T3' || tier === 'T4' ? tier : 'T4'
+  return themeColor(TIER_TOKEN[key], alpha)
 }
 
 // The verdict copy (scoring v2, docs/scoring-v2.md §4) — the ONE place a
@@ -87,4 +90,4 @@ export function tierLabel(tier: TierKey | string | undefined | null): string {
 }
 
 // Neutral fallback for non-numeric / missing scores.
-export const NEUTRAL_SCORE_COLOR = '#5D6C7B'
+export const NEUTRAL_SCORE_COLOR = themeColor('score-mid')

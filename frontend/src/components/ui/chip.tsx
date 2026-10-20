@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from 'react'
 import { cn } from '@/lib/utils'
-import { tierHex, tierLabel, TIER_BG_HEX, type TierKey } from '@/lib/tier'
+import { tierColor, tierLabel, TIER_BG, type TierKey } from '@/lib/tier'
 import type { AppStatus } from '@/types'
 
 // Chips: one shape (20px tall, 6px radius) and a handful of tones. Lifecycle
@@ -48,12 +48,12 @@ export function Chip({ tone = 'neutral', size = 'sm', pill, icon, className, chi
 // as every other chip so a T1 and an "Applied" badge sit on one baseline.
 export function TierChip({ tier, size = 'sm', className, title }: { tier: TierKey | string | null | undefined; size?: 'sm' | 'md'; className?: string; title?: string }) {
   const key = tier as TierKey
-  const color = tierHex(key)
-  const bg = TIER_BG_HEX[key] ?? '#F1F4F7'
+  const color = tierColor(key)
+  const bg = TIER_BG[key] ?? TIER_BG.T4
   return (
     <span
       className={cn('chip font-semibold', size === 'md' && 'chip-md', className)}
-      style={{ color, background: bg, borderColor: `${color}33` }}
+      style={{ color, background: bg, borderColor: tierColor(key, 0.2) }}
       title={title}
     >
       {tierLabel(key)}

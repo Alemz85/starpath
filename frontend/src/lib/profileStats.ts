@@ -9,9 +9,10 @@
 // flags these as the functions to swap for a `db:profile-stats` query if
 // score_history ever outgrows in-memory aggregation.
 
-import { TIER_HEX } from './tier'
+import { TIER_COLOR } from './tier'
 import type { ScoreEntry, ApplicationEntry } from '@/types'
 import { formatWantEase, isScored, priorityOf } from './scoreBands'
+import { themeColor } from './themes'
 
 const TIER_RANK: Record<string, number> = { T1: 5, T2: 3, T3: 2, T4: 1 }
 
@@ -21,14 +22,14 @@ const TIER_RANK: Record<string, number> = { T1: 5, T2: 3, T3: 2, T4: 1 }
 // tier scale. Empty days fall back to bg-panel so the grid reads as a
 // quiet surface, not a default-T4 wash.
 export function tierHeatColor(tier: string, count: number): string {
-  if (count === 0) return '#F1F4F7' // bg-panel
+  if (count === 0) return themeColor('bg-panel')
   const map: Record<string, string> = {
-    T1:        TIER_HEX.T1,
-    T2:        TIER_HEX.T2,
-    T3:        TIER_HEX.T3,
-    T4:        TIER_HEX.T4,
+    T1:        TIER_COLOR.T1,
+    T2:        TIER_COLOR.T2,
+    T3:        TIER_COLOR.T3,
+    T4:        TIER_COLOR.T4,
   }
-  return map[tier] ?? TIER_HEX.T4
+  return map[tier] ?? TIER_COLOR.T4
 }
 
 export interface HeatCell { date: string; count: number; bestTier: string }

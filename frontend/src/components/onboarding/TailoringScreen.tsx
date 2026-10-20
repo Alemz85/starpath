@@ -57,7 +57,8 @@ export function TailoringScreen() {
   }, [setTailoringComplete])
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden galaxy-immersive items-center justify-center">
+    // Pinned to the original Galaxy palette, like the onboarding screens.
+    <div data-palette="galaxy" className="flex h-screen w-screen overflow-hidden galaxy-immersive items-center justify-center">
       <div className="titlebar-drag absolute top-0 inset-x-0 h-11" />
 
       <div className="flex flex-col items-center gap-8 w-full max-w-md px-8">

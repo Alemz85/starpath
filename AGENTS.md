@@ -137,6 +137,7 @@ Every surface derived from `data/score-history.tsv` (`peer-rank`, `score-trend`,
 **Before creating a UI component, changing styling, picking colors or adjusting layout in `frontend/`, read `DESIGN-meta.md`.** It is the single source of truth for palette, typography, spacing, component patterns and motion.
 
 - Use the existing tokens: Tailwind classes from `frontend/tailwind.config.ts`, CSS variables / utilities from `frontend/src/app/globals.css`.
+- **Colours are theme roles, never values.** The app has switchable themes (Settings › Appearance); every colour value lives in `frontend/src/app/themes.css`. Components use role classes (`bg-accent`, `text-text-3`, `bg-action`, `border-nav-line` …) or `themeColor()` / `tierColor()` for inline styles and SVG. A raw hex/rgb/oklch in a component fails `npm test` (`src/lib/colorLiterals.test.ts`); a theme missing a token or failing contrast fails `src/lib/themes.test.ts`. No role fits? Add one to every theme (DESIGN-meta.md § 2), never hard-code.
 - **Don't introduce new colors, shadows, radii or type sizes** unless `DESIGN-meta.md` is updated in the same change.
 - If a decision isn't covered by `DESIGN-meta.md`, raise it with the user before implementing.
 - Markdown/TSV stay canonical: the app's SQLite cache is fully derived from them, and backend modes never read or write it. Chat never writes tracker files directly; it emits proposal fences (`modes/chat.md` § Proposals).

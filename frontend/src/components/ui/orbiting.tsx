@@ -14,6 +14,7 @@
 
 import React, { useEffect, useState, memo } from 'react'
 import { cn } from '@/lib/utils'
+import { themeColor } from '@/lib/themes'
 
 export interface OrbiterConfig {
   id: string
@@ -124,8 +125,8 @@ const OrbitPath = memo(({ radius, subtle = false }: { radius: number; subtle?: b
     style={{
       width: radius * 2,
       height: radius * 2,
-      border: `1px solid rgba(124, 92, 255, ${subtle ? 0.10 : 0.16})`,
-      boxShadow: `inset 0 0 ${subtle ? 16 : 24}px rgba(124, 92, 255, ${subtle ? 0.025 : 0.045})`,
+      border: `1px solid ${themeColor('accent', subtle ? 0.10 : 0.16)}`,
+      boxShadow: `inset 0 0 ${subtle ? 16 : 24}px ${themeColor('accent', subtle ? 0.025 : 0.045)}`,
     }}
   />
 ))
@@ -151,7 +152,9 @@ const Orbiter = memo(({
   const [hover, setHover] = useState(false)
   const x = Math.cos(angle) * radius
   const y = Math.sin(angle) * radius
-  const glow = config.glow ?? '#7C5CFF'
+  // Any CSS colour (a theme colour from scoreColor, or a fixed one on the
+  // onboarding finale); color-mix fades it without knowing its format.
+  const glow = config.glow ?? themeColor('accent')
   return (
     <button
       type="button"
@@ -169,15 +172,15 @@ const Orbiter = memo(({
         height: config.size,
         transform: `translate(calc(${x}px - 50%), calc(${y}px - 50%)) scale(${hover ? 1.18 : 1})`,
         boxShadow: hover
-          ? `0 0 22px ${glow}55, 0 0 44px ${glow}28, 0 2px 6px rgba(76, 47, 200, 0.10)`
-          : '0 1px 3px rgba(76, 47, 200, 0.10), 0 2px 6px rgba(0, 0, 0, 0.04)',
+          ? `0 0 22px color-mix(in srgb, ${glow} 33%, transparent), 0 0 44px color-mix(in srgb, ${glow} 16%, transparent), 0 2px 6px ${themeColor('shadow-accent', 0.10)}`
+          : `0 1px 3px ${themeColor('shadow-accent', 0.10)}, 0 2px 6px rgb(0 0 0 / 0.04)`,
       }}
     >
       {config.content}
       {hover && (
         <span
-          className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-galaxy-matte text-white text-micro font-normal whitespace-nowrap pointer-events-none"
-          style={{ boxShadow: '0 4px 12px rgba(10, 8, 32, 0.30)' }}
+          className="absolute -bottom-7 left-1/2 -translate-x-1/2 px-2 py-1 rounded bg-night text-white text-micro font-normal whitespace-nowrap pointer-events-none"
+          style={{ boxShadow: `0 4px 12px ${themeColor('night-deep', 0.30)}` }}
         >
           {config.label}
         </span>

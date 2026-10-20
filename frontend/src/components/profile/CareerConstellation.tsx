@@ -21,6 +21,7 @@ import { SectionHeading } from '@/components/ui'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { scoreColor } from '@/lib/tier'
 import { priorityOf } from '@/lib/scoreBands'
+import { themeColor } from '@/lib/themes'
 
 interface Props {
   initials: string
@@ -120,7 +121,7 @@ export function CareerConstellation({ initials }: Props) {
           className="absolute inset-0 pointer-events-none"
           style={{
             background:
-              'radial-gradient(ellipse at center, rgba(124, 92, 255, 0.08) 0%, transparent 65%)',
+              `radial-gradient(ellipse at center, ${themeColor('accent', 0.08)} 0%, transparent 65%)`,
           }}
         />
         <OrbitingSystem

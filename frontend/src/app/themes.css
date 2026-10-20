@@ -1,0 +1,481 @@
+/* Colour themes — the ONLY place colour values live.
+
+   Every colour in the app is a role token. Components use the Tailwind classes
+   built from these tokens (bg-accent, text-text-3, border-nav-line …) or, for
+   inline styles and SVG, the helpers in lib/tier.ts (tierColor, scoreColor).
+   A raw colour anywhere else fails `npm test` (src/lib/colorLiterals.test.ts).
+
+   Format: channel tokens are space-separated sRGB triplets ("11 19 38") so
+   Tailwind opacity modifiers work (bg-accent/10). Tokens listed under "full
+   colours" are complete values (already translucent) and must not take a
+   modifier. Every theme block defines exactly the same token set; the
+   completeness and contrast test (src/lib/themes.test.ts) enforces it.
+
+   Adding a theme: copy a block, change the values, add the id to
+   PALETTES in src/lib/themes.ts, run `npm test`. See DESIGN-meta.md § 2.
+
+   The attribute is data-palette (not data-theme): a future light/dark axis
+   would sit beside it. Blocks also apply to nested elements, which is how the
+   Settings previews and the onboarding screens pin a palette locally. */
+
+/* Shared by every theme: the quiet select chevron (a data URI cannot read a
+   CSS variable, so it carries its one neutral grey here). */
+:root {
+  --select-chevron: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238595A4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+}
+
+/* Blue hour — the default. One blue family from night to sky; navy sidebar with stars, cerulean accent, navy buttons, one pale starlight brand star. */
+:root,
+[data-palette="bluehour"] {
+  --c-bg-base: 255 255 255;
+  --c-bg-cosmos: 245 247 250;
+  --c-bg-panel: 232 237 243;
+  --c-bg-elevated: 239 243 247;
+  --c-border-default: 223 229 236;
+  --c-border-strong: 201 210 222;
+  --c-divider: 223 229 236;
+  --c-divider-soft: 235 239 244;
+  --c-control-border: 201 210 222;
+  --c-text-1: 11 19 38;
+  --c-text-2: 31 42 61;
+  --c-text-3: 86 99 122;
+  --c-text-4: 133 145 166;
+  --c-accent: 11 111 191;
+  --c-accent-hover: 9 92 158;
+  --c-accent-press: 7 76 132;
+  --c-accent-text: 9 92 158;
+  --c-accent-light: 125 184 240;
+  --c-action: 11 19 38;
+  --c-action-hover: 28 39 64;
+  --c-action-press: 5 9 26;
+  --c-action-text: 255 255 255;
+  --c-tier-1: 14 60 120;
+  --c-tier-1-bg: 228 236 247;
+  --c-tier-1-light: 11 111 191;
+  --c-tier-2: 11 111 191;
+  --c-tier-2-bg: 230 240 249;
+  --c-tier-2-light: 125 184 240;
+  --c-tier-3: 104 144 182;
+  --c-tier-3-bg: 238 243 248;
+  --c-tier-3-light: 181 203 224;
+  --c-tier-4: 167 177 192;
+  --c-tier-4-bg: 238 241 245;
+  --c-tier-4-light: 201 209 220;
+  --c-score-mid: 86 99 122;
+  --c-track: 203 211 222;
+  --c-track-strong: 141 153 173;
+  --c-bar-track: 225 231 238;
+  --c-success: 31 122 68;
+  --c-warning: 242 178 48;
+  --c-warning-text: 138 90 0;
+  --c-danger: 196 47 69;
+  --c-chart-1: 11 111 191;
+  --c-chart-2: 14 60 120;
+  --c-chart-3: 46 184 168;
+  --c-chart-4: 224 106 142;
+  --c-chart-5: 242 168 55;
+  --c-chart-6: 139 111 232;
+  --c-chart-7: 133 145 166;
+  --c-night-deep: 7 12 25;
+  --c-night: 11 19 38;
+  --c-night-2: 22 33 58;
+  --c-scrim: 7 12 25;
+  --c-term-text: 210 219 235;
+  --c-term-tool: 143 182 232;
+  --c-term-ok: 154 227 168;
+  --c-term-err: 255 143 163;
+  --c-term-warn: 247 204 120;
+  --c-glow-2: 70 140 230;
+  --c-star-1: 220 230 250;
+  --c-star-2: 245 213 138;
+  --c-shadow: 11 19 38;
+  --c-shadow-accent: 11 19 38;
+  --c-nav-bg: 11 19 38;
+  --c-nav-line: 28 39 64;
+  --c-nav-text: 230 235 245;
+  --c-nav-strong: 255 255 255;
+  --c-nav-muted: 139 150 174;
+  --c-nav-faint: 100 112 137;
+  --c-nav-active-text: 255 255 255;
+  --c-nav-count-text: 185 211 242;
+  --c-nav-accent: 125 184 240;
+  --c-nav-brand-1: 248 227 168;
+  --c-nav-brand-2: 245 213 138;
+  --c-nav-brand-3: 226 184 92;
+  /* full colours */
+  --c-accent-soft: rgba(11, 111, 191, 0.10);
+  --c-nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --c-nav-input-bg: rgba(255, 255, 255, 0.05);
+  --c-nav-input-border: rgba(255, 255, 255, 0.10);
+  --c-nav-input-border-hover: rgba(255, 255, 255, 0.18);
+  --c-nav-active-bg: rgba(120, 170, 235, 0.15);
+  --c-nav-count-bg: rgba(120, 170, 235, 0.18);
+  /* sidebar sky and page grain */
+  --nav-stars-opacity: 0.9;
+  --nav-sky-after: none;
+  --cosmos-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.06  0 0 0 0 0.12  0 0 0 0 0.30  0 0 0 0.65 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+}
+
+/* Galaxy — the original palette (design system v2). Violet accent on cool greys, light sidebar. Must stay pixel-identical to the pre-theme app. */
+[data-palette="galaxy"] {
+  --c-bg-base: 255 255 255;
+  --c-bg-cosmos: 251 251 254;
+  --c-bg-panel: 241 244 247;
+  --c-bg-elevated: 247 248 250;
+  --c-border-default: 228 232 237;
+  --c-border-strong: 211 217 224;
+  --c-divider: 222 227 233;
+  --c-divider-soft: 240 242 245;
+  --c-control-border: 206 212 220;
+  --c-text-1: 5 5 5;
+  --c-text-2: 28 43 51;
+  --c-text-3: 93 108 123;
+  --c-text-4: 133 149 164;
+  --c-accent: 124 92 255;
+  --c-accent-hover: 91 63 232;
+  --c-accent-press: 74 47 200;
+  --c-accent-text: 91 63 232;
+  --c-accent-light: 181 163 255;
+  --c-action: 124 92 255;
+  --c-action-hover: 91 63 232;
+  --c-action-press: 74 47 200;
+  --c-action-text: 255 255 255;
+  --c-tier-1: 61 43 181;
+  --c-tier-1-bg: 239 234 255;
+  --c-tier-1-light: 124 92 255;
+  --c-tier-2: 124 92 255;
+  --c-tier-2-bg: 241 236 255;
+  --c-tier-2-light: 181 163 255;
+  --c-tier-3: 139 127 194;
+  --c-tier-3-bg: 244 241 250;
+  --c-tier-3-light: 200 190 236;
+  --c-tier-4: 148 163 184;
+  --c-tier-4-bg: 241 244 247;
+  --c-tier-4-light: 201 210 221;
+  --c-score-mid: 93 108 123;
+  --c-track: 206 208 212;
+  --c-track-strong: 144 147 150;
+  --c-bar-track: 228 232 236;
+  --c-success: 0 125 30;
+  --c-warning: 247 185 40;
+  --c-warning-text: 138 90 0;
+  --c-danger: 200 10 40;
+  --c-chart-1: 124 92 255;
+  --c-chart-2: 61 43 181;
+  --c-chart-3: 46 184 168;
+  --c-chart-4: 232 79 142;
+  --c-chart-5: 242 168 55;
+  --c-chart-6: 77 141 255;
+  --c-chart-7: 133 149 164;
+  --c-night-deep: 10 8 32;
+  --c-night: 31 27 54;
+  --c-night-2: 42 37 72;
+  --c-scrim: 20 14 46;
+  --c-term-text: 212 207 230;
+  --c-term-tool: 167 149 232;
+  --c-term-ok: 154 227 168;
+  --c-term-err: 255 143 163;
+  --c-term-warn: 247 204 120;
+  --c-glow-2: 161 33 206;
+  --c-star-1: 220 210 255;
+  --c-star-2: 181 163 255;
+  --c-shadow: 40 32 90;
+  --c-shadow-accent: 76 47 200;
+  --c-nav-bg: 246 247 250;
+  --c-nav-line: 228 232 237;
+  --c-nav-text: 28 43 51;
+  --c-nav-strong: 5 5 5;
+  --c-nav-muted: 93 108 123;
+  --c-nav-faint: 133 149 164;
+  --c-nav-active-text: 5 5 5;
+  --c-nav-count-text: 91 63 232;
+  --c-nav-accent: 124 92 255;
+  --c-nav-brand-1: 160 133 255;
+  --c-nav-brand-2: 124 92 255;
+  --c-nav-brand-3: 161 33 206;
+  /* full colours */
+  --c-accent-soft: rgba(124, 92, 255, 0.12);
+  --c-nav-hover-bg: rgb(247 248 250);
+  --c-nav-input-bg: rgb(255 255 255);
+  --c-nav-input-border: rgb(228 232 237);
+  --c-nav-input-border-hover: rgb(211 217 224);
+  --c-nav-active-bg: rgba(124, 92, 255, 0.12);
+  --c-nav-count-bg: rgba(124, 92, 255, 0.12);
+  /* sidebar sky and page grain */
+  --nav-stars-opacity: 0;
+  --nav-sky-after: none;
+  --cosmos-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.486  0 0 0 0 0.361  0 0 0 0 1  0 0 0 0.65 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+}
+
+/* Observatory — night-violet sidebar with stars, lavender day, indigo pill actions. */
+[data-palette="observatory"] {
+  --c-bg-base: 255 255 255;
+  --c-bg-cosmos: 247 247 251;
+  --c-bg-panel: 236 235 246;
+  --c-bg-elevated: 242 242 249;
+  --c-border-default: 228 227 239;
+  --c-border-strong: 210 208 226;
+  --c-divider: 228 227 239;
+  --c-divider-soft: 238 237 245;
+  --c-control-border: 210 208 226;
+  --c-text-1: 26 24 48;
+  --c-text-2: 45 42 69;
+  --c-text-3: 98 94 125;
+  --c-text-4: 143 140 168;
+  --c-accent: 79 91 213;
+  --c-accent-hover: 63 73 184;
+  --c-accent-press: 51 60 156;
+  --c-accent-text: 63 73 184;
+  --c-accent-light: 156 180 232;
+  --c-action: 79 91 213;
+  --c-action-hover: 63 73 184;
+  --c-action-press: 51 60 156;
+  --c-action-text: 255 255 255;
+  --c-tier-1: 42 47 143;
+  --c-tier-1-bg: 232 233 248;
+  --c-tier-1-light: 79 91 213;
+  --c-tier-2: 79 91 213;
+  --c-tier-2-bg: 236 238 251;
+  --c-tier-2-light: 156 180 232;
+  --c-tier-3: 122 128 190;
+  --c-tier-3-bg: 241 241 249;
+  --c-tier-3-light: 195 198 230;
+  --c-tier-4: 171 173 194;
+  --c-tier-4-bg: 240 240 246;
+  --c-tier-4-light: 208 210 224;
+  --c-score-mid: 98 94 125;
+  --c-track: 208 207 224;
+  --c-track-strong: 149 146 174;
+  --c-bar-track: 228 227 239;
+  --c-success: 19 128 74;
+  --c-warning: 227 162 26;
+  --c-warning-text: 135 87 0;
+  --c-danger: 200 52 63;
+  --c-chart-1: 79 91 213;
+  --c-chart-2: 42 47 143;
+  --c-chart-3: 46 184 168;
+  --c-chart-4: 232 79 142;
+  --c-chart-5: 242 168 55;
+  --c-chart-6: 139 111 232;
+  --c-chart-7: 143 140 168;
+  --c-night-deep: 14 13 24;
+  --c-night: 21 20 31;
+  --c-night-2: 30 30 42;
+  --c-scrim: 14 13 24;
+  --c-term-text: 214 213 230;
+  --c-term-tool: 169 184 236;
+  --c-term-ok: 154 227 168;
+  --c-term-err: 255 143 163;
+  --c-term-warn: 247 204 120;
+  --c-glow-2: 156 180 232;
+  --c-star-1: 225 228 250;
+  --c-star-2: 156 180 232;
+  --c-shadow: 30 28 70;
+  --c-shadow-accent: 63 73 184;
+  --c-nav-bg: 21 20 31;
+  --c-nav-line: 36 35 58;
+  --c-nav-text: 237 236 245;
+  --c-nav-strong: 255 255 255;
+  --c-nav-muted: 147 145 171;
+  --c-nav-faint: 104 102 127;
+  --c-nav-active-text: 255 255 255;
+  --c-nav-count-text: 199 211 240;
+  --c-nav-accent: 156 180 232;
+  --c-nav-brand-1: 201 214 245;
+  --c-nav-brand-2: 156 180 232;
+  --c-nav-brand-3: 111 134 214;
+  /* full colours */
+  --c-accent-soft: rgba(79, 91, 213, 0.10);
+  --c-nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --c-nav-input-bg: rgba(255, 255, 255, 0.05);
+  --c-nav-input-border: rgba(255, 255, 255, 0.10);
+  --c-nav-input-border-hover: rgba(255, 255, 255, 0.18);
+  --c-nav-active-bg: rgba(156, 180, 232, 0.16);
+  --c-nav-count-bg: rgba(156, 180, 232, 0.18);
+  /* sidebar sky and page grain */
+  --nav-stars-opacity: 0.9;
+  --nav-sky-after: none;
+  --cosmos-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.30  0 0 0 0 0.33  0 0 0 0 0.80  0 0 0 0.65 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+}
+
+/* Aurora — navy night sidebar with stars and an aurora glow at its foot; jade carries selection and the score ladder; navy buttons. */
+[data-palette="aurora"] {
+  --c-bg-base: 255 255 255;
+  --c-bg-cosmos: 245 247 250;
+  --c-bg-panel: 232 237 243;
+  --c-bg-elevated: 239 243 247;
+  --c-border-default: 223 229 236;
+  --c-border-strong: 201 210 222;
+  --c-divider: 223 229 236;
+  --c-divider-soft: 235 239 244;
+  --c-control-border: 201 210 222;
+  --c-text-1: 11 19 38;
+  --c-text-2: 31 42 61;
+  --c-text-3: 86 99 122;
+  --c-text-4: 133 145 166;
+  --c-accent: 10 138 110;
+  --c-accent-hover: 8 113 92;
+  --c-accent-press: 6 92 75;
+  --c-accent-text: 8 113 92;
+  --c-accent-light: 127 221 190;
+  --c-action: 11 19 38;
+  --c-action-hover: 28 39 64;
+  --c-action-press: 5 9 26;
+  --c-action-text: 255 255 255;
+  --c-tier-1: 6 96 79;
+  --c-tier-1-bg: 226 243 238;
+  --c-tier-1-light: 10 138 110;
+  --c-tier-2: 9 128 104;
+  --c-tier-2-bg: 231 245 241;
+  --c-tier-2-light: 127 221 190;
+  --c-tier-3: 78 154 136;
+  --c-tier-3-bg: 238 246 243;
+  --c-tier-3-light: 179 220 209;
+  --c-tier-4: 162 173 189;
+  --c-tier-4-bg: 238 241 245;
+  --c-tier-4-light: 201 209 220;
+  --c-score-mid: 86 99 122;
+  --c-track: 203 211 222;
+  --c-track-strong: 141 153 173;
+  --c-bar-track: 225 231 238;
+  --c-success: 63 127 22;
+  --c-warning: 242 178 48;
+  --c-warning-text: 161 92 0;
+  --c-danger: 196 47 69;
+  --c-chart-1: 10 138 110;
+  --c-chart-2: 6 96 79;
+  --c-chart-3: 59 130 196;
+  --c-chart-4: 224 106 142;
+  --c-chart-5: 242 168 55;
+  --c-chart-6: 139 111 232;
+  --c-chart-7: 133 145 166;
+  --c-night-deep: 7 12 25;
+  --c-night: 11 19 38;
+  --c-night-2: 22 33 58;
+  --c-scrim: 7 12 25;
+  --c-term-text: 210 219 235;
+  --c-term-tool: 127 221 190;
+  --c-term-ok: 154 227 168;
+  --c-term-err: 255 143 163;
+  --c-term-warn: 247 204 120;
+  --c-glow-2: 61 220 151;
+  --c-star-1: 220 240 235;
+  --c-star-2: 124 240 192;
+  --c-shadow: 11 19 38;
+  --c-shadow-accent: 11 19 38;
+  --c-nav-bg: 11 19 38;
+  --c-nav-line: 28 39 64;
+  --c-nav-text: 230 235 245;
+  --c-nav-strong: 255 255 255;
+  --c-nav-muted: 139 150 174;
+  --c-nav-faint: 100 112 137;
+  --c-nav-active-text: 191 245 221;
+  --c-nav-count-text: 155 235 200;
+  --c-nav-accent: 124 240 192;
+  --c-nav-brand-1: 184 247 220;
+  --c-nav-brand-2: 124 240 192;
+  --c-nav-brand-3: 34 195 180;
+  /* full colours */
+  --c-accent-soft: rgba(16, 163, 127, 0.11);
+  --c-nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --c-nav-input-bg: rgba(255, 255, 255, 0.05);
+  --c-nav-input-border: rgba(255, 255, 255, 0.10);
+  --c-nav-input-border-hover: rgba(255, 255, 255, 0.18);
+  --c-nav-active-bg: rgba(61, 220, 151, 0.13);
+  --c-nav-count-bg: rgba(61, 220, 151, 0.16);
+  /* sidebar sky and page grain */
+  --nav-stars-opacity: 0.9;
+  --nav-sky-after: radial-gradient(60% 50% at 30% 100%, rgba(61, 220, 151, 0.26), transparent 70%), radial-gradient(50% 40% at 85% 100%, rgba(34, 195, 180, 0.20), transparent 70%);
+  --cosmos-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.05  0 0 0 0 0.30  0 0 0 0 0.25  0 0 0 0.65 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+}
+
+/* Star chart — Prussian-blue sidebar with a drawn gold constellation; chart-blue selection; gold marks the Go verdict (T1 chip) and the brand; warning is burnt orange. */
+[data-palette="starchart"] {
+  --c-bg-base: 255 255 255;
+  --c-bg-cosmos: 244 246 249;
+  --c-bg-panel: 231 236 242;
+  --c-bg-elevated: 238 242 246;
+  --c-border-default: 221 227 235;
+  --c-border-strong: 199 208 220;
+  --c-divider: 221 227 235;
+  --c-divider-soft: 234 238 243;
+  --c-control-border: 199 208 220;
+  --c-text-1: 15 35 66;
+  --c-text-2: 34 49 74;
+  --c-text-3: 86 100 128;
+  --c-text-4: 134 146 168;
+  --c-accent: 44 90 158;
+  --c-accent-hover: 36 76 135;
+  --c-accent-press: 28 61 110;
+  --c-accent-text: 36 76 135;
+  --c-accent-light: 157 183 222;
+  --c-action: 15 35 66;
+  --c-action-hover: 29 52 89;
+  --c-action-press: 10 24 48;
+  --c-action-text: 255 255 255;
+  --c-tier-1: 15 35 66;
+  --c-tier-1-bg: 246 226 166;
+  --c-tier-1-light: 232 190 90;
+  --c-tier-2: 44 90 158;
+  --c-tier-2-bg: 233 239 247;
+  --c-tier-2-light: 157 183 222;
+  --c-tier-3: 111 137 173;
+  --c-tier-3-bg: 239 242 247;
+  --c-tier-3-light: 191 205 224;
+  --c-tier-4: 169 179 194;
+  --c-tier-4-bg: 238 241 245;
+  --c-tier-4-light: 203 210 220;
+  --c-score-mid: 86 100 128;
+  --c-track: 201 209 221;
+  --c-track-strong: 140 152 174;
+  --c-bar-track: 224 230 238;
+  --c-success: 31 122 68;
+  --c-warning: 224 123 46;
+  --c-warning-text: 160 74 13;
+  --c-danger: 196 47 69;
+  --c-chart-1: 44 90 158;
+  --c-chart-2: 15 35 66;
+  --c-chart-3: 46 184 168;
+  --c-chart-4: 224 106 142;
+  --c-chart-5: 232 190 90;
+  --c-chart-6: 139 111 232;
+  --c-chart-7: 134 146 168;
+  --c-night-deep: 9 22 41;
+  --c-night: 15 35 66;
+  --c-night-2: 26 50 86;
+  --c-scrim: 9 22 41;
+  --c-term-text: 213 221 234;
+  --c-term-tool: 232 207 143;
+  --c-term-ok: 154 227 168;
+  --c-term-err: 255 143 163;
+  --c-term-warn: 247 204 120;
+  --c-glow-2: 232 190 90;
+  --c-star-1: 230 236 248;
+  --c-star-2: 232 190 90;
+  --c-shadow: 15 35 66;
+  --c-shadow-accent: 15 35 66;
+  --c-nav-bg: 15 35 66;
+  --c-nav-line: 29 52 89;
+  --c-nav-text: 232 237 246;
+  --c-nav-strong: 255 255 255;
+  --c-nav-muted: 142 156 184;
+  --c-nav-faint: 98 114 154;
+  --c-nav-active-text: 246 223 162;
+  --c-nav-count-text: 241 212 138;
+  --c-nav-accent: 232 190 90;
+  --c-nav-brand-1: 246 223 162;
+  --c-nav-brand-2: 232 190 90;
+  --c-nav-brand-3: 201 154 58;
+  /* full colours */
+  --c-accent-soft: rgba(44, 90, 158, 0.10);
+  --c-nav-hover-bg: rgba(255, 255, 255, 0.06);
+  --c-nav-input-bg: rgba(255, 255, 255, 0.05);
+  --c-nav-input-border: rgba(255, 255, 255, 0.10);
+  --c-nav-input-border-hover: rgba(255, 255, 255, 0.18);
+  --c-nav-active-bg: rgba(232, 190, 90, 0.14);
+  --c-nav-count-bg: rgba(232, 190, 90, 0.18);
+  /* sidebar sky and page grain */
+  --nav-stars-opacity: 0.7;
+  --nav-sky-after: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='260' viewBox='0 0 220 260'><g fill='none' stroke='%23E8BE5A' stroke-opacity='0.45' stroke-width='0.8'><path d='M24 40L78 66L118 50L170 92L150 150L192 196'/><path d='M78 66L64 128L118 164L150 150'/></g><g fill='%23E8BE5A'><circle cx='24' cy='40' r='1.6'/><circle cx='78' cy='66' r='2.3'/><circle cx='118' cy='50' r='1.5'/><circle cx='170' cy='92' r='2'/><circle cx='150' cy='150' r='1.7'/><circle cx='192' cy='196' r='2.5'/><circle cx='64' cy='128' r='1.4'/><circle cx='118' cy='164' r='1.9'/></g></svg>") no-repeat left 0 bottom 64px / 100% auto;
+  --cosmos-grain: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.06  0 0 0 0 0.14  0 0 0 0 0.26  0 0 0 0.65 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+}

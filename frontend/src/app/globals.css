@@ -2,16 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Colour values live in themes.css (imported by app/layout.tsx). This file
+   only references them: rgb(var(--c-<role>)) or rgb(var(--c-<role>) / α). */
 :root {
   color-scheme: light;
-  --accent:           #7C5CFF;
-  --accent-hover:     #5B3FE8;
-  --accent-press:     #4A2FC8;
-  --accent-light:     #B5A3FF;
-  --galaxy-deep:      #0A0820;
-  --galaxy-matte:     #1F1B36;
-  --galaxy-matte-2:   #2A2548;
-  --divider-gray:     #DEE3E9;
 }
 
 * {
@@ -26,8 +20,8 @@ html, body, #__next {
 }
 
 body {
-  background-color: #FFFFFF;
-  color: #1C2B33;
+  background-color: rgb(var(--c-bg-base));
+  color: rgb(var(--c-text-2));
   font-family: var(--font-sans), 'IBM Plex Sans', -apple-system, system-ui, Helvetica, Arial, sans-serif;
   font-size: 13px;
   line-height: 1.5;
@@ -44,7 +38,7 @@ p, td, th, li, .selectable {
 
 /* Browser surfaces carry the palette too. */
 ::selection {
-  background: rgba(124, 92, 255, 0.18);
+  background: rgb(var(--c-accent) / 0.18);
 }
 ::-webkit-scrollbar {
   width: 8px;
@@ -54,18 +48,18 @@ p, td, th, li, .selectable {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #CED0D4;
+  background: rgb(var(--c-track));
   border-radius: 100px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #909396;
+  background: rgb(var(--c-track-strong));
   background-clip: padding-box;
 }
 
 :focus-visible {
-  outline: 2px solid rgba(124, 92, 255, 0.45);
+  outline: 2px solid rgb(var(--c-accent) / 0.45);
   outline-offset: 1px;
 }
 input:focus-visible,
@@ -84,8 +78,8 @@ input[type="checkbox"] {
   height: 14px;
   margin: 0;
   border-radius: 4px;
-  border: 1.5px solid #CED4DC;
-  background: #FFFFFF;
+  border: 1.5px solid rgb(var(--c-control-border));
+  background: rgb(var(--c-bg-base));
   display: inline-grid;
   place-content: center;
   cursor: pointer;
@@ -98,19 +92,19 @@ input[type="checkbox"]::before {
   height: 8px;
   transform: scale(0);
   transition: transform 120ms cubic-bezier(0.25, 1, 0.5, 1);
-  background: #FFFFFF;
+  background: rgb(var(--c-bg-base));
   clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
 }
-input[type="checkbox"]:hover { border-color: #B5A3FF; }
-input[type="checkbox"]:checked { background: #7C5CFF; border-color: #7C5CFF; }
+input[type="checkbox"]:hover { border-color: rgb(var(--c-accent-light)); }
+input[type="checkbox"]:checked { background: rgb(var(--c-accent)); border-color: rgb(var(--c-accent)); }
 input[type="checkbox"]:checked::before { transform: scale(1); }
-input[type="checkbox"]:focus-visible { outline: 2px solid rgba(124, 92, 255, 0.35); outline-offset: 1px; }
+input[type="checkbox"]:focus-visible { outline: 2px solid rgb(var(--c-accent) / 0.35); outline-offset: 1px; }
 input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
 
 select:not([multiple]) {
   -webkit-appearance: none;
   appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238595A4' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-image: var(--select-chevron);
   background-repeat: no-repeat;
   background-position: right 8px center;
   padding-right: 26px;
@@ -139,7 +133,9 @@ select:not([multiple]) {
 /* ─── Component classes ──────────────────────────────────────────────────── */
 
 @layer components {
-  /* Buttons. One shape (6px), three heights, five tones. */
+  /* Buttons. One shape (8px), three heights, six tones. Primary uses the
+     action role, which a theme may set apart from the accent (navy buttons
+     beside a cerulean accent); Galaxy maps both to the same violet. */
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded text-[13px] font-medium whitespace-nowrap select-none
            transition-colors duration-150 ease-quart
@@ -152,7 +148,7 @@ select:not([multiple]) {
   .btn-icon { @apply w-8 px-0; }
   .btn-sm.btn-icon { @apply w-7; }
   .btn-xs.btn-icon { @apply w-6; }
-  .btn-primary   { @apply bg-accent text-white hover:bg-accent-hover active:bg-accent-press shadow-pill hover:shadow-pill-hover; }
+  .btn-primary   { @apply bg-action text-action-text hover:bg-action-hover active:bg-action-press shadow-pill hover:shadow-pill-hover; }
   .btn-secondary { @apply bg-bg-base text-text-1 border border-border-default shadow-subtle hover:bg-bg-elevated active:bg-bg-panel; }
   .btn-ghost     { @apply text-text-3 hover:text-text-1 hover:bg-bg-elevated; }
   .btn-tinted    { @apply bg-accent-soft text-accent-text hover:bg-accent/20; }
@@ -208,7 +204,7 @@ select:not([multiple]) {
   100% { background-position:  200% 0; }
 }
 .shimmer {
-  background: linear-gradient(90deg, #F1F4F7 25%, #E4E8EC 50%, #F1F4F7 75%);
+  background: linear-gradient(90deg, rgb(var(--c-bg-panel)) 25%, rgb(var(--c-bar-track)) 50%, rgb(var(--c-bg-panel)) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
@@ -216,23 +212,23 @@ select:not([multiple]) {
 /* Ambient galaxy wash — empty states and the two remaining hero moments. */
 .galaxy-bg {
   background:
-    radial-gradient(ellipse at 78% 18%, rgba(124, 92, 255, 0.06) 0%, transparent 55%),
-    radial-gradient(ellipse at 22% 88%, rgba(124, 92, 255, 0.07) 0%, transparent 60%),
-    radial-gradient(ellipse at 50% 50%, rgba(161, 33, 206, 0.025) 0%, transparent 70%),
-    #FFFFFF;
+    radial-gradient(ellipse at 78% 18%, rgb(var(--c-accent) / 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse at 22% 88%, rgb(var(--c-accent) / 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 50%, rgb(var(--c-glow-2) / 0.025) 0%, transparent 70%),
+    rgb(var(--c-bg-base));
 }
 
-/* Immersive galaxy surface — onboarding only. */
+/* Immersive galaxy surface — onboarding only (pinned to data-palette="galaxy"). */
 .galaxy-immersive {
   background:
-    radial-gradient(ellipse at 22% 28%, rgba(124, 92, 255, 0.16) 0%, transparent 55%),
-    radial-gradient(ellipse at 78% 72%, rgba(161, 33, 206, 0.14) 0%, transparent 60%),
-    radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.07) 0%, transparent 40%),
-    radial-gradient(125% 125% at 50% 8%, #0A0820 38%, #5B3FE8 100%);
-  color: #FFFFFF;
+    radial-gradient(ellipse at 22% 28%, rgb(var(--c-accent) / 0.16) 0%, transparent 55%),
+    radial-gradient(ellipse at 78% 72%, rgb(var(--c-glow-2) / 0.14) 0%, transparent 60%),
+    radial-gradient(ellipse at 50% 0%, rgb(255 255 255 / 0.07) 0%, transparent 40%),
+    radial-gradient(125% 125% at 50% 8%, rgb(var(--c-night-deep)) 38%, rgb(var(--c-accent-hover)) 100%);
+  color: rgb(255 255 255);
 }
 .galaxy-immersive ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgb(255 255 255 / 0.18);
   border: 2px solid transparent;
 }
 
@@ -256,24 +252,24 @@ select:not([multiple]) {
 }
 .galaxy-stars::before {
   background-image:
-    radial-gradient(0.9px 0.9px at 14% 22%, rgba(255, 255, 255, 0.78) 0%, transparent 100%),
-    radial-gradient(0.9px 0.9px at 38% 9%,  rgba(220, 210, 255, 0.66) 0%, transparent 100%),
-    radial-gradient(0.9px 0.9px at 71% 31%, rgba(255, 255, 255, 0.70) 0%, transparent 100%),
-    radial-gradient(1.2px 1.2px at 88% 14%, rgba(181, 163, 255, 0.74) 0%, transparent 100%),
-    radial-gradient(0.9px 0.9px at 24% 67%, rgba(255, 255, 255, 0.62) 0%, transparent 100%),
-    radial-gradient(1px 1px at 56% 78%, rgba(220, 210, 255, 0.70) 0%, transparent 100%),
-    radial-gradient(0.9px 0.9px at 81% 60%, rgba(255, 255, 255, 0.60) 0%, transparent 100%),
-    radial-gradient(1.2px 1.2px at 6% 88%,  rgba(181, 163, 255, 0.72) 0%, transparent 100%);
+    radial-gradient(0.9px 0.9px at 14% 22%, rgb(255 255 255 / 0.78) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 38% 9%,  rgb(var(--c-star-1) / 0.66) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 71% 31%, rgb(255 255 255 / 0.70) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 88% 14%, rgb(var(--c-star-2) / 0.74) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 24% 67%, rgb(255 255 255 / 0.62) 0%, transparent 100%),
+    radial-gradient(1px 1px at 56% 78%, rgb(var(--c-star-1) / 0.70) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 81% 60%, rgb(255 255 255 / 0.60) 0%, transparent 100%),
+    radial-gradient(1.2px 1.2px at 6% 88%,  rgb(var(--c-star-2) / 0.72) 0%, transparent 100%);
   animation: star-twinkle-slow 7s cubic-bezier(0.25, 1, 0.5, 1) infinite;
 }
 .galaxy-stars::after {
   background-size: 180px 180px;
   background-image:
-    radial-gradient(0.7px 0.7px at 33% 41%, rgba(255, 255, 255, 0.46) 0%, transparent 100%),
-    radial-gradient(0.7px 0.7px at 62% 18%, rgba(255, 255, 255, 0.42) 0%, transparent 100%),
-    radial-gradient(0.7px 0.7px at 12% 55%, rgba(220, 210, 255, 0.46) 0%, transparent 100%),
-    radial-gradient(0.9px 0.9px at 92% 73%, rgba(255, 255, 255, 0.46) 0%, transparent 100%),
-    radial-gradient(0.7px 0.7px at 47% 92%, rgba(255, 255, 255, 0.42) 0%, transparent 100%);
+    radial-gradient(0.7px 0.7px at 33% 41%, rgb(255 255 255 / 0.46) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 62% 18%, rgb(255 255 255 / 0.42) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 12% 55%, rgb(var(--c-star-1) / 0.46) 0%, transparent 100%),
+    radial-gradient(0.9px 0.9px at 92% 73%, rgb(255 255 255 / 0.46) 0%, transparent 100%),
+    radial-gradient(0.7px 0.7px at 47% 92%, rgb(255 255 255 / 0.42) 0%, transparent 100%);
   animation: star-twinkle-fast 4.2s cubic-bezier(0.25, 1, 0.5, 1) infinite;
   animation-delay: -1.6s;
 }
@@ -284,6 +280,36 @@ select:not([multiple]) {
 @keyframes star-twinkle-fast {
   0%, 100% { opacity: 0.30; }
   50%      { opacity: 0.78; }
+}
+
+/* Sidebar sky — the night sidebar's starfield plus its per-theme layer
+   (aurora glow, drawn constellation), painted as one background layer.
+   Themes switch it through --nav-stars-opacity (scales every star's alpha)
+   and --nav-sky-after in themes.css; Galaxy sets both to nothing.
+   Deliberately no z-index, opacity or isolation here: any of them would give
+   the sidebar its own stacking context (trapping the profile popover under
+   the page) and change its text rendering. Children are position: relative
+   with z-index auto, so they paint after the ::before in tree order. */
+.nav-sky {
+  position: relative;
+}
+.nav-sky > * {
+  position: relative;
+}
+.nav-sky::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1px 1px at 12% 18%, rgb(255 255 255 / calc(0.70 * var(--nav-stars-opacity))) 0%, transparent 100%) 0 0 / 220px 240px repeat,
+    radial-gradient(0.9px 0.9px at 64% 9%, rgb(var(--c-star-1) / calc(0.60 * var(--nav-stars-opacity))) 0%, transparent 100%) 0 0 / 220px 240px repeat,
+    radial-gradient(1.3px 1.3px at 82% 36%, rgb(255 255 255 / calc(0.62 * var(--nav-stars-opacity))) 0%, transparent 100%) 0 0 / 220px 240px repeat,
+    radial-gradient(0.9px 0.9px at 30% 52%, rgb(var(--c-star-1) / calc(0.50 * var(--nav-stars-opacity))) 0%, transparent 100%) 0 0 / 220px 240px repeat,
+    radial-gradient(1.1px 1.1px at 72% 71%, rgb(var(--c-star-2) / calc(0.55 * var(--nav-stars-opacity))) 0%, transparent 100%) 0 0 / 220px 240px repeat,
+    radial-gradient(0.8px 0.8px at 18% 86%, rgb(255 255 255 / calc(0.45 * var(--nav-stars-opacity))) 0%, transparent 100%) 0 0 / 220px 240px repeat,
+    radial-gradient(0.8px 0.8px at 48% 30%, rgb(255 255 255 / calc(0.35 * var(--nav-stars-opacity))) 0%, transparent 100%) 0 0 / 220px 240px repeat,
+    var(--nav-sky-after);
 }
 
 /* Orbital loader rings */
@@ -300,7 +326,7 @@ select:not([multiple]) {
   z-index: 0;
   pointer-events: none;
   opacity: 0.025;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.92' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.486  0 0 0 0 0.361  0 0 0 0 1  0 0 0 0.65 0'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+  background-image: var(--cosmos-grain);
   background-size: 200px 200px;
 }
 
@@ -315,8 +341,8 @@ select:not([multiple]) {
 .galaxy-border {
   border: 1px solid transparent;
   background:
-    linear-gradient(#FFFFFF, #FFFFFF) padding-box,
-    linear-gradient(135deg, rgba(124,92,255,0.4), rgba(91,63,232,0.4), rgba(161,33,206,0.4)) border-box;
+    linear-gradient(rgb(var(--c-bg-base)), rgb(var(--c-bg-base))) padding-box,
+    linear-gradient(135deg, rgb(var(--c-accent) / 0.4), rgb(var(--c-accent-hover) / 0.4), rgb(var(--c-glow-2) / 0.4)) border-box;
 }
 
 @keyframes chip-appear {
@@ -328,7 +354,7 @@ select:not([multiple]) {
 }
 
 .frosted {
-  background: rgba(241, 244, 247, 0.8);
+  background: rgb(var(--c-bg-panel) / 0.8);
   backdrop-filter: saturate(180%) blur(20px);
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
@@ -336,7 +362,7 @@ select:not([multiple]) {
 /* ─── Report prose ───────────────────────────────────────────────────────── */
 
 .prose-report {
-  color: #1C2B33;
+  color: rgb(var(--c-text-2));
   font-size: 13.5px;
   line-height: 1.6;
   user-select: text;
@@ -345,42 +371,42 @@ select:not([multiple]) {
 .prose-report h1 {
   font-size: 13px;
   font-weight: 500;
-  color: #5D6C7B;
+  color: rgb(var(--c-text-3));
   margin: 0 0 1rem;
 }
 .prose-report h2 {
   font-size: 15px;
   font-weight: 600;
-  color: #050505;
+  color: rgb(var(--c-text-1));
   letter-spacing: -0.005em;
   margin: 2rem 0 0.75rem;
 }
 .prose-report h3 {
   font-size: 13.5px;
   font-weight: 600;
-  color: #1C2B33;
+  color: rgb(var(--c-text-2));
   margin: 1.25rem 0 0.5rem;
 }
 .prose-report p { margin-bottom: 0.75rem; }
 .prose-report ul, .prose-report ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
 .prose-report li { margin-bottom: 0.3rem; }
 .prose-report li > p { margin-bottom: 0.3rem; }
-.prose-report strong { color: #050505; font-weight: 600; }
-.prose-report a { color: #5B3FE8; text-decoration: underline; text-underline-offset: 2px; }
+.prose-report strong { color: rgb(var(--c-text-1)); font-weight: 600; }
+.prose-report a { color: rgb(var(--c-accent-text)); text-decoration: underline; text-underline-offset: 2px; }
 .prose-report code {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 12px;
-  background: #F1F4F7;
+  background: rgb(var(--c-bg-panel));
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
-  color: #1C2B33;
+  color: rgb(var(--c-text-2));
 }
 .prose-report blockquote {
   padding: 0.6rem 0.9rem;
-  color: #5D6C7B;
+  color: rgb(var(--c-text-3));
   margin: 0.75rem 0;
-  background: #F7F8FA;
-  border: 1px solid #DEE3E9;
+  background: rgb(var(--c-bg-elevated));
+  border: 1px solid rgb(var(--c-divider));
   border-radius: 8px;
 }
 .prose-report table {
@@ -389,53 +415,54 @@ select:not([multiple]) {
   border-collapse: separate;
   border-spacing: 0;
   margin: 0.75rem 0 1.25rem;
-  border: 1px solid #DEE3E9;
+  border: 1px solid rgb(var(--c-divider));
   border-radius: 8px;
   overflow: hidden;
   font-size: 12.5px;
   overflow-wrap: anywhere;
 }
 .prose-report table code { white-space: normal; }
-.prose-report thead { background: #F7F8FA; }
+.prose-report thead { background: rgb(var(--c-bg-elevated)); }
 .prose-report th {
   text-align: left;
   font-size: 12px;
   font-weight: 500;
-  color: #5D6C7B;
-  border-bottom: 1px solid #DEE3E9;
+  color: rgb(var(--c-text-3));
+  border-bottom: 1px solid rgb(var(--c-divider));
   padding: 0.5rem 0.75rem;
 }
 .prose-report td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid #F0F2F5;
+  border-bottom: 1px solid rgb(var(--c-divider-soft));
   vertical-align: top;
 }
 .prose-report tr:last-child td { border-bottom: none; }
-.prose-report td:first-child { color: #050505; font-weight: 500; }
+.prose-report td:first-child { color: rgb(var(--c-text-1)); font-weight: 500; }
 .prose-report th:first-child, .prose-report td:first-child { width: 26%; }
 .prose-report hr {
   border: none;
-  border-top: 1px solid #DEE3E9;
+  border-top: 1px solid rgb(var(--c-divider));
   margin: 1.25rem 0;
 }
 
 /* Sheet — the report dossier and any future edge panel. Depth comes from
    three layers: a hairline that reads as the sheet's cut edge, a thin lit
    highlight just inside it (light from the page wash catching the edge),
-   and a deep violet-tinted shadow that falls onto the dimmed app behind. */
+   and a deep shadow, tinted from the theme's night, that falls onto the
+   dimmed app behind. */
 .sheet {
-  border-left: 1px solid rgba(124, 92, 255, 0.18);
+  border-left: 1px solid rgb(var(--c-accent) / 0.18);
   box-shadow:
-    inset 1px 0 0 rgba(255, 255, 255, 0.9),
-    -1px 0 0 rgba(40, 32, 90, 0.04),
-    -8px 0 24px -8px rgba(40, 32, 90, 0.18),
-    -32px 0 80px -24px rgba(40, 32, 90, 0.35);
+    inset 1px 0 0 rgb(255 255 255 / 0.9),
+    -1px 0 0 rgb(var(--c-shadow) / 0.04),
+    -8px 0 24px -8px rgb(var(--c-shadow) / 0.18),
+    -32px 0 80px -24px rgb(var(--c-shadow) / 0.35);
 }
 
 /* Score bar */
 .score-bar-track {
   height: 3px;
-  background: #E4E8EC;
+  background: rgb(var(--c-bar-track));
   border-radius: 100px;
   overflow: hidden;
 }
@@ -474,21 +501,21 @@ select:not([multiple]) {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #FFFFFF;
-  border: 2px solid #7C5CFF;
+  background: rgb(var(--c-bg-base));
+  border: 2px solid rgb(var(--c-accent));
   pointer-events: auto;
   cursor: grab;
   transition: transform 120ms ease, background 120ms ease;
   margin-top: -5px;
 }
-.range-overlay::-webkit-slider-thumb:hover { background: #F5F2FF; }
-.range-overlay::-webkit-slider-thumb:active { cursor: grabbing; background: #EBE5FF; }
+.range-overlay::-webkit-slider-thumb:hover { background: linear-gradient(rgb(var(--c-accent) / 0.08), rgb(var(--c-accent) / 0.08)), rgb(var(--c-bg-base)); }
+.range-overlay::-webkit-slider-thumb:active { cursor: grabbing; background: linear-gradient(rgb(var(--c-accent) / 0.155), rgb(var(--c-accent) / 0.155)), rgb(var(--c-bg-base)); }
 .range-overlay::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #FFFFFF;
-  border: 2px solid #7C5CFF;
+  background: rgb(var(--c-bg-base));
+  border: 2px solid rgb(var(--c-accent));
   pointer-events: auto;
   cursor: grab;
 }

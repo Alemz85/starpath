@@ -17,10 +17,12 @@ import { OrbitalLoader } from '@/components/ui/orbital-loader'
 
 const POPOVER_WIDTH = 240
 
-function InitialCircle({ profile }: { profile: { label?: string; slug: string } }) {
+// onNav: the circle sits on the sidebar (theme night) rather than in the
+// light popover card, so it takes the sidebar's count colours.
+function InitialCircle({ profile, onNav = false }: { profile: { label?: string; slug: string }; onNav?: boolean }) {
   return (
     <span
-      className="w-[18px] h-[18px] rounded-full bg-accent-soft text-accent-text text-micro font-semibold flex items-center justify-center shrink-0"
+      className={cn('w-[18px] h-[18px] rounded-full text-micro font-semibold flex items-center justify-center shrink-0', onNav ? 'bg-nav-count-bg text-nav-count-text' : 'bg-accent-soft text-accent-text')}
       aria-hidden
     >
       {profileInitial(profile)}
@@ -102,15 +104,15 @@ export function ProfileSwitcher({ expanded }: { expanded: boolean }) {
         aria-label={active ? `Profile: ${active.label || active.slug}` : 'Profiles'}
         title={!expanded ? (active ? active.label || active.slug : 'Profiles') : undefined}
         className={cn(
-          'btn btn-ghost btn-sm text-text-2',
+          'btn btn-sm text-nav-text hover:text-nav-strong hover:bg-nav-hover-bg',
           expanded ? 'w-full justify-start gap-2 px-2' : 'btn-icon',
         )}
       >
         {switching
           ? <OrbitalLoader size={16} rings={2} />
           : active
-            ? <InitialCircle profile={active} />
-            : <span className="text-text-4">—</span>}
+            ? <InitialCircle profile={active} onNav />
+            : <span className="text-nav-faint">—</span>}
         {expanded && (
           <>
             <span className="flex-1 min-w-0 text-left truncate">
@@ -118,7 +120,7 @@ export function ProfileSwitcher({ expanded }: { expanded: boolean }) {
             </span>
             <ChevronDown
               size={12}
-              className={cn('text-text-4 shrink-0 transition-transform duration-200 ease-quart', open && 'rotate-180')}
+              className={cn('text-nav-faint shrink-0 transition-transform duration-200 ease-quart', open && 'rotate-180')}
             />
           </>
         )}

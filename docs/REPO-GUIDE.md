@@ -114,6 +114,13 @@ The desktop app under `frontend/` is branded **starpath** (the project itself st
 
 **Apply / Status writebacks.** The Apply button (popover and slide-over) and the inline status dropdown write directly to `data/applications.md` from the renderer — appending a row on first Apply, then rewriting the matching row's `Status` cell on each change. `upsertApplicationRow` in `frontend/src/lib/applicationsDoc.ts` refreshes an existing (company, role) row in place instead of appending a duplicate. The chokidar watcher resyncs the cache automatically.
 
+**Themes.** The app ships switchable colour themes (Settings › General › Appearance; default Blue hour). How it fits together:
+- `frontend/src/app/themes.css` holds every colour value: one `[data-palette="<id>"]` block per theme, each defining the same role tokens (`--c-accent`, `--c-text-3`, `--c-nav-bg` …) as sRGB triplets. The default theme's block also matches `:root`.
+- `frontend/tailwind.config.ts` maps each role to a class (`rgb(var(--c-accent) / <alpha-value>)`) and replaces Tailwind's default palette, so `bg-gray-100` and friends do not exist. `frontend/src/lib/themes.ts` is the registry (`PALETTES`, the token lists, `themeColor()`); `lib/tier.ts` builds the score/tier colours on it.
+- `app/layout.tsx` runs `PALETTE_BOOT_SCRIPT` in `<head>` to set `data-palette` on `<html>` from `localStorage['starpath.palette']` before first paint; `store/palette.ts` changes it. Onboarding pins `data-palette="galaxy"` locally.
+- Guards in `npm test`: `src/lib/themes.test.ts` (every theme defines exactly the token set, contrast pairs pass) and `src/lib/colorLiterals.test.ts` (no raw colours or off-scale opacity modifiers outside `themes.css` and a short allowlist).
+- **Adding a theme:** copy a block in `themes.css` and change its values; add `{ id, name, description, swatches }` to `PALETTES`; run `npm test` (fails until every token is set and readable); screenshot Scout, Database, Applying and Settings in the new theme. **Adding a colour role:** add it to every block, to `CHANNEL_TOKENS` (or `FULL_TOKENS`) and to `tailwind.config.ts`, and document it in DESIGN-meta.md § 2.
+
 **Cache.** The app mirrors `data/*` and `reports/**` into a SQLite cache at `{userData}/cache.db`. It is fully derived from the Markdown/TSV files and rebuilds on launch via mtime comparison + a chokidar watcher. Markdown/TSV remain canonical; backend modes never read or write the cache.
 
 ## Tracker TSV

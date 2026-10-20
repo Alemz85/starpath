@@ -4,58 +4,81 @@ The single source of truth for how the desktop app looks. Values live in `fronte
 
 ## 1. Register
 
-starpath is a tool someone uses for hours, deciding which of two hundred listings deserve an application. Mode: Operate. Familiarity, scanability and consistency outrank expression. The identity lives in precise details: the galaxy-violet accent, the cosmos wash under the page, the grain, the starfield on dark panels, the orbital loaders, the constellation on Profile. Everything else is quiet.
+starpath is a tool someone uses for hours, deciding which of two hundred listings deserve an application. Mode: Operate. Familiarity, scanability and consistency outrank expression. The identity lives in precise details: the theme's accent and night sidebar, the cosmos wash under the page, the grain, the starfield on dark panels, the orbital loaders, the constellation on Profile. Everything else is quiet.
 
 Three principles:
 
 - **The data is the visual interest.** Scores, tiers, charts and statuses carry colour. Chrome, panels and labels stay neutral.
 - **One vocabulary.** The same action looks the same on every screen. Buttons, chips, labels, headings and numbers come from the primitives in `components/ui/`; a view never invents its own.
-- **Soft depth, not chrome.** Cards sit on the page wash with a hairline and a one-pixel contact shadow; overlays and menus float on a wide, faint, violet-tinted shadow. No grey bands: title bars, tab strips and table headers live on the page surface and separate with a hairline. The dark Activity terminal and the onboarding splash are the only immersive surfaces.
+- **Soft depth, not chrome.** Cards sit on the page wash with a hairline and a one-pixel contact shadow; overlays and menus float on a wide, faint, night-tinted shadow. No grey bands: title bars, tab strips and table headers live on the page surface and separate with a hairline. The dark Activity terminal and the onboarding splash are the only immersive surfaces.
 
 ## 2. Colour
 
-### Surfaces
+### How colour works: themes and roles
 
-| Token | Value | Use |
+The app has switchable colour themes (Settings › General › Appearance). A component never names a colour; it names a **role** ("primary button", "selected", "top score", "sidebar background"), and the active theme decides what colour that role gets. Switching theme repaints everything through CSS variables, with no re-render.
+
+- **Values** live in one file: `frontend/src/app/themes.css`, one `[data-palette="<id>"]` block per theme, every block defining the same tokens.
+- **Classes** come from `frontend/tailwind.config.ts`, which maps each role to a Tailwind name (`bg-accent`, `text-text-3`, `border-nav-line`) and replaces Tailwind's default palette, so `bg-gray-100` does not exist.
+- **Inline styles, SVG and chart props** use `themeColor('accent', 0.2)` from `lib/themes.ts`, or the tier helpers in `lib/tier.ts` (`scoreColor`, `tierColor(tier, alpha?)`, `TIER_COLOR`, `TIER_BG`).
+- **The rule:** a raw colour (hex, `rgb(…)` with numbers, `oklch`, `bg-[#…]`) in a component fails `npm test` (`src/lib/colorLiterals.test.ts`). So does an opacity modifier off Tailwind's scale (`bg-accent/12` generates no CSS; use `/10`, `/15` or `/[0.12]`). The only exceptions are listed in that test with a reason: `themes.css`, fallback company-logo avatars, the Claude mark, and onboarding.
+- **When no role fits**, add a role to every theme (and to `CHANNEL_TOKENS` in `lib/themes.ts` and `tailwind.config.ts`), document it in the table below, and let `src/lib/themes.test.ts` check that every theme defines it and stays readable. Never hard-code "just this once".
+- The attribute is `data-palette`, not `data-theme`: a future light/dark axis would sit beside it. Don't rename it.
+
+### Themes
+
+| id | Name | Character |
 |---|---|---|
-| `bg-cosmos` | `oklch(0.99 0.004 285)` | App shell / page wash. Never raw white for the page. |
-| `bg-base` | `#FFFFFF` | Cards, popovers, inputs, the slide-over |
-| `bg-elevated` | `#F7F8FA` | Chips, hover rows, inset wells |
-| `bg-panel` | `#F1F4F7` | Secondary sections, skeleton blocks |
-| `bg-chrome` | `#F6F7FA` | Sidebar rail only |
-| `border-default` | `#E4E8ED` | Every hairline (`/70` for row separators and rails) |
-| `border-strong` | `#D3D9E0` | Scrollbar thumbs, emphasised outlines |
+| `bluehour` | **Blue hour** (default) | One blue family from night to sky: navy sidebar with stars, navy primary buttons, cerulean accent, navy→cerulean→steel ladder, one pale starlight brand star. |
+| `aurora` | Aurora | Navy night sidebar with stars and an aurora glow at its foot; jade carries selection and the score ladder; navy buttons. Success shifts to leaf green so it never reads as a score. |
+| `starchart` | Star chart | Prussian-blue sidebar with a drawn gold constellation; chart-blue selection; gold marks only Go / T1 and the brand. Warning is burnt orange so it never reads as gold. |
+| `observatory` | Observatory | Night-violet sidebar with stars, lavender day, indigo pill actions. |
+| `galaxy` | Galaxy | The original v2 palette: galaxy violet on cool greys, light sidebar. Kept as it shipped, apart from the active-nav highlight that `bg-accent/12` used to drop. |
 
-### Text
+Onboarding and the tailoring screen pin `data-palette="galaxy"` on their root, whatever theme is stored.
 
-`text-1 #050505` headings and primary values · `text-2 #1C2B33` body · `text-3 #5D6C7B` labels and secondary copy · `text-4 #8595A4` tertiary, disabled, placeholders.
+### Roles
 
-### Accent
+Values per theme are in `themes.css`; the table says what each role is for.
 
-Galaxy violet `accent #7C5CFF` (hover `#5B3FE8`, press `#4A2FC8`, wash `accent-soft` 12%). Small text on white uses `accent-text #5B3FE8` for contrast. The accent means **action or selection**: primary buttons, the active nav item, selected chips and rows, links, focus rings, the one "act now" figure on a page. It is not a decoration colour and it is not a category colour.
+| Role (class) | Use |
+|---|---|
+| `bg-cosmos` | App shell / page wash. Never raw white for the page. |
+| `bg-base` | Cards, popovers, inputs, the slide-over |
+| `bg-elevated` | Chips, hover rows, inset wells |
+| `bg-panel` | Secondary sections, skeleton blocks |
+| `border-default` · `border-strong` | Every hairline (`/70` for row separators) · scrollbar thumbs, emphasised outlines |
+| `divider` · `divider-soft` · `control-border` | Report-prose rules and table rows · checkbox outline |
+| `text-1` … `text-4` | Headings and primary values · body · labels and secondary copy · tertiary, disabled, placeholders |
+| `action` · `action-hover` · `action-press` · `action-text` | **Primary buttons only.** A theme may set it apart from the accent (navy buttons beside a cerulean accent); Galaxy maps it to the accent. |
+| `accent` · `accent-hover` · `accent-press` · `accent-text` · `accent-light` · `accent-soft` | **Selection and links**: the active nav item, selected chips and rows, links, focus rings, tinted "AI run" buttons, the one "act now" figure on a page. Small text on white uses `accent-text`. Not a decoration colour, not a category colour. |
+| `tier-1` … `tier-4` (+ `-bg`, `-light`) | The ordinal score ladder (below) |
+| `score-mid` | Scores 5.0–6.9, and the neutral score fallback |
+| `success` · `warning` (+ `warning-text`) · `danger` | State only (below) |
+| `chart-1` … `chart-7` | Categorical chart series only |
+| `night-deep` · `night` · `night-2` · `scrim` | Dark surfaces: the Activity terminal, dark tooltips, the onboarding sky, the sheet backdrop |
+| `term-*` | Activity terminal line colours (text, tool use, ok, error, warning) |
+| `nav-*` | The sidebar: background, line, text, strong, muted, faint, hover, active background/text, count badge, accent (running indicator), brand gradient, search input |
+| `track` · `track-strong` · `bar-track` | Scrollbar thumbs · their hover · score-bar and shimmer tracks |
+| `glow-2` · `star-1` · `star-2` · `shadow` · `shadow-accent` | Atmosphere: the second wash hue, star tints, the tint of every shadow |
 
 ### Tier ladder
 
-One ordinal scale shared by tier chips and score numbers. Deeper violet = stronger fit. Never a second hue.
-
-| Band | Token | Value | Score colour band |
-|---|---|---|---|
-| T1 | `tier-1` | `#3D2BB5` | score ≥ 8.0 |
-| T2 | `tier-2` | `#7C5CFF` | score ≥ 7.0 |
-| T3 | `tier-3` | `#8B7FC2` | score 5.0–6.9 renders slate `#5D6C7B` |
-| T4 | `tier-4` | `#94A3B8` | score < 5.0 |
-
-`lib/tier.ts` owns `scoreColor()`, `tierHex()`, `tierVerdict()`, `verdictTier()` and `tierLabel()`. Chips use `<TierChip>`, numbers use `<ScoreNumber>`. Every stored tier is normalised to T1–T4 at the store boundary (`normalizeTier` in `lib/tierLevers.ts`); the UI never sees another vocabulary.
+One ordinal scale shared by tier chips and score numbers: the deeper the tier colour, the stronger the fit. Never a second hue inside one theme. `scoreColor()`: ≥ 8.0 `tier-1`, ≥ 7.0 `tier-2`, 5.0–6.9 `score-mid`, < 5.0 `tier-4`. Chips use `<TierChip>`, numbers use `<ScoreNumber>`. Every stored tier is normalised to T1–T4 at the store boundary (`normalizeTier` in `lib/tierLevers.ts`); the UI never sees another vocabulary.
 
 Scoring v2 (`docs/scoring-v2.md`) colours **Want** and **Ease** each on their own with `scoreColor()`. There is no combined score: Priority (√(Want × Ease)) is a sort key and is never shown as a headline number or coloured on the ladder.
 
 ### Semantic
 
-`success #007D1E` · `warning #F7B928` (text on white: `warning-text #8A5A00`) · `danger #C80A28`. These mean **state**: application lifecycle (Interview amber, Offer green, Rejected red), process state (failed, overdue, due soon), the eligibility gate (green, amber, red; see § 7), and nothing else. A list of keywords is not a state; it gets neutral chips.
+`success`, `warning` (text on white: `warning-text`), `danger` mean **state**: application lifecycle (Interview amber, Offer green, Rejected red), process state (failed, overdue, due soon), the eligibility gate (green, amber, red; see § 7), and nothing else. A list of keywords is not a state; it gets neutral chips.
+
+### Contrast
+
+`src/lib/themes.test.ts` checks every theme: body text (`text-1…3`, `accent-text`, `score-mid`, semantic text, `tier-1`) ≥ 4.5:1 on white, `action-text` on `action` ≥ 4.5, sidebar text on the sidebar ≥ 4.5, `tier-2` and the T2/T3 chips ≥ 3. T3 and T4 are deliberately faded steps. Galaxy keeps its one known miss (white on `#7C5CFF`, 4.35) as shipped.
 
 ### Charts
 
-`chart-1…7` (`#7C5CFF #3D2BB5 #2EB8A8 #E84F8E #F2A837 #4D8DFF #8595A4`) are for categorical series in charts only. They never appear in chrome, chips or text.
+`chart-1…7` are for categorical series only. They never appear in chrome, chips or text.
 
 ## 3. Type
 
@@ -88,9 +111,9 @@ Rules:
 | Containers: cards, panels, table wrappers | `rounded-lg` 14px | `shadow-subtle` (1px contact) |
 | Wells: kanban columns, inset lists | `rounded-lg` 14px, `bg-panel/50`, hairline `/60` | none |
 | Overlays: modal, popover, command palette | `rounded-xl` 18px | `shadow-lift` / `shadow-menu` |
-| Edge sheet: the report dossier (any future side panel) | square against the window edge, `.sheet` | lit left edge + deep violet shadow, over a dimmed and blurred backdrop |
+| Edge sheet: the report dossier (any future side panel) | square against the window edge, `.sheet` | lit left edge + deep night-tinted shadow, over a dimmed and blurred backdrop |
 
-Shadows are tinted toward the violet (`rgba(40, 32, 90, …)`) so depth reads as light from the page wash, never as a grey drop. `.sheet` (globals.css) is the one surface with heavier depth: a violet hairline cut edge, a 1px white highlight just inside it, and a wide shadow falling onto the app, which the backdrop (`bg-[rgba(20,14,46,0.32)] backdrop-blur-[3px]`) pushes back. Use it for panels that cover the app, never for cards. `rounded-md` (10px) is for small image frames. Nothing has a coloured left border wider than 1px. Native checkboxes and selects are restyled globally (rounded accent checkbox, quiet chevron), so views never need a custom control for them.
+Shadows are tinted from the theme's night (`shadow` role) so depth reads as light from the page wash, never as a grey drop. `.sheet` (globals.css) is the one surface with heavier depth: an accent-tinted hairline cut edge, a 1px white highlight just inside it, and a wide shadow falling onto the app, which the backdrop (`bg-scrim/[0.32] backdrop-blur-[3px]`) pushes back. Use it for panels that cover the app, never for cards. `rounded-md` (10px) is for small image frames. Nothing has a coloured left border wider than 1px. Native checkboxes and selects are restyled globally (rounded accent checkbox, quiet chevron), so views never need a custom control for them.
 
 ## 5. Spacing and density
 
@@ -162,6 +185,7 @@ Retired: the Meta-store hero cards, pill buttons, ring dials, the teal "stellar"
 
 Newest first; every entry below landed on 2026-10-20. The audit that started this is `docs/design-audit-2026-10-20.md`.
 
+- **Colour themes.** Switchable colour themes: every colour became a role token in `app/themes.css` (Blue hour default; Aurora, Star chart, Observatory, Galaxy), Settings › Appearance picker, primary buttons on their own `action` role, the sidebar on `nav-*` roles with a per-theme sky, Tailwind's default palette removed, and two guard tests (theme completeness + contrast, colour literals). Fixed in passing: `bg-accent/12` (off Tailwind's opacity scale) had silently dropped the active-nav and count-badge highlight.
 - **Dossier outline.** The dossier's first card is the "Summary" outline entry; the markdown "Recommendation" section keeps its own name, so the outline never lists Verdict twice.
 - **Report sheet.** Report panel becomes a 1040px `.sheet` with a lit edge, deep tinted shadow and a dimmed, blurred backdrop.
 - **Dossier spacing.** More room around the dossier: header padding, taller tabs, 168px section rail, deeper body inset.

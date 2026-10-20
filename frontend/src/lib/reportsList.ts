@@ -12,7 +12,7 @@ import type { Eligibility, ScoreEntry, Verdict } from '@/types'
 import { TIER_COLORS } from '@/types'
 import { reportFixability, type Lever } from '@/lib/tierLevers'
 import { assignVerdict, normalizeEligibility, normalizeVerdict, priorityOf, VERDICT_LABELS, VERDICT_RANK, VERDICT_TIER } from '@/lib/scoreBands'
-import { tierHex } from '@/lib/tier'
+import { tierColor } from '@/lib/tier'
 
 // ─── Verdict bands ───────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ export const ALL_BANDS: readonly ScoreBand[] = ['go', 'stretch', 'solid', 'growt
 export const BAND_DETAILS: Record<ScoreBand, { label: string; color: string; bg: string; text: string; border: string }> =
   Object.fromEntries(ALL_BANDS.map(v => {
     const tier = VERDICT_TIER[v]
-    return [v, { label: VERDICT_LABELS[v], color: tierHex(tier), ...TIER_COLORS[tier] }]
+    return [v, { label: VERDICT_LABELS[v], color: tierColor(tier), ...TIER_COLORS[tier] }]
   })) as Record<ScoreBand, { label: string; color: string; bg: string; text: string; border: string }>
 
 /** The verdict-carrying fields of a report row (DbReportRow satisfies it). */

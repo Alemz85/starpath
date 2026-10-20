@@ -25,6 +25,7 @@ import { WantEase } from '@/components/shared/WantEase'
 import { parseScoreCell } from '@/lib/scoreBands'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry, ApplicationEntry } from '@/types'
+import { themeColor } from '@/lib/themes'
 
 export function CompanyView({ slug }: { slug: string }) {
   const scoreHistory = useDataStore(s => s.scoreHistory)
@@ -254,10 +255,10 @@ const TRAJECTORY_META: Record<
   ScoreTrajectory['direction'],
   { Icon: typeof TrendingUp; color: string; tone: string }
 > = {
-  improving: { Icon: TrendingUp,   color: '#007D1E', tone: 'text-success' },
-  declining: { Icon: TrendingDown, color: '#C80A28', tone: 'text-danger' },
-  steady:    { Icon: Minus,        color: '#5D6C7B', tone: 'text-text-3' },
-  flat:      { Icon: Minus,        color: '#5D6C7B', tone: 'text-text-3' },
+  improving: { Icon: TrendingUp,   color: themeColor('success'), tone: 'text-success' },
+  declining: { Icon: TrendingDown, color: themeColor('danger'), tone: 'text-danger' },
+  steady:    { Icon: Minus,        color: themeColor('text-3'), tone: 'text-text-3' },
+  flat:      { Icon: Minus,        color: themeColor('text-3'), tone: 'text-text-3' },
 }
 
 function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
@@ -321,7 +322,7 @@ function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
               cx={cx}
               cy={cy}
               r={isLast ? 2.6 : 1.6}
-              fill={isLast ? lineColor : '#fff'}
+              fill={isLast ? lineColor : themeColor('bg-base')}
               stroke={lineColor}
               strokeWidth={1.25}
               vectorEffect="non-scaling-stroke"

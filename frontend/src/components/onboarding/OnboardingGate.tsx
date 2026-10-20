@@ -84,7 +84,9 @@ export function OnboardingGate() {
   }
 
   return (
-    <div className="relative flex h-screen w-screen overflow-hidden galaxy-immersive p-3 gap-3">
+    // Onboarding keeps the original Galaxy palette whatever theme is stored:
+    // data-palette pins the tokens for everything inside (themes.css).
+    <div data-palette="galaxy" className="relative flex h-screen w-screen overflow-hidden galaxy-immersive p-3 gap-3">
       {/* Cosmic backdrop — WebGL celestial sphere shader drifts behind
           the panels. The .galaxy-immersive radial bloom underneath
           provides the brand-tinted base; the shader paints nebula

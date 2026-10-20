@@ -3,43 +3,46 @@ import assert from 'node:assert/strict'
 import {
   scoreColor,
   scoreColorLight,
-  tierHex,
-  TIER_HEX,
+  tierColor,
+  TIER_COLOR,
   NEUTRAL_SCORE_COLOR,
   tierVerdict,
   verdictTier,
 } from '@/lib/tier'
 
 test('scoreColor maps each band at its documented threshold', () => {
-  assert.equal(scoreColor(9.5), TIER_HEX.T1)     // ≥8 deep indigo (one ladder, no teal)
-  assert.equal(scoreColor(9.0), TIER_HEX.T1)
-  assert.equal(scoreColor(8.0), TIER_HEX.T1)     // ≥8 deep indigo
-  assert.equal(scoreColor(7.0), TIER_HEX.T2)     // ≥7 galaxy violet (apply threshold)
-  assert.equal(scoreColor(6.9), '#5D6C7B')       // ≥5 slate
-  assert.equal(scoreColor(5.0), '#5D6C7B')
-  assert.equal(scoreColor(4.9), '#94A3B8')       // <5 faded slate
-  assert.equal(scoreColor(0), '#94A3B8')
+  assert.equal(scoreColor(9.5), TIER_COLOR.T1)     // ≥8 tier-1 (one ladder)
+  assert.equal(scoreColor(9.0), TIER_COLOR.T1)
+  assert.equal(scoreColor(8.0), TIER_COLOR.T1)     // ≥8 tier-1
+  assert.equal(scoreColor(7.0), TIER_COLOR.T2)     // ≥7 tier-2 (apply threshold)
+  assert.equal(scoreColor(6.9), 'rgb(var(--c-score-mid))')  // ≥5 the theme's secondary text
+  assert.equal(scoreColor(5.0), 'rgb(var(--c-score-mid))')
+  assert.equal(scoreColor(4.9), TIER_COLOR.T4)     // <5 faded
+  assert.equal(scoreColor(0), TIER_COLOR.T4)
+  assert.equal(TIER_COLOR.T1, 'rgb(var(--c-tier-1))')  // a theme token, never a hex
 })
 
-test('scoreColorLight stays in the cosmic family per band', () => {
-  assert.equal(scoreColorLight(9), '#7C5CFF')    // indigo fades into violet
-  assert.equal(scoreColorLight(8), '#7C5CFF')
-  assert.equal(scoreColorLight(7), '#B5A3FF')
-  assert.equal(scoreColorLight(5), '#94A3B8')
-  assert.equal(scoreColorLight(4), '#CED0D4')
+test('scoreColorLight uses the light companion token of each band', () => {
+  assert.equal(scoreColorLight(9), 'rgb(var(--c-tier-1-light))')
+  assert.equal(scoreColorLight(8), 'rgb(var(--c-tier-1-light))')
+  assert.equal(scoreColorLight(7), 'rgb(var(--c-tier-2-light))')
+  assert.equal(scoreColorLight(5), 'rgb(var(--c-tier-4))')
+  assert.equal(scoreColorLight(4), 'rgb(var(--c-track))')
 })
 
-test('tierHex resolves known tiers and falls back to T4', () => {
-  assert.equal(tierHex('T1'), TIER_HEX.T1)
-  assert.equal(tierHex('T2'), TIER_HEX.T2)
-  assert.equal(tierHex('T4'), TIER_HEX.T4)
-  assert.equal(tierHex('not-a-tier'), TIER_HEX.T4)
-  assert.equal(tierHex(undefined), TIER_HEX.T4)
-  assert.equal(tierHex(null), TIER_HEX.T4)
+test('tierColor resolves known tiers, falls back to T4, and takes an alpha', () => {
+  assert.equal(tierColor('T1', 0.2), 'rgb(var(--c-tier-1) / 0.2)')
+  assert.equal(tierColor('nope', 0.2), 'rgb(var(--c-tier-4) / 0.2)')
+  assert.equal(tierColor('T1'), TIER_COLOR.T1)
+  assert.equal(tierColor('T2'), TIER_COLOR.T2)
+  assert.equal(tierColor('T4'), TIER_COLOR.T4)
+  assert.equal(tierColor('not-a-tier'), TIER_COLOR.T4)
+  assert.equal(tierColor(undefined), TIER_COLOR.T4)
+  assert.equal(tierColor(null), TIER_COLOR.T4)
 })
 
-test('NEUTRAL_SCORE_COLOR is the slate secondary token', () => {
-  assert.equal(NEUTRAL_SCORE_COLOR, '#5D6C7B')
+test('NEUTRAL_SCORE_COLOR is the score-mid token', () => {
+  assert.equal(NEUTRAL_SCORE_COLOR, 'rgb(var(--c-score-mid))')
 })
 
 test('tierVerdict / verdictTier: v2 verdict copy and its tier', () => {

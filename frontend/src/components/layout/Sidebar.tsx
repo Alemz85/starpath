@@ -162,14 +162,14 @@ export function Sidebar() {
           'w-full flex items-center gap-2.5 px-2 h-8 rounded text-body',
           'transition-[background-color,color] duration-200 ease-quart',
           currentView === item.view
-            ? 'bg-accent/12 text-text-1 font-medium'
-            : 'text-text-3 hover:text-text-2 hover:bg-bg-elevated',
+            ? 'bg-nav-active-bg text-nav-active-text font-medium'
+            : 'text-nav-muted hover:text-nav-text hover:bg-nav-hover-bg',
           !expanded && 'justify-center px-0',
         )}
         title={!expanded ? item.label : undefined}
       >
         <span className="relative shrink-0 inline-flex">
-          <Icon size={15} className={cn('relative', showRunning && 'text-accent', showFailed && 'text-danger')} />
+          <Icon size={15} className={cn('relative', showRunning && 'text-nav-accent', showFailed && 'text-danger')} />
           {/* Running indicator — small two-ring orbital loader at the
               top-right corner of the icon. Replaces the prior box-shadow
               halo + Loader2 spinner combo, which read as the generic
@@ -178,7 +178,7 @@ export function Sidebar() {
               constellation, and Onboarding finale. */}
           {showRunning && (
             <span className="absolute -top-1 -right-1.5 z-10">
-              <OrbitalLoader size={14} rings={2} strokeClass="text-accent" />
+              <OrbitalLoader size={14} rings={2} strokeClass="text-nav-accent" />
             </span>
           )}
           {/* Failure badge — danger dot at the icon corner, mirroring the
@@ -195,7 +195,7 @@ export function Sidebar() {
               pending indicator. Muted badges get no collapsed cue. */}
           {showBadge && badge!.accent && !expanded && (
             <span
-              className="absolute -top-1 -right-1.5 w-1.5 h-1.5 rounded-full bg-accent animate-pulse z-10"
+              className="absolute -top-1 -right-1.5 w-1.5 h-1.5 rounded-full bg-nav-accent animate-pulse z-10"
               aria-hidden
             />
           )}
@@ -204,7 +204,7 @@ export function Sidebar() {
           <span className="flex-1 flex items-center justify-between gap-2">
             <span>{item.label}</span>
             {showRunning ? (
-              <span className="text-[11px] text-accent-text">running</span>
+              <span className="text-[11px] text-nav-accent">running</span>
             ) : showFailed ? (
               <span className="inline-flex items-center gap-1 text-[11px] text-danger">
                 <AlertTriangle size={10} />
@@ -214,8 +214,8 @@ export function Sidebar() {
               <span className={cn(
                 'shrink-0 min-w-[18px] text-center px-1.5 py-0.5 rounded-pill text-[11px] font-medium tabular-nums leading-none',
                 badge!.accent
-                  ? 'bg-accent/12 text-accent-text'
-                  : 'bg-bg-elevated text-text-4 border border-border-default',
+                  ? 'bg-nav-count-bg text-nav-count-text'
+                  : 'bg-nav-hover-bg text-nav-faint border border-nav-input-border',
               )}>
                 {badge!.count}
               </span>
@@ -229,7 +229,8 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col h-full bg-bg-chrome border-r border-border-default transition-all duration-200 shrink-0',
+        // nav-sky: the per-theme starfield / glow / constellation (globals.css).
+        'nav-sky flex flex-col h-full bg-nav-bg border-r border-nav-line transition-all duration-200 shrink-0',
         expanded ? 'w-[220px]' : 'w-14',
       )}
     >
@@ -242,13 +243,13 @@ export function Sidebar() {
         {expanded && (
           <div className="titlebar-no-drag select-none flex items-center gap-1.5">
             <StarpathLogo size={18} />
-            <span className="text-[15px] font-semibold text-text-1 tracking-[-0.01em] leading-none">
+            <span className="text-[15px] font-semibold text-nav-strong tracking-[-0.01em] leading-none">
               starpath
             </span>
           </div>
         )}
         <button
-          className="titlebar-no-drag p-1 rounded-md text-text-3 hover:text-text-1 hover:bg-bg-elevated transition-colors"
+          className="titlebar-no-drag p-1 rounded-md text-nav-muted hover:text-nav-strong hover:bg-nav-hover-bg transition-colors"
           onClick={() => setExpanded(e => !e)}
           aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
         >
@@ -265,7 +266,7 @@ export function Sidebar() {
       <div className={cn('py-2', expanded ? 'px-3' : 'px-2 flex justify-center')}>
         <button
           className={cn(
-            'flex items-center rounded bg-bg-base border border-border-default text-text-3 hover:text-text-2 hover:border-border-strong transition-colors text-label',
+            'flex items-center rounded bg-nav-input-bg border border-nav-input-border text-nav-muted hover:text-nav-text hover:border-nav-input-border-hover transition-colors text-label',
             expanded ? 'w-full gap-2 px-2 h-8' : 'w-8 h-8 justify-center',
           )}
           onClick={() => {
@@ -277,7 +278,7 @@ export function Sidebar() {
         >
           <Search size={expanded ? 12 : 14} />
           {expanded && <span className="flex-1 text-left">Search...</span>}
-          {expanded && <kbd className="kbd">⌘K</kbd>}
+          {expanded && <kbd className="kbd bg-nav-hover-bg border-nav-input-border text-nav-faint">⌘K</kbd>}
         </button>
       </div>
 
@@ -286,14 +287,14 @@ export function Sidebar() {
         <div className="space-y-0.5">
           {primaryNav.map(renderItem)}
         </div>
-        <div className={cn('my-2 border-t border-border-default/60', !expanded && 'mx-1')} aria-hidden />
+        <div className={cn('my-2 border-t border-nav-line/60', !expanded && 'mx-1')} aria-hidden />
         <div className="space-y-0.5">
           {secondaryNav.map(renderItem)}
         </div>
       </nav>
 
       {/* Bottom */}
-      <div className="p-2 border-t border-border-default space-y-0.5">
+      <div className="p-2 border-t border-nav-line space-y-0.5">
         {BOTTOM_ITEMS.map(renderItem)}
       </div>
     </aside>

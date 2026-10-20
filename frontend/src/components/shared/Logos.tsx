@@ -1,3 +1,5 @@
+import { themeColor } from '@/lib/themes'
+
 /**
  * Brand logo marks. Inlined as React/SVG so they render inside the renderer
  * with no extra fetch and no public/ folder coupling.
@@ -7,8 +9,9 @@ interface LogoProps {
   size?: number
   className?: string
   /**
-   * If true, render the starpath star with a violet → Oculus-Purple linear
-   * gradient (more luminous on dark surfaces). Defaults to flat galaxy violet.
+   * If true, render the starpath star with the theme's three-stop brand
+   * gradient (nav-brand-1…3). False renders it flat in nav-brand-2. The
+   * starpath mark follows the theme; the Claude mark keeps its own colours.
    */
   gradient?: boolean
 }
@@ -22,15 +25,15 @@ export function StarpathLogo({ size = 20, className, gradient = true }: LogoProp
       {gradient && (
         <defs>
           <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%"  stopColor="#A085FF" />
-            <stop offset="55%" stopColor="#7C5CFF" />
-            <stop offset="100%" stopColor="#A121CE" />
+            <stop offset="0%"  stopColor={themeColor('nav-brand-1')} />
+            <stop offset="55%" stopColor={themeColor('nav-brand-2')} />
+            <stop offset="100%" stopColor={themeColor('nav-brand-3')} />
           </linearGradient>
         </defs>
       )}
       <path
         d="M640 140 L682 298 L840 340 L682 382 C770 540 520 800 180 840 C440 760 610 540 598 382 L440 340 L598 298 Z"
-        fill={gradient ? `url(#${id})` : '#7C5CFF'}
+        fill={gradient ? `url(#${id})` : themeColor('nav-brand-2')}
       />
     </svg>
   )

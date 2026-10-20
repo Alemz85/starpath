@@ -18,6 +18,7 @@ import {
 } from '@/lib/scoreTrend'
 import { VerdictChip } from '@/components/shared/EligibilityChip'
 import { formatWithinNoise } from '@/lib/scoringStats'
+import { themeColor } from '@/lib/themes'
 
 // STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.3 + § 4.
 //
@@ -39,10 +40,10 @@ import { formatWithinNoise } from '@/lib/scoringStats'
 // 'within-noise' carries the muted tone and NO arrow: it is a stated finding,
 // not a direction.
 const MOVEMENT_META: Record<MovementClass, { label: string; arrow: string; color: string; tone: ChipTone }> = {
-  improving:      { label: 'Improving',         arrow: '↑', color: '#007D1E', tone: 'success' },
-  declining:      { label: 'Declining',         arrow: '↓', color: '#C80A28', tone: 'danger' },
-  'within-noise': { label: 'Flat within noise', arrow: '',  color: '#8595A4', tone: 'muted' },
-  unknown:        { label: 'Unknown',           arrow: '',  color: '#8595A4', tone: 'muted' },
+  improving:      { label: 'Improving',         arrow: '↑', color: themeColor('success'), tone: 'success' },
+  declining:      { label: 'Declining',         arrow: '↓', color: themeColor('danger'), tone: 'danger' },
+  'within-noise': { label: 'Flat within noise', arrow: '',  color: themeColor('text-4'), tone: 'muted' },
+  unknown:        { label: 'Unknown',           arrow: '',  color: themeColor('text-4'), tone: 'muted' },
 }
 
 const METRIC_LABEL: Record<TrendMetric, string> = { want: 'Want', ease: 'Ease' }
@@ -257,7 +258,7 @@ function MetricTrendRow({
       <span className="text-stat tabular-nums text-text-3">{fmtScore(mt.earlier)}</span>
       <span
         className="text-stat tabular-nums"
-        style={{ color: undirected ? '#5D6C7B' : v.color }}
+        style={{ color: undirected ? themeColor('text-3') : v.color }}
       >
         {fmtScore(mt.later)}
       </span>

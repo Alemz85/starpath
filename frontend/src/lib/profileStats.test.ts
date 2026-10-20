@@ -13,7 +13,7 @@ import {
   badges,
   buildHighlights,
 } from '@/lib/profileStats'
-import { TIER_HEX } from '@/lib/tier'
+import { TIER_COLOR } from '@/lib/tier'
 import { makeScoreEntry, makeApplication } from '@/test-utils/fixtures'
 
 const NOW = new Date('2026-06-24T00:00:00Z')
@@ -21,10 +21,10 @@ const NOW = new Date('2026-06-24T00:00:00Z')
 // ─── tierHeatColor ────────────────────────────────────────────────────────────
 
 test('tierHeatColor: empty days are the panel wash, scored days take the tier hue', () => {
-  assert.equal(tierHeatColor('', 0), '#F1F4F7')
-  assert.equal(tierHeatColor('T1', 3), TIER_HEX.T1)
-  assert.equal(tierHeatColor('T2', 1), TIER_HEX.T2)
-  assert.equal(tierHeatColor('???', 1), TIER_HEX.T4)   // unknown tier → faded slate
+  assert.equal(tierHeatColor('', 0), 'rgb(var(--c-bg-panel))')
+  assert.equal(tierHeatColor('T1', 3), TIER_COLOR.T1)
+  assert.equal(tierHeatColor('T2', 1), TIER_COLOR.T2)
+  assert.equal(tierHeatColor('???', 1), TIER_COLOR.T4)   // unknown tier → faded slate
 })
 
 // ─── buildHeatmap ─────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 // Shared sub-navigation tablist for views that host more than one surface
 // (Trends' landscape/re-evaluations, Outreach's board/network, Settings'
 // sections). Generalized from the Configuration tablist so every merged
-// view renders the identical bar: underline-accent tabs on a bg-chrome
+// view renders the identical bar: underline-accent tabs on the page
 // strip directly under the title bar, ARIA tablist semantics, arrow-key
 // navigation, and an optional unsaved-changes dot per tab.
 //

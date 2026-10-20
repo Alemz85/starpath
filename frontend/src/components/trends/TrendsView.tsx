@@ -30,21 +30,22 @@ import {
   buildDimensionProfile, buildTargetingMomentum, buildArchetypeMix,
   locationFlag,
 } from '@/lib/trendsAnalytics'
+import { themeColor } from '@/lib/themes'
 
 // Multi-series chart palette — sourced from the documented categorical
 // chart tokens (DESIGN-meta.md § Charts). Charts only, never chrome.
 //
-// Series order maps to the DIMENSIONS array below: galaxy violet for Want
-// and aurora teal for Ease — scoring v2 states every trend on the two axes
+// Series order maps to the DIMENSIONS array below: the theme's chart-1 for
+// Want and chart-3 for Ease — scoring v2 states every trend on the two axes
 // separately (there is no rolled-up line). The remaining slots fan out
 // warm/cool/warm/cool so adjacent series contrast at first glance.
 const DIM_COLORS = [
-  '#7C5CFF',  // chart-1 — galaxy violet, Want (brand anchor)
-  '#2EB8A8',  // chart-3 — aurora teal, Ease
-  '#E84F8E',  // chart-4 — nebula pink, Skills match
-  '#F2A837',  // chart-5 — cosmic amber, Brand value
-  '#4D8DFF',  // chart-6 — azure, Growth
-  '#8595A4',  // chart-7 — slate, Work-life (intentionally muted)
+  themeColor('chart-1'),  // Want (the theme's anchor colour)
+  themeColor('chart-3'),  // Ease
+  themeColor('chart-4'),  // Skills match
+  themeColor('chart-5'),  // Brand value
+  themeColor('chart-6'),  // Growth
+  themeColor('chart-7'),  // Work-life (intentionally muted)
 ]
 
 type DimKey = 'avg_want' | 'avg_ease' | 'avg_skills_match' | 'avg_brand_value' | 'avg_growth' | 'avg_wlb'
@@ -283,7 +284,7 @@ export function TrendsView() {
                     >
                       <span
                         className="w-2 h-2 rounded-full shrink-0"
-                        style={{ background: on ? DIM_COLORS[i % DIM_COLORS.length] : 'var(--divider-gray)' }}
+                        style={{ background: on ? DIM_COLORS[i % DIM_COLORS.length] : themeColor('divider') }}
                         aria-hidden
                       />
                       {label}
@@ -305,23 +306,23 @@ export function TrendsView() {
                 <Panel className="h-[340px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={byDate} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
-                      <CartesianGrid stroke="#DEE3E9" strokeDasharray="3 3" />
+                      <CartesianGrid stroke={themeColor('divider')} strokeDasharray="3 3" />
                       <XAxis
                         dataKey="label"
-                        tick={{ fill: '#5D6C7B', fontSize: 11 }}
+                        tick={{ fill: themeColor('text-3'), fontSize: 11 }}
                         tickLine={false}
-                        axisLine={{ stroke: '#DEE3E9' }}
+                        axisLine={{ stroke: themeColor('divider') }}
                       />
                       <YAxis
                         domain={[0, 10]}
-                        tick={{ fill: '#5D6C7B', fontSize: 11 }}
+                        tick={{ fill: themeColor('text-3'), fontSize: 11 }}
                         tickLine={false}
                         axisLine={false}
                         width={28}
                       />
                       <Tooltip
                         content={<ChartTooltip />}
-                        cursor={{ stroke: '#CED0D4', strokeDasharray: '3 3' }}
+                        cursor={{ stroke: themeColor('track'), strokeDasharray: '3 3' }}
                       />
                       {DIMENSIONS.map(({ key }, i) =>
                         activeDims.has(key) ? (
@@ -432,7 +433,7 @@ function ScoreDistributionCard({ dist }: { dist: Distribution }) {
             <div key={b.key} className="flex-1 flex flex-col justify-end items-center h-full">
               <span
                 className="text-micro tabular-nums mb-1"
-                style={{ color: b.count > 0 ? b.color : '#8595A4' }}
+                style={{ color: b.count > 0 ? b.color : themeColor('text-4') }}
               >
                 {b.count}
               </span>
@@ -496,8 +497,8 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
           delta column is only meaningful with enough winners, so its legend
           entry hides under the low-signal fallback. */}
       <div className="flex items-center gap-4 mb-3">
-        <LegendDot color="#CED0D4" label="All scored" />
-        {!lowSignal && <LegendDot color="#7C5CFF" label="Actionable (Go / Stretch / Solid)" />}
+        <LegendDot color={themeColor('track')} label="All scored" />
+        {!lowSignal && <LegendDot color={themeColor('accent')} label="Actionable (Go / Stretch / Solid)" />}
       </div>
 
       <ul className="flex flex-col gap-2.5">
@@ -521,14 +522,14 @@ function DimensionProfileCard({ profile }: { profile: DimensionProfile }) {
               <div className="relative h-2 rounded-pill bg-bg-elevated overflow-hidden">
                 <div
                   className="absolute inset-y-0 left-0 rounded-pill"
-                  style={{ width: `${allPct}%`, background: '#CED0D4' }}
+                  style={{ width: `${allPct}%`, background: themeColor('track') }}
                 />
                 {showWinners && (
                   <div
                     className="absolute inset-y-0 left-0 rounded-pill transition-[width] duration-200 ease-quart"
                     style={{
                       width: `${winnersPct}%`,
-                      background: d.delta >= 0 ? '#7C5CFF' : '#94A3B8',
+                      background: d.delta >= 0 ? themeColor('accent') : themeColor('tier-4'),
                     }}
                   />
                 )}
@@ -562,7 +563,7 @@ function LegendDot({ color, label }: { color: string; label: string }) {
 function DeltaBadge({ delta }: { delta: number }) {
   const flat = Math.abs(delta) < 0.05
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±'
-  const color = flat ? '#8595A4' : delta > 0 ? '#5B3FE8' : '#5D6C7B'
+  const color = flat ? themeColor('text-4') : delta > 0 ? themeColor('accent-text') : themeColor('text-3')
   return (
     <span
       className="text-micro font-medium tabular-nums"
@@ -668,7 +669,7 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
                       <span className="text-text-2">{sentenceCase(s.label)}</span>
                       <span
                         className="tabular-nums"
-                        style={{ color: s.delta > 0 ? '#5B3FE8' : '#5D6C7B' }}
+                        style={{ color: s.delta > 0 ? themeColor('accent-text') : themeColor('text-3') }}
                       >
                         {s.delta > 0 ? '+' : '−'}{Math.abs(s.delta).toFixed(1)}
                       </span>
@@ -815,7 +816,7 @@ function ArchetypeMixCard({ mix }: { mix: ArchetypeMix }) {
 function ShareShiftBadge({ shift }: { shift: number }) {
   const flat = Math.abs(shift) < 1            // sub-1pt is rounding noise, not a drift
   const sign = shift > 0 ? '+' : shift < 0 ? '−' : '±'
-  const color = flat ? '#8595A4' : shift > 0 ? '#5B3FE8' : '#5D6C7B'
+  const color = flat ? themeColor('text-4') : shift > 0 ? themeColor('accent-text') : themeColor('text-3')
   return (
     <span
       className="text-micro font-medium tabular-nums"
@@ -881,10 +882,10 @@ function ConversionFunnelCard({ funnel }: { funnel: Funnel }) {
   const { sent, responded, interview, offer, rejected } = funnel
   const pct = (n: number) => (sent ? Math.round((n / sent) * 100) : 0)
   const stages: Array<{ label: string; count: number; color: string; text: string }> = [
-    { label: 'Applied',   count: sent,      color: '#7C5CFF', text: '#5B3FE8' },
-    { label: 'Responded', count: responded, color: '#5B3FE8', text: '#5B3FE8' },
-    { label: 'Interview', count: interview, color: '#F7B928', text: '#8A5A00' },
-    { label: 'Offer',     count: offer,     color: '#007D1E', text: '#007D1E' },
+    { label: 'Applied',   count: sent,      color: themeColor('accent'), text: themeColor('accent-text') },
+    { label: 'Responded', count: responded, color: themeColor('accent-text'), text: themeColor('accent-text') },
+    { label: 'Interview', count: interview, color: themeColor('warning'), text: themeColor('warning-text') },
+    { label: 'Offer',     count: offer,     color: themeColor('success'), text: themeColor('success') },
   ]
   return (
     <Panel
@@ -909,7 +910,7 @@ function ConversionFunnelCard({ funnel }: { funnel: Funnel }) {
               <span className="w-6 text-right text-label tabular-nums text-text-2">{s.count}</span>
               <span
                 className="w-10 text-right text-label tabular-nums"
-                style={{ color: s.count > 0 ? s.text : '#8595A4' }}
+                style={{ color: s.count > 0 ? s.text : themeColor('text-4') }}
               >
                 {pct(s.count)}%
               </span>
