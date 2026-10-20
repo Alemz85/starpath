@@ -5,6 +5,9 @@ import './globals.css'
 import { useEffect } from 'react'
 import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
 import { useAppStore } from '@/store/app'
+import { useDataRootStore } from '@/store/dataRoot'
+import { useProfilesStore } from '@/store/profiles'
+import { needsOnboarding as gateOnboarding, needsTailoring as gateTailoring } from '@/lib/dataRoot'
 import { AppShell } from '@/components/layout/AppShell'
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate'
 import { TailoringScreen } from '@/components/onboarding/TailoringScreen'
@@ -31,13 +34,28 @@ export default function RootLayout({ children: _children }: { children: React.Re
   const isOnboarded = useAppStore(s => s.isOnboarded)
   const tailoringComplete = useAppStore(s => s.tailoringComplete)
   const repoPath = useAppStore(s => s.repoPath)
+  const forceOnboarding = useAppStore(s => s.forceOnboarding)
+  const dataRoot = useDataRootStore(s => s.info)
 
   useEffect(() => {
     init()
   }, [init])
 
-  const needsOnboarding = !isOnboarded || !repoPath
-  const needsTailoring  = isOnboarded && !!repoPath && !tailoringComplete
+  // The data moved (demo on/off, private init): re-check "already set up?"
+  // for the new root and reload the profile list. The AppShell is keyed on
+  // the root below, so every view remounts and re-reads its files.
+  const dataKey = dataRoot ? `${dataRoot.kind}:${dataRoot.root ?? ''}` : 'unknown'
+  useEffect(() => {
+    if (dataKey === 'unknown') return
+    void useAppStore.getState().refreshSetup()
+    void useProfilesStore.getState().load()
+  }, [dataKey])
+
+  // Demo mode never forces onboarding (or tailoring): it goes straight to
+  // the app, read-only (lib/dataRoot.ts → needsOnboarding).
+  const gate = { isOnboarded, repoPath, tailoringComplete, forceOnboarding, info: dataRoot }
+  const needsOnboarding = gateOnboarding(gate)
+  const needsTailoring  = gateTailoring(gate)
 
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
@@ -57,7 +75,7 @@ export default function RootLayout({ children: _children }: { children: React.Re
         ) : needsTailoring ? (
           <TailoringScreen />
         ) : (
-          <AppShell />
+          <AppShell key={dataKey} />
         )}
       </body>
     </html>

@@ -22,6 +22,13 @@ test('the chat spawn loads modes/chat.md as an appended system prompt', () => {
   assert.equal(CHAT_SYSTEM_PROMPT_FILE, 'modes/chat.md')
 })
 
+test('a resolved system-prompt file (private override) replaces the repo default', () => {
+  const args = buildChatClaudeArgs('hi', { systemPromptFile: '/tmp/fixture-repo/private/.cache/prompts/modes/chat.md' })
+  assert.equal(args[args.indexOf('--append-system-prompt-file') + 1], '/tmp/fixture-repo/private/.cache/prompts/modes/chat.md')
+  const fallback = buildChatClaudeArgs('hi', { systemPromptFile: null })
+  assert.equal(fallback[fallback.indexOf('--append-system-prompt-file') + 1], CHAT_SYSTEM_PROMPT_FILE)
+})
+
 test('the chat spawn keeps the app-wide non-interactive stream flags', () => {
   const args = buildChatClaudeArgs('hello')
   assert.ok(args.includes('--dangerously-skip-permissions'))

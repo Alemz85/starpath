@@ -4,6 +4,7 @@
 import type { ElectronAPI } from '../../electron/preload'
 import type { NetworkOverview } from './networkLens'
 import type { ProfileListResult, ProfileMutationResult } from './profiles'
+import type { DataRootInfo, PrivateInitResult } from './dataRoot'
 import type {
   ChatProposalDecisionStatus, ChatRuntimeEnvelope, ChatRuntimeSnapshot,
   ChatSession, ChatSessionMeta,
@@ -35,6 +36,28 @@ export const ipc = {
   validatePath:         (p: string)             => api().validatePath(p) as Promise<{ path: string; valid: boolean }>,
   openExternal:         (url: string)           => api().openExternal(url),
   revealFile:           (filePath: string)      => api().revealFile(filePath) as Promise<boolean>,
+  /** Open a repo-relative file (resolved through the data root) with the
+   *  system's default app. False when it doesn't exist or can't open. */
+  openFile:             (filePath: string)      => api().openFile(filePath) as Promise<boolean>,
+
+  // Data root — where personal files live. `info()` is null outside
+  // Electron; `setDataPath('demo')` shows the fictional demo read-only,
+  // `setDataPath(null)` goes back to the user's own data. Both resolve to
+  // the new info (main also broadcasts it on `onChanged`).
+  dataRoot: {
+    info:          () => api().getDataRoot() as Promise<DataRootInfo | null>,
+    setDataPath:   (value: 'demo' | null) => api().setDataPath(value) as Promise<DataRootInfo | null>,
+    onChanged:     (cb: (info: DataRootInfo) => void) => api().onDataRootChanged(i => cb(i as DataRootInfo)),
+    /** `node scripts/private.mjs init --json`, relayed verbatim. */
+    initPrivate:   () => api().privateInit() as Promise<PrivateInitResult | null>,
+  },
+
+  // System prompts for `claude --append-system-prompt-file`: the absolute
+  // file to pass (the user's private override, a composed copy, or the repo
+  // default). Callers fall back to the repo-relative path on null/error.
+  prompt: {
+    resolve:       (rel: string) => api().resolvePrompt(rel) as Promise<string | null>,
+  },
 
   // Claude
   checkClaude:          ()                     => api().checkClaude() as Promise<{ installed: boolean }>,

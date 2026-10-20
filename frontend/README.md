@@ -16,6 +16,8 @@ npm install        # postinstall rebuilds better-sqlite3 against Electron
 npm run dev        # Next dev server + Electron pointed at it
 ```
 
+In dev the app uses the checkout it runs from when no repo is configured yet, so the first screen is the onboarding choice: **Explore the demo** (the fictional dataset in `demo/`, read-only) or **Set up my own search**.
+
 If you ever hit a `mach-o ... incompatible architecture` error from `better-sqlite3`, your Node was running under Rosetta. Force arm64:
 
 ```bash
@@ -43,7 +45,7 @@ node frontend/build-icon.mjs
 1. Open `dist/starpath-{version}-arm64.dmg`
 2. Drag **starpath** → Applications
 3. Right-click → Open to bypass Gatekeeper (build is unsigned)
-4. On first launch: click **Choose folder** and select your career-ops repo root (the folder containing `CLAUDE.md` — not `frontend/`). If the repo is already populated (cv.md, profile.yml, portals.yml present), the wizard auto-skips.
+4. On first launch: pick **Explore the demo** to look around a fictional search (read-only), or **Set up my own search**. The wizard asks for your career-ops repo root (the folder containing `CLAUDE.md`, not `frontend/`), creates the private folder (`private/`) if the checkout has none, then walks through CV, profile and portals. If your data is already set up (cv.md, profile.yml, portals.yml present), the wizard auto-skips.
 
 ## App shape
 
@@ -59,7 +61,7 @@ Sidebar is split into three tiers — **primary** (workflow stage), **secondary*
 | Secondary | **Activity** | Live log for every spawn — scans, filter runs, tailoring, JobSpy, company API probes. The sidebar entry shows an orbital loader whenever any spawn is running anywhere in the app. |
 | Bottom | **Profile** | Read-only career-constellation view: CV, archetypes, proof points, languages. |
 | Bottom | **Configuration** | Editable user data: identity, comp, languages, target roles, portals. Diff-aware Save → re-tailors the title-filter keywords and `_profile.md` candidate context. |
-| Bottom | **Settings** | App-level toggles — repository path, model picks per spawn category, theme. |
+| Bottom | **Settings** | App-level toggles — repository path, data folder + **Show demo data** switch, model picks per spawn category, theme. |
 
 Cross-linking spine: every entity is keyed by `company + role`. The same `<ApplyAction>` (a button → status-dropdown morph) lives in the Database popover, the Reports slide-over header, and the Applying rows. The same `<FilesStrip>` (CV / Prep doc icons) lives wherever a listing is shown.
 
@@ -109,7 +111,7 @@ frontend/
 
 ## Data ownership
 
-The app reads and writes directly to the repo folder you point it at. Nothing lives inside the app bundle. Files the app touches:
+Your files live in the **data root**: `private/` inside the checkout (gitignored, its own private git repo; the repo-root `user/`, `data/`, `reports/` … are links into it), or `demo/` while the demo is shown, or a folder set with `STARPATH_DATA`. The app maps every `user/…`, `data/…`, `reports/…` path below into that folder (details: `ARCHITECTURE.md` § Data root). Nothing lives inside the app bundle. In demo mode nothing is written: every action that would write or spawn work is disabled. Files the app touches:
 
 | File | App reads | App writes |
 |------|-----------|------------|
@@ -119,6 +121,8 @@ The app reads and writes directly to the repo folder you point it at. Nothing li
 | `data/pipeline.md` | yes | yes — Inbox panel appends URLs |
 | `data/scouting.md`, `data/score-history.tsv`, `data/scan-history.tsv` | yes | no — Claude modes own these |
 | `reports/**/*.md` | yes (read in slide-over) | no |
+
+Chat conversations are saved as JSON in `private/chat/` (`{userData}/chat-demo/` for the demo). The SQLite cache (`{userData}/cache-<profile>.db`, `cache-demo.db` for the demo) is derived and safe to delete.
 
 The chokidar watcher resyncs the SQLite cache on every change, so external edits (Claude modes, manual hand-edits) appear in the UI within a few hundred ms. See `ARCHITECTURE.md` for cache schema and sync details.
 

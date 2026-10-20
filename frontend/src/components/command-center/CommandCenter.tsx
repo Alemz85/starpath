@@ -5,7 +5,8 @@ import { clsx } from 'clsx'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning, claudeArgs, isAuthFailure, diagnoseFailure, type SpawnRecord } from '@/store/spawns'
-import { claudeEvalArgs, filterAllPrompt, refreshCvSummary } from '@/lib/evalSpawn'
+import { useWriteGate } from '@/store/dataRoot'
+import { claudeEvalArgsResolved, filterAllPrompt, refreshCvSummary } from '@/lib/evalSpawn'
 import { useScanFilter } from '@/store/scanFilter'
 import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
@@ -112,6 +113,11 @@ export function ScoutingActionPanel({
   const kill = useSpawnsStore(s => s.kill)
   const clear = useSpawnsStore(s => s.clear)
   const pipelineModel = useAppStore(s => s.models.pipeline)
+  // Demo mode is read-only: every button in this row writes or spawns work.
+  const { canWrite, readOnlyTitle } = useWriteGate()
+  const blocked = !repoPath || !canWrite
+  // In the demo the shared hover line explains why the row is disabled.
+  const describe = (text: string) => readOnlyTitle ? `${readOnlyTitle}. ${text}` : text
   const fullScan       = spawns[FULL_SCAN_ID]
   const apiScan        = spawns[API_SCAN_ID]
   const pipelineFilter = spawns[PIPELINE_FILTER_ID]
@@ -167,13 +173,13 @@ export function ScoutingActionPanel({
     start(API_SCAN_ID, 'API scan', 'node', ['scripts/scan.mjs'])
     startJobspyIfIdle()
   }
-  const handleFilter = () => {
+  const handleFilter = async () => {
     if (pipelineFilter?.status === 'running') { kill(PIPELINE_FILTER_ID); return }
     if (pipelineFilter) clear(PIPELINE_FILTER_ID)
     // Fire-and-forget CV-summary refresh — finishes in ms while the Claude
     // CLI boots; the bundle falls back to user/cv.md if the artifact is missing.
     void refreshCvSummary()
-    start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', claudeEvalArgs(filterAllPrompt(), pipelineModel))
+    start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', await claudeEvalArgsResolved(filterAllPrompt(), pipelineModel))
   }
 
   return (
@@ -183,7 +189,7 @@ export function ScoutingActionPanel({
         items={[
           {
             key: 'full',
-            description: 'Playwright + ATS APIs + WebSearch + JobSpy aggregators (Indeed/Google). Uses Claude (token cost); JobSpy runs in parallel at zero token cost.',
+            description: describe('Playwright + ATS APIs + WebSearch + JobSpy aggregators (Indeed/Google). Uses Claude (token cost); JobSpy runs in parallel at zero token cost.'),
             node: (
               <ActionButton
                 label="Full scan"
@@ -191,13 +197,14 @@ export function ScoutingActionPanel({
                 tone="primary"
                 running={fullScan?.status === 'running'}
                 onClick={handleFullScan}
-                disabled={!repoPath}
+                disabled={blocked}
+                title={readOnlyTitle}
               />
             ),
           },
           {
             key: 'api',
-            description: 'Direct ATS API calls + JobSpy aggregators (Indeed/Google). Zero token cost; JobSpy runs in parallel.',
+            description: describe('Direct ATS API calls + JobSpy aggregators (Indeed/Google). Zero token cost; JobSpy runs in parallel.'),
             node: (
               <ActionButton
                 label="API only"
@@ -205,14 +212,15 @@ export function ScoutingActionPanel({
                 tone="outline"
                 running={apiScan?.status === 'running'}
                 onClick={handleApiScan}
-                disabled={!repoPath}
+                disabled={blocked}
+                title={readOnlyTitle}
               />
             ),
           },
           {
             key: 'filtered',
-            description: 'Scan only the companies you pick. Opens a picker preselected with your dream companies; costs Claude tokens.',
-            node: <FilteredScanButton disabled={!repoPath} />,
+            description: describe('Scan only the companies you pick. Opens a picker preselected with your dream companies; costs Claude tokens.'),
+            node: <FilteredScanButton disabled={blocked} title={readOnlyTitle} />,
           },
           {
             key: 'sep',
@@ -220,15 +228,16 @@ export function ScoutingActionPanel({
           },
           {
             key: 'filter',
-            description: 'Discard off-archetype, wrong-seniority and geo-locked listings, then score the survivors (~20–30%) into the Database. No prose reports.',
+            description: describe('Discard off-archetype, wrong-seniority and geo-locked listings, then score the survivors (~20–30%) into the Database. No prose reports.'),
             node: (
               <ActionButton
                 label="Filter to Database"
                 icon={Filter}
                 tone="outline"
                 running={pipelineFilter?.status === 'running'}
-                onClick={handleFilter}
-                disabled={!repoPath}
+                onClick={() => void handleFilter()}
+                disabled={blocked}
+                title={readOnlyTitle}
               />
             ),
           },
@@ -238,8 +247,8 @@ export function ScoutingActionPanel({
           },
           {
             key: 'add-listing',
-            description: 'Paste a job URL the scanner missed. Score it into the Database now (uses tokens, no prose report) or queue it for the next filter pass.',
-            node: <AddListingButton disabled={!repoPath} />,
+            description: describe('Paste a job URL the scanner missed. Score it into the Database now (uses tokens, no prose report) or queue it for the next filter pass.'),
+            node: <AddListingButton disabled={blocked} title={readOnlyTitle} />,
           },
           {
             key: 'model',
@@ -281,7 +290,7 @@ const METHOD_LABEL: Record<'api' | 'websearch' | 'unknown', string> = {
 
 type TrackedCompany = { name: string; method: 'api' | 'websearch' | 'unknown' }
 
-function FilteredScanButton({ disabled }: { disabled?: boolean }) {
+function FilteredScanButton({ disabled, title }: { disabled?: boolean; title?: string }) {
   const repoPath = useAppStore(s => s.repoPath)
   const spawns = useSpawnsStore(s => s.spawns)
   const start = useSpawnsStore(s => s.start)
@@ -353,7 +362,7 @@ function FilteredScanButton({ disabled }: { disabled?: boolean }) {
           pill
           onClick={() => setOpen(true)}
           disabled={disabled || noCompanies}
-          title={noCompanies ? 'No tracked companies in user/portals.yml yet' : undefined}
+          title={title ?? (noCompanies ? 'No tracked companies in user/portals.yml yet' : undefined)}
           icon={<ListFilter size={15} aria-hidden />}
           aria-haspopup="dialog"
           aria-expanded={open}
@@ -701,7 +710,7 @@ function ActionButton({
 // Dedicated CTA for the Add Listing modal. Tinted rather than secondary
 // because it represents a CREATE action — the user is contributing new
 // data, not running an automation. Hover-row description owns the tooltip.
-function AddListingButton({ disabled }: { disabled?: boolean }) {
+function AddListingButton({ disabled, title }: { disabled?: boolean; title?: string }) {
   const show = useAddListingStore(s => s.show)
   return (
     <Button
@@ -710,6 +719,7 @@ function AddListingButton({ disabled }: { disabled?: boolean }) {
       pill
       onClick={() => show()}
       disabled={disabled}
+      title={title}
       icon={<Plus size={15} aria-hidden />}
     >
       Add listing

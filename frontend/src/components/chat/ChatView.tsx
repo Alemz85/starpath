@@ -5,6 +5,7 @@ import { Square } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 import { Button, Chip, PageHeader } from '@/components/ui'
 import { useDataStore } from '@/store/data'
+import { useWriteGate } from '@/store/dataRoot'
 import {
   findApplicationRowIndex, updateApplicationFields, updateApplicationStatus, upsertApplicationRow,
 } from '@/lib/applicationsDoc'
@@ -168,11 +169,14 @@ export function ChatView() {
   useEffect(() => { void loadSession(selectedId) }, [selectedId, loadSession])
 
   const live = isLivePhase(runtime?.phase)
+  // Demo mode: chat spawns would act on (and could write to) the data, so
+  // the composer is off; past demo conversations still read.
+  const { canWrite, readOnlyTitle } = useWriteGate()
   const runtimeIsHere = !!runtime && runtime.sessionId === selectedId
 
   const send = useCallback(async (text?: string) => {
     const message = (text ?? draft).trim()
-    if (!message || sending || live) return
+    if (!message || sending || live || !canWrite) return
     setSending(true)
     setNotice(null)
     try {
@@ -185,7 +189,7 @@ export function ChatView() {
     } finally {
       setSending(false)
     }
-  }, [draft, live, loadSession, refreshRuntime, refreshSessions, selectedId, sending])
+  }, [draft, live, loadSession, refreshRuntime, refreshSessions, selectedId, sending, canWrite])
 
   const stop = useCallback(async () => {
     if (!runtime || !live) return
@@ -344,6 +348,7 @@ export function ChatView() {
           <ChatComposer
             value={draft}
             disabled={live || sending}
+            readOnlyTitle={readOnlyTitle}
             onChange={setDraft}
             onSend={() => void send()}
           />

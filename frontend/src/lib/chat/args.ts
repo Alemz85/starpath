@@ -9,9 +9,12 @@
 //                                assistant's answer types out instead of
 //                                landing in one block at the end.
 //   --append-system-prompt-file  modes/chat.md — the conversational role,
-//                                data map, and hard rules. Repo-relative
-//                                because the spawn's cwd is the repo root
-//                                (same convention as batch/batch-prompt.md).
+//                                data map, and hard rules. Main passes the
+//                                resolved file (`systemPromptFile`: the
+//                                user's private override or a composed copy,
+//                                via scripts/lib/overrides.mjs); without one
+//                                it stays repo-relative, which works because
+//                                the spawn's cwd is the repo root.
 //
 // `--resume` carries the CLI-side conversation: the id arrives on the stream's
 // system/init event, is stored on the session, and is passed back on every
@@ -39,6 +42,8 @@ export interface ChatClaudeArgsOptions {
   resumeId?: string | null
   /** Configured model alias; omitted lets the CLI default apply. */
   model?: ModelAlias | null
+  /** Resolved system-prompt file (absolute); defaults to modes/chat.md. */
+  systemPromptFile?: string | null
 }
 
 export function buildChatClaudeArgs(
@@ -50,7 +55,7 @@ export function buildChatClaudeArgs(
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
-    '--append-system-prompt-file', CHAT_SYSTEM_PROMPT_FILE,
+    '--append-system-prompt-file', options.systemPromptFile || CHAT_SYSTEM_PROMPT_FILE,
   ]
   // Same rule as every other spawn: modelArg() passes the bare alias (the CLI
   // resolves it to the latest model in that tier) unless MODEL_PINS freezes it.

@@ -39,7 +39,10 @@ function computeEntityFields(
   return { entity_id: id, cities: JSON.stringify(parsed.cities) }
 }
 
-// Sources of truth on disk. Frontend must never sync from elsewhere.
+// Sources of truth on disk, relative to the data folder main passes in (the
+// data root, or the repo on an un-migrated checkout). Report paths are stored
+// relative to that same folder — `reports/tier-1/…` — which is exactly what
+// the renderer hands back to fs:read. Frontend must never sync from elsewhere.
 const FILES = {
   applications: 'data/applications.md',
   scouting:     'data/scouting.md',
@@ -96,8 +99,8 @@ function deriveAppTier(
 
 // ─── Per-source sync ──────────────────────────────────────────────────────────
 
-export function syncApplications(db: Database.Database, repoPath: string): { changed: boolean; rows: number } {
-  const fullPath = path.join(repoPath, FILES.applications)
+export function syncApplications(db: Database.Database, dataPath: string): { changed: boolean; rows: number } {
+  const fullPath = path.join(dataPath, FILES.applications)
   const mtime = statMtime(fullPath)
   if (mtime == null) return { changed: false, rows: 0 }
 
@@ -145,8 +148,8 @@ export function syncApplications(db: Database.Database, repoPath: string): { cha
   return { changed: true, rows: rows.length }
 }
 
-export function syncScouting(db: Database.Database, repoPath: string): { changed: boolean; rows: number } {
-  const fullPath = path.join(repoPath, FILES.scouting)
+export function syncScouting(db: Database.Database, dataPath: string): { changed: boolean; rows: number } {
+  const fullPath = path.join(dataPath, FILES.scouting)
   const mtime = statMtime(fullPath)
   if (mtime == null) return { changed: false, rows: 0 }
 
@@ -191,8 +194,8 @@ export function syncScouting(db: Database.Database, repoPath: string): { changed
   return { changed: true, rows: rows.length }
 }
 
-export function syncScoreHistory(db: Database.Database, repoPath: string): { changed: boolean; rows: number } {
-  const fullPath = path.join(repoPath, FILES.scoreHistory)
+export function syncScoreHistory(db: Database.Database, dataPath: string): { changed: boolean; rows: number } {
+  const fullPath = path.join(dataPath, FILES.scoreHistory)
   const mtime = statMtime(fullPath)
   if (mtime == null) return { changed: false, rows: 0 }
 
@@ -234,8 +237,8 @@ export function syncScoreHistory(db: Database.Database, repoPath: string): { cha
   return { changed: true, rows: rows.length }
 }
 
-export function syncPipeline(db: Database.Database, repoPath: string): { changed: boolean; rows: number } {
-  const fullPath = path.join(repoPath, FILES.pipeline)
+export function syncPipeline(db: Database.Database, dataPath: string): { changed: boolean; rows: number } {
+  const fullPath = path.join(dataPath, FILES.pipeline)
   const mtime = statMtime(fullPath)
   if (mtime == null) return { changed: false, rows: 0 }
 
@@ -267,8 +270,8 @@ export function syncPipeline(db: Database.Database, repoPath: string): { changed
 
 // Reports: walk the tree, store (path, mtime, derived metadata). The body is
 // never cached — it's read on demand when the user opens a report.
-export function syncReports(db: Database.Database, repoPath: string): { changed: boolean; rows: number } {
-  const reportsDir = path.join(repoPath, FILES.reportsDir)
+export function syncReports(db: Database.Database, dataPath: string): { changed: boolean; rows: number } {
+  const reportsDir = path.join(dataPath, FILES.reportsDir)
   if (!fs.existsSync(reportsDir)) {
     db.exec('DELETE FROM reports_index')
     return { changed: true, rows: 0 }
@@ -280,7 +283,7 @@ export function syncReports(db: Database.Database, repoPath: string): { changed:
       const fp = path.join(dir, entry.name)
       if (entry.isDirectory()) walk(fp)
       else if (entry.name.endsWith('.md')) {
-        const rel = path.relative(repoPath, fp)
+        const rel = path.relative(dataPath, fp)
         const parsed = parseReportPath(rel)
         if (!parsed) continue
         const mt = statMtime(fp)
@@ -402,7 +405,7 @@ function extractUrl(text: string): string {
 
 // ─── Public entry points ──────────────────────────────────────────────────────
 
-export function syncAll(db: Database.Database, repoPath: string, opts: { force?: boolean } = {}) {
+export function syncAll(db: Database.Database, dataPath: string, opts: { force?: boolean } = {}) {
   if (opts.force) {
     setMeta(db, 'applications_mtime', '')
     setMeta(db, 'scouting_mtime',     '')
@@ -415,11 +418,11 @@ export function syncAll(db: Database.Database, repoPath: string, opts: { force?:
   // entity_id and cities columns from the latest matching location in
   // score_history. Reports + pipeline are independent and can run in
   // any order after.
-  const scores  = syncScoreHistory(db, repoPath)
-  const apps    = syncApplications(db, repoPath)
-  const scout   = syncScouting(db, repoPath)
-  const pipe    = syncPipeline(db, repoPath)
-  const reports = syncReports(db, repoPath)
+  const scores  = syncScoreHistory(db, dataPath)
+  const apps    = syncApplications(db, dataPath)
+  const scout   = syncScouting(db, dataPath)
+  const pipe    = syncPipeline(db, dataPath)
+  const reports = syncReports(db, dataPath)
 
   // Reports may have been synced after score_history; backfill URLs from
   // report markdown for any legacy score-history rows that lack one.

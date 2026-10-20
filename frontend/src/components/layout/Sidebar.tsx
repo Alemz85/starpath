@@ -32,6 +32,7 @@ import { buildTodaySummary } from '@/lib/todayCockpit'
 import { StarpathLogo } from '@/components/shared/Logos'
 import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import { ProfileSwitcher } from '@/components/layout/ProfileSwitcher'
+import { DemoBadge } from '@/components/layout/DemoBadge'
 
 interface NavItem {
   view: ViewId
@@ -258,8 +259,10 @@ export function Sidebar() {
       </div>
 
       {/* Workspace switcher — the active search profile. Renders nothing on
-          pre-migration repos (no profiles/ dir). */}
+          pre-migration repos (no profiles/ dir) and in the demo, which shows
+          its read-only badge in the same slot instead. */}
       <ProfileSwitcher expanded={expanded} />
+      <DemoBadge expanded={expanded} />
 
       {/* Search hint — visible at both widths so keyboard-shy users can still
           summon CmdK by clicking the icon when the sidebar is collapsed. */}

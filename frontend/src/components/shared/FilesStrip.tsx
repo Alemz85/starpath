@@ -90,10 +90,10 @@ export function FilesStrip({ company, role, size = 'md', className }: FilesStrip
 
   const open = (relPath: string) => {
     if (!repoPath) return
-    // openExternal accepts file:// URLs on macOS/Windows; system opens with
-    // the default app for that extension (Preview for PDFs, etc).
-    const url = `file://${encodeURI(`${repoPath}/${relPath}`)}`
-    ipc.openExternal(url)
+    // Main resolves the path like fs:read (through the data root, so a CV in
+    // private/output/ or the demo opens) and hands it to the default app for
+    // its extension (Preview for PDFs, etc).
+    void ipc.openFile(relPath)
   }
 
   return (

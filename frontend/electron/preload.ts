@@ -16,6 +16,21 @@ const electronAPI = {
   validatePath: (p: string) => ipcRenderer.invoke('app:validate-path', p),
   openExternal: (url: string) => ipcRenderer.invoke('app:open-external', url),
   revealFile: (filePath: string) => ipcRenderer.invoke('app:reveal-file', filePath),
+  openFile: (filePath: string) => ipcRenderer.invoke('app:open-file', filePath),
+
+  // Data root — where personal files are served from (private/, the demo,
+  // an external folder). Main resolves it with scripts/lib/data-root.mjs;
+  // data-root:changed fires after a switch, once cache + watcher + chat moved.
+  getDataRoot: () => ipcRenderer.invoke('app:data-root'),
+  setDataPath: (value: 'demo' | null) => ipcRenderer.invoke('app:set-data-path', value),
+  onDataRootChanged: (cb: (info: unknown) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, info: unknown) => cb(info)
+    ipcRenderer.on('data-root:changed', listener)
+    return () => ipcRenderer.removeListener('data-root:changed', listener)
+  },
+  privateInit: () => ipcRenderer.invoke('private:init'),
+  // Absolute system-prompt file for a spawn (private overrides applied).
+  resolvePrompt: (rel: string) => ipcRenderer.invoke('prompt:resolve', rel),
 
   // Claude checks
   checkClaude: () => ipcRenderer.invoke('app:check-claude'),

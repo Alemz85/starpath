@@ -10,8 +10,12 @@
 //
 // This module routes the frontend's eval spawns through that same bundle:
 //   - `claudeEvalArgs` mirrors `claudeArgs` (spawnFormat.ts) but adds
-//     `--append-system-prompt-file batch/batch-prompt.md` (path relative to
-//     the repo root — shell:spawn runs with cwd = repoPath).
+//     `--append-system-prompt-file <bundle>`. Call sites use
+//     `claudeEvalArgsResolved`, which asks main for the effective file first
+//     (`prompt:resolve` → scripts/lib/overrides.mjs: the user's private
+//     override of batch/batch-prompt.md, or a composed copy with their
+//     append file). Any failure falls back to the repo-relative default,
+//     which works because shell:spawn runs with cwd = repoPath.
 //   - The prompt builders below carry only the per-run task framing (which
 //     URLs, which deviations from the bundle's default pipeline); the rubric,
 //     data-write contracts, and score-listing.mjs delegation come from the
@@ -50,16 +54,43 @@ export type { ClaudeModel }
  * capability probe first — an unknown flag would fail every spawn on older
  * CLIs. Tracked in TODO.md § Token-cost reduction, lever 4.
  */
-export function claudeEvalArgs(taskPrompt: string, model?: ClaudeModel): string[] {
+export function claudeEvalArgs(
+  taskPrompt: string,
+  model?: ClaudeModel,
+  promptFile: string = COMPACT_EVAL_BUNDLE,
+): string[] {
   return [
     '--dangerously-skip-permissions',
     '--output-format', 'stream-json',
     '--verbose',
-    '--append-system-prompt-file', COMPACT_EVAL_BUNDLE,
+    '--append-system-prompt-file', promptFile,
     ...(model ? ['--model', modelArg(model)] : []),
     '-p',
     taskPrompt + NON_INTERACTIVE_SUFFIX,
   ]
+}
+
+/**
+ * The file main resolved for a system prompt, or the repo-relative default
+ * when it answered nothing usable (null outside Electron, an error, a
+ * non-string). Pure, so the fallback rule is testable.
+ */
+export function pickPromptFile(resolved: unknown, fallback: string): string {
+  return typeof resolved === 'string' && resolved.trim() !== '' ? resolved : fallback
+}
+
+/** Effective eval bundle path (private override applied); never throws. */
+export async function resolveEvalBundle(): Promise<string> {
+  try {
+    return pickPromptFile(await ipc.prompt.resolve(COMPACT_EVAL_BUNDLE), COMPACT_EVAL_BUNDLE)
+  } catch {
+    return COMPACT_EVAL_BUNDLE
+  }
+}
+
+/** `claudeEvalArgs` with the bundle resolved through overrides first. */
+export async function claudeEvalArgsResolved(taskPrompt: string, model?: ClaudeModel): Promise<string[]> {
+  return claudeEvalArgs(taskPrompt, model, await resolveEvalBundle())
 }
 
 /**

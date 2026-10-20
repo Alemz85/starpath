@@ -10,12 +10,17 @@ type Database = BetterSqlite3.Database
 let db: Database | null = null
 let dbSlug: string | null = null
 let watcher: FSWatcher | null = null
-let watchedRepoPath: string | null = null
+let watchedDataPath: string | null = null
 
 // One derived cache per search profile — a profile switch swaps what the
 // canonical data/reports paths contain wholesale, so mixing rows across
 // profiles in a single file would corrupt both. `default` is the slug for
-// pre-migration repos (no profiles/ dir).
+// pre-migration repos (no profiles/ dir); `demo` is the read-only demo
+// dataset's own cache (lib/dataRootMain.ts → cacheSlugFor).
+//
+// Every `dataPath` below is the folder that holds data/ and reports/: the
+// data root (private/, demo/, an external folder), or the repo itself on a
+// checkout with no private root yet. Main resolves it (electron/dataRoot.ts).
 function dbFilePath(userDataDir: string, slug: string): string {
   return path.join(userDataDir, `cache-${slug}.db`)
 }
@@ -37,7 +42,7 @@ export function openDb(userDataDir: string, slug = 'default'): Database {
 export function closeDb(): void {
   watcher?.close()
   watcher = null
-  watchedRepoPath = null
+  watchedDataPath = null
   db?.close()
   db = null
   dbSlug = null
@@ -53,7 +58,7 @@ export function closeDb(): void {
 export async function shutdownDb(): Promise<void> {
   const w = watcher
   watcher = null
-  watchedRepoPath = null
+  watchedDataPath = null
   try { await w?.close() } catch { /* already gone */ }
   try { db?.close() } catch { /* already gone */ }
   db = null
@@ -81,15 +86,15 @@ const SOURCE_FILES = [
   'data/score-history.tsv',
 ] as const
 
-export function startWatcher(repoPath: string, cb: WatcherCallbacks): void {
-  if (watcher && watchedRepoPath === repoPath) return
+export function startWatcher(dataPath: string, cb: WatcherCallbacks): void {
+  if (watcher && watchedDataPath === dataPath) return
   watcher?.close()
-  watchedRepoPath = repoPath
+  watchedDataPath = dataPath
 
-  const reportsGlob = path.join(repoPath, 'reports/**/*.md')
-  const dataPaths = SOURCE_FILES.map(f => path.join(repoPath, f))
+  const reportsGlob = path.join(dataPath, 'reports/**/*.md')
+  const sourcePaths = SOURCE_FILES.map(f => path.join(dataPath, f))
 
-  watcher = chokidar.watch([...dataPaths, reportsGlob], {
+  watcher = chokidar.watch([...sourcePaths, reportsGlob], {
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
   })
@@ -107,7 +112,7 @@ export function startWatcher(repoPath: string, cb: WatcherCallbacks): void {
       const batch = pending
       pending = new Set()
       timer = null
-      processBatch(repoPath, batch, cb)
+      processBatch(dataPath, batch, cb)
     }, 200)
   }
 
@@ -121,14 +126,14 @@ export function startWatcher(repoPath: string, cb: WatcherCallbacks): void {
 // are symlinks whose targets just moved — chokidar resolved the old targets
 // when the watch started, so only a restart picks up writes to the new
 // profile's files.
-export function restartWatcher(repoPath: string, cb: WatcherCallbacks): void {
+export function restartWatcher(dataPath: string, cb: WatcherCallbacks): void {
   watcher?.close()
   watcher = null
-  watchedRepoPath = null
-  startWatcher(repoPath, cb)
+  watchedDataPath = null
+  startWatcher(dataPath, cb)
 }
 
-function processBatch(repoPath: string, files: Set<string>, cb: WatcherCallbacks): void {
+function processBatch(dataPath: string, files: Set<string>, cb: WatcherCallbacks): void {
   if (!db) return
   const changed: string[] = []
 
@@ -136,11 +141,11 @@ function processBatch(repoPath: string, files: Set<string>, cb: WatcherCallbacks
   const hasReport = Array.from(files).some(f => f.includes(`${path.sep}reports${path.sep}`))
 
   try {
-    if (has('applications.md')   && syncApplications(db, repoPath).changed)  changed.push('applications')
-    if (has('scouting.md')       && syncScouting(db, repoPath).changed)      changed.push('scouting')
-    if (has('pipeline.md')       && syncPipeline(db, repoPath).changed)      changed.push('pipeline')
-    if (has('score-history.tsv') && syncScoreHistory(db, repoPath).changed)  changed.push('score_history')
-    if (hasReport                && syncReports(db, repoPath).changed)       changed.push('reports')
+    if (has('applications.md')   && syncApplications(db, dataPath).changed)  changed.push('applications')
+    if (has('scouting.md')       && syncScouting(db, dataPath).changed)      changed.push('scouting')
+    if (has('pipeline.md')       && syncPipeline(db, dataPath).changed)      changed.push('pipeline')
+    if (has('score-history.tsv') && syncScoreHistory(db, dataPath).changed)  changed.push('score_history')
+    if (hasReport                && syncReports(db, dataPath).changed)       changed.push('reports')
   } catch (e) {
     console.error('[db] sync error:', e)
     return
@@ -364,10 +369,10 @@ export function queryTrends() {
   return { byDate, byArchetype, tierDistribution, verdictDistribution, eligibilityDistribution }
 }
 
-export function resync(repoPath: string) {
-  return syncAll(need(), repoPath, { force: true })
+export function resync(dataPath: string) {
+  return syncAll(need(), dataPath, { force: true })
 }
 
-export function ensureSynced(repoPath: string) {
-  return syncAll(need(), repoPath)
+export function ensureSynced(dataPath: string) {
+  return syncAll(need(), dataPath)
 }

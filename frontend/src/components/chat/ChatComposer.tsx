@@ -8,13 +8,15 @@ interface ChatComposerProps {
   value: string
   /** True while a reply is generating — one live generation at a time. */
   disabled: boolean
+  /** Demo mode: chat would act on fictional data, so sending is off. */
+  readOnlyTitle?: string
   onChange(value: string): void
   onSend(): void
 }
 
 const MAX_HEIGHT_PX = 180
 
-export function ChatComposer({ value, disabled, onChange, onSend }: ChatComposerProps) {
+export function ChatComposer({ value, disabled, readOnlyTitle, onChange, onSend }: ChatComposerProps) {
   const ref = useRef<HTMLTextAreaElement>(null)
 
   // Grow with the draft up to a ceiling, then scroll inside the box.
@@ -33,7 +35,8 @@ export function ChatComposer({ value, disabled, onChange, onSend }: ChatComposer
             ref={ref}
             rows={1}
             value={value}
-            disabled={disabled}
+            disabled={disabled || !!readOnlyTitle}
+            title={readOnlyTitle}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -41,7 +44,7 @@ export function ChatComposer({ value, disabled, onChange, onSend }: ChatComposer
                 onSend()
               }
             }}
-            placeholder={disabled ? 'Working on the last message…' : 'Ask about your search…'}
+            placeholder={readOnlyTitle ? `${readOnlyTitle}: chat is off while the demo is shown` : disabled ? 'Working on the last message…' : 'Ask about your search…'}
             aria-label="Message"
             className="flex-1 resize-none border-0 bg-transparent px-1.5 py-1 text-body text-text-1 placeholder:text-text-4 outline-none disabled:text-text-4 selectable"
           />
@@ -51,7 +54,8 @@ export function ChatComposer({ value, disabled, onChange, onSend }: ChatComposer
             iconOnly
             icon={<ArrowUp size={14} aria-hidden />}
             onClick={onSend}
-            disabled={disabled || !value.trim()}
+            disabled={disabled || !!readOnlyTitle || !value.trim()}
+            title={readOnlyTitle}
             aria-label="Send message"
             className="shrink-0"
           />
