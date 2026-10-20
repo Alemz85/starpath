@@ -83,7 +83,13 @@ Or paste a JD directly to run auto-pipeline (routes by current_mode).
 
 ## Context Loading by Mode
 
-After determining the mode, load the necessary files before executing:
+After determining the mode, load the necessary files before executing.
+
+**Private overrides (always check first).** The user's own versions of system files live in `private/overrides/` with the same path. For every `modes/X.md` you are about to read (including `_shared.md`):
+1. If `private/overrides/modes/X.md` exists, read it **instead of** `modes/X.md`.
+2. If `private/overrides/modes/X.append.md` exists, read it **after** the file from step 1; its rules win where they conflict.
+
+The same applies to `batch/batch-prompt.md` and `templates/*`. `npm run overrides` lists what is active. Subagent prompts below get the resolved text, not the repo default.
 
 ### Modes that require `_shared.md` + their mode file:
 Read `modes/_shared.md` + `modes/{mode}.md`

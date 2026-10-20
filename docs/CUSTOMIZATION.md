@@ -26,7 +26,7 @@ Also update the "Adaptive Framing" table to map YOUR specific projects to each a
 
 ## Portals (user/portals.yml)
 
-Copy from `templates/portals.example.yml` and customize:
+Copy from `templates/user-examples/portals.yml` and customize:
 
 1. **title_filter.positive**: Keywords matching your target roles
 2. **title_filter.negative**: Tech stacks or domains to exclude
@@ -40,18 +40,27 @@ The HTML template uses these design tokens:
 - **Colors**: Cyan primary (`hsl(187,74%,32%)`) + Purple accent (`hsl(270,70%,45%)`)
 - **Layout**: Single-column, ATS-optimized
 
-To customize fonts/colors, edit the CSS in the template. Update font files in `fonts/` if switching fonts.
+To use your own design, copy the template to `private/overrides/templates/cv-template.html` and edit the CSS there (the public default stays untouched). Add font files to `fonts/` if switching fonts.
 
-## Negotiation Scripts (modes/_shared.md)
+## Negotiation Scripts (user/_profile.md)
 
-The negotiation section provides frameworks for salary discussions. Replace the example scripts with your own:
+`modes/_shared.md` ships generic negotiation frameworks. Put your own in `user/_profile.md` (read after `_shared.md`, so it wins):
 - Target ranges
 - Geographic arbitrage strategy
 - Pushback responses
 
+## Your own version of a system file (private/overrides/)
+
+Anything in `modes/`, `batch/batch-prompt.md`, `templates/` or `config/profile.example.yml` can be made yours without touching the public default:
+
+- `private/overrides/<same path>` replaces the file, e.g. `private/overrides/templates/cv-template.html` for your own CV design or `private/overrides/modes/contacto.md` for your outreach style.
+- `private/overrides/<path minus .md>.append.md` adds to it, e.g. `private/overrides/modes/_shared.append.md` for worked examples that use your real schools and target companies.
+
+Write them as specific as you like: `private/` never enters the public repo. `npm run overrides` lists what is active and warns when the default changed after your copy.
+
 ## Hooks (Optional)
 
-Career-ops can integrate with external systems via Claude Code hooks. Example hooks:
+The repo ships one Claude Code hook in `.claude/settings.json`: at session start it prints your active overrides (`npm run overrides -- --brief`). Add your own the same way, e.g.:
 
 ```json
 {
