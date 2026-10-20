@@ -6,28 +6,27 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 
 ```
 .
-├── CLAUDE.md                     # Project instructions for Claude (modes, data contract, rules)
-├── DATA_CONTRACT.md              # User-layer vs system-layer file split (CRITICAL)
-├── README.md / LICENSE / TODO.md / CONTEXT.md
-├── package.json / package-lock.json
+├── CLAUDE.md / AGENTS.md         # Agent rules (Claude Code / Codex mirror)
+├── DATA_CONTRACT.md              # System / demo / private layers (CRITICAL)
+├── README.md / LICENSE / CONTEXT.md / DESIGN-meta.md
+├── package.json
 │
-├── .claude/                      # Claude Code config + locally installed skills
-│   ├── settings.local.json
-│   └── skills/                   # Each skill = directory with SKILL.md (frontmatter triggers)
-│       ├── career-ops/SKILL.md            # Main job-search skill (modes router)
-│       ├── career-ops-setup/SKILL.md      # Workspace tuning / onboarding
-│       ├── electron-pro/SKILL.md          # Electron desktop-app expertise
-│       ├── frontend-design/SKILL.md       # Distinctive frontend generation
-│       ├── impeccable/                    # Frontend audit/polish/animate library
-│       │   ├── SKILL.md
-│       │   ├── agents/openai.yaml
-│       │   ├── reference/  (35 .md guides: audit, polish, layout, motion, color, …)
-│       │   └── scripts/    (15 .mjs/.js: live preview, screenshots, design parser)
-│       ├── web-design-guidelines/SKILL.md
-│       └── webapp-testing/                # Playwright local-app testing
-│           ├── SKILL.md / LICENSE.txt
-│           ├── examples/ (3 py)
-│           └── scripts/with_server.py
+├── private/                      # PERSONAL — gitignored, its own private git repo (npm run backup)
+│   ├── user/ data/ reports/ interview-prep/ output/ jds/ batch/   # linked from the repo root
+│   ├── profiles/                 # multi-profile store (when initialised)
+│   ├── chat/                     # the app's chat sessions
+│   ├── overrides/                # your versions of modes/, templates/, batch-prompt
+│   ├── docs/                     # personal notes and docs
+│   └── leak-terms.txt            # extra terms for the leak gate
+├── user → private/user           # links (gitignored): every repo-relative path keeps working
+├── data → private/data
+├── reports, interview-prep, output, jds → private/…
+├── demo/                         # Fictional workspace for the app's demo mode (npm run demo:build)
+│
+├── .claude/
+│   ├── settings.json             # SessionStart hook: prints active private overrides
+│   └── skills/                   # Tracked: career-ops/ (modes router), career-ops-setup/; others are local
+├── .githooks/                    # Leak gate: pre-commit, commit-msg, pre-push (npm run hooks)
 │
 ├── modes/                        # Mode prompts loaded by the career-ops skill (flat, no subdirs)
 │   ├── _shared.md                # Shared scoring framework + archetype scaffolding
@@ -54,29 +53,9 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 │   ├── cv-sync-check.mjs
 │   └── test-all.mjs              # 60+ CI checks
 │
-├── user/                         # User-layer (NEVER auto-overwritten)
-│   ├── cv.md                     # Canonical CV (markdown)
-│   ├── profile.yml               # Identity, comp targets, phase (scoring weights), archetypes
-│   ├── _profile.md               # Free-form personalization (narrative, deal-breakers)
-│   └── portals.yml               # Job portals + keyword filters
-│
-├── data/                         # Generated state (user-owned)
-│   ├── applications.md           # Active applications tracker (entries the user has decided to apply to)
-│   ├── scouting.md               # Landscape inventory tracker (every evaluation lands here by default)
-│   ├── pipeline.md               # Pending URL inbox
-│   ├── scan-history.tsv / score-history.tsv / report-summaries.tsv
-│   ├── comp-cache.tsv / dedup-index.tsv / filter-audit-state.json
-│   └── companies/
-│
-├── reports/                      # Per-evaluation reports (user-owned)
-│   ├── tier-1/  tier-2/  tier-3/  tier-4/   # Sorted by score
-│   └── positioning/                          # Career positioning reports
-│
 ├── batch/                        # Parallel-worker batch infrastructure
 │   ├── batch-prompt.md / batch-runner.sh / README.md
-│   ├── tracker-additions/        # TSV staging → merge-tracker.mjs
-│   ├── scouting-additions/       # TSV staging → merge-scouting.mjs
-│   └── logs/
+│   └── tracker-additions/ scouting-additions/ logs/ …   # links into private/batch/
 │
 ├── templates/                    # System defaults (copied into user/ at setup)
 │   ├── cv-template.html          # ATS HTML template (→ generate-pdf.mjs)
@@ -85,9 +64,6 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 │
 ├── config/profile.example.yml    # Example to seed user/profile.yml
 ├── docs/                         # ARCHITECTURE / CUSTOMIZATION / SCRIPTS / SETUP / design
-├── interview-prep/               # Per-company prep + story-bank.md
-├── jds/                          # Saved JD text files (referenced by pipeline)
-├── output/                       # Generated PDFs (gitignored)
 ├── fonts/                        # DM Sans / Space Grotesk woff2 (CV typography)
 │
 └── frontend/                     # Next.js 14 (App Router) + Electron desktop shell — branded "starpath"
@@ -116,8 +92,8 @@ Excludes `.git/`, `node_modules/`, `frontend/.next/` and `frontend/out/` build a
 
 ## Claude Code architecture surface
 
-- **Skills** (`.claude/skills/*/SKILL.md`) — frontmatter-triggered capabilities. Career-ops is one; impeccable/frontend-design/electron-pro/web-design-guidelines/webapp-testing are general-purpose.
+- **Skills** (`.claude/skills/*/SKILL.md`) — frontmatter-triggered capabilities. Only `career-ops` and `career-ops-setup` are tracked; anything else in `.claude/skills/` is locally installed tooling.
 - **Modes** (`modes/*.md`) — invoked by the career-ops skill via the OpenCode/Claude Code `/career-ops <mode>` slash commands; each mode is a self-contained prompt.
-- **Settings** (`.claude/settings.local.json`) — local permissions/hooks/env per project.
-- **Mode languages** — there are **no language-variant directories on disk today**. `modes/` is flat (English-authored prompts only). Multi-language output is handled inside the modes themselves — `modes/_shared.md` instructs Claude to "Generate content in the language of the JD (EN default)", so a German JD produces a German report from the same English prompt. `DATA_CONTRACT.md` reserves `modes/de/*` as a system-layer slot for future per-market translations, but no routing logic exists in either backend modes or the frontend that would pick a variant directory; if you add `modes/de/` etc., you'll also need to introduce that routing layer (likely in the career-ops skill front-matter or a new mode loader) — confirm the approach with the user before creating parallel files.
+- **Settings** — `.claude/settings.json` (tracked) holds the SessionStart hook that lists active private overrides; `.claude/settings.local.json` (untracked) holds local permissions.
+- **Mode languages** — there are **no language-variant directories on disk today**. `modes/` is flat (English-authored prompts only). Multi-language output is handled inside the modes themselves — `modes/_shared.md` instructs Claude to "Generate content in the language of the JD (EN default)", so a German JD produces a German report from the same English prompt. No routing logic exists in either backend modes or the frontend that would pick a variant directory; if you add `modes/de/` etc., you'll also need to introduce that routing layer (likely in the career-ops skill front-matter or a new mode loader) — confirm the approach with the user before creating parallel files.
 - **Update channel** — none. starpath was originally forked from `santifer/career-ops` and tracked upstream early on; the project has since diverged enough that it's no longer a downstream fork. System-layer files are maintained by hand.
