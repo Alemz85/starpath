@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import {
   COMPACT_EVAL_BUNDLE,
   claudeEvalArgs,
+  pickPromptFile,
   scoreOnlyEvalPrompt,
   inboxEvalPrompt,
   filterAllPrompt,
@@ -31,6 +32,19 @@ test('claudeEvalArgs keeps the non-interactive flag set from claudeArgs', () => 
   assert.deepEqual(args.slice(args.indexOf('--model'), args.indexOf('--model') + 2), ['--model', 'opus'])
   assert.equal(args[args.length - 1], 'task' + NON_INTERACTIVE_SUFFIX)
   assert.equal(args[args.length - 2], '-p')
+})
+
+test('claudeEvalArgs passes a resolved bundle (private override) when given one', () => {
+  const file = '/tmp/fixture-repo/private/overrides/batch/batch-prompt.md'
+  const args = claudeEvalArgs('task', 'sonnet', file)
+  assert.equal(args[args.indexOf('--append-system-prompt-file') + 1], file)
+})
+
+test('pickPromptFile falls back to the repo default on anything unusable', () => {
+  assert.equal(pickPromptFile('/abs/batch-prompt.md', COMPACT_EVAL_BUNDLE), '/abs/batch-prompt.md')
+  assert.equal(pickPromptFile(null, COMPACT_EVAL_BUNDLE), COMPACT_EVAL_BUNDLE)
+  assert.equal(pickPromptFile('', COMPACT_EVAL_BUNDLE), COMPACT_EVAL_BUNDLE)
+  assert.equal(pickPromptFile({ path: 'x' }, COMPACT_EVAL_BUNDLE), COMPACT_EVAL_BUNDLE)
 })
 
 test('claudeEvalArgs omits --model when none is given', () => {

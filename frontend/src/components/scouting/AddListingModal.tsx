@@ -18,7 +18,8 @@ import { useAddListingStore } from '@/store/addListing'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore } from '@/store/spawns'
-import { claudeEvalArgs, refreshCvSummary, scoreOnlyEvalPrompt } from '@/lib/evalSpawn'
+import { useWriteGate } from '@/store/dataRoot'
+import { claudeEvalArgsResolved, refreshCvSummary, scoreOnlyEvalPrompt } from '@/lib/evalSpawn'
 import { ipc } from '@/lib/ipc'
 import { WantEase } from '@/components/shared/WantEase'
 import { blockedReason, isBlocked } from '@/lib/scoreBands'
@@ -74,6 +75,8 @@ export function AddListingModal() {
   const clearSpawn = useSpawnsStore(s => s.clear)
   const spawns = useSpawnsStore(s => s.spawns)
   const evaluateSpawn = spawns[ADD_LISTING_SPAWN_ID]
+  // Demo mode: both actions write data/pipeline.md (and Evaluate spawns).
+  const { canWrite, readOnlyTitle } = useWriteGate()
 
   const [url, setUrl] = useState('')
   const [entering, setEntering] = useState(false)
@@ -232,7 +235,7 @@ export function AddListingModal() {
 
   // ─── Primary action: evaluate ─────────────────────────────────────────────
   const handleEvaluate = async () => {
-    if (!valid || !repoPath || isSubmitting) return
+    if (!valid || !repoPath || isSubmitting || !canWrite) return
     setModalState('submitting')
     try {
       await appendToPipeline(trimmedUrl)
@@ -244,7 +247,7 @@ export function AddListingModal() {
         ADD_LISTING_SPAWN_ID,
         `Evaluate ${guessedCompany ?? 'URL'}`,
         'claude',
-        claudeEvalArgs(scoreOnlyEvalPrompt(trimmedUrl), 'sonnet'),
+        await claudeEvalArgsResolved(scoreOnlyEvalPrompt(trimmedUrl), 'sonnet'),
       )
       // Close immediately — user can watch progress in Activity.
       handleClose()
@@ -256,7 +259,7 @@ export function AddListingModal() {
 
   // ─── Secondary action: add to inbox only ─────────────────────────────────
   const handleAddToInbox = async () => {
-    if (!valid || !repoPath || isSubmitting || !!alreadyQueued) return
+    if (!valid || !repoPath || isSubmitting || !!alreadyQueued || !canWrite) return
     setModalState('submitting')
     try {
       await appendToPipeline(trimmedUrl)
@@ -571,12 +574,12 @@ export function AddListingModal() {
             <Button
               tone="secondary"
               onClick={handleAddToInbox}
-              disabled={!valid || isSubmitting || !!alreadyQueued}
-              title={
+              disabled={!valid || isSubmitting || !!alreadyQueued || !canWrite}
+              title={readOnlyTitle ?? (
                 alreadyQueued
                   ? 'This URL is already in your pipeline inbox'
                   : 'Append the URL to data/pipeline.md for the next filter pass (no tokens spent now)'
-              }
+              )}
               aria-label={
                 alreadyQueued
                   ? 'Already in inbox'
@@ -592,12 +595,12 @@ export function AddListingModal() {
             <Button
               tone="primary"
               onClick={handleEvaluate}
-              disabled={!evaluateBtnEnabled}
-              title={
+              disabled={!evaluateBtnEnabled || !canWrite}
+              title={readOnlyTitle ?? (
                 !valid
                   ? 'Paste a valid URL first'
                   : 'Score this URL into the Database now (Claude tokens). No prose report — trigger one later from the Database.'
-              }
+              )}
               aria-label={
                 modalState === 'valid-duplicate'
                   ? 'Re-evaluate with Claude (replaces previous score)'

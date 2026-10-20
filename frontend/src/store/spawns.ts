@@ -10,6 +10,8 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
 import { useAppStore } from './app'
+import { canWriteNow } from './dataRoot'
+import { DEMO_READ_ONLY_TOOLTIP } from '@/lib/dataRoot'
 import {
   claudeArgs,
   NON_INTERACTIVE_SUFFIX,
@@ -79,6 +81,23 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
       cmd === 'claude' ? 'claude' :
       cmd === 'node'   ? 'node'   : 'shell'
     delete jsonlLineBuffer[id]  // clear any stale partial line from a prior run of this id
+    // Demo mode is read-only: every spawn is work that writes (scans,
+    // evaluations, tailoring). The buttons are disabled there; this is the
+    // backstop, recorded as a failed run so it shows up in Activity instead
+    // of silently doing nothing (main refuses the spawn as well).
+    if (!canWriteNow()) {
+      const now = Date.now()
+      set(state => ({
+        spawns: {
+          ...state.spawns,
+          [id]: {
+            id, label, status: 'error', output: [`${DEMO_READ_ONLY_TOOLTIP}: this action is disabled while the demo is shown.`],
+            startedAt: now, endedAt: now, exitCode: 1, tool, cmd, args, acked: true,
+          },
+        },
+      }))
+      return
+    }
     set(state => ({
       spawns: {
         ...state.spawns,

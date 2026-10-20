@@ -1,11 +1,18 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, Circle } from 'lucide-react'
+import { CheckCircle2, Circle, Lock, Telescope } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/app'
+import { useDataRootStore } from '@/store/dataRoot'
+import {
+  initialOnboardingPhase, needsPrivateInit, phaseAfterChoosingOwn,
+  type OnboardingPhase,
+} from '@/lib/dataRoot'
 import { StepRepo } from './steps/StepRepo'
+import { StepChoice } from './steps/StepChoice'
+import { StepPrivateInit } from './steps/StepPrivateInit'
 import { StepClaude } from './steps/StepClaude'
 import { StepCV } from './steps/StepCV'
 import { StepProfile } from './steps/StepProfile'
@@ -51,9 +58,55 @@ function StarDot({ bright = false }: { bright?: boolean }) {
 
 export function OnboardingGate() {
   const setOnboardingComplete = useAppStore(s => s.setOnboardingComplete)
+  const repoPath = useAppStore(s => s.repoPath)
+  const intent = useAppStore(s => s.onboardingIntent)
+  const dataRoot = useDataRootStore(s => s.info)
+  const dataRootLoaded = useDataRootStore(s => s.loaded)
+  const dataRootBusy = useDataRootStore(s => s.busy)
+  const setDemo = useDataRootStore(s => s.setDemo)
   const [completed, setCompleted] = useState<Set<OnboardingStep>>(new Set())
   const [activeStep, setActiveStep] = useState<OnboardingStep>('repo')
   const [done, setDone] = useState(false)
+  // 'choose' (demo or own search) → 'init-private' (create private/ when the
+  // checkout has none) → 'wizard' (the five steps). Decided once the data
+  // root is known; lib/dataRoot.ts holds the rules.
+  const [phase, setPhase] = useState<OnboardingPhase | null>(null)
+  const [choiceError, setChoiceError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (phase !== null || !dataRootLoaded) return
+    setPhase(dataRoot
+      ? initialOnboardingPhase({ demoAvailable: dataRoot.demoAvailable, intent, kind: dataRoot.kind, repoPath: dataRoot.repoPath })
+      : 'wizard')
+  }, [phase, dataRootLoaded, dataRoot, intent])
+
+  // A repo that is already configured (in dev, the checkout the app runs
+  // from) needs no folder step: tick it and open on the next one. Step 1
+  // stays clickable to change it.
+  useEffect(() => {
+    if (!repoPath) return
+    setCompleted(prev => {
+      if (prev.has('repo')) return prev
+      const next = new Set(prev)
+      next.add('repo')
+      return next
+    })
+    setActiveStep(cur => (cur === 'repo' ? 'claude' : cur))
+  }, [repoPath])
+
+  const chooseDemo = async () => {
+    setChoiceError(null)
+    const res = await setDemo(true)
+    // Success needs nothing here: the layout gate sees the demo and opens
+    // the app.
+    if (!res.ok) setChoiceError(res.message ?? 'Could not open the demo.')
+  }
+
+  const chooseOwn = () => {
+    setChoiceError(null)
+    const info = useDataRootStore.getState().info
+    setPhase(info ? phaseAfterChoosingOwn({ kind: info.kind, repoPath: info.repoPath }) : 'wizard')
+  }
 
   const completeStep = (step: OnboardingStep) => {
     const next = new Set(completed)
@@ -62,6 +115,13 @@ export function OnboardingGate() {
     const nextStep = STEPS.find(s => !next.has(s.key))
     if (nextStep) setActiveStep(nextStep.key)
     else handleAllDone(next)
+    // A folder picked in the wizard (packaged builds) may have no private
+    // root yet: create it before any step writes user/… files.
+    if (step === 'repo') {
+      void useDataRootStore.getState().load().then(info => {
+        if (info && needsPrivateInit(info)) setPhase('init-private')
+      })
+    }
   }
 
   const handleAllDone = async (completedSet: Set<OnboardingStep>) => {
@@ -119,11 +179,24 @@ export function OnboardingGate() {
               Welcome aboard
             </h1>
             <p className="text-[13px] text-text-3 leading-snug">
-              Five short steps to set up your job-search workspace. Anything you
-              add now you can change later from Settings.
+              {phase === 'choose'
+                ? 'Explore a fictional search first, or set up your own in five short steps.'
+                : 'Five short steps to set up your job-search workspace. Anything you add now you can change later from Settings.'}
             </p>
           </div>
 
+          {phase === 'choose' ? (
+            <div className="space-y-3 text-[12.5px] text-text-3 leading-snug">
+              <div className="flex items-start gap-2.5">
+                <Telescope size={15} className="text-accent shrink-0 mt-0.5" aria-hidden />
+                <span>The demo is a made-up candidate with a full pipeline. Browse every view; nothing can be changed.</span>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <Lock size={15} className="text-accent shrink-0 mt-0.5" aria-hidden />
+                <span>Your own search lives in a private folder that stays out of the public repo.</span>
+              </div>
+            </div>
+          ) : (
           <div className="space-y-1.5">
             {STEPS.map((step, i) => {
               const isDone = completed.has(step.key)
@@ -132,6 +205,7 @@ export function OnboardingGate() {
                 <button
                   key={step.key}
                   onClick={() => setActiveStep(step.key)}
+                  disabled={phase !== 'wizard'}
                   className={cn(
                     'w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-lg transition-all duration-200',
                     isActive
@@ -172,9 +246,10 @@ export function OnboardingGate() {
               )
             })}
           </div>
+          )}
 
           {/* Progress bar */}
-          <div className="mt-auto">
+          <div className={cn('mt-auto', phase === 'choose' && 'invisible')}>
             <div className="flex justify-between text-[10px] text-text-4 mb-1.5 uppercase tracking-wider font-medium">
               <span>Progress</span>
               <span className="font-mono text-text-3">{completed.size} / {STEPS.length}</span>
@@ -195,28 +270,51 @@ export function OnboardingGate() {
       <div className="relative flex-1 flex flex-col bg-bg-base rounded-xl shadow-card overflow-hidden">
         <div className="titlebar-drag h-11 border-b border-border-default shrink-0 flex items-center justify-between px-5">
           <span className="text-[10px] uppercase tracking-[0.14em] text-text-4 font-semibold titlebar-no-drag">
-            Step {STEPS.findIndex(s => s.key === activeStep) + 1} of {STEPS.length}
+            {phase === 'choose'
+              ? 'Getting started'
+              : phase === 'init-private'
+                ? 'Private folder'
+                : `Step ${STEPS.findIndex(s => s.key === activeStep) + 1} of ${STEPS.length}`}
           </span>
-          <span className="text-[10px] text-text-4 titlebar-no-drag tabular-nums">
-            {Math.round((completed.size / STEPS.length) * 100)}% complete
-          </span>
+          {phase === 'wizard' && (
+            <span className="text-[10px] text-text-4 titlebar-no-drag tabular-nums">
+              {Math.round((completed.size / STEPS.length) * 100)}% complete
+            </span>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto">
           <div className="max-w-[560px] mx-auto px-10 py-12">
             <AnimatePresence mode="wait">
               <motion.div
-                key={activeStep}
+                key={phase === 'wizard' ? activeStep : phase ?? 'loading'}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -4 }}
                 transition={{ duration: 0.2 }}
               >
+                {phase === 'choose' && (
+                  <StepChoice
+                    demoAvailable={!!dataRoot?.demoAvailable}
+                    busy={dataRootBusy}
+                    error={choiceError}
+                    onDemo={() => void chooseDemo()}
+                    onOwn={chooseOwn}
+                  />
+                )}
+                {phase === 'init-private' && (
+                  <StepPrivateInit
+                    onComplete={() => setPhase('wizard')}
+                    onBack={dataRoot?.demoAvailable && intent === 'choose' ? () => setPhase('choose') : undefined}
+                  />
+                )}
+                {phase === 'wizard' && <>
                 {activeStep === 'repo'    && <StepRepo    onComplete={() => completeStep('repo')}    />}
                 {activeStep === 'claude'  && <StepClaude  onComplete={() => completeStep('claude')}  />}
                 {activeStep === 'cv'      && <StepCV      onComplete={() => completeStep('cv')}      />}
                 {activeStep === 'profile' && <StepProfile onComplete={() => completeStep('profile')} />}
                 {activeStep === 'portals' && <StepPortals onComplete={() => completeStep('portals')} />}
+                </>}
               </motion.div>
             </AnimatePresence>
           </div>

@@ -2,11 +2,15 @@ import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
 import type { FeatureId, FeaturePrefs, ModelAlias, ModelPrefs } from '@/types'
 import { DEFAULT_FEATURE_PREFS, DEFAULT_MODEL_PREFS } from '@/types'
+import { isDemo, type OnboardingIntent } from '@/lib/dataRoot'
+import { useDataRootStore } from './dataRoot'
 
 // Returns true if the currently-pointed-at repo already has the four critical
 // user files filled in to a meaningful degree. Used to bypass the onboarding
-// wizard when the user opens an already-tuned workspace.
+// wizard when the user opens an already-tuned workspace. Never asked while
+// the demo is shown: its fictional user/ files would read as "set up".
 async function detectExistingSetup(): Promise<boolean> {
+  if (isDemo(useDataRootStore.getState().info)) return false
   const [cv, profile, portals] = await Promise.all([
     ipc.readFile('user/cv.md'),
     ipc.readFile('user/profile.yml'),
@@ -30,8 +34,21 @@ interface AppState {
   authError: AuthErrorReason | null
   reloginInProgress: boolean
 
+  /** Onboarding opens on the demo/own choice ('choose') or straight on the
+   *  wizard ('own' — the user asked for their own data from the demo). */
+  onboardingIntent: OnboardingIntent
+  /** Shows onboarding even when the config says it's done ("Use my own
+   *  data" from the demo with no own data yet). Cleared on completion. */
+  forceOnboarding: boolean
+
   // Actions
   init: () => Promise<void>
+  /** Re-run the "already set up?" check after the data root moved. */
+  refreshSetup: () => Promise<void>
+  /** Leave the demo for the "Set up my own search" wizard. */
+  startOwnSetup: () => Promise<void>
+  /** Leave the demo for own data that already exists. */
+  leaveDemo: () => Promise<{ ok: boolean; message?: string }>
   setRepoPath: (p: string) => Promise<void>
   setOnboardingComplete: () => Promise<void>
   setTailoringComplete: () => Promise<void>
@@ -59,8 +76,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   features: DEFAULT_FEATURE_PREFS,
   authError: null,
   reloginInProgress: false,
+  onboardingIntent: 'choose',
+  forceOnboarding: false,
 
   init: async () => {
+    // Data root first: the setup check below must know whether it is
+    // looking at the demo.
+    await useDataRootStore.getState().load()
     const cfg = await ipc.getConfig()
     const claudeCheck = await ipc.checkClaude()
 
@@ -117,9 +139,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  refreshSetup: async () => {
+    if (!get().repoPath || get().isOnboarded) return
+    if (await detectExistingSetup()) {
+      await ipc.setOnboardingComplete(true)
+      await ipc.setTailoringComplete(true)
+      set({ isOnboarded: true, tailoringComplete: true })
+    }
+  },
+
+  startOwnSetup: async () => {
+    set({ onboardingIntent: 'own', forceOnboarding: true })
+    await useDataRootStore.getState().setDemo(false)
+  },
+
+  leaveDemo: async () => {
+    // Should onboarding still be due for the own data, skip the choice
+    // screen: the user just said which data they want.
+    set({ onboardingIntent: 'own' })
+    const res = await useDataRootStore.getState().setDemo(false)
+    if (res.ok) await get().refreshSetup()
+    return res
+  },
+
   setOnboardingComplete: async () => {
     await ipc.setOnboardingComplete(true)
-    set({ isOnboarded: true, tailoringComplete: false })
+    set({ isOnboarded: true, tailoringComplete: false, forceOnboarding: false, onboardingIntent: 'choose' })
   },
 
   setTailoringComplete: async () => {

@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
-import { claudeEvalArgs, refreshCvSummary, top5ReportsPrompt } from '@/lib/evalSpawn'
+import { claudeEvalArgsResolved, refreshCvSummary, top5ReportsPrompt } from '@/lib/evalSpawn'
+import { useWriteGate } from '@/store/dataRoot'
 import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
   Search, FileText, X, ExternalLink, Sparkles, Square,
@@ -80,6 +81,8 @@ export function ReportsView() {
   const killSpawn  = useSpawnsStore(s => s.kill)
   const clearSpawn = useSpawnsStore(s => s.clear)
   const repoPath = useAppStore(s => s.repoPath)
+  // Both runs below write reports: disabled while the demo is shown.
+  const { canWrite, readOnlyTitle } = useWriteGate()
 
   const top5Running = top5Spawn?.status === 'running'
   const positioningRunning = positioningSpawn?.status === 'running'
@@ -197,13 +200,13 @@ export function ReportsView() {
     }
   }, [positioningSpawn?.status])
 
-  const handleGenerateTop5 = () => {
+  const handleGenerateTop5 = async () => {
     if (top5Running) { killSpawn(TOP5_SPAWN_ID); return }
     if (top5Spawn) clearSpawn(TOP5_SPAWN_ID)
     // Fire-and-forget CV-summary refresh — ms-fast; the bundle falls back to
     // user/cv.md when the artifact is missing.
     void refreshCvSummary()
-    startSpawn(TOP5_SPAWN_ID, 'Generate top 5 reports', 'claude', claudeEvalArgs(top5ReportsPrompt(), generateReportModel))
+    startSpawn(TOP5_SPAWN_ID, 'Generate top 5 reports', 'claude', await claudeEvalArgsResolved(top5ReportsPrompt(), generateReportModel))
   }
 
   const handleAnalyzeTrajectory = () => {
@@ -305,11 +308,11 @@ export function ReportsView() {
             tone={top5Running ? 'stop' : 'tinted'}
             size="sm"
             icon={top5Running ? <Square size={11} className="fill-current" /> : <Sparkles size={13} />}
-            onClick={handleGenerateTop5}
-            disabled={!repoPath}
-            title={top5Running
+            onClick={() => void handleGenerateTop5()}
+            disabled={!repoPath || !canWrite}
+            title={readOnlyTitle ?? (top5Running
               ? 'Stop the run (live log on the Activity tab)'
-              : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-Priority (√(Want × Ease)) entries. Uses Claude tokens; live log on the Activity tab.'}
+              : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-Priority (√(Want × Ease)) entries. Uses Claude tokens; live log on the Activity tab.')}
           >
             {top5Running ? 'Stop' : 'Generate top 5 reports'}
           </Button>
@@ -334,10 +337,10 @@ export function ReportsView() {
                 size="sm"
                 icon={positioningRunning ? <Square size={11} className="fill-current" /> : <Sparkles size={13} />}
                 onClick={handleAnalyzeTrajectory}
-                disabled={!repoPath}
-                title={positioningRunning
+                disabled={!repoPath || !canWrite}
+                title={readOnlyTitle ?? (positioningRunning
                   ? 'Stop the run (live log on the Activity tab)'
-                  : 'Run /career-ops positioning across the full corpus. Uses Claude tokens; live log on the Activity tab.'}
+                  : 'Run /career-ops positioning across the full corpus. Uses Claude tokens; live log on the Activity tab.')}
               >
                 {positioningRunning ? 'Stop' : 'Analyze trajectory'}
               </Button>

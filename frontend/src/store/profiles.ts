@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
+import { canWriteNow } from '@/store/dataRoot'
+import { DEMO_READ_ONLY, DEMO_READ_ONLY_TOOLTIP } from '@/lib/dataRoot'
 import {
   isValidProfileSlug, describeProfileFailure,
   type ProfileInfo, type ProfileMutationResult,
@@ -45,6 +47,8 @@ export const useProfilesStore = create<ProfilesState>((set, get) => ({
   },
 
   switchTo: async (slug) => {
+    // The demo has no profiles (main lists none and refuses switch/create).
+    if (!canWriteNow()) return { ok: false, error: DEMO_READ_ONLY, message: DEMO_READ_ONLY_TOOLTIP }
     if (get().switching) {
       return { ok: false, error: 'busy', message: 'a switch is already running' }
     }
@@ -70,6 +74,7 @@ export const useProfilesStore = create<ProfilesState>((set, get) => ({
   },
 
   createProfile: async (opts) => {
+    if (!canWriteNow()) return { ok: false, error: DEMO_READ_ONLY, message: DEMO_READ_ONLY_TOOLTIP }
     if (!isValidProfileSlug(opts.slug)) {
       return { ok: false, error: 'invalid-slug', message: `invalid slug '${opts.slug}'` }
     }

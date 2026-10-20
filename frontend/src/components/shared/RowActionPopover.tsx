@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
+import { useWriteGate } from '@/store/dataRoot'
 import { livenessOf } from '@/lib/databaseRows'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
@@ -33,6 +34,9 @@ interface Props {
 
 export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props) {
   const ref = useRef<HTMLDivElement>(null)
+  // Demo mode: reading (view report, open listing) stays; every action that
+  // spawns work or writes a tracker is shown disabled with the reason.
+  const { canWrite, readOnlyTitle } = useWriteGate()
 
   useEffect(() => {
     const onDocMouseDown = (e: MouseEvent) => {
@@ -139,13 +143,15 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
             (b) no report already exists. Once a report is on disk, the
             "View full report" item above covers it; re-running would
             just rewrite the same file. */}
-        {!hasReport && liveness === 'active' && (
+        {!hasReport && liveness === 'active' && (canWrite ? (
           <Item
             icon={FileOutput}
             label="Generate report"
             onClick={() => { spawnReport(entry); onClose() }}
           />
-        )}
+        ) : (
+          <ItemDisabled icon={FileOutput} label="Generate report" tooltip={readOnlyTitle ?? ''} note="Read-only" />
+        ))}
         {!hasReport && liveness !== 'active' && (
           <ItemDisabled
             icon={FileOutput}
@@ -153,30 +159,41 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
             tooltip="Listing expired — report not available"
           />
         )}
-        <Item
-          icon={Sparkles}
-          label="Tailor CV"
-          onClick={() => { spawnPerListing('Tailor CV', 'modes/pdf.md', entry, 'tailorCv'); onClose() }}
-        />
-        <Item
-          icon={GraduationCap}
-          label="Prep application"
-          onClick={() => { spawnPerListing('Prep Application', 'modes/interview-prep.md', entry, 'interviewPrep'); onClose() }}
-        />
-        <div className="my-1 mx-1 border-t border-border-default" />
-        <Item
-          icon={X}
-          label="Mark not interested"
-          tone="muted"
-          onClick={async () => {
-            // Tombstone the listing so it disappears from Database/Scouting
-            // views. If it already exists in applications.md (post-apply),
-            // discardListing also flips that row's status to SKIP so the
-            // application record stays — see store/data.ts.
-            await useDataStore.getState().discardListing(entry.company, entry.role)
-            onClose()
-          }}
-        />
+        {canWrite ? (
+          <>
+            <Item
+              icon={Sparkles}
+              label="Tailor CV"
+              onClick={() => { spawnPerListing('Tailor CV', 'modes/pdf.md', entry, 'tailorCv'); onClose() }}
+            />
+            <Item
+              icon={GraduationCap}
+              label="Prep application"
+              onClick={() => { spawnPerListing('Prep Application', 'modes/interview-prep.md', entry, 'interviewPrep'); onClose() }}
+            />
+            <div className="my-1 mx-1 border-t border-border-default" />
+            <Item
+              icon={X}
+              label="Mark not interested"
+              tone="muted"
+              onClick={async () => {
+                // Tombstone the listing so it disappears from Database/Scouting
+                // views. If it already exists in applications.md (post-apply),
+                // discardListing also flips that row's status to SKIP so the
+                // application record stays — see store/data.ts.
+                await useDataStore.getState().discardListing(entry.company, entry.role)
+                onClose()
+              }}
+            />
+          </>
+        ) : (
+          <>
+            <ItemDisabled icon={Sparkles} label="Tailor CV" tooltip={readOnlyTitle ?? ''} note="Read-only" />
+            <ItemDisabled icon={GraduationCap} label="Prep application" tooltip={readOnlyTitle ?? ''} note="Read-only" />
+            <div className="my-1 mx-1 border-t border-border-default" />
+            <ItemDisabled icon={X} label="Mark not interested" tooltip={readOnlyTitle ?? ''} note="Read-only" />
+          </>
+        )}
       </div>
     </div>
   )
@@ -213,11 +230,13 @@ function Item({
 }
 
 function ItemDisabled({
-  icon: Icon, label, tooltip,
+  icon: Icon, label, tooltip, note = 'Listing expired',
 }: {
   icon: React.ElementType
   label: string
   tooltip: string
+  /** Right-aligned reason; defaults to the expired-listing case. */
+  note?: string
 }) {
   return (
     <div
@@ -227,7 +246,7 @@ function ItemDisabled({
     >
       <Icon size={14} className="shrink-0 text-text-4" aria-hidden />
       <span className="truncate">{label}</span>
-      <span className="ml-auto text-label text-text-4 shrink-0">Listing expired</span>
+      <span className="ml-auto text-label text-text-4 shrink-0">{note}</span>
     </div>
   )
 }

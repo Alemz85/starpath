@@ -4,6 +4,7 @@ import { upsertApplicationRow, updateApplicationStatus } from '@/lib/application
 import { livenessKey, parseDiscarded, deriveLiveness, countScansThisMonth } from '@/lib/scanHistory'
 import { normalizeEligibility, normalizeVerdict } from '@/lib/scoreBands'
 import { normalizeTier } from '@/lib/tierLevers'
+import { canWriteNow } from './dataRoot'
 import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus } from '@/types'
 
 interface DataState {
@@ -86,7 +87,11 @@ export const useDataStore = create<DataState>((set) => ({
     return refreshInFlight
   },
 
+  // The three writers below are no-ops in demo mode (read-only data): the
+  // controls are disabled there, this is the backstop — main refuses the
+  // write too (demo-read-only).
   promoteToApplication: async ({ company, role, want, ease, tier, reportPath }) => {
+    if (!canWriteNow()) return
     const path = 'data/applications.md'
     const raw = await ipc.readFile(path) ?? ''
     const next = upsertApplicationRow(raw, {
@@ -101,6 +106,7 @@ export const useDataStore = create<DataState>((set) => ({
   },
 
   setApplicationStatus: async (company, role, status) => {
+    if (!canWriteNow()) return
     const path = 'data/applications.md'
     const raw = await ipc.readFile(path) ?? ''
     const next = updateApplicationStatus(raw, company, role, status)
@@ -110,6 +116,7 @@ export const useDataStore = create<DataState>((set) => ({
   },
 
   discardListing: async (company, role) => {
+    if (!canWriteNow()) return
     const tombstonePath = 'data/discarded.tsv'
     const key = livenessKey(company, role)
 

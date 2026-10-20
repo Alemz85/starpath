@@ -6,6 +6,7 @@ import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { Button, StatusChip } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import type { ApplicationEntry } from '@/types'
+import { useWriteGate } from '@/store/dataRoot'
 
 // Closed-out applications (Rejected + Discarded) live OUTSIDE the kanban's
 // five active stages. Without this strip they'd vanish from the board
@@ -53,6 +54,7 @@ export function ClosedApplicationsPanel({
 }
 
 function ClosedRow({ app, onRestore }: { app: ApplicationEntry; onRestore: () => void }) {
+  const { canWrite, readOnlyTitle } = useWriteGate()
   return (
     <div className="group flex items-center gap-2.5 px-2 py-1.5 rounded hover:bg-bg-elevated transition-colors duration-150">
       <CompanyLogo company={app.company} size={20} className="shrink-0" />
@@ -65,7 +67,8 @@ function ClosedRow({ app, onRestore }: { app: ApplicationEntry; onRestore: () =>
         tone="ghost"
         size="xs"
         onClick={onRestore}
-        title="Restore to the board — sets the status back to Evaluated"
+        disabled={!canWrite}
+        title={readOnlyTitle ?? 'Restore to the board — sets the status back to Evaluated'}
         icon={<RotateCcw size={12} />}
         className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
       >

@@ -8,6 +8,7 @@ import { ipc } from '@/lib/ipc'
 import { cn, deadlineLabel, deadlineUrgency, urgencyBadge } from '@/lib/utils'
 import { STATUS_GROUPS, groupByStatus, nextStage } from '@/lib/applyingBoard'
 import type { AppStatus, ApplicationEntry } from '@/types'
+import { useWriteGate } from '@/store/dataRoot'
 
 // The status board is the Pipeline view's second half: a compact, columnar read
 // of where every active application stands (Evaluated → Offer). It deliberately
@@ -115,6 +116,7 @@ function BoardCard({
   onAdvance: (app: ApplicationEntry, to: AppStatus) => void
 }) {
   const advanceTo = nextStage(card.status)
+  const { canWrite, readOnlyTitle } = useWriteGate()
   const dl = deadlineLabel(card.deadline)
   const urgency = deadlineUrgency(card.deadline)
   const badge = urgencyBadge(urgency)
@@ -153,7 +155,8 @@ function BoardCard({
             tone="ghost"
             size="xs"
             onClick={() => onAdvance(card, advanceTo)}
-            title={`Advance to ${advanceTo}`}
+            disabled={!canWrite}
+            title={readOnlyTitle ?? `Advance to ${advanceTo}`}
             trailing={<ArrowRight size={12} />}
             className="-mr-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
           >

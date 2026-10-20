@@ -8,13 +8,15 @@ import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
 import { useConfigDirty, type ConfigTab } from '@/store/configDirty'
 import { useProfilesStore } from '@/store/profiles'
+import { useDataRootStore, useWriteGate } from '@/store/dataRoot'
+import { dataKindLabel, demoToggleState, isDemo } from '@/lib/dataRoot'
 import { ProfileEditPanel } from '@/components/profile/ProfileEditPanel'
 import { ViewTabs, viewTabId, viewPanelId } from '@/components/shared/ViewTabs'
 import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
 import { ThemePicker } from '@/components/settings/ThemePicker'
 import { ipc } from '@/lib/ipc'
 import { slugValidationHint, formatProfileCounts, profileInitial, describeProfileFailure } from '@/lib/profiles'
-import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2, Star } from 'lucide-react'
+import { FolderOpen, Check, RefreshCw, Sparkles, X, Plus, ChevronRight, Search, Trash2, Star, Eye } from 'lucide-react'
 import { Button, Chip, PageHeader } from '@/components/ui'
 import { cn } from '@/lib/utils'
 
@@ -376,9 +378,11 @@ export function SettingsView() {
           className="h-full"
         >
           {tab === 'identity' && (
-            <div className="max-w-[820px] mx-auto w-full px-5 py-5">
-              <ProfileEditPanel />
-            </div>
+            <ConfigScope>
+              <div className="max-w-[820px] mx-auto w-full px-5 py-5">
+                <ProfileEditPanel />
+              </div>
+            </ConfigScope>
           )}
         </div>
         <div
@@ -388,7 +392,7 @@ export function SettingsView() {
           hidden={tab !== 'roles'}
           className="h-full"
         >
-          {tab === 'roles' && <RolesTab />}
+          {tab === 'roles' && <ConfigScope><RolesTab /></ConfigScope>}
         </div>
         <div
           role="tabpanel"
@@ -397,7 +401,7 @@ export function SettingsView() {
           hidden={tab !== 'portals'}
           className="h-full"
         >
-          {tab === 'portals' && <PortalsTab />}
+          {tab === 'portals' && <ConfigScope><PortalsTab /></ConfigScope>}
         </div>
       </div>
 
@@ -425,6 +429,7 @@ function GeneralTab() {
   const setFeature = useAppStore(s => s.setFeature)
   const resetTailoring = useAppStore(s => s.resetTailoring)
   const refresh = useDataStore(s => s.refresh)
+  const { canWrite, readOnlyTitle } = useWriteGate()
   const [refreshDone, setRefreshDone] = useState(false)
   const [retuneDone, setRetuneDone] = useState(false)
 
@@ -536,7 +541,11 @@ function GeneralTab() {
         </div>
       </SettingRow>
 
-      <SettingRow title="Data" description="Reload all data files from disk if they were modified outside the app.">
+      <SettingRow
+        title="Data"
+        description="Where your personal files are read from. Show the demo to walk someone through the app without revealing your own search; reload if files changed outside the app."
+      >
+        <DataRootControls />
         {/* Shift-click forces a full SQLite resync from the markdown/TSV
             sources — useful when debugging cache divergence. Plain click
             just re-reads from the DB (the watcher keeps it current). */}
@@ -557,6 +566,8 @@ function GeneralTab() {
           tone="secondary"
           size="sm"
           onClick={handleRetune}
+          disabled={!canWrite}
+          title={readOnlyTitle}
           icon={retuneDone ? <Check size={13} aria-hidden="true" /> : <Sparkles size={13} aria-hidden="true" />}
           className="mt-3"
         >
@@ -564,6 +575,76 @@ function GeneralTab() {
         </Button>
       </SettingRow>
     </div>
+  )
+}
+
+// ─── Data root ────────────────────────────────────────────────────────────────
+//
+// Settings › General › Data: where personal files are served from right now
+// (private/, the demo, an external folder) and the "Show demo data" switch.
+// On = config dataPath 'demo' (read-only, fictional); Off = back to own data,
+// only when there is some (a private root, or an un-migrated checkout).
+
+function DataRootControls() {
+  const info = useDataRootStore(s => s.info)
+  const busy = useDataRootStore(s => s.busy)
+  const setDemo = useDataRootStore(s => s.setDemo)
+  const leaveDemo = useAppStore(s => s.leaveDemo)
+  const [failure, setFailure] = useState<string | null>(null)
+  if (!info) return null
+  const toggle = demoToggleState(info)
+  const shownPath = info.kind === 'none' ? info.repoPath : info.root
+
+  const change = async (on: boolean) => {
+    if (on === toggle.checked) return
+    setFailure(null)
+    const res = on ? await setDemo(true) : await leaveDemo()
+    if (!res.ok) setFailure(res.message ?? 'Could not switch')
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="flex items-center gap-2">
+        <div
+          className="flex-1 min-w-0 h-7 leading-7 px-2.5 rounded border border-border-default bg-bg-elevated text-label truncate"
+          aria-label="Current data folder"
+          title={shownPath ?? undefined}
+        >
+          <span className={shownPath ? 'font-mono text-text-2' : 'text-text-4'}>{shownPath ?? 'Not set'}</span>
+        </div>
+        <Chip tone={info.kind === 'demo' ? 'warning' : 'neutral'} size="md" className="shrink-0">
+          {dataKindLabel(info.kind)}
+        </Chip>
+      </div>
+      <FeatureToggle
+        label="Show demo data"
+        sub={toggle.hint ?? 'A fictional search, read-only. Turn it on to show the app to someone without revealing your data; your own files stay untouched.'}
+        value={toggle.checked}
+        onChange={(on) => void change(on)}
+        disabled={toggle.disabled || busy}
+        title={toggle.hint}
+      />
+      {failure && <p className="text-label text-danger" role="alert">{failure}</p>}
+    </div>
+  )
+}
+
+// Wraps a configuration tab (Identity / Target roles / Portals). In demo mode
+// every control inside is disabled at once (a disabled fieldset) under a
+// one-line notice; otherwise it renders its children untouched.
+function ConfigScope({ children }: { children: React.ReactNode }) {
+  const { canWrite, readOnlyTitle } = useWriteGate()
+  if (canWrite) return <>{children}</>
+  return (
+    <>
+      <div className="mx-5 mt-5 flex items-center gap-2 px-3 h-9 rounded border border-warning/30 bg-warning/15 text-label text-warning-text" role="status">
+        <Eye size={14} className="shrink-0" aria-hidden />
+        <span className="min-w-0 truncate">{readOnlyTitle}. Turn off Show demo data in General to edit your own configuration.</span>
+      </div>
+      <fieldset disabled title={readOnlyTitle} className="min-w-0">
+        {children}
+      </fieldset>
+    </>
   )
 }
 
@@ -592,6 +673,7 @@ function ProfilesSection() {
   const [createFailure, setCreateFailure] = useState<string[]>([])
 
   useEffect(() => { void load() }, [load])
+  const demo = useDataRootStore(s => isDemo(s.info))
 
   const trimmedSlug = slug.trim()
   const hint = slugValidationHint(trimmedSlug)
@@ -618,6 +700,8 @@ function ProfilesSection() {
   }
 
   if (!loaded) return null
+  // The demo has no profiles; the CLI hint below would only confuse.
+  if (demo) return null
 
   return (
     <SettingRow
@@ -1804,11 +1888,14 @@ function LoadingRows() {
 
 // On/Off pair for a deactivatable feature — same row anatomy and segmented
 // control as ModelChoice so the General tab reads as one system.
-function FeatureToggle({ label, sub, value, onChange }: {
+function FeatureToggle({ label, sub, value, onChange, disabled = false, title }: {
   label: string
   sub: string
   value: boolean
   onChange: (enabled: boolean) => void
+  disabled?: boolean
+  /** Why the switch is disabled (tooltip). */
+  title?: string
 }) {
   const descId = useId()
   const options: Array<{ id: boolean; name: string }> = [
@@ -1826,12 +1913,14 @@ function FeatureToggle({ label, sub, value, onChange }: {
         role="group"
         aria-label={label}
         aria-describedby={descId}
+        title={title}
       >
         {options.map(opt => (
           <button
             key={String(opt.id)}
             type="button"
             onClick={() => onChange(opt.id)}
+            disabled={disabled}
             aria-pressed={value === opt.id}
             className={cn(
               'btn btn-xs rounded-none focus-visible:ring-inset',

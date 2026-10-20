@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useDataStore } from '@/store/data'
+import { useWriteGate } from '@/store/dataRoot'
 import { ChevronDown, Check, Plus, Loader2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { Button } from '@/components/ui'
@@ -24,6 +25,7 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
   const applications = useDataStore(s => s.applications)
   const promote = useDataStore(s => s.promoteToApplication)
   const setStatus = useDataStore(s => s.setApplicationStatus)
+  const { canWrite, readOnlyTitle } = useWriteGate()
   const [busy, setBusy] = useState(false)
 
   const existing = findApplication(applications, company, role)
@@ -52,6 +54,8 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
         icon={<Plus size={13} aria-hidden />}
         loading={busy}
         onClick={handleApply}
+        disabled={!canWrite}
+        title={readOnlyTitle}
       >
         Apply
       </Button>
@@ -62,6 +66,7 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
     <StatusDropdown
       current={existing.status}
       busy={busy}
+      readOnlyTitle={readOnlyTitle}
       onChange={async (next) => {
         if (busy || next === existing.status) return
         setBusy(true)
@@ -74,12 +79,14 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
 }
 
 function StatusDropdown({
-  current, busy, onChange, size,
+  current, busy, onChange, size, readOnlyTitle,
 }: {
   current: AppStatus
   busy: boolean
   onChange: (s: AppStatus) => void
   size: 'sm' | 'md'
+  /** Set in demo mode: the dropdown shows the status but can't change it. */
+  readOnlyTitle?: string
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -103,7 +110,8 @@ function StatusDropdown({
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        disabled={busy}
+        disabled={busy || !!readOnlyTitle}
+        title={readOnlyTitle}
         className={clsx('btn btn-secondary titlebar-no-drag', size === 'sm' && 'btn-sm')}
       >
         {busy

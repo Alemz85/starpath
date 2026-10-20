@@ -11,6 +11,7 @@ import {
   type InboxItem, type InboxReason,
 } from '@/lib/pipelineInbox'
 import { type SpawnRecord } from '@/store/spawns'
+import { useWriteGate } from '@/store/dataRoot'
 import type { PipelineUrl, ApplicationEntry, ScoutingEntry } from '@/types'
 
 // The Inbox is the Pipeline view's triage queue: every pending job URL in
@@ -107,6 +108,7 @@ function InboxRow({
   onEvaluate: () => void
 }) {
   const chip = REASON_CHIP[item.reason]
+  const { canWrite, readOnlyTitle } = useWriteGate()
   const running = spawn?.status === 'running'
   const done = spawn?.status === 'done'
   const invalid = item.reason === 'invalid'
@@ -157,8 +159,8 @@ function InboxRow({
             tone="tinted"
             size="xs"
             onClick={onEvaluate}
-            disabled={running}
-            title={running ? 'Evaluation running…' : done ? 'Re-evaluate this listing' : 'Score this listing through the scouting pipeline'}
+            disabled={running || !canWrite}
+            title={readOnlyTitle ?? (running ? 'Evaluation running…' : done ? 'Re-evaluate this listing' : 'Score this listing through the scouting pipeline')}
             icon={running
               ? <Loader2 size={12} className="animate-spin" />
               : done ? <RotateCcw size={12} /> : <Sparkles size={12} />}

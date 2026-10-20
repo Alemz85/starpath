@@ -5,6 +5,7 @@ import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
+import { useWriteGate } from '@/store/dataRoot'
 import { ipc } from '@/lib/ipc'
 import {
   Briefcase, AlertTriangle, Plus, FileText, Sparkles, GraduationCap, X, ArrowRight, ArrowUpRight, Bell, Loader2,
@@ -364,9 +365,10 @@ function InboxPanel({ repoPath }: { repoPath: string | null }) {
   const refresh = useDataStore(s => s.refresh)
   const [newUrl, setNewUrl] = useState('')
   const [adding, setAdding] = useState(false)
+  const { canWrite, readOnlyTitle } = useWriteGate()
 
   const addUrl = async () => {
-    if (!newUrl.trim() || !repoPath) return
+    if (!newUrl.trim() || !repoPath || !canWrite) return
     setAdding(true)
     try {
       const path = 'data/pipeline.md'
@@ -399,13 +401,16 @@ function InboxPanel({ repoPath }: { repoPath: string | null }) {
             onChange={e => setNewUrl(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addUrl()}
             placeholder="Paste job URL…"
+            disabled={!canWrite}
+            title={readOnlyTitle}
             className="input input-sm max-w-sm min-w-0"
           />
           <Button
             tone="tinted"
             size="sm"
             onClick={addUrl}
-            disabled={!newUrl.trim() || adding}
+            disabled={!newUrl.trim() || adding || !canWrite}
+            title={readOnlyTitle}
             icon={<Plus size={13} />}
             className="shrink-0"
           >
@@ -570,6 +575,9 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
 }) {
   const urgency = deadlineUrgency(app.deadline)
   const badge = urgencyBadge(urgency)
+  // Demo mode: the card reads normally, but every action that writes or
+  // spawns (status moves, remove, tailor/draft/prep) is disabled.
+  const { canWrite, readOnlyTitle } = useWriteGate()
 
   // Fused attention verdict (deadline clock + follow-up cadence). Drives the
   // card's border hue and the follow-up nudge chip. Memoised so the per-frame
@@ -614,7 +622,7 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
 
   return (
     <div
-      draggable
+      draggable={canWrite}
       onDragStart={(e) => {
         // Native drag needs *some* dataTransfer payload to fire drop events
         // reliably across platforms — Electron on macOS otherwise silently
@@ -642,7 +650,8 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
         iconOnly
         onClick={(e) => { e.stopPropagation(); onRemove() }}
         onPointerDown={(e) => e.stopPropagation()}
-        title="Remove from applying batch"
+        disabled={!canWrite}
+        title={readOnlyTitle ?? 'Remove from applying batch'}
         aria-label="Remove from applying batch"
         icon={<X size={12} />}
         className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-danger"
@@ -683,12 +692,12 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
           one click. Tone tracks the pressure (danger = urgent close/overdue,
           tinted = the natural next step). The icon row below keeps every
           action reachable. */}
-      <NextStepButton step={step} running={stepRunning} onClick={runStep} />
+      <NextStepButton step={step} running={stepRunning} onClick={runStep} readOnlyTitle={step.kind === 'review' ? undefined : readOnlyTitle} />
 
       <div className="flex items-center gap-0.5 mt-1.5 -mb-0.5 h-6">
-        <CardAction label="Tailor CV" icon={<Sparkles size={12} />}      running={tailorRunning} onClick={onTailorCV} active={step.kind === 'tailor-cv'} />
-        <CardAction label="Draft application" icon={<FileText size={12} />}  running={draftRunning}  onClick={onDraftApp} active={step.kind === 'draft'} />
-        <CardAction label="Prep application"  icon={<GraduationCap size={12} />} running={prepRunning} onClick={onPrepInt}  active={step.kind === 'prep'} />
+        <CardAction label="Tailor CV" icon={<Sparkles size={12} />}      running={tailorRunning} onClick={onTailorCV} active={step.kind === 'tailor-cv'} readOnlyTitle={readOnlyTitle} />
+        <CardAction label="Draft application" icon={<FileText size={12} />}  running={draftRunning}  onClick={onDraftApp} active={step.kind === 'draft'} readOnlyTitle={readOnlyTitle} />
+        <CardAction label="Prep application"  icon={<GraduationCap size={12} />} running={prepRunning} onClick={onPrepInt}  active={step.kind === 'prep'} readOnlyTitle={readOnlyTitle} />
         <Button
           tone="ghost"
           size="xs"
@@ -737,7 +746,7 @@ function StageProgressStrip({ cleared, total, status }: { cleared: number; total
 // Full-width so the eye lands on it first; danger when the step is urgent,
 // tinted otherwise. An 'advance' step shows a ↗ to signal it bumps the stage;
 // a launch step that's already in flight shows the stop tone.
-function NextStepButton({ step, running, onClick }: { step: NextStep; running: boolean; onClick: () => void }) {
+function NextStepButton({ step, running, onClick, readOnlyTitle }: { step: NextStep; running: boolean; onClick: () => void; readOnlyTitle?: string }) {
   const tone = running ? 'stop' : step.tone === 'urgent' ? 'danger' : 'tinted'
   return (
     <Button
@@ -745,7 +754,8 @@ function NextStepButton({ step, running, onClick }: { step: NextStep; running: b
       size="sm"
       onClick={(e) => { e.stopPropagation(); onClick() }}
       onPointerDown={(e) => e.stopPropagation()}
-      title={step.reason || step.label}
+      disabled={!!readOnlyTitle}
+      title={readOnlyTitle ?? (step.reason || step.label)}
       aria-label={step.reason || step.label}
       trailing={!running && step.kind === 'advance' ? <ArrowUpRight size={12} className="shrink-0" /> : undefined}
       className="w-full mt-2"
@@ -782,7 +792,7 @@ function FollowUpChip({ state }: { state: FollowUpState }) {
 // the spawn). When this action is already the recommended next step (shown
 // above as the full-width button), the icon takes the accent text colour to
 // mark it as "that one" without competing for the eye.
-function CardAction({ label, icon, running, onClick, active = false }: { label: string; icon: ReactNode; running: boolean; onClick: () => void; active?: boolean }) {
+function CardAction({ label, icon, running, onClick, active = false, readOnlyTitle }: { label: string; icon: ReactNode; running: boolean; onClick: () => void; active?: boolean; readOnlyTitle?: string }) {
   return (
     <Button
       tone={running ? 'stop' : 'ghost'}
@@ -790,7 +800,8 @@ function CardAction({ label, icon, running, onClick, active = false }: { label: 
       iconOnly
       onClick={(e) => { e.stopPropagation(); onClick() }}
       onPointerDown={(e) => e.stopPropagation()}
-      title={running ? `Stop: ${label}` : label}
+      disabled={!!readOnlyTitle}
+      title={readOnlyTitle ? `${label}: ${readOnlyTitle}` : running ? `Stop: ${label}` : label}
       aria-label={running ? `Stop: ${label}` : label}
       icon={running ? <Loader2 size={12} className="animate-spin" /> : icon}
       className={cn(!running && active && 'text-accent-text')}

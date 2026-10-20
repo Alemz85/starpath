@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
+import { useWriteGate } from '@/store/dataRoot'
 import { useNavStore } from '@/store/nav'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ViewTabs, viewPanelId, viewTabId, type ViewTab } from '@/components/shared/ViewTabs'
@@ -69,6 +70,8 @@ export function OutreachView() {
   const [composing, setComposing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [tab, setTab] = useState<OutreachTab>('board')
+  // Demo mode: the log reads normally, every writeback is disabled.
+  const { canWrite, readOnlyTitle } = useWriteGate()
 
   // Honor one-shot sub-tab requests from navigate('outreach', '', '', 'network')
   // — nav.ts resets viewTab on the next payload-less navigate, so this only
@@ -177,7 +180,8 @@ export function OutreachView() {
             size="sm"
             icon={<Plus size={13} aria-hidden />}
             onClick={() => setComposing(true)}
-            disabled={showSkeleton || busy}
+            disabled={showSkeleton || busy || !canWrite}
+            title={readOnlyTitle}
             aria-label="Log a new outreach touch"
           >
             Log a touch
@@ -220,14 +224,15 @@ export function OutreachView() {
                 {[0, 1, 2].map(i => <div key={i} className="h-16 shimmer rounded-lg" />)}
               </div>
             ) : sorted.length === 0 ? (
-              <EmptyState onLog={() => setComposing(true)} />
+              <EmptyState onLog={() => setComposing(true)} readOnlyTitle={readOnlyTitle} />
             ) : (
               <div className="space-y-2 max-w-3xl" role="list">
                 {sorted.map(c => (
                   <ContactRow
                     key={`${c.company}|${c.contact}`.toLowerCase()}
                     contact={c}
-                    busy={busy}
+                    busy={busy || !canWrite}
+                    readOnlyTitle={readOnlyTitle}
                     onNudge={() => nudgeAgain(c)}
                     onOutcome={(o) => setOutcome(c, o)}
                   />
@@ -262,10 +267,11 @@ export function OutreachView() {
 // ─── Contact row ──────────────────────────────────────────────────────────────
 
 function ContactRow({
-  contact, busy, onNudge, onOutcome,
+  contact, busy, readOnlyTitle, onNudge, onOutcome,
 }: {
   contact: OutreachContact
   busy: boolean
+  readOnlyTitle?: string
   onNudge: () => void
   onOutcome: (outcome: string) => void
 }) {
@@ -332,6 +338,7 @@ function ContactRow({
             icon={<Reply size={14} aria-hidden />}
             onClick={() => onOutcome('Replied')}
             disabled={busy}
+            title={readOnlyTitle}
             aria-label={`Mark ${contact.contact} as replied`}
             className="hover:text-success"
           />
@@ -345,6 +352,7 @@ function ContactRow({
             icon={<MessageSquarePlus size={13} aria-hidden />}
             onClick={onNudge}
             disabled={busy}
+            title={readOnlyTitle}
             aria-label={`${nudgeLabel} ${contact.contact} at ${contact.company}`}
           >
             {nudgeLabel}
@@ -356,6 +364,7 @@ function ContactRow({
             trailing={<ArrowRight size={12} aria-hidden />}
             onClick={() => onOutcome('Pending')}
             disabled={busy}
+            title={readOnlyTitle}
             aria-label={`Reopen outreach thread with ${contact.contact} at ${contact.company}`}
           >
             Reopen
@@ -562,7 +571,7 @@ function Field({
 
 // ─── Empty state ──────────────────────────────────────────────────────────────
 
-function EmptyState({ onLog }: { onLog: () => void }) {
+function EmptyState({ onLog, readOnlyTitle }: { onLog: () => void; readOnlyTitle?: string }) {
   return (
     <div className="h-full flex items-center justify-center">
       <div className="max-w-sm text-center px-6 py-8 flex flex-col items-center">
@@ -578,6 +587,8 @@ function EmptyState({ onLog }: { onLog: () => void }) {
           size="sm"
           icon={<Plus size={13} aria-hidden />}
           onClick={onLog}
+          disabled={!!readOnlyTitle}
+          title={readOnlyTitle}
           aria-label="Log your first outreach touch"
           className="mt-4"
         >
