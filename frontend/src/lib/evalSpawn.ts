@@ -119,9 +119,18 @@ function preamble(batchId: string, today: string): string {
   return (
     'Run the scouting-evaluation pipeline defined in the system prompt (the compact eval bundle). ' +
     `Its placeholders are unresolved in this desktop path — use these values: Date: ${today}. Batch ID: ${batchId}. ` +
-    'No pre-fetched JD file exists; fetch each JD from its URL (Playwright if available, else WebFetch). '
+    'No pre-fetched JD file exists; fetch each JD from its URL (Playwright if available, else WebFetch). ' +
+    RESERVE_NUM
   )
 }
+
+// Row numbers are claimed, never read off the tracker: two evaluations
+// running at once would otherwise pick the same next number. The claim is an
+// O_EXCL sentinel (scripts/reserve-report-num.mjs); merge-scouting keeps a
+// reserved number and releases it once merged.
+const RESERVE_NUM =
+  'Before writing each listing’s scouting TSV, run `node scripts/reserve-report-num.mjs` and use the number it ' +
+  'prints as that listing’s {num} (in the TSV, its file name and its report link); never derive {num} from data/scouting.md. '
 
 // Compact restatement of modes/pipeline.md § Step 2c (relevance gate) +
 // § Step 2c.1 (multi-variant collapse), so inbox/batch triage doesn't need to

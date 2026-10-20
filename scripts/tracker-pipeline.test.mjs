@@ -11,7 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -376,7 +376,71 @@ test('parse-batch-result: prints Priority + verdict; a blocked listing prints "-
 });
 
 test('sanity: the scripts under test exist', () => {
-  for (const f of ['merge-scouting', 'promote-to-applications', 'merge-tracker', 'dedup-tracker', 'verify-pipeline', 'parse-batch-result']) {
+  for (const f of ['merge-scouting', 'promote-to-applications', 'merge-tracker', 'dedup-tracker', 'verify-pipeline', 'parse-batch-result', 'set-status', 'reserve-report-num']) {
     assert.ok(existsSync(join(SCRIPTS, `${f}.mjs`)), f);
   }
+});
+
+/* ───── write safety: reserved numbers, origin rows, profile links ── */
+
+function linkProfile(root) {
+  // Move the trackers into a profile and link them back, as with profiles.
+  mkdirSync(join(root, 'profiles/main/data'), { recursive: true });
+  for (const f of ['scouting.md', 'applications.md']) {
+    writeFileSync(join(root, 'profiles/main/data', f), read(root, `data/${f}`));
+    rmSync(join(root, 'data', f));
+    symlinkSync(`../profiles/main/data/${f}`, join(root, 'data', f));
+  }
+}
+
+test('merge-scouting: a reserved number merged after a higher one keeps its number; links stay links', () => {
+  const root = makeRoot();
+  try {
+    linkProfile(root);
+    const env = { ...process.env, CAREER_OPS_ROOT: root };
+    const claim = () => JSON.parse(spawnSync('node', [join(SCRIPTS, 'reserve-report-num.mjs'), '--json'], { env, encoding: 'utf-8' }).stdout).num;
+    const early = claim();
+    const late = claim();
+    assert.deepEqual([early, late], [1, 2]);
+    // the later evaluation finishes and merges first
+    addScouting(root, `${late}-fab.tsv`, String(late), ...STRETCH.slice(1));
+    assert.equal(run('merge-scouting.mjs', [], root).code, 0);
+    addScouting(root, `${early}-nimbus.tsv`, String(early), ...GO.slice(1));
+    const { code, out } = run('merge-scouting.mjs', [], root);
+    assert.equal(code, 0, out);
+    const nums = Object.fromEntries(scoutingRows(root).map((r) => [r.company, r.num]));
+    assert.deepEqual(nums, { 'Nimbus Robotics': early, 'Fabrikam Energy': late });
+    assert.ok(lstatSync(join(root, 'data/scouting.md')).isSymbolicLink(), 'scouting.md is still a link');
+    assert.equal(readdirSync(join(root, 'profiles/main/data/.reserved-nums/scouting')).length, 0, 'merged numbers released');
+    assert.ok(!existsSync(join(root, 'profiles/main/data/.scouting.md.lock')), 'lock released');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('merge-scouting: an unreserved stale number is still renumbered past the max', () => {
+  const root = makeRoot();
+  try {
+    addScouting(root, '005-nimbus.tsv', '5', ...GO.slice(1));
+    assert.equal(run('merge-scouting.mjs', [], root).code, 0);
+    addScouting(root, '003-fab.tsv', '3', ...STRETCH.slice(1));
+    assert.equal(run('merge-scouting.mjs', [], root).code, 0);
+    assert.equal(scoutingRows(root).find((r) => r.company === 'Fabrikam Energy').num, 6);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('merge-tracker: new rows get an origin row in the status log; applications.md stays a link', () => {
+  const root = makeRoot();
+  try {
+    linkProfile(root);
+    addTracker(root, '7-nimbus.tsv', '7', '2026-06-22', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'W8.5 E7.5', '❌', 'n/d', '[#7](reports/tier-1/N.md)', 'fresh');
+    const { code, out } = run('merge-tracker.mjs', [], root);
+    assert.equal(code, 0, out);
+    assert.ok(lstatSync(join(root, 'data/applications.md')).isSymbolicLink());
+    const log = readFileSync(join(root, 'profiles/main/data/status-log.tsv'), 'utf-8').trim().split('\n');
+    assert.equal(log[0].split('\t')[0], 'num');
+    const [num, date, company, , from, to, , source] = log[1].split('\t');
+    assert.deepEqual([num, date, company, from, to, source], ['7', '2026-06-22', 'Nimbus Robotics', '', 'Evaluated', 'merge-tracker']);
+    // backfill sees the origin row and adds nothing for #7
+    const bf = spawnSync('node', [join(SCRIPTS, 'set-status.mjs'), 'backfill', '--json'], { env: { ...process.env, CAREER_OPS_ROOT: root }, encoding: 'utf-8' });
+    assert.deepEqual(JSON.parse(bf.stdout), []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });

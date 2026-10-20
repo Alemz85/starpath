@@ -85,7 +85,9 @@ All under `scripts/`. `docs/SCRIPTS.md` has usage detail for the older maintenan
 - `check-liveness.mjs` — posting liveness.
 
 **Trackers and health**
-- `merge-tracker.mjs` / `merge-scouting.mjs` — TSV → markdown merge.
+- `merge-tracker.mjs` / `merge-scouting.mjs` — TSV → markdown merge, under the tracker lock with atomic writes (see [Write safety](#write-safety-and-the-status-log)). merge-tracker also logs an origin row per new application in the status log.
+- `set-status.mjs` — **the only way to change an application's status**: validates against `templates/states.yml`, rewrites the row under the lock, appends to the status log. `npm run status -- <num> <status> [--date YYYY-MM-DD] [--stage "…"] [--note "…"]` (or `--company … --role …`); `history [<num>] [--json]`; `backfill [--dry-run]` seeds one origin row per application (idempotent). The app calls the same code over IPC.
+- `reserve-report-num.mjs` — claims a tracker row number before an evaluation runs (O_EXCL sentinel), so concurrent evaluations never share one. Prints the number; `release <num>`, `list`, `gc [--days 7]`; `--tracker scouting|applications` (default scouting) (`npm run reserve-num`).
 - `promote-to-applications.mjs` — T1 scouting → applications.
 - `verify-pipeline.mjs` / `dedup-tracker.mjs` / `normalize-statuses.mjs` — health.
 - `rebuild-dedup-index.mjs` — safety-net rebuild of `data/dedup-index.tsv` from scratch after any out-of-band manual edit to scouting.md or applications.md (no npm alias: `node scripts/rebuild-dedup-index.mjs`).
@@ -156,7 +158,7 @@ The desktop app under `frontend/` is branded **starpath** (the project itself st
 
 **Cross-linking.** Every entity is keyed by `company + role`. Clicking a Database row opens an action popover (View report · Apply · Tailor CV · Prep Application · Open URL · Mark not interested); the Reports slide-over has two tabs (Scouting report / Application prep), greyed out when the file isn't on disk.
 
-**Apply / Status writebacks.** The Apply button (popover and slide-over) and the inline status dropdown write directly to `data/applications.md` from the renderer — appending a row on first Apply, then rewriting the matching row's `Status` cell on each change. `upsertApplicationRow` in `frontend/src/lib/applicationsDoc.ts` refreshes an existing (company, role) row in place instead of appending a duplicate. The chokidar watcher resyncs the cache automatically.
+**Apply / Status writebacks.** The Apply button (popover and slide-over) appends a row on first Apply through `fs:write`, which main runs under the tracker lock; `upsertApplicationRow` in `frontend/src/lib/applicationsDoc.ts` refreshes an existing (company, role) row in place instead of appending a duplicate. **Status changes never rewrite the file from the renderer**: the dropdown, the boards' drag-and-drop, "Not interested" and chat confirm cards call `useDataStore.setApplicationStatus(company, role, status, { date?, stage?, note?, source? })` → `ipc.tracker.setStatus` → main's `tracker:set-status`, which runs `scripts/lib/status-ledger.mjs` (the same code as `set-status.mjs`). It resolves to `{ ok: true, changed, to, date, entries }` or `{ ok: false, error, code }` (`ENOAPP`, `EBADSTATUS`, `EBADDATE`, `EDEMO`, `ELOCKED`…), never a throw. The store keeps the whole log in `statusLog` (oldest first, reloaded with everything else); `ipc.tracker.statusHistory({ num } | { company, role } | {})` reads it directly. The chokidar watcher resyncs the cache automatically.
 
 **Themes.** The app ships switchable colour themes (Settings › General › Appearance; default Blue hour). How it fits together:
 - `frontend/src/app/themes.css` holds every colour value: one `[data-palette="<id>"]` block per theme, each defining the same role tokens (`--c-accent`, `--c-text-3`, `--c-nav-bg` …) as sRGB triplets. The default theme's block also matches `:root`.
@@ -180,6 +182,25 @@ Column order (**status before score** in the TSV): `num`, `date`, `company`, `ro
 In `applications.md` score comes BEFORE status: `scripts/merge-tracker.mjs` swaps the columns and rewrites flat `reports/...md` paths into the right tier subfolder if the writer left the tier off. The canonical TSV form is the tiered path.
 
 Scouting writes 12-column TSVs to `batch/scouting-additions/` instead — see `modes/scouting.md` § Tracker Entry.
+
+**Where `{num}` comes from.** A worker claims it with `node scripts/reserve-report-num.mjs` before writing its TSV; it never reads the tracker's max. The batch runner claims one per listing before spawning the worker (and reuses it on a retry) and passes it as "Report number"; the app's eval prompts (`evalSpawn.ts`) tell the worker to run the script. The merge keeps a TSV's number when no row has it and it is either above the max or reserved (an evaluation that reserved early may merge after a later one), else assigns max + 1; it then releases the merged numbers.
+
+### Write safety and the status log
+
+Nothing edits `data/applications.md` or `data/scouting.md` without the tracker lock.
+
+- **Lock** (`scripts/lib/dir-lock.mjs`): a directory `.<file>.lock` next to the tracker's *real* path (`lockPathFor`), so the app, every checkout and every worktree share one lock per file, per profile. `owner.json` holds `{ pid, token, host, label, at }`; release is by token. A lock is stale when its pid is gone, it is older than 2 minutes, or it has no owner and is older than 5 s; reclaiming happens only while holding `<lock>.recover`, after re-reading the owner. Order when two are needed: scouting.md, then applications.md. `withLock` (async) / `withLockSync` (scripts).
+- **Atomic writes** (`scripts/lib/write-file-atomic.mjs`): resolve the target through file and directory links first (profile links stay links), write a temp file beside the real file, fsync, rename.
+- **Reserved numbers** (`scripts/lib/report-nums.mjs`): sentinels in `.reserved-nums/<tracker>/<num>` beside the real tracker file. The next number is one past the max of the tracker rows, existing sentinels, numbered report files under `reports/` (recursively, through the private link) and `--min`.
+- **Writers**: `merge-tracker.mjs`, `merge-scouting.mjs`, `set-status.mjs`, and the app (main's `fs:write` takes the lock for the two trackers; status changes go through `tracker:set-status`). `promote-to-applications.mjs`, `dedup-tracker.mjs` and `normalize-statuses.mjs` still write without it.
+
+**Status log** (`status-log.tsv` beside the real `applications.md`: `data/status-log.tsv` without profiles, the active profile's `data/` with them). Append-only, header-named columns:
+
+```
+num  date  company  role  from  to  stage  source  note  logged_at
+```
+
+`date` is when the change happened (defaults to today; past dates are fine, the future is refused), `logged_at` when it was written. `from` is empty on an origin row (merge-tracker for new rows, `backfill` for older ones). `stage` is optional free text (where a rejection happened). `source` is `cli` · `app` · `chat` · `merge-tracker` · `backfill`. Read it by header name; history is ordered by `date`, then file order. Code: `scripts/lib/status-ledger.mjs`; the app's readers: `frontend/src/lib/statusLog.ts` (`historyFor`, `rejectionStage`).
 
 ## System layer hygiene
 

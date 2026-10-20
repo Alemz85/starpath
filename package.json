@@ -14,6 +14,8 @@
     "normalize": "node scripts/normalize-statuses.mjs",
     "dedup": "node scripts/dedup-tracker.mjs",
     "merge": "node scripts/merge-tracker.mjs",
+    "status": "node scripts/set-status.mjs",
+    "reserve-num": "node scripts/reserve-report-num.mjs",
     "pdf": "node scripts/generate-pdf.mjs",
     "ats-coverage": "node scripts/ats-coverage.mjs",
     "sync-check": "node scripts/cv-sync-check.mjs",

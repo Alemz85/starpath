@@ -6,9 +6,7 @@ import { ipc } from '@/lib/ipc'
 import { Button, Chip, PageHeader } from '@/components/ui'
 import { useDataStore } from '@/store/data'
 import { useWriteGate } from '@/store/dataRoot'
-import {
-  findApplicationRowIndex, updateApplicationFields, updateApplicationStatus, upsertApplicationRow,
-} from '@/lib/applicationsDoc'
+import { updateApplicationFields, upsertApplicationRow } from '@/lib/applicationsDoc'
 import { applyEnvelope, mergeRuntime } from '@/lib/chat/runtime'
 import { isLivePhase } from '@/lib/chat/types'
 import type {
@@ -16,41 +14,49 @@ import type {
 } from '@/lib/chat/types'
 import { describeProposal, tierForProposal } from '@/lib/chat/proposals'
 import type { ChatProposal } from '@/lib/chat/proposals'
+import type { AppStatus } from '@/types'
 import { ChatSessionRail } from './ChatSessionRail'
 import { ChatTranscript } from './ChatTranscript'
 import { ChatComposer } from './ChatComposer'
 
 const APPLICATIONS_PATH = 'data/applications.md'
 
+/** A status change from a confirm card, through the one status write path
+ *  (`tracker:set-status`: validated, locked, logged with source `chat`). */
+async function setStatusFromChat(company: string, role: string, status: AppStatus): Promise<void> {
+  const result = await ipc.tracker.setStatus({ company, role, status, source: 'chat' })
+  if (!result) throw new Error('Status changes are unavailable here.')
+  if (!result.ok) {
+    // A status move needs a row to move; say so rather than no-op'ing.
+    throw new Error(result.code === 'ENOAPP' ? `${company} — ${role} isn't in your applications yet.` : result.error)
+  }
+}
+
 /**
  * Apply one confirmed proposal to `data/applications.md`.
  *
- * This is deliberately NOT a new write path: it reads the file over the same
- * `fs:read`/`fs:write` IPC the store uses and transforms it with the same
- * `lib/applicationsDoc.ts` mutators behind the Apply button and the status
- * dropdown. So the tracker's invariants — one row per (company, role),
- * refresh-in-place instead of duplicate, the 9→10 column self-heal — hold for a
- * chat confirm exactly as they do for a click in the Database.
+ * This is deliberately NOT a new write path: row content goes through the same
+ * `fs:read`/`fs:write` IPC and `lib/applicationsDoc.ts` mutators as the Apply
+ * button, and the status through the same `tracker:set-status` call as the
+ * status dropdown. So the tracker's invariants — one row per (company, role),
+ * refresh-in-place instead of duplicate, the 9→10 column self-heal, every
+ * status change logged — hold for a chat confirm exactly as they do for a
+ * click in the Database.
  *
  * Returns the line the card shows once applied.
  */
 async function applyProposalToTracker(proposal: ChatProposal): Promise<string> {
-  const raw = await ipc.readFile(APPLICATIONS_PATH) ?? ''
-
   if (proposal.kind === 'status') {
-    // A status move needs a row to move. Saying so beats silently no-op'ing:
-    // updateApplicationStatus returns the document unchanged either way.
-    if (findApplicationRowIndex(raw.split('\n'), proposal.company, proposal.role) === -1) {
-      throw new Error(`${proposal.company} — ${proposal.role} isn't in your applications yet.`)
-    }
-    const next = updateApplicationStatus(raw, proposal.company, proposal.role, proposal.status)
-    if (next !== raw) await ipc.writeFile(APPLICATIONS_PATH, next)
+    await setStatusFromChat(proposal.company, proposal.role, proposal.status)
     return describeProposal(proposal).appliedLabel
   }
 
+  const raw = await ipc.readFile(APPLICATIONS_PATH) ?? ''
+
   // Upsert first (creates the row, or refreshes score/report on an existing
-  // one), then patch the cells upsert doesn't own. Both steps are no-ops when
-  // nothing actually changes, so confirming twice can't duplicate a listing.
+  // one), then patch the cells upsert doesn't own, then move the status. All
+  // three are no-ops when nothing actually changes, so confirming twice can't
+  // duplicate a listing or log a second status change.
   const upserted = upsertApplicationRow(raw, {
     company: proposal.company,
     role: proposal.role,
@@ -59,11 +65,11 @@ async function applyProposalToTracker(proposal: ChatProposal): Promise<string> {
     tier: tierForProposal(proposal),
   })
   const next = updateApplicationFields(upserted, proposal.company, proposal.role, {
-    status: proposal.status,
     deadline: proposal.deadline,
     notes: proposal.notes,
   })
   if (next !== raw) await ipc.writeFile(APPLICATIONS_PATH, next)
+  if (proposal.status) await setStatusFromChat(proposal.company, proposal.role, proposal.status)
   return describeProposal(proposal).appliedLabel
 }
 

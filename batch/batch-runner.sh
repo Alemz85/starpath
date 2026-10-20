@@ -272,33 +272,54 @@ get_retries() {
   echo "${retries:-0}"
 }
 
-# Calculate next report number.
+# Highest report number already recorded in the state file (0 if none).
 # Caller must hold STATE_LOCK_DIR while this runs.
-next_report_num_unlocked() {
+max_state_report_num_unlocked() {
   local max_num=0
-  if [[ -d "$REPORTS_DIR" ]]; then
-    for f in "$REPORTS_DIR"/*.md; do
-      [[ -f "$f" ]] || continue
-      local basename
-      basename=$(basename "$f")
-      local num="${basename%%-*}"
-      num=$((10#$num)) # Remove leading zeros for arithmetic
-      if (( num > max_num )); then
-        max_num=$num
-      fi
-    done
-  fi
-  # Also check state file for assigned report numbers
   if [[ -f "$STATE_FILE" ]]; then
     while IFS=$'\t' read -r _ _ _ _ _ rnum _ _ _; do
-      [[ "$rnum" == "report_num" || "$rnum" == "-" || -z "$rnum" ]] && continue
+      [[ "$rnum" =~ ^[0-9]+$ ]] || continue
       local n=$((10#$rnum))
       if (( n > max_num )); then
         max_num=$n
       fi
     done < "$STATE_FILE"
   fi
-  printf '%03d' $((max_num + 1))
+  printf '%s' "$max_num"
+}
+
+# The report number for an offer: the one it already holds from an earlier
+# attempt, else a fresh claim from scripts/reserve-report-num.mjs. The claim
+# is an O_EXCL sentinel beside data/scouting.md, so this runner, the app's
+# eval spawns and any other runner can never hand out the same number; its
+# floor covers the scouting rows, numbered files anywhere under reports/
+# (through the private/ link) and this state file. The worker writes it as
+# the scouting TSV's {num}; merge-scouting.mjs keeps it and releases the claim.
+# Caller must hold STATE_LOCK_DIR while this runs.
+next_report_num_unlocked() {
+  local id="$1"
+  local held
+  held=$(awk -F'\t' -v id="$id" '$1 == id { print $6 }' "$STATE_FILE" 2>/dev/null || true)
+  if [[ "$held" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$held"
+    return 0
+  fi
+  node "$PROJECT_DIR/scripts/reserve-report-num.mjs" --by "batch:$id" --min "$(max_state_report_num_unlocked)"
+}
+
+# Where state-file writes land. batch-state.tsv is a link into private/, and
+# mv onto the link would replace it with a real file, so temp files are made
+# beside the link's target and renamed onto that.
+state_file_target() {
+  node -e '
+    const fs = require("fs"), path = require("path")
+    const p = path.resolve(process.argv[1])
+    try { console.log(fs.realpathSync(p)) } catch {
+      let t = p
+      try { const l = fs.readlinkSync(p); t = path.resolve(path.dirname(p), l) } catch {}
+      try { t = path.join(fs.realpathSync(path.dirname(t)), path.basename(t)) } catch {}
+      console.log(t)
+    }' "$STATE_FILE"
 }
 
 # Update or insert state for an offer.
@@ -310,7 +331,9 @@ update_state_unlocked() {
     init_state
   fi
 
-  local tmp="$STATE_FILE.tmp"
+  local target
+  target=$(state_file_target)
+  local tmp="$target.tmp"
   local found=false
 
   # Write header
@@ -334,7 +357,7 @@ update_state_unlocked() {
       "$id" "$url" "$status" "$started" "$completed" "$report_num" "$score" "$error" "$retries" >> "$tmp"
   fi
 
-  mv "$tmp" "$STATE_FILE"
+  mv "$tmp" "$target"
 }
 
 update_state() {
@@ -345,7 +368,7 @@ reserve_report_num_unlocked() {
   local id="$1" url="$2" started="$3" retries="$4"
 
   local report_num=""
-  if report_num=$(next_report_num_unlocked); then
+  if report_num=$(next_report_num_unlocked "$id"); then
     update_state_unlocked "$id" "$url" "processing" "$started" "-" "$report_num" "-" "-" "$retries"
   fi
 
@@ -377,7 +400,7 @@ process_offer() {
   prompt="Process this job listing end-to-end per the system prompt: scouting evaluation (dimensional scoring via scripts/score-listing.mjs) + report .md + scouting TSV + score-history row + final JSON summary."
   prompt="$prompt URL: $url"
   prompt="$prompt JD file: $jd_file"
-  prompt="$prompt Report number: $report_num"
+  prompt="$prompt Report number: $report_num (reserved for this listing: use it as {num} in the scouting TSV and its report link)"
   prompt="$prompt Date: $date"
   prompt="$prompt Batch ID: $id"
 

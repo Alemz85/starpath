@@ -44,6 +44,11 @@ const electronAPI = {
   listDir: (path: string) => ipcRenderer.invoke('fs:list', path),
   listRecursive: (dir: string, ext: string) => ipcRenderer.invoke('fs:list-recursive', dir, ext),
 
+  // Tracker writes — the one status write path (scripts/lib/status-ledger.mjs,
+  // run in main under the tracker lock) and the status log it keeps.
+  trackerSetStatus:     (req: unknown) => ipcRenderer.invoke('tracker:set-status', req),
+  trackerStatusHistory: (query?: unknown) => ipcRenderer.invoke('tracker:status-history', query ?? {}),
+
   // SQLite-backed query layer (markdown/TSV remain canonical; this is a
   // derived cache rebuilt via the watcher). No raw SQL crosses the boundary —
   // higher-level queries only.

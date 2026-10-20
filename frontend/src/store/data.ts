@@ -6,6 +6,18 @@ import { normalizeEligibility, normalizeVerdict } from '@/lib/scoreBands'
 import { normalizeTier } from '@/lib/tierLevers'
 import { canWriteNow } from './dataRoot'
 import type { ScoreEntry, ScoutingEntry, ApplicationEntry, PipelineUrl, ReportFile, AppStatus } from '@/types'
+import type { StatusChangeResult, StatusLogEntry } from '@/lib/statusLog'
+
+/** Optional detail for a status change (all recorded in the status log). */
+export interface StatusChangeDetail {
+  /** YYYY-MM-DD, today or earlier; defaults to today. */
+  date?: string
+  /** Free text, e.g. the round a rejection came at. */
+  stage?: string
+  note?: string
+  /** 'chat' when a chat confirm card made the change. */
+  source?: 'app' | 'chat'
+}
 
 interface DataState {
   scoreHistory: ScoreEntry[]
@@ -20,15 +32,20 @@ interface DataState {
    *  filter their rows through this set so discarded listings disappear
    *  without destroying the underlying score-history record. */
   discarded:    Set<string>
+  /** Every status change on record (status-log.tsv beside applications.md),
+   *  oldest first. Pair with `historyFor` / `rejectionStage` from
+   *  `@/lib/statusLog` to read one application's history. */
+  statusLog:    StatusLogEntry[]
   loaded:       boolean
   loading:      boolean
 
   load:    () => Promise<void>
   refresh: (opts?: { resync?: boolean }) => Promise<void>
 
-  // Application writeback. Both write to data/applications.md, then the
-  // chokidar watcher resyncs the SQLite cache and refresh() is called to
-  // mirror disk into the renderer.
+  // Application writeback. promoteToApplication writes data/applications.md
+  // (main takes the tracker lock); status changes go through
+  // `tracker:set-status` in main, which also logs them. The chokidar watcher
+  // resyncs the SQLite cache and refresh() mirrors disk into the renderer.
   promoteToApplication: (args: {
     company: string
     role: string
@@ -38,7 +55,10 @@ interface DataState {
     tier: string
     reportPath?: string
   }) => Promise<void>
-  setApplicationStatus: (company: string, role: string, status: AppStatus) => Promise<void>
+  /** The app's only status write: validated, locked and logged in main
+   *  (scripts/lib/status-ledger.mjs). Resolves to the result (`ok: false`
+   *  carries the reason), or null when writes are off (demo). */
+  setApplicationStatus: (company: string, role: string, status: AppStatus, detail?: StatusChangeDetail) => Promise<StatusChangeResult | null>
   /** Tombstone-discard for "Not interested". Appends to data/discarded.tsv
    *  so the listing disappears from Database/Scouting views. If the entry
    *  also exists in applications.md (already applied), its status is
@@ -56,6 +76,7 @@ export const useDataStore = create<DataState>((set) => ({
   scansThisMonth: 0,
   liveness:     {},
   discarded:    new Set<string>(),
+  statusLog:    [],
   loaded:       false,
   loading:      false,
 
@@ -105,14 +126,17 @@ export const useDataStore = create<DataState>((set) => ({
     await useDataStore.getState().refresh()
   },
 
-  setApplicationStatus: async (company, role, status) => {
-    if (!canWriteNow()) return
-    const path = 'data/applications.md'
-    const raw = await ipc.readFile(path) ?? ''
-    const next = updateApplicationStatus(raw, company, role, status)
-    if (next === raw) return  // no matching row
-    await ipc.writeFile(path, next)
-    await useDataStore.getState().refresh()
+  setApplicationStatus: async (company, role, status, detail) => {
+    if (!canWriteNow()) return null
+    const result = await ipc.tracker.setStatus({
+      company, role, status,
+      date: detail?.date, stage: detail?.stage, note: detail?.note,
+      source: detail?.source ?? 'app',
+    })
+    if (!result) return null
+    if (!result.ok) console.error(`[status] ${company} — ${role} → ${status}: ${result.error}`)
+    else if (result.changed) await useDataStore.getState().refresh()
+    return result
   },
 
   discardListing: async (company, role) => {
@@ -141,13 +165,11 @@ export const useDataStore = create<DataState>((set) => ({
     }
 
     // 2. If the entry exists in applications.md (already applied), flip
-    //    its status to SKIP — keeps the application record for history
-    //    while signaling it's no longer active. If it doesn't exist
-    //    there, updateApplicationStatus is a no-op.
-    const appsPath = 'data/applications.md'
-    const appsRaw = await ipc.readFile(appsPath) ?? ''
-    const appsNext = updateApplicationStatus(appsRaw, company, role, 'SKIP' as AppStatus)
-    if (appsNext !== appsRaw) await ipc.writeFile(appsPath, appsNext)
+    //    its status to SKIP through the status write path (so it's logged)
+    //    — keeps the application record for history while signaling it's
+    //    no longer active. A listing that was never applied to answers
+    //    `ok: false` (no such application), which is fine here.
+    await ipc.tracker.setStatus({ company, role, status: 'SKIP' as AppStatus, note: 'marked not interested', source: 'app' })
 
     // 3. Optimistically update the in-memory tombstone set so the UI
     //    hides the row immediately (the chokidar watcher will pick up
@@ -166,7 +188,7 @@ let refreshInFlight: Promise<void> | null = null
 // ─── Loading ──────────────────────────────────────────────────────────────────
 
 async function loadAll() {
-  const [apps, scouting, scoreRows, pipelineRows, reportRows, scanHistRaw, discardedRaw] = await Promise.all([
+  const [apps, scouting, scoreRows, pipelineRows, reportRows, scanHistRaw, discardedRaw, statusLog] = await Promise.all([
     ipc.db.applications(),
     ipc.db.scouting(),
     ipc.db.scoreHistory(),
@@ -174,6 +196,7 @@ async function loadAll() {
     ipc.db.reports(),
     ipc.readFile('data/scan-history.tsv'),
     ipc.readFile('data/discarded.tsv'),
+    ipc.tracker.statusHistory(),
   ])
 
   useDataStore.setState({
@@ -185,6 +208,7 @@ async function loadAll() {
     scansThisMonth: countScansThisMonth(scanHistRaw),
     liveness:     deriveLiveness(scanHistRaw),
     discarded:    parseDiscarded(discardedRaw),
+    statusLog:    statusLog ?? [],
   })
 }
 

@@ -83,6 +83,13 @@ test('every eval prompt merges scouting TSVs instead of editing scouting.md dire
   }
 })
 
+test('every eval prompt claims its row numbers instead of reading the tracker max', () => {
+  for (const [name, p] of ALL_PROMPTS()) {
+    assert.ok(p.includes('node scripts/reserve-report-num.mjs'), `${name} reserves {num}`)
+    assert.ok(p.includes('never derive {num} from data/scouting.md'), `${name} forbids max+1`)
+  }
+})
+
 test('score-only paths skip the report step; top5 writes exactly the deep-report exception', () => {
   for (const [name, p] of [ALL_PROMPTS()[0], ALL_PROMPTS()[1], ALL_PROMPTS()[2]]) {
     assert.ok(p.includes('NO report file'), `${name} skips Step 5`)

@@ -6,6 +6,9 @@ import type { NetworkOverview } from './networkLens'
 import type { ProfileListResult, ProfileMutationResult } from './profiles'
 import type { DataRootInfo, PrivateInitResult } from './dataRoot'
 import type {
+  StatusChangeRequest, StatusChangeResult, StatusHistoryQuery, StatusLogEntry,
+} from './statusLog'
+import type {
   ChatProposalDecisionStatus, ChatRuntimeEnvelope, ChatRuntimeSnapshot,
   ChatSession, ChatSessionMeta,
 } from './chat/types'
@@ -70,6 +73,18 @@ export const ipc = {
   fileExists:           (path: string)          => api().fileExists(path) as Promise<boolean>,
   listDir:              (path: string)          => api().listDir(path) as Promise<string[]>,
   listRecursive:        (dir: string, ext: string) => api().listRecursive(dir, ext) as Promise<string[]>,
+
+  /** Tracker writes. A status change is never a renderer-side rewrite of
+   *  applications.md: main runs scripts/lib/status-ledger.mjs (validate against
+   *  templates/states.yml → rewrite the Status cell under the tracker lock →
+   *  append to the status log). Errors come back as `{ ok: false }`, never a
+   *  throw. The history is oldest-first; an empty query reads the whole log. */
+  tracker: {
+    setStatus:     (req: StatusChangeRequest) =>
+                     api().trackerSetStatus(req) as Promise<StatusChangeResult | null>,
+    statusHistory: (query: StatusHistoryQuery = {}) =>
+                     api().trackerStatusHistory(query) as Promise<StatusLogEntry[] | null>,
+  },
 
   // Logo cache
   fetchLogo:            (domain: string)             => api().fetchLogo(domain) as Promise<string | null>,

@@ -16,6 +16,16 @@
  * update report link
  * Validates status against states.yml (rejects non-canonical, logs warning)
  *
+ * Row numbers: a TSV's own number stands when it is free and either above the
+ * current max or reserved (scripts/reserve-report-num.mjs), so an evaluation
+ * that reserved early but finishes late keeps its number; otherwise the row
+ * gets max + 1. Merged numbers are released from the reservation folder.
+ *
+ * Write safety: the whole read → merge → write runs under the applications.md
+ * lock (lib/dir-lock.mjs) and the file is replaced atomically through the
+ * profile link (lib/write-file-atomic.mjs). Each new row also gets an origin
+ * row in the status log (lib/status-ledger.mjs).
+ *
  * All parsing/normalization lives in lib/tracker-core.mjs (pure + unit-tested);
  * this script owns only the file I/O and merge orchestration.
  *
@@ -36,6 +46,10 @@ import {
   parseAppRow,
   parseTsvAddition,
 } from './lib/tracker-core.mjs';
+import { acquireLockSync, lockPathFor } from './lib/dir-lock.mjs';
+import { writeFileAtomic } from './lib/write-file-atomic.mjs';
+import { isReserved, pickEntryNum, releaseNum } from './lib/report-nums.mjs';
+import { appendLedger, ledgerPathFor } from './lib/status-ledger.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
@@ -70,9 +84,17 @@ if (!existsSync(APPS_FILE)) {
   console.log('No applications.md found. Nothing to merge into.');
   process.exit(0);
 }
+// Hold the tracker lock from the read to the write, so a status change from the
+// app or set-status.mjs can't land in between and be overwritten. Released on
+// every exit path.
+if (!DRY_RUN) {
+  const lock = acquireLockSync(lockPathFor(APPS_FILE), { label: 'merge-tracker', timeoutMs: 60_000 });
+  process.on('exit', () => lock.release());
+}
 const appContent = readFileSync(APPS_FILE, 'utf-8');
 const appLines = appContent.split('\n');
 const existingApps = [];
+const takenNums = new Set();
 let maxNum = 0;
 
 for (const line of appLines) {
@@ -80,6 +102,7 @@ for (const line of appLines) {
     const app = parseAppRow(line);
     if (app) {
       existingApps.push(app);
+      takenNums.add(app.num);
       if (app.num > maxNum) maxNum = app.num;
     }
   }
@@ -108,15 +131,18 @@ tsvFiles.sort((a, b) => {
 
 console.log(`📥 Found ${tsvFiles.length} pending additions`);
 
+const mergedNums = []; // TSV numbers to release from the reservation folder
 let added = 0;
 let updated = 0;
 let skipped = 0;
 const newLines = [];
+const origins = []; // status-log origin rows for the new entries
 
 for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
   const addition = parseTsvAddition(content, file);
   if (!addition) { skipped++; continue; }
+  mergedNums.push(addition.num);
 
   // Check for duplicate by:
   // 1. Exact report number match
@@ -164,14 +190,19 @@ for (const file of tsvFiles) {
       skipped++;
     }
   } else {
-    // New entry — use the number from the TSV
-    const entryNum = addition.num > maxNum ? addition.num : ++maxNum;
-    if (addition.num > maxNum) maxNum = addition.num;
+    // New entry — the TSV's number when it is free (see header), else max + 1
+    const entryNum = pickEntryNum({ wanted: addition.num, taken: takenNums, maxNum, reserved: isReserved(APPS_FILE, addition.num) });
+    takenNums.add(entryNum);
+    if (entryNum > maxNum) maxNum = entryNum;
 
     const newLine = `| ${entryNum} | ${addition.date} | ${addition.company} | ${addition.role} | ${addition.score} | ${addition.status} | ${addition.pdf} | ${addition.deadline || 'n/d'} | ${addition.report} | ${addition.notes} |`;
     newLines.push(newLine);
     added++;
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (${addition.score})`);
+    origins.push({
+      num: entryNum, date: addition.date, company: addition.company, role: addition.role,
+      from: '', to: addition.status, stage: '', source: 'merge-tracker', note: '', logged_at: new Date().toISOString(),
+    });
     appendDedupIndex(addition.company, addition.role, addition.date);
   }
 }
@@ -195,13 +226,15 @@ if (newLines.length > 0) {
 
 // Write back
 if (!DRY_RUN) {
-  writeFileSync(APPS_FILE, appLines.join('\n'));
+  writeFileAtomic(APPS_FILE, appLines.join('\n'));
+  appendLedger(ledgerPathFor(APPS_FILE), origins);
 
   // Move processed files to merged/
   if (!existsSync(MERGED_DIR)) mkdirSync(MERGED_DIR, { recursive: true });
   for (const file of tsvFiles) {
     renameSync(join(ADDITIONS_DIR, file), join(MERGED_DIR, file));
   }
+  for (const n of mergedNums) releaseNum(APPS_FILE, n);
   console.log(`\n✅ Moved ${tsvFiles.length} TSVs to merged/`);
 }
 

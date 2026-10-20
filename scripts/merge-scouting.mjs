@@ -27,6 +27,15 @@
  * becomes the new `W.. E..` and its Report link the new report, so an applied
  * role never keeps a stale score after a re-evaluation.
  *
+ * Row numbers: a TSV's own number stands when it is free and either above the
+ * current max or reserved (scripts/reserve-report-num.mjs); otherwise max + 1.
+ * Merged numbers are released from the reservation folder.
+ *
+ * Write safety: runs under the scouting.md lock, and takes the
+ * applications.md lock around the refresh (always in that order: scouting,
+ * then applications). Both files are replaced atomically through their
+ * profile links (lib/dir-lock.mjs, lib/write-file-atomic.mjs).
+ *
  * Parsing/normalization lives in lib/scouting-core.mjs (pure + unit-tested);
  * this script owns the file I/O and merge orchestration.
  *
@@ -52,6 +61,9 @@ import {
 } from './lib/scouting-core.mjs';
 import { SCOUTING_SCAFFOLD } from './lib/profile-core.mjs';
 import { refreshApplicationRows } from './lib/tracker-core.mjs';
+import { acquireLockSync, lockPathFor, withLockSync } from './lib/dir-lock.mjs';
+import { writeFileAtomic } from './lib/write-file-atomic.mjs';
+import { isReserved, pickEntryNum, releaseNum } from './lib/report-nums.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
@@ -84,11 +96,17 @@ mkdirSync(ADDITIONS_DIR, { recursive: true });
 
 // ---- Main ----
 
+// Hold the scouting lock from the read to the write (released on every exit).
+if (!DRY_RUN) {
+  const lock = acquireLockSync(lockPathFor(SCOUTING_FILE), { label: 'merge-scouting', timeoutMs: 60_000 });
+  process.on('exit', () => lock.release());
+}
+
 if (!existsSync(SCOUTING_FILE)) {
   console.log('No data/scouting.md found. Creating from scratch.');
   // Canonical scaffold is single-sourced in lib/profile-core.mjs so profile
   // creation (scripts/profile.mjs) and this merge always agree on the header.
-  writeFileSync(SCOUTING_FILE, SCOUTING_SCAFFOLD);
+  writeFileAtomic(SCOUTING_FILE, SCOUTING_SCAFFOLD);
 }
 
 const fileContent = readFileSync(SCOUTING_FILE, 'utf-8');
@@ -102,6 +120,7 @@ if (headerLine && !isV2ScoutingHeader(headerLine)) {
   process.exit(1);
 }
 const existing = [];
+const takenNums = new Set();
 let maxNum = 0;
 
 for (const line of fileLines) {
@@ -109,6 +128,7 @@ for (const line of fileLines) {
     const e = parseScoutingRow(line);
     if (e) {
       existing.push(e);
+      takenNums.add(e.num);
       if (e.num > maxNum) maxNum = e.num;
     }
   }
@@ -139,12 +159,14 @@ let added = 0;
 let updated = 0;
 let skipped = 0;
 const newRows = [];
+const mergedNums = []; // TSV numbers to release from the reservation folder
 const merged = []; // every addition that landed (added or updated), for the applications refresh
 
 for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
   const addition = parseScoutingTsv(content, file);
   if (!addition) { skipped++; continue; }
+  mergedNums.push(addition.num);
 
   // Match the listing, most specific first. Numbers come last and only within
   // the same company: parallel workers can pick the same next number (two
@@ -181,8 +203,9 @@ for (const file of tsvFiles) {
       skipped++;
     }
   } else {
-    const entryNum = addition.num > maxNum ? addition.num : ++maxNum;
-    if (addition.num > maxNum) maxNum = addition.num;
+    const entryNum = pickEntryNum({ wanted: addition.num, taken: takenNums, maxNum, reserved: isReserved(SCOUTING_FILE, addition.num) });
+    takenNums.add(entryNum);
+    if (entryNum > maxNum) maxNum = entryNum;
     // The report link's text is the row's own number, even when the row is renumbered.
     const report = /^\[\d+\]/.test(addition.report) ? addition.report.replace(/^\[\d+\]/, `[${entryNum}]`) : addition.report;
     newRows.push(formatScoutingRow({ ...addition, num: entryNum, report }));
@@ -210,7 +233,7 @@ if (newRows.length > 0) {
 
 // Refresh any application row for a listing that was just re-scored.
 let refreshed = 0;
-if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) {
+if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) withLockSync(lockPathFor(APPLICATIONS_FILE), () => {
   const appLines = readFileSync(APPLICATIONS_FILE, 'utf-8').split('\n');
   const updates = merged.map(a => ({
     company: a.company, role: a.role,
@@ -220,7 +243,7 @@ if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) {
   const { lines, changed, matched } = refreshApplicationRows(appLines, updates);
   for (const c of changed) console.log(`📝 applications.md #${c.num} ${c.company} — ${c.role}: ${c.from} → ${c.to}`);
   refreshed = changed.length;
-  if (refreshed > 0 && !DRY_RUN) writeFileSync(APPLICATIONS_FILE, lines.join('\n'));
+  if (refreshed > 0 && !DRY_RUN) writeFileAtomic(APPLICATIONS_FILE, lines.join('\n'));
 
   // A listing that is already an application is not a "READY to apply" scouting
   // hit: point its scouting row at the application instead (PROMOTED-n).
@@ -232,14 +255,15 @@ if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) {
       if (e.hint !== hint) fileLines[i] = formatScoutingRow({ ...e, hint });
     }
   }
-}
+}, { label: 'merge-scouting refresh', timeoutMs: 60_000 });
 
 if (!DRY_RUN) {
-  writeFileSync(SCOUTING_FILE, fileLines.join('\n'));
+  writeFileAtomic(SCOUTING_FILE, fileLines.join('\n'));
   if (!existsSync(MERGED_DIR)) mkdirSync(MERGED_DIR, { recursive: true });
   for (const file of tsvFiles) {
     renameSync(join(ADDITIONS_DIR, file), join(MERGED_DIR, file));
   }
+  for (const n of mergedNums) releaseNum(SCOUTING_FILE, n);
   console.log(`\n✅ Moved ${tsvFiles.length} TSVs to merged/`);
 }
 

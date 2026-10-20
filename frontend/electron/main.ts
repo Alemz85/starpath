@@ -10,6 +10,7 @@ import {
 import path from 'path'
 import fs from 'fs'
 import { FEATURE_IDS } from '../src/types'
+import type { AppStatus } from '../src/types'
 import https from 'https'
 import http from 'http'
 import { exec, spawn, ChildProcess, execFile } from 'child_process'
@@ -31,6 +32,9 @@ import {
   spawnEnvFor, type ResolvedAppPath,
 } from '../src/lib/dataRootMain'
 import { DEMO_DATA_PATH, DEMO_READ_ONLY, DEMO_READ_ONLY_TOOLTIP } from '../src/lib/dataRoot'
+import type {
+  StatusChangeRequest, StatusChangeResult, StatusHistoryQuery, StatusLogEntry,
+} from '../src/lib/statusLog'
 
 const execAsync = promisify(exec)
 
@@ -483,7 +487,12 @@ function createWindow(): void {
   mainWindow.on('resize', saveBounds)
   mainWindow.on('move', saveBounds)
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show())
+  // An isolated run (STARPATH_USER_DATA: tests, screenshots) opens without
+  // taking focus or switching Spaces, so it never pulls the user off their work.
+  mainWindow.once('ready-to-show', () => {
+    if (process.env.STARPATH_USER_DATA) mainWindow?.showInactive()
+    else mainWindow?.show()
+  })
 
   if (isDev) {
     mainWindow.loadURL(DEV_URL)
@@ -723,6 +732,12 @@ ipcMain.handle('fs:write', async (_e, filePath: unknown, content: unknown) => {
   // are refused with the demo-read-only code the renderer recognises.
   const refusal = demoWriteRefusal(hit.s.kind, hit.r, hit.s.isPersonal)
   if (refusal) throw new Error(refusal)
+  // The trackers are shared with the merge scripts and set-status.mjs: write
+  // them under the same lock, atomically and through the profile link.
+  if (TRACKER_FILES.has(hit.r.rel) && hit.s.repoPath) {
+    await writeTrackerFile(hit.s.repoPath, hit.r.abs, c)
+    return
+  }
   fs.mkdirSync(path.dirname(hit.r.abs), { recursive: true })
   fs.writeFileSync(hit.r.abs, c, 'utf-8')
 })
@@ -760,6 +775,104 @@ ipcMain.handle('fs:list-recursive', async (_e, dirPath: unknown, ext: unknown) =
   }
   walk(hit.r.abs)
   return results
+})
+
+// ─── IPC: Tracker writes ──────────────────────────────────────────────────────
+//
+// applications.md and scouting.md are rewritten by the merge scripts too, so
+// the app writes them under the same directory lock (scripts/lib/dir-lock.mjs)
+// and atomically through the profile link (scripts/lib/write-file-atomic.mjs).
+// A status change is never a renderer-side rewrite: `tracker:set-status` runs
+// the same code as `node scripts/set-status.mjs` (scripts/lib/status-ledger.mjs),
+// which validates against templates/states.yml, rewrites the Status cell and
+// appends the change to the status log in one locked step. Both modules are
+// ESM in the repo, loaded through importRepoModule.
+
+const TRACKER_FILES = new Set(['data/applications.md', 'data/scouting.md'])
+
+interface DirLockModule {
+  lockPathFor: (file: string) => string
+  withLock: <T>(lockDir: string, fn: () => T | Promise<T>, opts?: { label?: string; timeoutMs?: number }) => Promise<T>
+}
+interface AtomicWriteModule {
+  writeFileAtomic: (file: string, content: string) => string
+}
+interface StatusLedgerModule {
+  setStatusAsync: (req: {
+    appsFile: string; statesFile: string
+    num?: number | null; company?: string; role?: string
+    to: string; date?: string; stage?: string; note?: string; source: string
+  }) => Promise<{ changed: boolean; to: string; date: string; entries: StatusLogEntry[] }>
+  readHistory: (q: { appsFile: string; num?: number | null; company?: string | null; role?: string | null }) => StatusLogEntry[]
+}
+
+async function writeTrackerFile(repoPath: string, abs: string, content: string): Promise<void> {
+  const [lock, atomic] = await Promise.all([
+    importRepoModule<DirLockModule>(repoPath, 'scripts/lib/dir-lock.mjs'),
+    importRepoModule<AtomicWriteModule>(repoPath, 'scripts/lib/write-file-atomic.mjs'),
+  ])
+  await lock.withLock(lock.lockPathFor(abs), () => { atomic.writeFileAtomic(abs, content) }, { label: 'starpath app' })
+}
+
+function optString(v: unknown, name: string, max = 500): string | undefined {
+  if (v === undefined || v === null || v === '') return undefined
+  if (typeof v !== 'string') throw new Error(`${name} must be a string`)
+  return v.slice(0, max)
+}
+
+function optNum(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined
+  const n = Number(v)
+  if (!Number.isInteger(n) || n <= 0) throw new Error('num must be a positive integer')
+  return n
+}
+
+ipcMain.handle('tracker:set-status', async (_e, req: unknown): Promise<StatusChangeResult> => {
+  try {
+    if (!req || typeof req !== 'object') throw new Error('request must be an object')
+    const r = req as Partial<StatusChangeRequest>
+    const status = validateString(r.status, 'status')
+    const source = r.source === 'chat' ? 'chat' : 'app'
+    const hit = await resolveForRenderer('data/applications.md')
+    if (!hit || !hit.s.repoPath) return { ok: false, error: 'No repo path configured', code: 'ENOREPO' }
+    const refusal = demoWriteRefusal(hit.s.kind, hit.r, hit.s.isPersonal)
+    if (refusal) return { ok: false, error: refusal, code: 'EDEMO' }
+    const ledger = await importRepoModule<StatusLedgerModule>(hit.s.repoPath, 'scripts/lib/status-ledger.mjs')
+    const out = await ledger.setStatusAsync({
+      appsFile: hit.r.abs,
+      statesFile: path.join(hit.s.repoPath, 'templates/states.yml'),
+      num: optNum(r.num) ?? null,
+      company: optString(r.company, 'company'),
+      role: optString(r.role, 'role'),
+      to: status,
+      date: optString(r.date, 'date', 10),
+      stage: optString(r.stage, 'stage', 200),
+      note: optString(r.note, 'note'),
+      source,
+    })
+    return { ok: true, changed: out.changed, to: out.to as AppStatus, date: out.date, entries: out.entries }
+  } catch (e) {
+    const err = e as Error & { code?: string }
+    return { ok: false, error: err.message, code: err.code ?? null }
+  }
+})
+
+ipcMain.handle('tracker:status-history', async (_e, query: unknown): Promise<StatusLogEntry[]> => {
+  const q = (query && typeof query === 'object' ? query : {}) as StatusHistoryQuery
+  const hit = await resolveForRenderer('data/applications.md')
+  if (!hit || !hit.s.repoPath) return []
+  try {
+    const ledger = await importRepoModule<StatusLedgerModule>(hit.s.repoPath, 'scripts/lib/status-ledger.mjs')
+    return ledger.readHistory({
+      appsFile: hit.r.abs,
+      num: optNum(q.num) ?? null,
+      company: optString(q.company, 'company') ?? null,
+      role: optString(q.role, 'role') ?? null,
+    })
+  } catch (e) {
+    console.error('[tracker] status history failed:', e)
+    return []
+  }
 })
 
 // ─── IPC: Shell (one-shot) ────────────────────────────────────────────────────
