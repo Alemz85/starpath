@@ -25,8 +25,10 @@ import {
   countMissingScoutingDeadlines,
   renderDeadlines,
 } from './lib/deadlines-core.mjs';
+import { dataRootFor } from './lib/data-root.mjs';
 
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+// Personal files come from the data root ($STARPATH_DATA, private/, or this checkout).
+const ROOT = dataRootFor(dirname(dirname(fileURLToPath(import.meta.url))));
 
 /* ── CLI args ──────────────────────────────────────────────────────────────*/
 const args = process.argv.slice(2);
