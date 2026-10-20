@@ -47,7 +47,7 @@ The GitHub repo is **public**. Every tracked file and every commit message is wo
 
 ## Profiles
 
-When `private/profiles/` exists, several search profiles live under `private/profiles/<slug>/{user,data,reports}/` and exactly one is active (`private/profiles/active`). 18 canonical paths are symlinks into it: `user/profile.yml`, `user/portals.yml`, `user/_profile.md`, nine `data/` trackers and TSVs (`scouting.md`, `applications.md`, `pipeline.md`, `scan-history.tsv`, `score-history.tsv`, `dedup-index.tsv`, `discarded.tsv`, `report-summaries.tsv`, `filter-audit-state.json`), and the six `reports/` subdirs (`tier-1..4`, `positioning`, `briefs`). Everything else (`user/cv.md`, `data/network.md`, `data/outreach.md`, caches, `interview-prep/`, `batch/`) is shared.
+When `private/profiles/` exists, several search profiles live under `private/profiles/<slug>/{user,data,reports}/` and exactly one is active (`private/profiles/active`). 19 canonical paths are symlinks into it: `user/profile.yml`, `user/portals.yml`, `user/_profile.md`, ten `data/` trackers and TSVs (`scouting.md`, `applications.md`, `pipeline.md`, `scan-history.tsv`, `score-history.tsv`, `dedup-index.tsv`, `discarded.tsv`, `report-summaries.tsv`, `filter-audit-state.json`, `status-log.tsv`), and the six `reports/` subdirs (`tier-1..4`, `positioning`, `briefs`). Everything else (`user/cv.md`, `data/network.md`, `data/outreach.md`, caches, `interview-prep/`, `batch/`) is shared.
 
 - **Never write into an inactive profile.** Read and write the canonical paths; they resolve to the active profile.
 - **Never replace a canonical symlink with a real file.** Plain writes follow symlinks and are fine; for write-temp-then-`rename`, resolve `fs.realpathSync(target)` first.
@@ -116,7 +116,7 @@ One evaluation mode (`scouting`); per-listing follow-ups (Tailor CV, Prep Applic
 
 ## Pipeline Integrity
 
-1. **NEVER edit applications.md to ADD entries**, and never create a second entry for an existing company+role. Write one TSV per evaluation to `batch/tracker-additions/` and let `node scripts/merge-tracker.mjs` merge it; **run it after each batch of evaluations**. You MAY edit existing rows' status/notes.
+1. **NEVER edit applications.md to ADD entries**, and never create a second entry for an existing company+role. Write one TSV per evaluation to `batch/tracker-additions/` and let `node scripts/merge-tracker.mjs` merge it; **run it after each batch of evaluations**. You MAY edit existing rows' notes. **Status changes go only through `node scripts/set-status.mjs <num> <status>`** (the app uses the same path): it locks, writes atomically and logs to `status-log.tsv`.
 2. Scouting observations go to `data/scouting.md` with a Tier (`T1`–`T4`) instead of a status: write 12-column TSVs to `batch/scouting-additions/` (`modes/scouting.md` § Tracker Entry), run `node scripts/merge-scouting.mjs`, promote `go` hits (T1) with `node scripts/promote-to-applications.mjs <num>`.
 3. Every report includes `**URL:**` in the header (after the Want · Ease / Eligibility / Verdict / Tier lines).
 4. Health: `node scripts/verify-pipeline.mjs` · `normalize-statuses.mjs` · `dedup-tracker.mjs`. After a manual edit to scouting.md or applications.md, `node scripts/rebuild-dedup-index.mjs`.

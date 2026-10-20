@@ -34,7 +34,7 @@ This prompt is self-contained. Do not load CLAUDE.md, modes/, or skills.
 |-------------|-------------|
 | `{{URL}}` | Offer URL |
 | `{{JD_FILE}}` | Path to the file containing the JD text |
-| `{{REPORT_NUM}}` | Batch sequence number (3 digits — used for log/TSV filenames only) |
+| `{{REPORT_NUM}}` | The report number reserved for this listing before you started (3 digits). Use it as `{num}` in the scouting TSV and its report link; it also names the log |
 | `{{DATE}}` | Current date YYYY-MM-DD |
 | `{{ID}}` | Unique offer ID in batch-input.tsv |
 
@@ -213,7 +213,7 @@ date	archetype	skills_match	experience_bar	competition	ease	growth_mobility	opti
 {num}	{{DATE}}	{company}	{role}	{want}	{ease}	{tier}	{eligibility}	[{num}](reports/tier-{N}/{Company} - {Role}.md)	{deadline}	{promotion_hint}	{notes}
 ```
 
-`num` = best-effort next sequential (max of `data/scouting.md` + `data/applications.md` + 1; the merge renumbers on collision) · `want` / `ease` = plain numbers (`8.25`, no `/10`), `—` when blocked · `tier` ∈ `T1|T2|T3|T4` · `eligibility` = `green`, `amber: {reasons ;-joined}` or `red: {reason}` · report `—` for T4 · `deadline` from the JD (`2026-06-30` | `Rolling` | `n/d`) · `promotion_hint` = `READY` for `go`, `MONITOR` for `stretch` / `solid`, else empty · notes = one line naming this role's strongest signal (Blocked: the reason; never empty for clustered companies).
+`num` = the report number reserved for this listing (the task message states it; with none, run `node scripts/reserve-report-num.mjs` and use what it prints) — never derive it from the trackers; the merge keeps a reserved number and releases the claim · `want` / `ease` = plain numbers (`8.25`, no `/10`), `—` when blocked · `tier` ∈ `T1|T2|T3|T4` · `eligibility` = `green`, `amber: {reasons ;-joined}` or `red: {reason}` · report `—` for T4 · `deadline` from the JD (`2026-06-30` | `Rolling` | `n/d`) · `promotion_hint` = `READY` for `go`, `MONITOR` for `stretch` / `solid`, else empty · notes = one line naming this role's strongest signal (Blocked: the reason; never empty for clustered companies).
 
 ### Step 8 — Final JSON summary on stdout
 

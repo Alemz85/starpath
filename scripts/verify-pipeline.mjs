@@ -31,7 +31,7 @@
 import { readFileSync, readdirSync, existsSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { parseAppRow, validateScoreCell } from './lib/tracker-core.mjs';
+import { companyKey, parseAppRow, validateScoreCell } from './lib/tracker-core.mjs';
 import { isV2ScoutingHeader, parseScoutingRow, validateScoutingRow } from './lib/scouting-core.mjs';
 import { checkScoreHistoryRows } from './lib/doctor-checks.mjs';
 
@@ -167,8 +167,10 @@ if (badStatuses === 0) ok('All statuses are canonical');
 const companyRoleMap = new Map();
 let dupes = 0;
 for (const e of entries) {
-  const key = e.company.toLowerCase().replace(/[^a-z0-9]/g, '') + '::' +
-    e.role.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+  // The shared company key (non-Latin names don't collapse to ''); the role
+  // keeps letters of any script, identical to the old fold for ASCII.
+  const key = companyKey(e.company) + '::' +
+    e.role.toLowerCase().replace(/[^\p{L}\p{N} ]/gu, '');
   if (!companyRoleMap.has(key)) companyRoleMap.set(key, []);
   companyRoleMap.get(key).push(e);
 }

@@ -18,7 +18,12 @@
  * Scouting-row parsing lives in lib/scouting-core.mjs (pure + unit-tested) —
  * the 12-column v2 scouting.md format.
  *
- * Run: node career-ops/promote-to-applications.mjs <scouting-num> [--dry-run]
+ * Write safety: runs under the scouting.md lock and the applications.md lock
+ * (always in that order, like merge-scouting), replaces both files atomically
+ * (through profile links) and gives the new application an origin row in
+ * status-log.tsv (source `promote`).
+ *
+ * Run: node scripts/promote-to-applications.mjs <scouting-num> [--dry-run]
  *
  * Example:
  *   node scripts/promote-to-applications.mjs 17
@@ -26,11 +31,14 @@
  *     applications.md as a new Evaluated entry, preserving the report link.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { companyKey, parseScoutingRow, formatScoutingRow, verdictFromCells, VERDICT_TIERS } from './lib/scouting-core.mjs';
 import { formatScoreCell } from './lib/tracker-core.mjs';
+import { lockPathFor, withLockSync } from './lib/dir-lock.mjs';
+import { writeFileAtomic } from './lib/write-file-atomic.mjs';
+import { appendLedger, ledgerPathFor } from './lib/status-ledger.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
@@ -57,101 +65,115 @@ if (!existsSync(APPS_FILE)) {
   process.exit(1);
 }
 
-const scoutingLines = readFileSync(SCOUTING_FILE, 'utf-8').split('\n');
-const appsLines = readFileSync(APPS_FILE, 'utf-8').split('\n');
+function promote() {
+  const scoutingLines = readFileSync(SCOUTING_FILE, 'utf-8').split('\n');
+  const appsLines = readFileSync(APPS_FILE, 'utf-8').split('\n');
 
-// Find the scouting entry (deadline-aware parse → correct report/deadline/notes)
-let scoutingRow = null;
-let scoutingIdx = -1;
-for (let i = 0; i < scoutingLines.length; i++) {
-  const row = parseScoutingRow(scoutingLines[i]);
-  if (row && row.num === targetNum) {
-    scoutingRow = row;
-    scoutingIdx = i;
-    break;
+  // Find the scouting entry (deadline-aware parse → correct report/deadline/notes)
+  let scoutingRow = null;
+  let scoutingIdx = -1;
+  for (let i = 0; i < scoutingLines.length; i++) {
+    const row = parseScoutingRow(scoutingLines[i]);
+    if (row && row.num === targetNum) {
+      scoutingRow = row;
+      scoutingIdx = i;
+      break;
+    }
   }
-}
 
-if (!scoutingRow) {
-  console.error(`Scouting entry #${targetNum} not found in data/scouting.md`);
-  process.exit(1);
-}
-
-console.log(`📋 Found scouting entry #${targetNum}: ${scoutingRow.company} — ${scoutingRow.role}`);
-console.log(`   Want ${scoutingRow.want} · Ease ${scoutingRow.ease} (${scoutingRow.tier}, eligibility ${scoutingRow.eligibility})`);
-
-// Blocked listings are never promoted: no Want/Ease, nothing to apply to.
-const { verdict } = verdictFromCells({
-  want: scoutingRow.wantNum, ease: scoutingRow.easeNum, eligibility: scoutingRow.eligibility,
-});
-if (verdict === 'blocked' || scoutingRow.wantNum === null || scoutingRow.easeNum === null) {
-  console.error(`⛔ Scouting entry #${targetNum} is Blocked (${scoutingRow.eligibility}). Blocked listings are not promoted.`);
-  process.exit(1);
-}
-if (verdict === 'skip') {
-  console.warn(`⚠️  Verdict is "skip" (${VERDICT_TIERS.skip}) — the model recommends against applying. Proceeding only because you asked.`);
-}
-
-// Find max applications.md number
-let maxAppNum = 0;
-for (const line of appsLines) {
-  if (!line.startsWith('|') || line.includes('---') || /^\|\s*#\s*\|/.test(line)) continue;
-  const parts = line.split('|').map(s => s.trim());
-  const num = parseInt(parts[1]);
-  if (!isNaN(num) && num > maxAppNum) maxAppNum = num;
-}
-
-// Check for existing app with same company+role (company/role columns are
-// positionally fixed regardless of the deadline column, so this is safe).
-const normCompany = companyKey(scoutingRow.company);
-for (const line of appsLines) {
-  if (!line.startsWith('|') || line.includes('---') || /^\|\s*#\s*\|/.test(line)) continue;
-  const parts = line.split('|').map(s => s.trim());
-  if (parts.length < 9) continue;
-  if (companyKey(parts[3] || '') === normCompany && parts[4] === scoutingRow.role) {
-    console.error(`⚠️  Application already exists for ${scoutingRow.company} — ${scoutingRow.role}. Aborting.`);
-    process.exit(1);
+  if (!scoutingRow) {
+    console.error(`Scouting entry #${targetNum} not found in data/scouting.md`);
+    return 1;
   }
-}
 
-const newAppNum = maxAppNum + 1;
-const today = new Date().toISOString().slice(0, 10);
-const scoreCell = formatScoreCell(scoutingRow.wantNum, scoutingRow.easeNum);
-const promotionNote = `Promoted from scouting #${targetNum} (${scoutingRow.tier}, ${scoutingRow.eligibility}). ${scoutingRow.notes}`.trim().replace(/\|/g, '/');
+  console.log(`📋 Found scouting entry #${targetNum}: ${scoutingRow.company} — ${scoutingRow.role}`);
+  console.log(`   Want ${scoutingRow.want} · Ease ${scoutingRow.ease} (${scoutingRow.tier}, eligibility ${scoutingRow.eligibility})`);
 
-// applications.md is 10-column: # date company role score status pdf deadline report notes
-// (matches what merge-tracker writes). Carry the posting's deadline forward.
-const newAppLine = `| ${newAppNum} | ${today} | ${scoutingRow.company} | ${scoutingRow.role} | ${scoreCell} | Evaluated | ❌ | ${scoutingRow.deadline || 'n/d'} | ${scoutingRow.report} | ${promotionNote} |`;
-
-console.log(`\n➕ New applications.md entry #${newAppNum}:`);
-console.log(`   ${newAppLine}`);
-
-// Insert into applications.md after header separator
-let insertIdx = -1;
-for (let i = 0; i < appsLines.length; i++) {
-  if (appsLines[i].includes('---') && appsLines[i].startsWith('|')) {
-    insertIdx = i + 1;
-    break;
+  // Blocked listings are never promoted: no Want/Ease, nothing to apply to.
+  const { verdict } = verdictFromCells({
+    want: scoutingRow.wantNum, ease: scoutingRow.easeNum, eligibility: scoutingRow.eligibility,
+  });
+  if (verdict === 'blocked' || scoutingRow.wantNum === null || scoutingRow.easeNum === null) {
+    console.error(`⛔ Scouting entry #${targetNum} is Blocked (${scoutingRow.eligibility}). Blocked listings are not promoted.`);
+    return 1;
   }
+  if (verdict === 'skip') {
+    console.warn(`⚠️  Verdict is "skip" (${VERDICT_TIERS.skip}) — the model recommends against applying. Proceeding only because you asked.`);
+  }
+
+  // Find max applications.md number
+  let maxAppNum = 0;
+  for (const line of appsLines) {
+    if (!line.startsWith('|') || line.includes('---') || /^\|\s*#\s*\|/.test(line)) continue;
+    const parts = line.split('|').map(s => s.trim());
+    const num = parseInt(parts[1]);
+    if (!isNaN(num) && num > maxAppNum) maxAppNum = num;
+  }
+
+  // Check for existing app with same company+role (company/role columns are
+  // positionally fixed regardless of the deadline column, so this is safe).
+  const normCompany = companyKey(scoutingRow.company);
+  for (const line of appsLines) {
+    if (!line.startsWith('|') || line.includes('---') || /^\|\s*#\s*\|/.test(line)) continue;
+    const parts = line.split('|').map(s => s.trim());
+    if (parts.length < 9) continue;
+    if (companyKey(parts[3] || '') === normCompany && parts[4] === scoutingRow.role) {
+      console.error(`⚠️  Application already exists for ${scoutingRow.company} — ${scoutingRow.role}. Aborting.`);
+      return 1;
+    }
+  }
+
+  const newAppNum = maxAppNum + 1;
+  const today = new Date().toISOString().slice(0, 10);
+  const scoreCell = formatScoreCell(scoutingRow.wantNum, scoutingRow.easeNum);
+  const promotionNote = `Promoted from scouting #${targetNum} (${scoutingRow.tier}, ${scoutingRow.eligibility}). ${scoutingRow.notes}`.trim().replace(/\|/g, '/');
+
+  // applications.md is 10-column: # date company role score status pdf deadline report notes
+  // (matches what merge-tracker writes). Carry the posting's deadline forward.
+  const newAppLine = `| ${newAppNum} | ${today} | ${scoutingRow.company} | ${scoutingRow.role} | ${scoreCell} | Evaluated | ❌ | ${scoutingRow.deadline || 'n/d'} | ${scoutingRow.report} | ${promotionNote} |`;
+
+  console.log(`\n➕ New applications.md entry #${newAppNum}:`);
+  console.log(`   ${newAppLine}`);
+
+  // Insert into applications.md after header separator
+  let insertIdx = -1;
+  for (let i = 0; i < appsLines.length; i++) {
+    if (appsLines[i].includes('---') && appsLines[i].startsWith('|')) {
+      insertIdx = i + 1;
+      break;
+    }
+  }
+  if (insertIdx < 0) {
+    console.error('Could not find header separator in applications.md');
+    return 1;
+  }
+  appsLines.splice(insertIdx, 0, newAppLine);
+
+  // Flip the scouting row's promotion hint, preserving every other column
+  // (deadline + notes included — formatScoutingRow re-emits the canonical shape).
+  scoutingLines[scoutingIdx] = formatScoutingRow({ ...scoutingRow, hint: `PROMOTED-${newAppNum}` });
+
+  if (DRY_RUN) {
+    console.log('\n(dry-run — no changes written)');
+    return 0;
+  }
+
+  writeFileAtomic(APPS_FILE, appsLines.join('\n'));
+  writeFileAtomic(SCOUTING_FILE, scoutingLines.join('\n'));
+  appendLedger(ledgerPathFor(APPS_FILE), [{
+    num: newAppNum, date: today, company: scoutingRow.company, role: scoutingRow.role,
+    from: '', to: 'Evaluated', stage: '', source: 'promote',
+    note: `promoted from scouting #${targetNum}`, logged_at: new Date().toISOString(),
+  }]);
+
+  console.log(`\n✅ Promoted scouting #${targetNum} → applications #${newAppNum}`);
+  console.log(`   Scouting entry tagged PROMOTED-${newAppNum} (preserved for trajectory history)`);
+  console.log(`\nNext: open the entry in starpath and click "Tailor CV" / "Prep Application" / "Draft Application" as needed.`);
+
+  return 0;
 }
-if (insertIdx < 0) {
-  console.error('Could not find header separator in applications.md');
-  process.exit(1);
-}
-appsLines.splice(insertIdx, 0, newAppLine);
 
-// Flip the scouting row's promotion hint, preserving every other column
-// (deadline + notes included — formatScoutingRow re-emits the canonical shape).
-scoutingLines[scoutingIdx] = formatScoutingRow({ ...scoutingRow, hint: `PROMOTED-${newAppNum}` });
-
-if (DRY_RUN) {
-  console.log('\n(dry-run — no changes written)');
-  process.exit(0);
-}
-
-writeFileSync(APPS_FILE, appsLines.join('\n'));
-writeFileSync(SCOUTING_FILE, scoutingLines.join('\n'));
-
-console.log(`\n✅ Promoted scouting #${targetNum} → applications #${newAppNum}`);
-console.log(`   Scouting entry tagged PROMOTED-${newAppNum} (preserved for trajectory history)`);
-console.log(`\nNext: open the entry in starpath and click "Tailor CV" / "Prep Application" / "Draft Application" as needed.`);
+const exitCode = withLockSync(lockPathFor(SCOUTING_FILE), () =>
+  withLockSync(lockPathFor(APPS_FILE), promote, { label: 'promote-to-applications', timeoutMs: 60_000 }),
+{ label: 'promote-to-applications', timeoutMs: 60_000 });
+process.exit(exitCode);

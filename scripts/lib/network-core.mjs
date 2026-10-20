@@ -41,17 +41,17 @@
  * scores. Everything is derived from the caller's `network.md` + pipeline text.
  */
 
-/* ───── Company / role keys (shared shape with scouting-core / dedup-index) ──
- * Reusing the exact same normalization the rest of the pipeline uses means the
- * network matcher and the dedup index agree on what "the same company" is. We
- * re-declare (rather than import) so this module stays a standalone leaf with no
- * coupling to the tracker internals — the contract is the algorithm, and it is
- * locked by a cross-check test against scouting-core's companyKey.
+import { normalizeCompany } from './dedup-index.mjs';
+
+/* ───── Company key (the one every writer shares) ───────────────────
+ * The network matcher and the dedup index must agree on what "the same company"
+ * is, so this is `normalizeCompany` from dedup-index.mjs (a leaf: no tracker
+ * internals). Locked by a cross-check test against scouting-core's companyKey.
  */
 
-/** Strict company dedup key: lowercase, strip every non-alphanumeric. */
+/** Strict company dedup key: lowercase, strip every non-alphanumeric; diacritics fold, non-Latin names hash. */
 export function companyKey(name) {
-  return String(name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalizeCompany(name);
 }
 
 /* ───── Relationship strength, degree & referral leverage → a "warmth" score ─

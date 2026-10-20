@@ -567,6 +567,8 @@ Outliers are dimensions ≥ 1.5 points from the peer average (positive first); w
 
 In `data/applications.md` the Score cell for new rows is `W8.3 E5.6` (legacy `X.X/10` cells stay valid). `go` rows flagged `READY` are promoted via `node scripts/promote-to-applications.mjs <num>` (or Apply in the Database UI) with status `Evaluated`. Blocked listings are never promoted.
 
+**Row numbers are reserved, not derived.** A scouting row's `{num}` (in the TSV and its report link) is the report number reserved for that listing: the batch runner states it in the task message; with none, run `node scripts/reserve-report-num.mjs` and use what it prints. Never compute it from the max in `data/scouting.md` / `data/applications.md`: `scripts/merge-scouting.mjs` keeps a reserved number and releases the claim.
+
 `data/score-history.tsv` stays **unified** — it's the trajectory log, not a per-entry tracker.
 
 ### Logging to `data/score-history.tsv`

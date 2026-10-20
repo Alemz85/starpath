@@ -5,7 +5,7 @@
  * (design: docs/superpowers/specs/2026-07-07-multi-profile-design.md)
  *
  * A profile = one job search (config, scan keywords, calibration, database).
- * Real files live under `profiles/<slug>/…`; the 18 canonical paths every
+ * Real files live under `profiles/<slug>/…`; the 19 canonical paths every
  * script and the frontend already use are symlinks into the active profile.
  * Exactly one profile is active at a time, globally.
  *
@@ -423,7 +423,7 @@ function cmdInit(slugArg) {
   executePlan(planInit(slug, { label: argValue('--label'), date: todayIso() }));
   emit(
     { ok: true, active: slug, previous: null },
-    [`initialized multi-profile layout — live files moved into profiles/${slug}/, 18 canonical paths are now symlinks`],
+    [`initialized multi-profile layout — live files moved into profiles/${slug}/, 19 canonical paths are now symlinks`],
     0
   );
 }

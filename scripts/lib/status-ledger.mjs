@@ -34,7 +34,7 @@ import { resolveWriteTarget, writeFileAtomic } from './write-file-atomic.mjs'
 
 export const LEDGER_NAME = 'status-log.tsv'
 export const LEDGER_COLUMNS = ['num', 'date', 'company', 'role', 'from', 'to', 'stage', 'source', 'note', 'logged_at']
-export const SOURCES = ['cli', 'app', 'chat', 'merge-tracker', 'backfill']
+export const SOURCES = ['cli', 'app', 'chat', 'merge-tracker', 'backfill', 'normalize', 'dedup', 'promote']
 
 function fail(code, message) {
   const e = new Error(message)
@@ -170,6 +170,22 @@ export function planStatusChange(appsRaw, target, to) {
     changes.push({ num: row.num, company: row.company, role: row.role, from, to })
   }
   return { raw: lines.join('\n'), changes }
+}
+
+/**
+ * Ledger entries for status changes a script made itself, in one pass over the
+ * file ({ num, company, role, from, to } each). For writers that rewrite more
+ * than the Status cell (normalize-statuses, dedup-tracker); a plain status
+ * change goes through setStatus. Pure.
+ */
+export function statusChangeEntries(changes, { source, note = '', now = new Date() } = {}) {
+  if (!SOURCES.includes(source)) throw fail('EBADSOURCE', `source must be one of ${SOURCES.join(', ')}`)
+  const date = todayLocal(now)
+  const loggedAt = now.toISOString()
+  return changes.map((c) => ({
+    num: c.num, company: c.company, role: c.role, from: c.from, to: c.to,
+    date, stage: '', source, note: c.note ?? note, logged_at: loggedAt,
+  }))
 }
 
 /* ───── I/O (callers hold the applications.md lock) ──────────────── */

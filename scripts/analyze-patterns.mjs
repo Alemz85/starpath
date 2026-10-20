@@ -24,7 +24,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseScoreHistory, analyzeScouting } from './lib/targeting-core.mjs';
 import { VERDICT_ORDER, VERDICT_LABELS } from './lib/score-bands.mjs';
-import { parseTracker, enrichEntries, analyzeOutcomes } from './lib/patterns-core.mjs';
+import { parseTracker, enrichEntries, analyzeOutcomes, archetypeFromReportHeader, buildArchetypeLookup } from './lib/patterns-core.mjs';
 
 const CAREER_OPS = dataRootFor(dirname(dirname(fileURLToPath(import.meta.url))));  // data root (STARPATH_DATA / private / this checkout)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
@@ -86,8 +86,10 @@ function parseReport(reportPath) {
   const compRegex = /\|\s*(?:Comp|Salary|Salario|Listed salary)\s*\|\s*(.*?)\s*\|/i;
   const domainRegex = /\|\s*(?:Domain|Dominio|Industry)\s*\|\s*(.*?)\s*\|/i;
 
+  // v2 reports state the archetype in the header (`Archetype: …`); the Block A
+  // table row is the legacy shape.
   const archMatch = plain.match(blockARegex);
-  if (archMatch) report.archetype = archMatch[1].trim();
+  report.archetype = archetypeFromReportHeader(plain) || (archMatch ? archMatch[1].trim() : null);
 
   const senMatch = plain.match(seniorityRegex);
   if (senMatch) report.seniority = senMatch[1].trim();
@@ -146,7 +148,9 @@ function analyze() {
   // Resolver injected into the pure core so it stays I/O-free: maps a
   // report link (relative to the repo root) to its parsed report object.
   const loadReport = (rel) => parseReport(join(CAREER_OPS, rel));
-  const enriched = enrichEntries(entries, loadReport);
+  // Reports without an archetype fall back to score-history.tsv (same evaluation, same value).
+  const scoreRows = existsSync(SCORE_HISTORY_FILE) ? parseScoreHistory(readFileSync(SCORE_HISTORY_FILE, 'utf-8')) : [];
+  const enriched = enrichEntries(entries, loadReport, { archetypeFor: buildArchetypeLookup(scoreRows) });
   return analyzeOutcomes(enriched, { minThreshold: MIN_THRESHOLD });
 }
 

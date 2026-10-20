@@ -18,6 +18,7 @@
 // report/notes indices so every consumer agrees.
 
 import { verdictFromCells } from './scouting-core.mjs';
+import { normalizeCompany } from './dedup-index.mjs';
 
 /* ───── Canonical states ─────────────────────────────────────────── */
 
@@ -60,10 +61,13 @@ const STATUS_ALIASES = {
 /**
  * Strict dedup key: lowercase, strip every non-alphanumeric (incl. spaces).
  * "Acme Inc." and "ACME-INC" both collapse to "acmeinc". This is the key
- * merge-tracker uses for its every-batch dedup gate.
+ * merge-tracker uses for its every-batch dedup gate. It is `normalizeCompany`
+ * from dedup-index.mjs (the one company key every writer shares): identical for
+ * plain ASCII names, Latin diacritics fold ("Café" → "cafe"), and non-Latin
+ * names get a slug + hash instead of an empty key.
  */
 export function companyKey(name) {
-  return String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalizeCompany(name);
 }
 
 /**
@@ -73,7 +77,13 @@ export function companyKey(name) {
  * changes dedup matching and wants the user's full dataset to validate.
  */
 export function companyKeyLoose(name) {
-  return String(name).toLowerCase()
+  const folded = String(name).normalize('NFKD').replace(/\p{M}+/gu, '');
+  // Letters outside Latin script would all fold to '' and look like one
+  // company: key those by the shared hashed key instead.
+  if (/(?=[\p{L}\p{N}])(?![\p{Script=Latin}\p{N}])./u.test(folded)) {
+    return normalizeCompany(name);
+  }
+  return folded.toLowerCase()
     .replace(/[()]/g, '')
     .replace(/\s+/g, ' ')
     .replace(/[^a-z0-9 ]/g, '')

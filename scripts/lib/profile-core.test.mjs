@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isV2ScoutingHeader } from './scouting-core.mjs';
+import { LEDGER_COLUMNS } from './status-ledger.mjs';
 
 import {
   PROFILE_CONFIG_FILES,
@@ -38,14 +39,14 @@ const REPO_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 
 // ── Canonical path sets ───────────────────────────────────────────────────
 
-test('path sets match the spec: 12 files + 6 report dirs = 18 paths', () => {
+test('path sets match the spec: 13 files + 6 report dirs = 19 paths', () => {
   assert.equal(PROFILE_CONFIG_FILES.length, 3);
-  assert.equal(PROFILE_DATA_FILES.length, 9);
-  assert.equal(PROFILE_FILES.length, 12);
+  assert.equal(PROFILE_DATA_FILES.length, 10);
+  assert.equal(PROFILE_FILES.length, 13);
   assert.equal(PROFILE_REPORT_DIRS.length, 6);
-  assert.equal(PROFILE_PATHS.length, 18);
+  assert.equal(PROFILE_PATHS.length, 19);
   // No duplicates
-  assert.equal(new Set(PROFILE_PATHS).size, 18);
+  assert.equal(new Set(PROFILE_PATHS).size, 19);
 });
 
 test('pathKind: dirs for report subdirs, files otherwise', () => {
@@ -113,6 +114,12 @@ test('pipeline scaffold has the ## Pending section merge-scan-staging expects', 
 
 test('report-summaries scaffold is empty (appenders write bare rows, no header)', () => {
   assert.equal(TRACKER_SCAFFOLDS['data/report-summaries.tsv'], '');
+});
+
+test('status-log is a canonical data path scaffolded with the ledger header', () => {
+  assert.ok(PROFILE_DATA_FILES.includes('data/status-log.tsv'));
+  assert.equal(TRACKER_SCAFFOLDS['data/status-log.tsv'], LEDGER_COLUMNS.join('\t') + '\n');
+  assert.equal(pathKind('data/status-log.tsv'), 'file');
 });
 
 test('filter-audit-state scaffold parses as empty JSON object', () => {
@@ -245,9 +252,9 @@ test('linkResolvesIntoProfile accepts absolute targets by suffix', () => {
 
 // ── Plans ─────────────────────────────────────────────────────────────────
 
-test('planSwitch: 18 symlink ops then write-active LAST', () => {
+test('planSwitch: 19 symlink ops then write-active LAST', () => {
   const ops = planSwitch('cph-student');
-  assert.equal(ops.length, 19);
+  assert.equal(ops.length, 20);
   const last = ops[ops.length - 1];
   assert.deepEqual(last, { op: 'write-active', slug: 'cph-student' });
   const links = ops.slice(0, -1);
@@ -265,7 +272,7 @@ test('planInit: adopts every canonical path before any symlink, active LAST', ()
   const kinds = ops.map((o) => o.op);
   assert.ok(kinds.lastIndexOf('adopt') < kinds.indexOf('symlink'), 'moves happen before links');
   const adopts = ops.filter((o) => o.op === 'adopt');
-  assert.equal(adopts.length, 18);
+  assert.equal(adopts.length, 19);
   // Data files carry their scaffold; config files and dirs don't.
   for (const a of adopts) {
     if (PROFILE_DATA_FILES.includes(a.canonical)) {
@@ -286,7 +293,7 @@ test('planInit defaults the label to the slug', () => {
   assert.match(meta.content, /label: "career"/);
 });
 
-test('planCreate scaffolds the 9 data files + 6 report dirs, never switches', () => {
+test('planCreate scaffolds the 10 data files + 6 report dirs, never switches', () => {
   const ops = planCreate('second', { label: 'Second', date: '2026-07-07' });
   assert.ok(!ops.some((o) => o.op === 'write-active'), 'create must not touch the active pointer');
   assert.ok(!ops.some((o) => o.op === 'symlink'), 'create must not touch canonical symlinks');
@@ -308,9 +315,9 @@ test('planCreate --from copies exactly the 3 config files', () => {
   );
 });
 
-test('planEject restores all 18 paths then removes the active pointer LAST', () => {
+test('planEject restores all 19 paths then removes the active pointer LAST', () => {
   const ops = planEject('career');
-  assert.equal(ops.length, 19);
+  assert.equal(ops.length, 20);
   assert.deepEqual(ops[ops.length - 1], { op: 'remove-active' });
   const restores = ops.slice(0, -1);
   assert.ok(restores.every((o) => o.op === 'restore'));

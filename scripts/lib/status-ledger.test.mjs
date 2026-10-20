@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   LEDGER_COLUMNS, backfill, canonicalStatus, dateError, ledgerPathFor, loadStates, parseLedger,
-  planBackfill, planStatusChange, readHistory, setStatus, setStatusAsync,
+  planBackfill, planStatusChange, readHistory, setStatus, setStatusAsync, statusChangeEntries,
 } from './status-ledger.mjs'
 import { APPLICATIONS_SCAFFOLD } from './profile-core.mjs'
 import { parseAppRow } from './tracker-core.mjs'
@@ -217,4 +217,16 @@ test('concurrent CLI changes to different rows all land, each logged once', asyn
     assert.deepEqual([1, 2, 3].map((n) => rowOf(appsFile, n).status), ['Interview', 'Applied', 'Offer'])
     assert.equal(ledger(appsFile).rows.length, 3)
   } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('statusChangeEntries: dated today, one entry per change, source must be known', () => {
+  const entries = statusChangeEntries(
+    [{ num: 4, company: 'Nimbus Robotics', role: 'Strategy Analyst', from: '**Applied**', to: 'Applied' }],
+    { source: 'normalize', note: 'tidied', now: NOW },
+  )
+  assert.deepEqual(entries, [{
+    num: 4, company: 'Nimbus Robotics', role: 'Strategy Analyst', from: '**Applied**', to: 'Applied',
+    date: '2026-07-10', stage: '', source: 'normalize', note: 'tidied', logged_at: NOW.toISOString(),
+  }])
+  assert.throws(() => statusChangeEntries([], { source: 'renderer' }), (e) => e.code === 'EBADSOURCE')
 })

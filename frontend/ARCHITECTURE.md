@@ -103,6 +103,8 @@ The renderer never touches the database directly. `electron/preload.ts` exposes 
 | `private:init`                | Runs `node scripts/private.mjs init --json`, relays its JSON, then re-resolves the root |
 | `prompt:resolve`              | Absolute system-prompt file for a repo-relative one (overrides applied) |
 | `app:open-file`               | Opens a repo-relative file (through the data root) with the default app |
+| `tracker:set-status`          | The only status write: runs `scripts/lib/status-ledger.mjs` (same code as `set-status.mjs`) under the tracker lock and logs to `status-log.tsv`; resolves to `{ ok: true, changed, to, date, entries }` or `{ ok: false, error, code }`, never a throw |
+| `tracker:status-history`      | Entries of `status-log.tsv` for `{ num }`, `{ company, role }` or the whole log, oldest first |
 
 ### The network lens (`network:overview`)
 

@@ -568,7 +568,7 @@ test('buildProfileChecks: healthy migrated layout is all-green', () => {
   assert.ok(checks.length >= 5, 'covers active, links, shadows, structure, reports/');
   assert.ok(checks.every(c => c.pass), JSON.stringify(checks.filter(c => !c.pass)));
   assert.ok(checks.some(c => c.label.includes("profiles/active → 'career'")));
-  assert.ok(checks.some(c => c.label.includes('18 canonical paths are symlinks')));
+  assert.ok(checks.some(c => c.label.includes('19 canonical paths are symlinks')));
 });
 
 test('buildProfileChecks: missing profiles/active fails', () => {
@@ -599,6 +599,17 @@ test('buildProfileChecks: a canonical path missing entirely fails', () => {
   const fail = checks.find(c => !c.pass && /missing entirely/.test(c.label));
   assert.ok(fail);
   assert.match(fail.label, /data\/scouting\.md/);
+});
+
+test('buildProfileChecks: a layout from before the status log (no status-log.tsv link) is flagged with the switch fix', () => {
+  const layout = healthyLayout();
+  layout.links = layout.links.map(l =>
+    l.path === 'data/status-log.tsv' ? { ...l, present: false, isSymlink: false, linkTarget: null } : l
+  );
+  const fail = buildProfileChecks(layout).find(c => !c.pass && /missing entirely/.test(c.label));
+  assert.ok(fail);
+  assert.match(fail.label, /data\/status-log\.tsv/);
+  assert.match(String(fail.fix), /profile -- switch career/);
 });
 
 test('buildProfileChecks: a symlink pointing at the wrong profile fails', () => {

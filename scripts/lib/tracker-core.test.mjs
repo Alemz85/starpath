@@ -9,6 +9,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
+import { normalizeCompany } from './dedup-index.mjs';
+
 import {
   CANONICAL_STATES,
   STATUS_RANK,
@@ -46,6 +48,21 @@ test('companyKey strips all non-alphanumerics including spaces', () => {
   assert.equal(companyKey('IQVIA'), 'iqvia');
   // The strict key intentionally merges spaced/unspaced variants.
   assert.equal(companyKey('AcmeInc'), companyKey('Acme Inc'));
+});
+
+test('companyKey is the shared normalizeCompany key (diacritics fold, non-Latin hashes)', () => {
+  for (const name of ['Acme Inc.', 'N26 GmbH', 'A&B Co.']) assert.equal(companyKey(name), normalizeCompany(name));
+  assert.equal(companyKey('Café Nord'), 'cafenord');
+  const a = companyKey('Северный Ветер');
+  const b = companyKey('Полярная Звезда');
+  assert.match(a, /~[0-9a-f]{8}$/);
+  assert.notEqual(a, b);
+  assert.equal(companyKey('!!!'), '');
+});
+
+test('companyKeyLoose never folds two different non-Latin companies together', () => {
+  assert.notEqual(companyKeyLoose('Северный Ветер'), companyKeyLoose('Полярная Звезда'));
+  assert.equal(companyKeyLoose('Café Nord (EU)'), 'cafe nord eu');
 });
 
 test('companyKeyLoose preserves internal spaces', () => {

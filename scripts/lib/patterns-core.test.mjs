@@ -36,6 +36,8 @@ import {
   scoreInfo,
   scoreStats,
   computeVerdictFloor,
+  archetypeFromReportHeader,
+  buildArchetypeLookup,
 } from './patterns-core.mjs';
 
 /* ───── normalizeStatus ──────────────────────────────────────────────────────*/
@@ -471,3 +473,36 @@ test('analyzeOutcomes: verdict-floor and skip-application recommendations', () =
   assert.match(actions, /Stop applying to Skip-verdict roles -- 2 applications/);
   assert.doesNotMatch(actions, /\/5|\/10/);
 });
+
+/* ───── archetype sources (v2 reports have no | Archetype | row) ─────────── */
+
+
+test('archetypeFromReportHeader: reads the v2 header line, bold or plain; placeholders and blanks are null', () => {
+  assert.equal(archetypeFromReportHeader('# Scouting: Nimbus Robotics — Analyst\n\n**Date:** 2026-06-01\n**Archetype:** Strategy & Ops\n**Want:** 8/10 · **Ease:** 6/10\n'), 'Strategy & Ops')
+  assert.equal(archetypeFromReportHeader('Archetype: Data Analyst'), 'Data Analyst')
+  assert.equal(archetypeFromReportHeader('**Archetype:** —'), null)
+  assert.equal(archetypeFromReportHeader('**Archetype:** {primary}'), null)
+  assert.equal(archetypeFromReportHeader('no header here'), null)
+  assert.equal(archetypeFromReportHeader(null), null)
+})
+
+test('buildArchetypeLookup: latest evaluation of the (company, role) wins; unknown archetypes are skipped', () => {
+  const lookup = buildArchetypeLookup([
+    { company: 'Nimbus Robotics', role: 'Strategy Analyst', archetype: 'Ops', date: '2026-05-01' },
+    { company: 'Nimbus Robotics', role: 'Strategy Analyst', archetype: 'Strategy', date: '2026-06-01' },
+    { company: 'Contoso Labs', role: 'Ops Analyst', archetype: 'Unknown', date: '2026-06-01' },
+  ])
+  assert.equal(lookup({ company: 'nimbus-robotics', role: 'strategy  analyst' }), 'Strategy')
+  assert.equal(lookup({ company: 'Contoso Labs', role: 'Ops Analyst' }), null)
+  assert.equal(lookup({ company: 'Fabrikam Energy', role: 'Ops Analyst' }), null)
+})
+
+test('enrichEntries + analyzeOutcomes: an entry with no report archetype uses the score-history lookup, not "Unknown"', () => {
+  const entries = parseTracker(SAMPLE_TRACKER)
+  const enriched = enrichEntries(entries, () => ({ archetype: null }), { archetypeFor: () => 'Strategy' })
+  assert.ok(enriched.every((e) => e.archetype === 'Strategy'))
+  const withReport = enrichEntries(entries, () => ({ archetype: 'Ops' }), { archetypeFor: () => 'Strategy' })
+  assert.ok(withReport.every((e) => e.archetype === 'Ops'), 'the report header wins over score-history')
+  const result = analyzeOutcomes(enriched, { minThreshold: 1 })
+  assert.deepEqual(result.archetypeBreakdown.map((a) => a.archetype), ['Strategy'])
+})

@@ -99,7 +99,7 @@ test('switch before init refuses with not-initialized', () => {
   assert.equal(json.error, 'not-initialized');
 });
 
-test('init migrates live files, scaffolds the rest, links all 18 paths', () => {
+test('init migrates live files, scaffolds the rest, links all 19 paths', () => {
   const { code, json } = run('init', '--label', 'Main search', '--json');
   assert.equal(code, 0);
   assert.deepEqual(json, { ok: true, active: 'career', previous: null });
@@ -125,6 +125,8 @@ test('init migrates live files, scaffolds the rest, links all 18 paths', () => {
   assert.equal(read('data/applications.md'), TRACKER_SCAFFOLDS['data/applications.md']);
   assert.equal(read('data/discarded.tsv'), TRACKER_SCAFFOLDS['data/discarded.tsv']);
   assert.equal(read('data/filter-audit-state.json'), '{}\n');
+  assert.equal(read('data/status-log.tsv'), TRACKER_SCAFFOLDS['data/status-log.tsv']);
+  assert.equal(read('profiles/career/data/status-log.tsv'), TRACKER_SCAFFOLDS['data/status-log.tsv']);
 
   // Shared files stayed real files in place.
   assert.ok(!isLink('user/cv.md'));
@@ -181,7 +183,7 @@ test('create refuses duplicate slugs and bad slugs', () => {
   assert.ok(!existsSync(join(root, 'profiles/third')));
 });
 
-test('switch re-points all 18 symlinks and writes active last', () => {
+test('switch re-points all 19 symlinks and writes active last', () => {
   const { code, json } = run('switch', 'second', '--json');
   assert.equal(code, 0);
   assert.deepEqual(json, { ok: true, active: 'second', previous: 'career' });

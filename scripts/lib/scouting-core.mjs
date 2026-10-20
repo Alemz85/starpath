@@ -15,6 +15,8 @@
 // v1 data was archived on the switch to scoring v2, so there is no back-compat
 // reader. Rows that don't have the 12 v2 columns parse as null.
 
+import { normalizeCompany } from './dedup-index.mjs';
+
 /* ───── Verdict grid (mirror of scripts/lib/score-bands.mjs) ─────── */
 
 // score-bands.mjs is the engine's source of truth for these constants and for
@@ -136,9 +138,9 @@ export function formatEligibilityCell(status, reasons = []) {
 
 /* ───── Company / role keys (shared shape with tracker-core) ─────── */
 
-/** Strict dedup key: lowercase, strip every non-alphanumeric. */
+/** Strict dedup key: `normalizeCompany` (dedup-index.mjs), the one company key every writer shares. */
 export function companyKey(name) {
-  return String(name).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalizeCompany(name);
 }
 
 /** Lowercase + collapse whitespace, for the dedup-index.tsv role key. */

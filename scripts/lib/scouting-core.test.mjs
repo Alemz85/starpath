@@ -138,6 +138,12 @@ test('eligibility cell parse / format', () => {
 
 /* ───── keys + scalars ───────────────────────────────────────────── */
 
+test('companyKey is the shared normalizeCompany key', () => {
+  assert.equal(companyKey('Café Nord'), 'cafenord');
+  assert.match(companyKey('Северный Ветер'), /~[0-9a-f]{8}$/);
+  assert.notEqual(companyKey('Северный Ветер'), companyKey('Полярная Звезда'));
+});
+
 test('companyKey / role helpers', () => {
   assert.equal(companyKey('Go-Cardless Ltd.'), 'gocardlessltd');
   assert.equal(normalizeRoleForIndex('  Data   Analyst '), 'data analyst');

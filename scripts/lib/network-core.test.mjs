@@ -46,7 +46,7 @@ test('companyKey strips non-alphanumerics and lowercases', () => {
 test('companyKey agrees with scouting-core (so network ⨯ pipeline match)', () => {
   // The whole feature relies on the network matcher and the pipeline using the
   // SAME notion of "same company". Lock that contract here.
-  for (const name of ['Acme Corp', 'Go-Cardless Ltd.', 'OpenAI', 'N26 GmbH', 'A&B Co.']) {
+  for (const name of ['Acme Corp', 'Go-Cardless Ltd.', 'OpenAI', 'N26 GmbH', 'A&B Co.', 'Café Nord', 'Северный Ветер']) {
     assert.equal(companyKey(name), scoutingCompanyKey(name), `mismatch for "${name}"`);
   }
 });

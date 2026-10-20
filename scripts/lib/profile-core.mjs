@@ -48,7 +48,7 @@ export const PROFILE_CONFIG_FILES = [
   'user/_profile.md',
 ];
 
-/** The 9 per-profile data files, scaffolded with canonical headers at create time. */
+/** The 10 per-profile data files, scaffolded with canonical headers at create time. */
 export const PROFILE_DATA_FILES = [
   'data/scouting.md',
   'data/applications.md',
@@ -59,9 +59,10 @@ export const PROFILE_DATA_FILES = [
   'data/discarded.tsv',
   'data/report-summaries.tsv',
   'data/filter-audit-state.json',
+  'data/status-log.tsv',
 ];
 
-/** The 12 per-profile FILES (config + data). */
+/** The 13 per-profile FILES (config + data). */
 export const PROFILE_FILES = [...PROFILE_CONFIG_FILES, ...PROFILE_DATA_FILES];
 
 /**
@@ -78,7 +79,7 @@ export const PROFILE_REPORT_DIRS = [
   'reports/briefs',
 ];
 
-/** All 18 canonical paths that become symlinks into the active profile. */
+/** All 19 canonical paths that become symlinks into the active profile. */
 export const PROFILE_PATHS = [...PROFILE_FILES, ...PROFILE_REPORT_DIRS];
 
 /** 'dir' for the six report subdirs, 'file' for everything else. */
@@ -103,6 +104,7 @@ export function pathKind(canonicalPath) {
 //                         (modes/scouting.md § Report Summary Cache), so the
 //                         scaffold is an empty file
 //   - filter-audit-state.json → scan.mjs writes {lastReportDate}; `{}` = never
+//   - status-log.tsv    → status-ledger.mjs LEDGER_COLUMNS (parity pinned by profile-core.test.mjs)
 
 /**
  * score-history.tsv header (v2, 29 columns) — docs/scoring-v2.md §8.1; must
@@ -114,6 +116,13 @@ export const SCORE_HISTORY_HEADER =
   'best_cities\tsalary_adj_city\twork_life_balance\twant\tpriority\t' +
   'eligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\t' +
   'tier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl';
+
+/**
+ * status-log.tsv header — the status ledger's columns. Written out here rather
+ * than imported so this module stays free of the ledger's dependencies;
+ * profile-core.test.mjs pins it to status-ledger.mjs LEDGER_COLUMNS.
+ */
+export const STATUS_LOG_HEADER = 'num\tdate\tcompany\trole\tfrom\tto\tstage\tsource\tnote\tlogged_at';
 
 /** discarded.tsv header — matches the frontend tombstone writer. */
 export const DISCARDED_HEADER = 'company\trole\tdate';
@@ -160,6 +169,7 @@ export const TRACKER_SCAFFOLDS = {
   'data/discarded.tsv': DISCARDED_HEADER + '\n',
   'data/report-summaries.tsv': '',
   'data/filter-audit-state.json': '{}\n',
+  'data/status-log.tsv': STATUS_LOG_HEADER + '\n',
 };
 
 // ── Slug + active-pointer + meta.yml ────────────────────────────────────────
@@ -304,7 +314,7 @@ function ensureProfileDirs(slug) {
   }));
 }
 
-/** The 18 symlink ops re-pointing every canonical path into `slug`. */
+/** The 19 symlink ops re-pointing every canonical path into `slug`. */
 function symlinkOps(slug) {
   return PROFILE_PATHS.map((p) => ({
     op: 'symlink',
@@ -316,7 +326,7 @@ function symlinkOps(slug) {
 
 /**
  * Plan the one-time migration: move live files into `profiles/<slug>/`,
- * scaffold whatever is absent, create the 18 symlinks, write the active
+ * scaffold whatever is absent, create the 19 symlinks, write the active
  * pointer LAST (a crash mid-init leaves no active file → doctor flags it,
  * eject/init can resume).
  */
@@ -380,7 +390,7 @@ export function planCreate(slug, { from = null, label = null, date }) {
 }
 
 /**
- * Plan switching the active profile: atomically re-point the 18 symlinks,
+ * Plan switching the active profile: atomically re-point the 19 symlinks,
  * then write `profiles/active` LAST (spec §3 — a crash mid-switch leaves the
  * pointer at the previous profile; doctor detects the mixed links).
  */

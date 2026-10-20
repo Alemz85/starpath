@@ -10,7 +10,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { SCOUTING_SCAFFOLD, APPLICATIONS_SCAFFOLD, SCORE_HISTORY_HEADER } from './lib/profile-core.mjs';
 import { parseScoutingRow } from './lib/scouting-core.mjs';
 import { parseAppRow } from './lib/tracker-core.mjs';
+import { acquireLockSync } from './lib/dir-lock.mjs';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
 
@@ -442,5 +443,105 @@ test('merge-tracker: new rows get an origin row in the status log; applications.
     // backfill sees the origin row and adds nothing for #7
     const bf = spawnSync('node', [join(SCRIPTS, 'set-status.mjs'), 'backfill', '--json'], { env: { ...process.env, CAREER_OPS_ROOT: root }, encoding: 'utf-8' });
     assert.deepEqual(JSON.parse(bf.stdout), []);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+/* ───── older tracker writers: lock, atomic write, status log ────── */
+
+const ledgerRows = (root) => {
+  const lines = read(root, 'profiles/main/data/status-log.tsv').trim().split('\n');
+  const header = lines[0].split('\t');
+  return lines.slice(1).map((l) => Object.fromEntries(l.split('\t').map((v, i) => [header[i], v])));
+};
+
+test('normalize-statuses: rewrites through the profile link, logs the change, leaves no lock', () => {
+  const root = makeRoot();
+  try {
+    appsWith(root, '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | W7 E6 | **Applied** | ✅ | n/d | [#1](reports/tier-2/N.md) |  |');
+    linkProfile(root);
+    const { code, out } = run('normalize-statuses.mjs', [], root);
+    assert.equal(code, 0, out);
+    assert.ok(lstatSync(join(root, 'data/applications.md')).isSymbolicLink(), 'applications.md is still a link');
+    assert.equal(appRows(root)[0].status, 'Applied');
+    const [entry] = ledgerRows(root);
+    assert.deepEqual([entry.num, entry.company, entry.from, entry.to, entry.source], ['1', 'Nimbus Robotics', '**Applied**', 'Applied', 'normalize']);
+    assert.ok(!existsSync(join(root, 'profiles/main/data/.applications.md.lock')), 'lock released');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('normalize-statuses: waits for the tracker lock, then writes', async () => {
+  const root = makeRoot();
+  try {
+    appsWith(root, '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | W7 E6 | **Applied** | ✅ | n/d | [#1](reports/tier-2/N.md) |  |');
+    const lock = acquireLockSync(lockPathForTest(root), { label: 'test holder' });
+    let finished = false;
+    const child = spawn('node', [join(SCRIPTS, 'normalize-statuses.mjs')], { env: { ...process.env, CAREER_OPS_ROOT: root } });
+    const exited = new Promise((resolve) => child.on('exit', (c) => { finished = true; resolve(c); }));
+    await new Promise((r) => setTimeout(r, 800));
+    assert.equal(finished, false, 'script is waiting on the lock');
+    assert.equal(appRows(root)[0].status, '**Applied**', 'nothing written while the lock is held');
+    lock.release();
+    assert.equal(await exited, 0);
+    assert.equal(appRows(root)[0].status, 'Applied');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+const lockPathForTest = (root) => join(root, 'data/.applications.md.lock');
+
+test('dedup-tracker: a promoted status is logged; applications.md stays a link', () => {
+  const root = makeRoot();
+  try {
+    appsWith(root,
+      '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst Intern | W7 E6 | Applied | ✅ | n/d | [#1](reports/tier-2/N.md) |  |',
+      '| 2 | 2026-06-10 | Nimbus Robotics | Strategy Analyst Intern | W8.5 E7.5 | Evaluated | ❌ | n/d | [#2](reports/tier-1/N.md) |  |',
+    );
+    linkProfile(root);
+    const { code, out } = run('dedup-tracker.mjs', [], root);
+    assert.equal(code, 0, out);
+    assert.ok(lstatSync(join(root, 'data/applications.md')).isSymbolicLink());
+    assert.deepEqual(appRows(root).map((a) => [a.num, a.status]), [[2, 'Applied']]);
+    const [entry] = ledgerRows(root);
+    assert.deepEqual([entry.num, entry.from, entry.to, entry.source], ['2', 'Evaluated', 'Applied', 'dedup']);
+    assert.ok(!existsSync(join(root, 'profiles/main/data/.applications.md.lock')), 'lock released');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('promote: writes through the profile links, gives the new row an origin entry, leaves no locks', () => {
+  const root = makeRoot();
+  try {
+    addScouting(root, '003-fabrikam.tsv', ...STRETCH);
+    assert.equal(run('merge-scouting.mjs', [], root).code, 0);
+    linkProfile(root);
+    const { code, out } = run('promote-to-applications.mjs', ['3'], root);
+    assert.equal(code, 0, out);
+    assert.ok(lstatSync(join(root, 'data/applications.md')).isSymbolicLink());
+    assert.ok(lstatSync(join(root, 'data/scouting.md')).isSymbolicLink());
+    assert.equal(appRows(root)[0].company, 'Fabrikam Energy');
+    const [entry] = ledgerRows(root);
+    assert.deepEqual([entry.num, entry.company, entry.from, entry.to, entry.source], ['1', 'Fabrikam Energy', '', 'Evaluated', 'promote']);
+    for (const f of ['.applications.md.lock', '.scouting.md.lock']) assert.ok(!existsSync(join(root, 'profiles/main/data', f)), `${f} released`);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('company keys: two different non-Latin companies stay two applications in merge-tracker', () => {
+  const root = makeRoot();
+  try {
+    addTracker(root, '1-a.tsv', '1', '2026-06-22', 'Северный Ветер', 'Analyst', 'Evaluated', 'W7 E7', '❌', 'n/d', '[#1](reports/tier-2/A.md)', '');
+    addTracker(root, '2-b.tsv', '2', '2026-06-22', 'Полярная Звезда', 'Analyst', 'Evaluated', 'W7 E7', '❌', 'n/d', '[#2](reports/tier-2/B.md)', '');
+    assert.equal(run('merge-tracker.mjs', [], root).code, 0);
+    assert.equal(appRows(root).length, 2, 'two different non-Latin companies are two applications');
+    const index = read(root, 'data/dedup-index.tsv');
+    assert.ok(!/^\t/m.test(index), 'no empty company key in the dedup index');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('verify-pipeline: two different non-Latin companies with the same role are not flagged as duplicates', () => {
+  const root = makeRoot();
+  try {
+    appsWith(root,
+      '| 1 | 2026-06-01 | Северный Ветер | Analyst | W7 E6 | Applied | ❌ | n/d | — |  |',
+      '| 2 | 2026-06-02 | Полярная Звезда | Analyst | W7 E6 | Applied | ❌ | n/d | — |  |',
+    );
+    const { out } = run('verify-pipeline.mjs', [], root);
+    assert.ok(!/Possible duplicates/.test(out), out);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });

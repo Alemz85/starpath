@@ -41,7 +41,8 @@
 import { parseAppRow, parseScoreCell, displayScoreCell } from './tracker-core.mjs'
 import { verdictFromCells } from './scouting-core.mjs'
 import { computePriority, verdictRank, VERDICT_ORDER, VERDICT_LABELS } from './score-bands.mjs'
-import { ACTIONABLE_VERDICTS } from './targeting-core.mjs'
+import { ACTIONABLE_VERDICTS, normalizeArchetype } from './targeting-core.mjs'
+import { normalizeCompany, normalizeRole } from './dedup-index.mjs'
 
 /* ───── Status normalization (mirrors verify-pipeline.mjs) ──────────────────
  *
@@ -366,6 +367,38 @@ export function diagnoseFunnel(funnel, { minBase = 3 } = {}) {
   }
 }
 
+/* ───── Archetype sources ───────────────────────────────────────────────────
+ *
+ * A v2 report states its archetype in the header (`**Archetype:** …`, see
+ * modes/scouting.md § Universal header), not in a `| Archetype |` table row;
+ * score-history.tsv carries the same value per evaluation. Either feeds the
+ * archetype breakdown, so no row falls into "Unknown" when a source has it.
+ */
+
+/** The archetype from a report's header line (bold already stripped or not), or null. */
+export function archetypeFromReportHeader(content) {
+  const plain = String(content ?? '').replace(/\*\*/g, '')
+  const m = plain.match(/^[ \t]*(?:Archetype|Arquetipo):[ \t]*(\S[^\n]*)$/im)
+  const value = m?.[1].trim()
+  return value && !/^(?:—|-|n\/?d|\{.*\})$/i.test(value) ? value : null
+}
+
+/**
+ * A resolver `(entry) → archetype | null` over score-history rows
+ * (parseScoreHistory output): the latest evaluation of the entry's
+ * (company, role) with a stated archetype. Pure.
+ */
+export function buildArchetypeLookup(scoreRows) {
+  const byKey = new Map()
+  for (const r of scoreRows || []) {
+    if (!r.company || !r.role || !r.archetype || r.archetype === 'Unknown') continue
+    const key = `${normalizeCompany(r.company)}\t${normalizeRole(r.role)}`
+    const prev = byKey.get(key)
+    if (!prev || String(r.date) >= String(prev.date)) byKey.set(key, r)
+  }
+  return (entry) => byKey.get(`${normalizeCompany(entry.company)}\t${normalizeRole(entry.role)}`)?.archetype ?? null
+}
+
 /* ───── Enrichment: tracker entry × report data → analysis record ───────────
  *
  * Takes parsed tracker entries and a `loadReport(pathRelToRoot) → reportData`
@@ -375,9 +408,10 @@ export function diagnoseFunnel(funnel, { minBase = 3 } = {}) {
  * parseReport in the CLI produces; any field may be null/absent.
  *
  * Each enriched row keeps the raw `score` cell and adds the scoreInfo fields
- * (scoreLabel, priority, want, ease, legacyScore, verdict).
+ * (scoreLabel, priority, want, ease, legacyScore, verdict) and `archetype`
+ * (the report's, else `archetypeFor(entry)` — see buildArchetypeLookup).
  */
-export function enrichEntries(entries, loadReport) {
+export function enrichEntries(entries, loadReport, { archetypeFor = null } = {}) {
   return entries.map(e => {
     const reportMatch = e.report.match(/\]\(([^)]+)\)/)
     const reportData = reportMatch && typeof loadReport === 'function'
@@ -391,6 +425,7 @@ export function enrichEntries(entries, loadReport) {
       normalizedStatus: normalizeStatus(e.status),
       outcome,
       ...scoreInfo(e.score, reportData),
+      archetype: reportData?.archetype || (typeof archetypeFor === 'function' ? archetypeFor(e) : null) || null,
       report: reportData,
       remoteBucket: classifyRemote(remoteSource),
       companySize: classifyCompanySize(teamSource),
@@ -439,7 +474,7 @@ export function analyzeOutcomes(enriched, { minThreshold = 5 } = {}) {
   // --- Archetype breakdown ---
   const archetypeMap = new Map()
   for (const e of enriched) {
-    const arch = e.report?.archetype || 'Unknown'
+    const arch = normalizeArchetype(e.archetype || e.report?.archetype)
     if (!archetypeMap.has(arch)) archetypeMap.set(arch, { total: 0, positive: 0, negative: 0, self_filtered: 0, pending: 0, verdictCount: 0, actionable: 0 })
     const entry = archetypeMap.get(arch)
     entry.total++

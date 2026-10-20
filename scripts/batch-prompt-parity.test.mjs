@@ -317,3 +317,12 @@ test('report naming follows the canonical human-readable convention', () => {
   assert.ok(!/reports\/tier-\{N\}\/\{\{REPORT_NUM\}\}/.test(prompt),
     'no sequence-numbered report filenames')
 })
+
+test('the report number is a reserved claim in both files, not "log filenames only" or a best-effort max', () => {
+  for (const [name, text] of BOTH) {
+    assert.match(text, /reserve-report-num\.mjs/, `${name} points at the reservation script`)
+    assert.ok(!/filenames only/.test(text), `${name} no longer calls the report number log-only`)
+    assert.ok(!/best-effort next sequential/.test(text), `${name} no longer derives {num} from the trackers`)
+  }
+  assert.match(prompt, /`\{\{REPORT_NUM\}\}` \| The report number reserved for this listing/)
+})
