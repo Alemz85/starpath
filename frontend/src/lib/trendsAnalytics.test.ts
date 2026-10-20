@@ -4,7 +4,7 @@ import {
   filterByDateWindow,
   avg, median,
   buildByPeriod, pickGranularity, listingKey, MIN_SCORED_PER_PERIOD_FOR_WANT,
-  buildTopBy, latestPerListing, isNoiseLabel,
+  buildTopBy, latestPerListing, isNoiseLabel, primaryPlace,
   APPLY_WORTHY_VERDICTS, scoredOnly, isApplyWorthy,
   buildFunnel,
   PROFILE_DIMENSIONS,
@@ -246,6 +246,30 @@ test('buildTopBy drops a listing whose latest evaluation is blocked', () => {
     makeBlockedEntry('x', { url, company: 'Nimbus Robotics', date: '2026-06-09' }),
   ]
   assert.deepEqual(buildTopBy(rows, e => e.company, 'want', 5), [])
+})
+
+test('primaryPlace keys a multi-city listing by its first listed place, with its country', () => {
+  assert.equal(primaryPlace('Lyon, France; Vienna, Austria; Prague, Czechia'), 'Lyon, France')
+  assert.equal(primaryPlace('Lyon, France'), 'Lyon, France')
+  assert.equal(primaryPlace('Porto / Lyon'), 'Porto')
+  assert.equal(primaryPlace('Lyon, Vienna'), 'Lyon')
+  assert.equal(primaryPlace('Dublin, Ireland (on-site)'), 'Dublin, Ireland')
+  assert.equal(primaryPlace('Remote / Lyon'), 'Lyon')
+  assert.equal(primaryPlace('Italy'), 'Italy')
+  assert.equal(primaryPlace('Remote'), 'Remote')
+  assert.equal(primaryPlace(''), '')
+})
+
+test('top locations group a multi-city listing with its primary city', () => {
+  const rows = [
+    s(8, 6, job({ location: 'Lyon, France; Vienna, Austria' })),
+    s(6, 6, job({ location: 'Lyon, France' })),
+    s(7, 6, job({ location: 'Vienna, Austria' })),
+  ]
+  const top = buildTopBy(rows, e => primaryPlace(e.location), 'want', 5)
+  // Lyon's two listings average Want 7, tied with Vienna; the larger n leads.
+  assert.deepEqual(top.map(r => [r.label, r.count]), [['Lyon, France', 2], ['Vienna, Austria', 1]])
+  assert.equal(top[0].avgWant, 7)
 })
 
 // ─── buildFunnel ─────────────────────────────────────────────────────────────

@@ -18,7 +18,7 @@ import {
   TIME_RANGE_LABEL, filterByDateWindow,
   avg, buildByPeriod, pickGranularity, buildTopBy, buildFunnel, scoredOnly,
   buildTargetingMomentum, buildArchetypeMix,
-  locationFlag,
+  locationFlag, primaryPlace,
 } from '@/lib/trendsAnalytics'
 import { themeColor } from '@/lib/themes'
 
@@ -50,7 +50,7 @@ export function TrendsView() {
 
   // Top lists, each ranked on one named axis (Want or Ease, never both folded).
   const topCompanies  = useMemo(() => buildTopBy(filtered, e => e.company, 'ease', TOP_LIMIT), [filtered])
-  const topLocations  = useMemo(() => buildTopBy(filtered, e => e.location, 'want', TOP_LIMIT), [filtered])
+  const topLocations  = useMemo(() => buildTopBy(filtered, e => primaryPlace(e.location), 'want', TOP_LIMIT), [filtered])
   const topArchetypes = useMemo(() => buildTopBy(filtered, e => canonicalizeArchetype(e.archetype), 'ease', TOP_LIMIT), [filtered])
 
   const stats = useMemo(() => {
