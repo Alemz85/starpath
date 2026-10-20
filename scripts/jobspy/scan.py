@@ -58,9 +58,16 @@ APPLICATIONS_PATH = REPO_ROOT / "data" / "applications.md"
 STAGING_HISTORY = REPO_ROOT / "data" / "scan-history.jobspy.tsv"
 STAGING_PIPELINE = REPO_ROOT / "data" / "pipeline.jobspy.md"
 
-HISTORY_HEADER = (
-    "url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates"
-)
+# Header-named columns, appended after the original eight (never reordered):
+# readers find them by name, and merge-scan-staging.mjs realigns a staging file
+# to the canonical file's header, so an older 8-column staging file still merges.
+# `locations` is left empty here; the merge splits `location` into it (one
+# implementation, in scripts/lib/listing-fields.mjs).
+HISTORY_COLUMNS = [
+    "url", "first_seen", "portal", "title", "company", "location", "status",
+    "scan_dates", "posted_date", "deadline", "posting_id", "req_id", "locations",
+]
+HISTORY_HEADER = "\t".join(HISTORY_COLUMNS)
 
 
 # ── Filter logic — mirrors scripts/scan-core.mjs (word-boundary matching) ──
@@ -288,13 +295,12 @@ def make_company_role_key(company: str, title: str) -> str:
 
 # ── Posting-date recency (parity with scan-core.mjs › parsePostingDate) ──────
 #
-# JobSpy exposes the role's TRUE posting date per row (the `date` column, an
-# ISO YYYY-MM-DD string). The scanner stamps first_seen=today, so a job posted
-# 60 days ago that JobSpy surfaces today looks brand-new. We can't widen the
-# staging TSV schema here (the merge keys off fixed columns + the pipeline-line
-# format), but we CAN read the posting date to report a sourcing-quality signal:
-# what fraction of "new" rows are actually long-open reposts. That tells the
-# user (and a future scoring pass) how fresh this aggregator batch really is.
+# JobSpy exposes the role's TRUE posting date per row (`date_posted`, an ISO
+# YYYY-MM-DD string). The scanner stamps first_seen=today, so a job posted 60
+# days ago that JobSpy surfaces today looks brand-new. The date is staged in the
+# `posted_date` column (the merge realigns columns by header name) and also
+# summarized as a sourcing-quality signal: what fraction of "new" rows are
+# actually long-open reposts.
 
 
 def normalize_posting_date(raw) -> "str | None":
@@ -356,6 +362,47 @@ def posting_age_days(posted_date: "str | None", today: str) -> "int | None":
     except ValueError:
         return None
     return max(0, (t - p).days)
+
+
+# ── Application deadline (parity with scripts/lib/listing-fields.mjs) ─────────
+#
+# JobSpy has no deadline field, so the only source is an explicit date in the
+# description. Only an unambiguous ISO `YYYY-MM-DD` right after a deadline cue
+# counts ("apply by 2026-12-31", "closing date: 2026-12-31"); "12/31/2026",
+# "next Friday", impossible dates, or several different dates -> None. Never
+# guessed.
+
+_DEADLINE_CUE = (
+    r"(?:(?:application|applications|apply)\s+(?:deadline|closing\s+date|close\s+date|by|before|until)"
+    r"|(?:closing|close|application)\s+date"
+    r"|deadline(?:\s+(?:for\s+(?:applications?|submissions?)|to\s+apply))?"
+    r"|applications?\s+(?:close|closes|are\s+due|due|must\s+be\s+(?:received|submitted)\s+by)"
+    r"|(?:position|role|vacancy|posting)\s+closes?"
+    r"|(?:last\s+day|final\s+date)\s+to\s+apply"
+    r"|submit\s+(?:your\s+)?application\s+(?:by|before)"
+    r"|closes?(?:\s+on)?)"
+)
+_DEADLINE_RE = re.compile(
+    rf"\b{_DEADLINE_CUE}\s*(?:is|are|will\s+be|:|-|–|—|on|by|before|until)?\s*[:\-–—]?\s*(\d{{4}}-\d{{2}}-\d{{2}})(?![\d/]|[.\-]\d)",
+    re.IGNORECASE,
+)
+
+
+def extract_deadline(text) -> "str | None":
+    """ISO deadline stated in a job description, or None (see block comment)."""
+    if not text or not isinstance(text, str):
+        return None
+    plain = re.sub(r"<[^>]*>", " ", text)
+    plain = re.sub(r"\s+", " ", plain.replace("&nbsp;", " "))
+    found = set()
+    for m in _DEADLINE_RE.finditer(plain):
+        try:
+            d = _date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+        if 2000 <= d.year <= 2100:
+            found.add(d.isoformat())
+    return next(iter(found)) if len(found) == 1 else None
 
 
 def _load_tsv_urls(path: Path) -> set:
@@ -672,11 +719,13 @@ def main() -> int:
                 intra_run_seen_urls.add(url)
                 intra_run_seen_company_role.add(role_key)
 
-                # Recency accounting: JobSpy gives the role's true posting date
-                # (the `date` column). We don't widen the staging schema, but we
-                # tally how many kept rows are long-open reposts so the summary
-                # reflects how fresh this aggregator batch actually is.
-                posted = normalize_posting_date(row.get("date"))
+                # JobSpy gives the role's true posting date (`date_posted`; older
+                # versions: `date`). It is staged in the posted_date column and
+                # also tallied here so the summary reflects how many kept rows are
+                # long-open reposts.
+                posted = normalize_posting_date(row.get("date_posted"))
+                if posted is None:
+                    posted = normalize_posting_date(row.get("date"))
                 if posted is not None:
                     kept_with_date += 1
                     age = posting_age_days(posted, today)
@@ -692,6 +741,9 @@ def main() -> int:
                     "location": location_raw,
                     "status": "added",
                     "scan_dates": today,
+                    "posted_date": posted or "",
+                    "deadline": extract_deadline(_cell(row, "description")) or "",
+                    "posting_id": _cell(row, "id"),
                 })
                 kept += 1
 
@@ -740,14 +792,8 @@ def main() -> int:
         f.write(HISTORY_HEADER + "\n")
         for r in new_rows:
             cols = [
-                r["url"],
-                r["first_seen"],
-                r["portal"],
-                r["title"].replace("\t", " "),
-                r["company"].replace("\t", " "),
-                r["location"].replace("\t", " "),
-                r["status"],
-                r["scan_dates"],
+                str(r.get(c, "")).replace("\t", " ").replace("\n", " ").strip()
+                for c in HISTORY_COLUMNS
             ]
             f.write("\t".join(cols) + "\n")
 

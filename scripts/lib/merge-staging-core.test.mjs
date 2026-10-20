@@ -540,3 +540,116 @@ test('classifyScanOffer matches mergeHistory precedence on the same inputs', () 
   );
   assert.equal(r.decision, 'duplicate-role', 'classifyScanOffer agrees with mergeHistory');
 });
+
+// ── identity: posting ids, non-Latin companies, columns ───────────────────
+import {
+  postingIdKey,
+  listingIdentity,
+  lookupListingDates,
+} from './merge-staging-core.mjs';
+import { HISTORY_COLUMNS } from './scan-history.mjs';
+
+const wide = (o = {}) => HISTORY_COLUMNS.map((c) => o[c] ?? '').join('\t');
+
+test('postingIdKey: portal + id, empty when either is missing', () => {
+  assert.equal(postingIdKey('Greenhouse-API', ' 4417 '), 'greenhouse-api:4417');
+  assert.equal(postingIdKey('greenhouse-api', ''), '');
+  assert.equal(postingIdKey('', '4417'), '');
+});
+
+test('listingIdentity: id beats (company, role) beats URL hash', () => {
+  assert.deepEqual(
+    listingIdentity({ source: 'lever-api', postingId: 'abc', company: 'X', title: 'Y' }),
+    { kind: 'id', key: 'lever-api:abc' },
+  );
+  assert.equal(listingIdentity({ company: 'Acme', title: 'Analyst' }).kind, 'cr');
+  const u = listingIdentity({ company: '', title: 'Analyst', url: 'https://x.example/job/1?utm_source=a' });
+  assert.equal(u.kind, 'url');
+  assert.equal(u.key, listingIdentity({ company: '', title: 'Analyst', url: 'https://x.example/job/1' }).key, 'tracking params do not change the hash');
+  assert.equal(listingIdentity({}).kind, 'none');
+});
+
+test('companyRoleKey: two different non-Latin companies with the same role no longer collide', () => {
+  assert.notEqual(companyRoleKey('Северный Ветер', 'Analyst'), companyRoleKey('Золотой Луч', 'Analyst'));
+  assert.notEqual(companyRoleKey('Северный Ветер', 'Analyst'), '');
+});
+
+test('classifyScanOffer: same ATS posting id under a new URL is a duplicate-id', () => {
+  const seenIds = new Set(['greenhouse-api:4417']);
+  const r = classifyScanOffer(
+    { url: 'https://boards.example.com/renamed-slug/4417', company: 'Nimbus', title: 'Analyst', source: 'greenhouse-api', postingId: '4417' },
+    { seenUrls: new Set(), seenKeys: new Set(), seenIds },
+  );
+  assert.equal(r.decision, 'duplicate-id');
+  assert.equal(r.idKey, 'greenhouse-api:4417');
+});
+
+test('classifyScanOffer: same id on a DIFFERENT portal is not a duplicate', () => {
+  const r = classifyScanOffer(
+    { url: 'https://x.example/1', company: 'Nimbus', title: 'Analyst', source: 'lever-api', postingId: '4417' },
+    { seenUrls: new Set(), seenKeys: new Set(), seenIds: new Set(['greenhouse-api:4417']) },
+  );
+  assert.equal(r.decision, 'new');
+});
+
+test('seedScanSeen: ids come from the header-named posting_id column; old rows without it are fine', () => {
+  const oldRow = 'https://x.example/old\t2026-01-01\tgreenhouse-api\tAnalyst\tAcme\tCity\tadded\t2026-01-01';
+  const newRow = wide({ url: 'https://x.example/new', portal: 'lever-api', title: 'Planner', company: 'Acme', posting_id: 'lv-1' });
+  const { seenIds, seenUrls } = seedScanSeen({ historyRows: [oldRow, newRow] });
+  assert.deepEqual([...seenIds], ['lever-api:lv-1']);
+  assert.equal(seenUrls.size, 2);
+});
+
+test('mergeHistory: staging rows of an older/narrower layout are realigned to the canonical columns', () => {
+  const narrow = ['url', 'first_seen', 'portal', 'title', 'company', 'location', 'status', 'scan_dates'];
+  const staged = ['https://x.example/a', '2026-05-01', 'jobspy-indeed', 'Analyst', 'Nimbus', 'Aldervale', 'added', '2026-05-01'].join('\t');
+  const r = mergeHistory([], [staged], '2026-05-01', { columns: HISTORY_COLUMNS, stagingColumns: narrow });
+  assert.equal(r.appended, 1);
+  assert.equal(r.rows[0].split('\t').length, HISTORY_COLUMNS.length);
+  assert.equal(r.rows[0].split('\t')[4], 'Nimbus');
+});
+
+test('mergeHistory: a re-seen row gets its missing dates/ids back-filled without overwriting', () => {
+  const existing = 'https://x.example/a\t2026-04-01\tgreenhouse-api\tAnalyst\tNimbus\tAldervale\tadded\t2026-04-01';
+  const staged = wide({
+    url: 'https://x.example/a', first_seen: '2026-05-01', portal: 'greenhouse-api', title: 'Analyst', company: 'Nimbus',
+    posted_date: '2026-03-30', deadline: '2026-06-30', posting_id: '99',
+  });
+  const r = mergeHistory([existing], [staged], '2026-05-01', { columns: HISTORY_COLUMNS });
+  assert.equal(r.updatedScanDates, 1);
+  const cells = Object.fromEntries(HISTORY_COLUMNS.map((c, i) => [c, r.rows[0].split('\t')[i] ?? '']));
+  assert.equal(cells.scan_dates, '2026-04-01|2026-05-01');
+  assert.equal(cells.posted_date, '2026-03-30');
+  assert.equal(cells.deadline, '2026-06-30');
+  assert.equal(cells.posting_id, '99');
+  assert.equal(cells.first_seen, '2026-04-01', 'existing cells are never overwritten');
+});
+
+test('mergeHistory: same posting id under a changed URL is a re-seen bump, not a new row', () => {
+  const existing = wide({ url: 'https://x.example/old-slug', first_seen: '2026-04-01', portal: 'lever-api', title: 'Analyst', company: 'Nimbus', status: 'added', scan_dates: '2026-04-01', posting_id: 'lv-9' });
+  const staged = wide({ url: 'https://x.example/new-slug', first_seen: '2026-05-01', portal: 'lever-api', title: 'Analyst II', company: 'Nimbus', posting_id: 'lv-9' });
+  const r = mergeHistory([existing], [staged], '2026-05-01');
+  assert.equal(r.appended, 0);
+  assert.equal(r.updatedScanDates, 1);
+});
+
+// ── lookupListingDates: deadline, else posted, else scan date ─────────────
+
+test('lookupListingDates: matches by canonical URL, then by (company, role); picks deadline > posted > scanned', () => {
+  const header = HISTORY_COLUMNS.join('\t');
+  const rows = [
+    wide({ url: 'https://x.example/a', first_seen: '2026-04-01', title: 'Analyst', company: 'Nimbus', deadline: '2026-06-30', posted_date: '2026-03-30' }),
+    wide({ url: 'https://x.example/b', first_seen: '2026-04-02', title: 'Planner', company: 'Nimbus', posted_date: '2026-03-31' }),
+    'https://x.example/c\t2026-04-03\tgreenhouse-api\tBuyer\tNimbus\tAldervale\tadded\t2026-04-03', // old 8-col row
+  ].join('\n');
+  const text = `${header}\n${rows}\n`;
+  assert.deepEqual(lookupListingDates(text, { url: 'https://www.x.example/a?utm_source=z' }).display, { kind: 'deadline', date: '2026-06-30' });
+  assert.deepEqual(lookupListingDates(text, { company: 'NIMBUS', role: 'planner' }).display, { kind: 'posted', date: '2026-03-31' });
+  assert.deepEqual(lookupListingDates(text, { url: 'https://x.example/c' }).display, { kind: 'scanned', date: '2026-04-03' });
+  assert.equal(lookupListingDates(text, { company: 'Nope', role: 'None' }), null);
+});
+
+test('lookupListingDates: works on an old file whose header has only the original 8 columns', () => {
+  const text = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates\nhttps://x.example/c\t2026-04-03\tgreenhouse-api\tBuyer\tNimbus\tAldervale\tadded\t2026-04-03\n';
+  assert.deepEqual(lookupListingDates(text, { company: 'Nimbus', role: 'Buyer' }).display, { kind: 'scanned', date: '2026-04-03' });
+});
