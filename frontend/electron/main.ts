@@ -51,6 +51,11 @@ const SHELL_PATH = [
 const SHELL_ENV = { ...process.env, PATH: SHELL_PATH }
 
 const isDev = process.env.NODE_ENV === 'development'
+// Opt-in overrides for isolated runs (tests, README screenshots): a separate
+// app-data folder so the real config, cache and chat are never touched, and a
+// dev server on another port so a second instance can run beside the first.
+if (process.env.STARPATH_USER_DATA) app.setPath('userData', process.env.STARPATH_USER_DATA)
+const DEV_URL = process.env.STARPATH_DEV_URL || 'http://localhost:3000'
 // Compiled main lives at dist-electron/electron/main.js; the Next.js static
 // export lives at out/ (sibling of dist-electron at the project root, and at
 // the asar root in production). Two ../ to climb out of dist-electron/electron/.
@@ -457,7 +462,7 @@ function createWindow(): void {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           isDev
-            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:3000; img-src 'self' data: https://logo.clearbit.com https://unavatar.io https://www.google.com https://t1.gstatic.com;"
+            ? `default-src 'self' 'unsafe-inline' 'unsafe-eval' ${DEV_URL}; img-src 'self' data: https://logo.clearbit.com https://unavatar.io https://www.google.com https://t1.gstatic.com;`
             : "default-src 'self' 'unsafe-inline'; img-src 'self' data: https://logo.clearbit.com https://unavatar.io https://www.google.com https://t1.gstatic.com; connect-src 'none';",
         ],
       },
@@ -481,7 +486,7 @@ function createWindow(): void {
   mainWindow.once('ready-to-show', () => mainWindow?.show())
 
   if (isDev) {
-    mainWindow.loadURL('http://localhost:3000')
+    mainWindow.loadURL(DEV_URL)
     mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     loadURL!(mainWindow)
