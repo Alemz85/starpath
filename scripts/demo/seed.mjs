@@ -816,7 +816,7 @@ export const stories = [
     situation: 'The weekly trading report at Adventure Works took an analyst most of Monday, copying figures from four exports into a slide deck.',
     task: 'Nobody had asked me to fix it, but it was eating the time I needed for the pricing work.',
     action: 'I rewrote the extraction in SQL, generated the tables and charts with a Python script, and kept the slide layout the managers were used to so nothing changed for them except the arrival time.',
-    result: 'The report went from about six hours of work to twenty minutes of checking, and it ran every week for the rest of my internship.',
+    result: 'The report went from about 6 hours of work to 20 minutes of checking, and it ran every week for the rest of my internship.',
     reflection: 'Keeping the output familiar was what got the change accepted so quickly.',
   },
   {

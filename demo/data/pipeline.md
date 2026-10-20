@@ -1,0 +1,60 @@
+# Pipeline — Pending Evaluations
+
+## Pending
+- [ ] https://example.com/jobs/adventure-works/junior-merchandise-planner-9944 | Adventure Works | Junior Merchandise Planner | relevance 6.1 — matches 1 target keyword (Junior), right seniority band (Junior), in a target city
+- [ ] https://example.com/jobs/contoso/operations-analyst-shared-services-4490 | Contoso | Operations Analyst, Shared Services | relevance 5.9 — matches 2 target keywords (Analyst, Operations), right seniority band (Analyst), in a target city
+- [ ] https://example.com/jobs/first-up-consultants/junior-data-consultant-6077 | First Up Consultants | Junior Data Consultant | relevance 5.8 — matches 1 target keyword (Junior), right seniority band (Junior), in a target city
+- [ ] https://example.com/jobs/northwind-analytics/analytics-engineer-junior-1131 | Northwind Analytics | Analytics Engineer, Junior | relevance 5.7 — matches 2 target keywords (Analytics, Junior), right seniority band (Junior), in a target city
+- [ ] https://example.com/jobs/lamna-healthcare/pricing-and-reimbursement-analyst-1618 | Lamna Healthcare | Pricing & Reimbursement Analyst | relevance 5.0 — matches 2 target keywords (Pricing, Analyst), right seniority band (Analyst), in a target city
+- [ ] https://example.com/jobs/wide-world-importers/inside-sales-analyst-2391 | Wide World Importers | Inside Sales Analyst | relevance 4.8 — matches 1 target keyword (Analyst), right seniority band (Analyst), in a target city
+- [ ] https://example.com/jobs/vanarsdel/strategy-and-operations-associate-9160 | VanArsdel | Strategy & Operations Associate | relevance 6.0 — matches 3 target keywords (Strategy, Operations, Associate), right seniority band (Associate), in a target city
+- [ ] https://example.com/jobs/consolidated-messenger/operations-excellence-trainee-2012 | Consolidated Messenger | Operations Excellence Trainee | relevance 5.6 — matches 2 target keywords (Operations, Trainee), right seniority band (Trainee), in a target city
+- [ ] https://example.com/jobs/adatum/bi-analyst-2788 | Adatum | BI Analyst | relevance 5.5 — matches 1 target keyword (Analyst), right seniority band (Analyst), in a target city
+- [ ] https://example.com/jobs/lucerne-publishing/audience-insights-analyst-4515 | Lucerne Publishing | Audience Insights Analyst | relevance 5.4 — matches 2 target keywords (Analyst, Insights), right seniority band (Analyst), in a target city
+- [ ] https://example.com/jobs/lamna-healthcare/business-analyst-1590 | Lamna Healthcare | Business Analyst | relevance 5.2 — matches 1 target phrase (Business Analyst), matches 1 target keyword (Analyst), right seniority band (Analyst), in a target city
+- [ ] https://example.com/jobs/fourth-coffee/supply-planning-analyst-1222 | Fourth Coffee | Supply Planning Analyst | relevance 5.0 — matches 2 target keywords (Analyst, Planning), right seniority band (Analyst), in a target city
+- [ ] https://example.com/jobs/city-power-and-light/graduate-programme-strategy-and-planning-8170 | City Power & Light | Graduate Programme, Strategy & Planning | relevance 6.4 — matches 1 target phrase (Graduate Programme), matches 3 target keywords (Strategy, Planning, Graduate), right seniority band (Graduate), freshly posted, in a target city
+- [ ] https://example.com/jobs/nimbus-robotics/operations-strategy-analyst-7266 | Nimbus Robotics | Operations Strategy Analyst | relevance 6.2 — matches 3 target keywords (Analyst, Strategy, Operations), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/margie-s-travel/pricing-data-analyst-8893 | Margie's Travel | Pricing Data Analyst | relevance 5.8 — matches 1 target phrase (Data Analyst), matches 2 target keywords (Pricing, Analyst), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/humongous-insurance/pricing-analyst-graduate-6233 | Humongous Insurance | Pricing Analyst Graduate | relevance 5.7 — matches 3 target keywords (Pricing, Analyst, Graduate), right seniority band (Graduate, Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/wide-world-importers/trade-analytics-associate-2334 | Wide World Importers | Trade Analytics Associate | relevance 5.5 — matches 2 target keywords (Analytics, Associate), right seniority band (Associate), freshly posted, in a target city
+- [ ] https://example.com/jobs/southridge-video/business-intelligence-analyst-6702 | Southridge Video | Business Intelligence Analyst | relevance 5.3 — matches 1 target keyword (Analyst), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/relecloud/product-operations-analyst-3790 | Relecloud | Product Operations Analyst | relevance 5.1 — matches 2 target keywords (Analyst, Operations), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/trey-research/market-research-analyst-3355 | Trey Research | Market Research Analyst | relevance 4.2 — matches 1 target keyword (Analyst), right seniority band (Analyst), freshly posted
+- [ ] https://example.com/jobs/northwind-analytics/data-analyst-customer-insights-1106 | Northwind Analytics | Data Analyst, Customer Insights | relevance 7.4 — matches 1 target phrase (Data Analyst), matches 2 target keywords (Analyst, Insights), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/lumen-freight/network-planning-graduate-2611 | Lumen Freight | Network Planning Graduate | relevance 6.9 — matches 2 target keywords (Planning, Graduate), right seniority band (Graduate), freshly posted, in a target city
+- [ ] https://example.com/jobs/contoso/business-analyst-finance-transformation-4472 | Contoso | Business Analyst, Finance Transformation | relevance 6.8 — matches 1 target phrase (Business Analyst), matches 1 target keyword (Analyst), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/tailspin-toys/junior-category-analyst-2231 | Tailspin Toys | Junior Category Analyst | relevance 6.6 — matches 2 target keywords (Analyst, Junior), right seniority band (Junior, Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/wingtip-labs/growth-analyst-3127 | Wingtip Labs | Growth Analyst | relevance 6.5 — matches 1 target keyword (Analyst), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/alpine-ski-house/revenue-management-analyst-5588 | Alpine Ski House | Revenue Management Analyst | relevance 6.3 — matches 2 target keywords (Revenue, Analyst), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/woodgrove-bank/graduate-analyst-payments-strategy-7790 | Woodgrove Bank | Graduate Analyst, Payments Strategy | relevance 6.0 — matches 3 target keywords (Analyst, Strategy, Graduate), right seniority band (Graduate, Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/fabrikam/demand-planning-analyst-5412 | Fabrikam | Demand Planning Analyst | relevance 5.9 — matches 2 target keywords (Analyst, Planning), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/litware/crm-analyst-5891 | Litware | CRM Analyst | relevance 5.6 — matches 1 target keyword (Analyst), right seniority band (Analyst), freshly posted, in a target city
+- [ ] https://example.com/jobs/proseware/customer-analytics-intern-4977 | Proseware | Customer Analytics Intern | relevance 5.2 — matches 1 target keyword (Analytics), freshly posted, in a target city
+
+## Processed
+- [x] #1 | https://example.com/jobs/contoso/strategy-and-operations-analyst-4417 | Contoso | Strategy & Operations Analyst | W8.5 E7.34 | T1 | go
+- [x] #2 | https://example.com/jobs/wide-world-importers/inside-sales-analyst-2290 | Wide World Importers | Inside Sales Analyst | W5 E7.96 | T4 | skip
+- [x] #3 | https://example.com/jobs/woodgrove-bank/data-and-strategy-graduate-programme-7731 | Woodgrove Bank | Data & Strategy Graduate Programme | W8.25 E6.5 | T2 | stretch
+- [x] #4 | https://example.com/jobs/fourth-coffee/retail-operations-trainee-1185 | Fourth Coffee | Retail Operations Trainee | W3.7 E7.64 | T4 | skip
+- [x] #5 | https://example.com/jobs/trey-research/research-assistant-consumer-insights-3302 | Trey Research | Research Assistant, Consumer Insights | W4.75 E8.01 | T4 | skip
+- [x] #6 | https://example.com/jobs/alpine-ski-house/corporate-strategy-associate-5520 | Alpine Ski House | Corporate Strategy Associate | W9 E4.4 | T3 | growth
+- [x] #7 | https://example.com/jobs/first-up-consultants/graduate-business-analyst-6014 | First Up Consultants | Graduate Business Analyst | BLOCKED | T4 | work_auth: Not authorised to work in GB: requires an existing right to work in GB, sponsorship not offered
+- [x] #8 | https://example.com/jobs/northwind-analytics/graduate-analyst-programme-1042 | Northwind Analytics | Graduate Analyst Programme | W8.5 E7.63 | T1 | go
+- [x] #9 | https://example.com/jobs/margie-s-travel/customer-success-associate-8840 | Margie's Travel | Customer Success Associate | W5 E8.01 | T4 | skip
+- [x] #10 | https://example.com/jobs/adatum/junior-data-analyst-2716 | Adatum | Junior Data Analyst | W7 E6.33 | T2 | thin
+- [x] #11 | https://example.com/jobs/vanarsdel/business-development-analyst-9113 | VanArsdel | Business Development Analyst | W4.7 E7.64 | T4 | skip
+- [x] #12 | https://example.com/jobs/lucerne-publishing/marketing-operations-coordinator-4471 | Lucerne Publishing | Marketing Operations Coordinator | W5 E7.3 | T4 | skip
+- [x] #13 | https://example.com/jobs/wingtip-labs/product-analyst-3089 | Wingtip Labs | Product Analyst | W8.25 E6.33 | T2 | stretch
+- [x] #14 | https://example.com/jobs/fabrikam/junior-category-manager-dach-5306 | Fabrikam | Junior Category Manager, DACH | BLOCKED | T4 | language: German C1 required, you have B1 (2 steps below)
+- [x] #15 | https://example.com/jobs/nimbus-robotics/commercial-excellence-associate-7212 | Nimbus Robotics | Commercial Excellence Associate | W8.5 E4.28 | T3 | growth
+- [x] #16 | https://example.com/jobs/southridge-video/content-operations-analyst-6650 | Southridge Video | Content Operations Analyst | W5.5 E7.69 | T4 | skip
+- [x] #17 | https://example.com/jobs/fabrikam/business-analyst-supply-chain-5381 | Fabrikam | Business Analyst, Supply Chain | W8.25 E6.13 | T2 | stretch
+- [x] #18 | https://example.com/jobs/consolidated-messenger/dispatch-planning-analyst-1974 | Consolidated Messenger | Dispatch Planning Analyst | W4.6 E8.34 | T4 | skip
+- [x] #19 | https://example.com/jobs/city-power-and-light/energy-data-analyst-8127 | City Power & Light | Energy Data Analyst | W7.25 E4.52 | T4 | skip
+- [x] #20 | https://example.com/jobs/lumen-freight/operations-analyst-2547 | Lumen Freight | Operations Analyst | W7.13 E8 | T2 | solid
+- [x] #21 | https://example.com/jobs/relecloud/junior-bi-developer-3765 | Relecloud | Junior BI Developer | W5.5 E6.63 | T4 | skip
+- [x] #22 | https://example.com/jobs/proseware/revenue-operations-analyst-4930 | Proseware | Revenue Operations Analyst | W6.75 E6.33 | T2 | thin
+- [x] #23 | https://example.com/jobs/humongous-insurance/claims-data-analyst-6198 | Humongous Insurance | Claims Data Analyst | W6 E7.69 | T4 | skip
+- [x] #24 | https://example.com/jobs/litware/marketing-analytics-associate-5862 | Litware | Marketing Analytics Associate | W7.25 E7.69 | T2 | solid
+- [x] #25 | https://example.com/jobs/tailspin-toys/pricing-analyst-2204 | Tailspin Toys | Pricing Analyst | W8.5 E8.01 | T1 | go
