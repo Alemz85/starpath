@@ -12,9 +12,11 @@
  */
 
 import { execSync, execFileSync } from 'child_process';
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { readFileSync, existsSync, readdirSync, mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync, symlinkSync } from 'fs';
+import { join, dirname, sep } from 'path';
+import { tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
+import { isPersonalPath, PRIVATE_DIR } from './lib/data-root.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = dirname(__dirname);
@@ -60,25 +62,59 @@ for (const f of mjsFiles) {
 }
 
 // ── 2. SCRIPT EXECUTION ─────────────────────────────────────────
+//
+// These scripts WRITE the trackers (normalize, dedup, merge), so they never
+// run against the real data: they run from a copy of scripts/ inside a temp
+// sandbox holding a copy of demo/ (or, without a demo, empty trackers), with
+// CAREER_OPS_ROOT and STARPATH_DATA pointing at the sandbox. A script that
+// only knows its own location still resolves to the sandbox.
 
-console.log('\n2. Script execution (graceful on empty data)');
+console.log('\n2. Script execution (temp sandbox: copy of demo/, never the real data)');
 
-const scripts = [
-  { name: 'scripts/cv-sync-check.mjs', expectExit: 1, allowFail: true }, // fails without cv.md (normal in repo)
-  { name: 'scripts/verify-pipeline.mjs', expectExit: 0 },
-  { name: 'scripts/normalize-statuses.mjs', expectExit: 0 },
-  { name: 'scripts/dedup-tracker.mjs', expectExit: 0 },
-  { name: 'scripts/merge-tracker.mjs', expectExit: 0 },
-];
+{
+  const SANDBOX = mkdtempSync(join(tmpdir(), 'career-ops-test-'));
+  try {
+    const demoDir = join(ROOT, 'demo');
+    if (existsSync(demoDir)) {
+      cpSync(demoDir, SANDBOX, { recursive: true, filter: (src) => !src.startsWith(join(demoDir, 'chat')) });
+    } else {
+      mkdirSync(join(SANDBOX, 'data'), { recursive: true });
+      writeFileSync(join(SANDBOX, 'data', 'applications.md'), [
+        '# Applications Tracker', '',
+        '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
+        '|---|------|---------|------|-------|--------|-----|----------|--------|-------|', '',
+      ].join('\n'));
+    }
+    mkdirSync(join(SANDBOX, 'batch', 'tracker-additions'), { recursive: true });
+    cpSync(join(ROOT, 'scripts'), join(SANDBOX, 'scripts'), {
+      recursive: true,
+      filter: (src) => !src.endsWith('.test.mjs') && !src.includes(`${sep}jobspy`) && !src.includes('__pycache__'),
+    });
+    cpSync(join(ROOT, 'templates'), join(SANDBOX, 'templates'), { recursive: true });
+    writeFileSync(join(SANDBOX, 'CLAUDE.md'), '# test sandbox\n');
+    if (existsSync(join(ROOT, 'node_modules'))) symlinkSync(join(ROOT, 'node_modules'), join(SANDBOX, 'node_modules'), 'dir');
 
-for (const { name, allowFail } of scripts) {
-  const result = run('node', name.split(' '), { stdio: ['pipe', 'pipe', 'pipe'] });
-  if (result !== null) {
-    pass(`${name} runs OK`);
-  } else if (allowFail) {
-    warn(`${name} exited with error (expected without user data)`);
-  } else {
-    fail(`${name} crashed`);
+    const sandboxEnv = { ...process.env, CAREER_OPS_ROOT: SANDBOX, STARPATH_DATA: SANDBOX };
+    const scripts = [
+      { name: 'cv-sync-check.mjs', allowFail: true }, // exits 1 on CV/profile mismatches
+      { name: 'verify-pipeline.mjs' },
+      { name: 'normalize-statuses.mjs' },
+      { name: 'dedup-tracker.mjs' },
+      { name: 'merge-tracker.mjs' },
+    ];
+    const source = existsSync(demoDir) ? 'demo copy' : 'empty trackers';
+    for (const { name, allowFail } of scripts) {
+      const result = run('node', [join(SANDBOX, 'scripts', name)], { cwd: SANDBOX, env: sandboxEnv, stdio: ['pipe', 'pipe', 'pipe'] });
+      if (result !== null) {
+        pass(`scripts/${name} runs OK (${source})`);
+      } else if (allowFail) {
+        warn(`scripts/${name} exited with error (${source})`);
+      } else {
+        fail(`scripts/${name} crashed (${source})`);
+      }
+    }
+  } finally {
+    rmSync(SANDBOX, { recursive: true, force: true });
   }
 }
 
@@ -180,6 +216,34 @@ for (const f of systemFiles) {
   }
 }
 
+// Nothing personal is tracked: no file under private/ and no personal path
+// (user/ data/ reports/ … batch state, profiles/; see data-root.mjs). Only
+// the top-level folder is printed — a file name can itself be personal.
+{
+  const tracked = (run('git', ['ls-files', '-z']) ?? '').split('\0').filter(Boolean);
+  const personal = tracked.filter((p) => p === PRIVATE_DIR || p.startsWith(`${PRIVATE_DIR}/`) || isPersonalPath(p));
+  if (personal.length === 0) {
+    pass(`No tracked file under ${PRIVATE_DIR}/ or a personal path (${tracked.length} tracked files)`);
+  } else {
+    const byTop = {};
+    for (const p of personal) { const top = p.split('/')[0]; byTop[top] = (byTop[top] || 0) + 1; }
+    for (const [top, count] of Object.entries(byTop)) {
+      fail(`Personal path tracked: ${top}/… (${count} file${count === 1 ? '' : 's'}) — git rm --cached it; it belongs in private/`);
+    }
+  }
+}
+
+// Leak-gate hooks (pre-commit / commit-msg / pre-push) installed? Warn only:
+// CI and fresh clones legitimately don't have them.
+try {
+  const { checkHooks } = await import(pathToFileURL(join(SCRIPTS_DIR, 'install-hooks.mjs')).href);
+  const s = checkHooks({ root: ROOT });
+  if (s.installed) pass('Leak-gate hooks installed (core.hooksPath=.githooks)');
+  else warn(`Leak-gate hooks not installed (core.hooksPath ${s.hooksPath ? `= "${s.hooksPath}"` : 'not set'}) — run: npm run hooks`);
+} catch (e) {
+  warn(`Could not check the leak-gate hooks: ${e.message}`);
+}
+
 // Check user files are NOT tracked (gitignored)
 const userFiles = [
   'user/profile.yml', 'user/_profile.md', 'user/portals.yml',
@@ -197,24 +261,26 @@ for (const f of userFiles) {
 
 // ── 6. PERSONAL DATA LEAK CHECK ─────────────────────────────────
 //
-// Two layers:
+// Three layers:
 //
 // 6a. Static legacy patterns (hardcoded prior-user strings still checked for
 //     belt-and-suspenders — these don't depend on user/profile.yml being present).
 //
-// 6b. Dynamic hygiene guard (scripts/lib/hygiene-guard.mjs) — reads the
-//     current user's actual profile.yml + cv.md at test time and asserts
-//     that none of those values appear in the system layer (modes/, scripts/,
-//     templates/, frontend/src/). Catches newly-added personal data that the
-//     static list wouldn't know about. Skips gracefully when user data is
-//     absent (e.g. a clean checkout or a worktree without the gitignored files).
+// 6b. The leak gate's scanner (scripts/lib/hygiene-guard.mjs) over every
+//     tracked file: private terms derived at run time from the data root
+//     (private/, the main worktree's private/ from a linked worktree, or a
+//     legacy user/ + data/) plus the generic patterns. Output is masked.
+//     Without private data only the generic patterns run (warning).
+//
+// 6c. Demo leak check: when private data AND demo/ exist, no private-derived
+//     term may appear anywhere under demo/.
 
 console.log('\n6. Personal data leak check');
 
 // 6a — static legacy strings -------------------------------------------------
 const leakPatterns = [
   'Santiago', 'santifer.io', 'Santifer iRepair', 'Zinkee', 'ALMAS',
-  'hi@santifer.io', '688921377', '/Users/santifer/',
+  'hi@santifer.io', '688921377', '/Users/santifer/', // hygiene-guard:allow (legacy upstream strings)
 ];
 
 const scanExtensions = ['md', 'yml', 'html', 'mjs', 'sh', 'go', 'json'];
@@ -258,59 +324,61 @@ if (!leakFound) {
   pass('No static-pattern personal data leaks outside allowed files');
 }
 
-// 6b — dynamic hygiene guard (reads real user data at test time) -------------
-{
-  const userProfilePath = join(ROOT, 'user', 'profile.yml');
-  const userCvPath = join(ROOT, 'user', 'cv.md');
-
-  if (!existsSync(userProfilePath) && !existsSync(userCvPath)) {
-    // No user data present (clean checkout / worktree without gitignored files)
-    // — skip gracefully rather than false-passing or erroring.
-    warn('Skipping dynamic hygiene guard: user/profile.yml + user/cv.md not found (expected in gitignored-only checkout)');
-  } else {
-    try {
-      const { runHygieneGuard } = await import(
-        pathToFileURL(join(SCRIPTS_DIR, 'lib', 'hygiene-guard.mjs')).href
-      );
-      const { violations, warnings } = await runHygieneGuard({ root: ROOT });
-
-      if (violations.length === 0 && warnings.length === 0) {
-        pass('Dynamic hygiene guard: no personal data in system layer');
-      } else {
-        for (const v of violations) {
-          fail(
-            `Hygiene violation — ${v.file}:${v.line} (${v.pattern.description})\n` +
-            `    → "${v.lineText.slice(0, 100)}"`
-          );
-        }
-        for (const w of warnings) {
-          warn(
-            `Hygiene warning — ${w.file}:${w.line} (${w.pattern.description})\n` +
-            `    → "${w.lineText.slice(0, 100)}"`
-          );
-        }
-      }
-    } catch (e) {
-      fail(`Dynamic hygiene guard crashed: ${e.message}`);
-    }
+// 6b — leak gate over tracked files (private terms from the data root) -------
+const GENERIC_CATEGORIES = new Set(['email', 'phone', 'home-path', 'secret', 'salary']);
+let leakResult = null;
+let guardMod = null;
+try {
+  guardMod = await import(pathToFileURL(join(SCRIPTS_DIR, 'lib', 'hygiene-guard.mjs')).href);
+  leakResult = await guardMod.runHygieneGuard({ root: ROOT });
+  const { violations, warnings: guardWarnings, dataRoot, scanned } = leakResult;
+  if (dataRoot.kind === 'none') {
+    warn('No private data found (private/, main worktree, legacy user/ + data/): private-term leak check skipped, generic patterns only');
   }
+  const blocking = violations.filter((v) => v.category !== 'home-path');
+  for (const v of blocking) fail(`Leak — ${guardMod.formatHit(v)}`);
+  if (blocking.length === 0) {
+    const what = dataRoot.kind === 'none' ? 'generic patterns' : `${scanned.terms} private terms + generic patterns`;
+    pass(`Leak gate: no blocking hits in ${scanned.files} tracked files (${what})`);
+  }
+  if (guardWarnings.length) {
+    const byCat = {};
+    for (const w of guardWarnings) byCat[w.category] = (byCat[w.category] || 0) + 1;
+    const summary = Object.entries(byCat).map(([c, n]) => `${c} ${n}`).join(', ');
+    warn(`Leak gate: ${guardWarnings.length} warning(s) (${summary}) — review with npm run leak-check`);
+  }
+} catch (e) {
+  fail(`Leak gate crashed: ${e.message}`);
+}
+
+// 6c — demo/ must not contain any private-derived term ---------------------
+if (leakResult && leakResult.dataRoot.kind !== 'none' && existsSync(join(ROOT, 'demo'))) {
+  try {
+    const demo = await guardMod.runHygieneGuard({ root: ROOT, include: ['demo'] });
+    const priv = demo.hits.filter((h) => !GENERIC_CATEGORIES.has(h.category));
+    for (const h of priv) fail(`Demo leak — ${guardMod.formatHit(h)}`);
+    if (priv.length === 0) pass(`demo/ contains no private-derived term (${demo.scanned.files} files)`);
+  } catch (e) {
+    fail(`Demo leak check crashed: ${e.message}`);
+  }
+} else {
+  console.log('  ·  Demo leak check skipped (needs private data and demo/)');
 }
 
 // ── 7. ABSOLUTE PATH CHECK ──────────────────────────────────────
+//
+// /Users/<name>/ and /home/<name>/ in any tracked file (the leak gate's
+// generic home-path pattern; placeholders like /Users/you/ are fine, and
+// `hygiene-guard:allow` exempts a line).
 
 console.log('\n7. Absolute path check');
 
-// Same git grep approach: only scans tracked files. Untracked AI tool
-// outputs, local debate artifacts, etc. can't false-positive here.
-const absPathResult = run(
-  `git grep -n "/Users/" -- '*.mjs' '*.sh' '*.md' '*.go' '*.yml' 2>/dev/null | grep -v README.md | grep -v LICENSE | grep -v CLAUDE.md | grep -v test-all.mjs`
-);
-if (!absPathResult) {
-  pass('No absolute paths in code files');
+if (leakResult) {
+  const homePaths = leakResult.violations.filter((v) => v.category === 'home-path');
+  if (homePaths.length === 0) pass('No absolute home paths in tracked files');
+  for (const v of homePaths) fail(`Absolute path: ${guardMod.formatHit(v)}`);
 } else {
-  for (const line of absPathResult.split('\n').filter(Boolean)) {
-    fail(`Absolute path: ${line.slice(0, 100)}`);
-  }
+  fail('Absolute path check skipped: the leak gate did not run');
 }
 
 // ── 8. MODE FILE INTEGRITY ──────────────────────────────────────
