@@ -19,6 +19,7 @@ import {
   parseLever,
   parseSmartRecruiters,
   parseWorkday,
+  fetchWorkdayJobs,
   applyWorkdayDetail,
 } from './scan.mjs';
 import { createHttp } from './lib/http.mjs';
@@ -112,6 +113,33 @@ async function inDir(dir, fn) {
 }
 
 const quiet = () => {};
+
+// ── Workday paging ─────────────────────────────────────────────────────────
+
+test('workday paging keeps the first page\'s total: later pages report total 0', async () => {
+  // 45 postings, 20 per page; pages after the first say `total: 0`, which is
+  // what the real tenants do. The old loop read that 0 as "done" after page 2.
+  const posting = (i) => ({ title: `Analyst ${i}`, externalPath: `/job/Hub/Analyst_R-${i}`, bulletFields: [`R-${i}`] });
+  const bodies = [];
+  const client = {
+    postJson: async (_url, body) => {
+      bodies.push(body);
+      const page = Array.from({ length: Math.max(0, Math.min(20, 45 - body.offset)) }, (_, k) => posting(body.offset + k));
+      return { total: body.offset === 0 ? 45 : 0, jobPostings: page };
+    },
+  };
+  const jobs = await fetchWorkdayJobs(client, 'https://contoso.wd3.myworkdayjobs.com/wday/cxs/contoso/ext/jobs', 'Contoso Demo', 'https://contoso.wd3.myworkdayjobs.com');
+  assert.equal(jobs.length, 45);
+  assert.deepEqual(bodies.map(b => b.offset), [0, 20, 40]);
+});
+
+test('workday paging with no total anywhere stops at the first empty page', async () => {
+  const client = {
+    postJson: async (_url, body) => ({ total: 0, jobPostings: body.offset < 20 ? [{ title: 'A', externalPath: '/job/x/A_R-1', bulletFields: ['R-1'] }] : [] }),
+  };
+  const jobs = await fetchWorkdayJobs(client, 'https://contoso.wd3.myworkdayjobs.com/wday/cxs/contoso/ext/jobs', 'Contoso Demo', 'https://contoso.wd3.myworkdayjobs.com');
+  assert.equal(jobs.length, 1);
+});
 
 // ── parsers ────────────────────────────────────────────────────────────────
 
