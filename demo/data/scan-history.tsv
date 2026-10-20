@@ -1,0 +1,55 @@
+url	first_seen	portal	title	company	location	status	scan_dates
+https://example.com/jobs/contoso/strategy-and-operations-analyst-4417	2026-09-06	greenhouse-api	Strategy & Operations Analyst	Contoso	Vienna, Austria	added	2026-09-06|2026-09-10|2026-09-13|2026-09-17|2026-09-20|2026-09-24|2026-09-27
+https://example.com/jobs/wide-world-importers/inside-sales-analyst-2290	2026-09-06	lever-api	Inside Sales Analyst	Wide World Importers	Lyon, France	added	2026-09-06|2026-09-10|2026-09-13|2026-09-17|2026-09-20|2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/fourth-coffee/retail-operations-trainee-1185	2026-09-10	ashby-api	Retail Operations Trainee	Fourth Coffee	Porto, Portugal	added	2026-09-10|2026-09-13|2026-09-17|2026-09-20|2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/woodgrove-bank/data-and-strategy-graduate-programme-7731	2026-09-10	smartrecruiters-api	Data & Strategy Graduate Programme	Woodgrove Bank	Brussels, Belgium	added	2026-09-10|2026-09-13|2026-09-17|2026-09-20
+https://example.com/jobs/alpine-ski-house/corporate-strategy-associate-5520	2026-09-13	greenhouse-api	Corporate Strategy Associate	Alpine Ski House	Vienna, Austria	added	2026-09-13|2026-09-17|2026-09-20|2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/trey-research/research-assistant-consumer-insights-3302	2026-09-13	lever-api	Research Assistant, Consumer Insights	Trey Research	Toulouse, France	added	2026-09-13|2026-09-17|2026-09-20|2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/first-up-consultants/graduate-business-analyst-6014	2026-09-17	greenhouse-api	Graduate Business Analyst	First Up Consultants	Manchester, United Kingdom	added	2026-09-17|2026-09-20|2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/adatum/junior-data-analyst-2716	2026-09-20	lever-api	Junior Data Analyst	Adatum	Vienna, Austria	added	2026-09-20|2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08
+https://example.com/jobs/margie-s-travel/customer-success-associate-8840	2026-09-20	ashby-api	Customer Success Associate	Margie's Travel	Brussels, Belgium	added	2026-09-20|2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/lucerne-publishing/marketing-operations-coordinator-4471	2026-09-24	ashby-api	Marketing Operations Coordinator	Lucerne Publishing	Lyon, France	added	2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/vanarsdel/business-development-analyst-9113	2026-09-24	greenhouse-api	Business Development Analyst	VanArsdel	Munich, Germany	added	2026-09-24|2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/fabrikam/junior-category-manager-dach-5306	2026-09-27	smartrecruiters-api	Junior Category Manager, DACH	Fabrikam	Munich, Germany	added	2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/wingtip-labs/product-analyst-3089	2026-09-27	ashby-api	Product Analyst	Wingtip Labs	Prague, Czechia	added	2026-09-27|2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/nimbus-robotics/commercial-excellence-associate-7212	2026-10-01	greenhouse-api	Commercial Excellence Associate	Nimbus Robotics	Lyon, France	added	2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/southridge-video/content-operations-analyst-6650	2026-10-01	lever-api	Content Operations Analyst	Southridge Video	Prague, Czechia	added	2026-10-01|2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/consolidated-messenger/dispatch-planning-analyst-1974	2026-10-04	ashby-api	Dispatch Planning Analyst	Consolidated Messenger	Lyon, France	added	2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/fabrikam/business-analyst-supply-chain-5381	2026-10-04	smartrecruiters-api	Business Analyst, Supply Chain	Fabrikam	Munich, Germany	added	2026-10-04|2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/adventure-works/junior-merchandise-planner-9944	2026-10-08	lever-api	Junior Merchandise Planner	Adventure Works	Lyon, France	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/contoso/operations-analyst-shared-services-4490	2026-10-08	greenhouse-api	Operations Analyst, Shared Services	Contoso	Prague, Czechia	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/first-up-consultants/junior-data-consultant-6077	2026-10-08	greenhouse-api	Junior Data Consultant	First Up Consultants	Brussels, Belgium	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/northwind-analytics/analytics-engineer-junior-1131	2026-10-08	greenhouse-api	Analytics Engineer, Junior	Northwind Analytics	Lyon, France	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/lamna-healthcare/pricing-and-reimbursement-analyst-1618	2026-10-08	greenhouse-api	Pricing & Reimbursement Analyst	Lamna Healthcare	Brussels, Belgium	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/wide-world-importers/inside-sales-analyst-2391	2026-10-08	lever-api	Inside Sales Analyst	Wide World Importers	Lyon, France	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/city-power-and-light/energy-data-analyst-8127	2026-10-08	smartrecruiters-api	Energy Data Analyst	City Power & Light	Vienna, Austria	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/lumen-freight/operations-analyst-2547	2026-10-08	lever-api	Operations Analyst	Lumen Freight	Lyon, France	added	2026-10-08|2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/vanarsdel/strategy-and-operations-associate-9160	2026-10-11	greenhouse-api	Strategy & Operations Associate	VanArsdel	Munich, Germany	added	2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/consolidated-messenger/operations-excellence-trainee-2012	2026-10-11	ashby-api	Operations Excellence Trainee	Consolidated Messenger	Lyon, France	added	2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/adatum/bi-analyst-2788	2026-10-11	lever-api	BI Analyst	Adatum	Vienna, Austria	added	2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/lucerne-publishing/audience-insights-analyst-4515	2026-10-11	ashby-api	Audience Insights Analyst	Lucerne Publishing	Lyon, France	added	2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/lamna-healthcare/business-analyst-1590	2026-10-11	greenhouse-api	Business Analyst	Lamna Healthcare	Munich, Germany	added	2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/fourth-coffee/supply-planning-analyst-1222	2026-10-11	ashby-api	Supply Planning Analyst	Fourth Coffee	Porto, Portugal	added	2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/relecloud/junior-bi-developer-3765	2026-10-11	greenhouse-api	Junior BI Developer	Relecloud	Porto, Portugal	added	2026-10-11|2026-10-15|2026-10-19
+https://example.com/jobs/city-power-and-light/graduate-programme-strategy-and-planning-8170	2026-10-15	smartrecruiters-api	Graduate Programme, Strategy & Planning	City Power & Light	Vienna, Austria	added	2026-10-15|2026-10-19
+https://example.com/jobs/nimbus-robotics/operations-strategy-analyst-7266	2026-10-15	greenhouse-api	Operations Strategy Analyst	Nimbus Robotics	Lyon, France	added	2026-10-15|2026-10-19
+https://example.com/jobs/margie-s-travel/pricing-data-analyst-8893	2026-10-15	ashby-api	Pricing Data Analyst	Margie's Travel	Brussels, Belgium	added	2026-10-15|2026-10-19
+https://example.com/jobs/humongous-insurance/pricing-analyst-graduate-6233	2026-10-15	smartrecruiters-api	Pricing Analyst Graduate	Humongous Insurance	Brussels, Belgium	added	2026-10-15|2026-10-19
+https://example.com/jobs/wide-world-importers/trade-analytics-associate-2334	2026-10-15	lever-api	Trade Analytics Associate	Wide World Importers	Lyon, France	added	2026-10-15|2026-10-19
+https://example.com/jobs/southridge-video/business-intelligence-analyst-6702	2026-10-15	lever-api	Business Intelligence Analyst	Southridge Video	Prague, Czechia	added	2026-10-15|2026-10-19
+https://example.com/jobs/relecloud/product-operations-analyst-3790	2026-10-15	greenhouse-api	Product Operations Analyst	Relecloud	Porto, Portugal	added	2026-10-15|2026-10-19
+https://example.com/jobs/trey-research/market-research-analyst-3355	2026-10-15	lever-api	Market Research Analyst	Trey Research	Toulouse, France	added	2026-10-15|2026-10-19
+https://example.com/jobs/proseware/revenue-operations-analyst-4930	2026-10-15	ashby-api	Revenue Operations Analyst	Proseware	Prague, Czechia	added	2026-10-15|2026-10-19
+https://example.com/jobs/northwind-analytics/data-analyst-customer-insights-1106	2026-10-19	greenhouse-api	Data Analyst, Customer Insights	Northwind Analytics	Lyon, France	added	2026-10-19
+https://example.com/jobs/lumen-freight/network-planning-graduate-2611	2026-10-19	lever-api	Network Planning Graduate	Lumen Freight	Lyon, France	added	2026-10-19
+https://example.com/jobs/contoso/business-analyst-finance-transformation-4472	2026-10-19	greenhouse-api	Business Analyst, Finance Transformation	Contoso	Vienna, Austria	added	2026-10-19
+https://example.com/jobs/tailspin-toys/junior-category-analyst-2231	2026-10-19	greenhouse-api	Junior Category Analyst	Tailspin Toys	Lyon, France	added	2026-10-19
+https://example.com/jobs/wingtip-labs/growth-analyst-3127	2026-10-19	ashby-api	Growth Analyst	Wingtip Labs	Prague, Czechia	added	2026-10-19
+https://example.com/jobs/alpine-ski-house/revenue-management-analyst-5588	2026-10-19	greenhouse-api	Revenue Management Analyst	Alpine Ski House	Vienna, Austria	added	2026-10-19
+https://example.com/jobs/woodgrove-bank/graduate-analyst-payments-strategy-7790	2026-10-19	smartrecruiters-api	Graduate Analyst, Payments Strategy	Woodgrove Bank	Brussels, Belgium	added	2026-10-19
+https://example.com/jobs/fabrikam/demand-planning-analyst-5412	2026-10-19	smartrecruiters-api	Demand Planning Analyst	Fabrikam	Munich, Germany	added	2026-10-19
+https://example.com/jobs/litware/crm-analyst-5891	2026-10-19	lever-api	CRM Analyst	Litware	Porto, Portugal	added	2026-10-19
+https://example.com/jobs/proseware/customer-analytics-intern-4977	2026-10-19	ashby-api	Customer Analytics Intern	Proseware	Prague, Czechia	added	2026-10-19
+https://example.com/jobs/humongous-insurance/claims-data-analyst-6198	2026-10-19	smartrecruiters-api	Claims Data Analyst	Humongous Insurance	Brussels, Belgium	added	2026-10-19
+https://example.com/jobs/litware/marketing-analytics-associate-5862	2026-10-19	lever-api	Marketing Analytics Associate	Litware	Porto, Portugal	added	2026-10-19
+https://example.com/jobs/tailspin-toys/pricing-analyst-2204	2026-10-19	greenhouse-api	Pricing Analyst	Tailspin Toys	Lyon, France	added	2026-10-19

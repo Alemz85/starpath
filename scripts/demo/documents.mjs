@@ -1,0 +1,748 @@
+/**
+ * documents.mjs — renderers for the demo's prose files (user/*, README, story
+ * bank, interview prep, network / outreach / follow-up logs).
+ *
+ * Pure: every function takes the build context and returns a string. Dates
+ * come from the context's timeline, so the persona always graduated "last
+ * June" relative to the as-of date. All content is fictional (see seed.mjs).
+ */
+
+import { persona, preferredCities, archetypes, calibration, network, outreach, followUps, stories, titleFilter } from './seed.mjs'
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+const mon = (m) => MONTHS[m - 1].slice(0, 3)
+
+/** Persona timeline anchored on the most recent June graduation. */
+export function timeline(asOf) {
+  const [y, m] = asOf.split('-').map(Number)
+  const gradYear = m >= 7 ? y : y - 1
+  return {
+    gradYear,
+    mscGrad: `${gradYear}-06`,
+    bscGrad: `${gradYear - 2}-06`,
+    availableFrom: `${gradYear}-07-01`,
+    msc: `Sep ${gradYear - 2} – Jun ${gradYear}`,
+    bsc: `Sep ${gradYear - 5} – Jun ${gradYear - 2}`,
+    internship: `${mon(1)} ${gradYear} – ${mon(6)} ${gradYear}`,
+    capstone: `Sep ${gradYear - 1} – Mar ${gradYear}`,
+    research: `Sep ${gradYear - 3} – Jun ${gradYear - 2}`,
+    society: `Sep ${gradYear - 1} – Jun ${gradYear}`,
+    sideProject: `${gradYear - 1}`,
+  }
+}
+
+export function longDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number)
+  return `${d} ${MONTHS[m - 1]} ${y}`
+}
+
+const languagesLine = () => persona.languages.map(l => `${l.language} (${l.label})`).join(', ')
+
+// ── user/cv.md ───────────────────────────────────────────────────────────────
+
+export function renderCv(ctx) {
+  const t = ctx.t
+  return `# ${persona.name}
+
+**Nationality:** Belgian | **Work Permit:** EU
+**Contact:** ${persona.email} | ${persona.linkedin} | ${persona.base}
+
+> Demo persona: everything on this CV is fictional.
+
+## Summary
+
+Analytics graduate with an economics foundation and a commercial-analytics internship. I build pricing and demand models in Python and SQL and turn them into decisions a commercial team can act on. French native, English C2, Dutch B2.
+
+---
+
+## Education
+
+### ${persona.msc.degree}
+**${persona.msc.school}** — ${persona.msc.city}
+${t.msc}
+- Core coursework: Machine Learning, Pricing Analytics, Supply Chain Analytics, Data Engineering with SQL, Experiment Design
+- Capstone: demand forecasting for ${persona.capstonePartner} (see Projects)
+
+### ${persona.bsc.degree}
+**${persona.bsc.school}** — ${persona.bsc.city}
+${t.bsc}
+- Thesis: price elasticity of private-label groceries across 140 stores, a panel regression on 2.1 million transactions
+
+---
+
+## Experience
+
+### ${persona.internship.title}
+**${persona.internship.org}** — ${persona.internship.city} | ${t.internship}
+- Built a markdown-pricing model for 1,800 end-of-season items; the recommended discount ladder cut leftover stock by 18% against the previous season.
+- Automated the weekly trading report in SQL and Python, cutting it from about six hours of work to twenty minutes of checks.
+
+### Research Assistant (part-time)
+**${persona.bsc.school}, Department of Economics** — Ghent, Belgium | ${t.research}
+- Cleaned and documented a twelve-year retail price panel used in two faculty papers.
+
+### Vice-President
+**${persona.society}** — Lyon, France | ${t.society}
+- Rebuilt the annual case night with four company partners: 120 participants, up from 30.
+
+---
+
+## Projects
+
+### Demand forecasting — ${persona.capstonePartner}
+**MSc capstone, ${persona.msc.school}** | ${t.capstone}
+- Gradient-boosted model forecasting weekly orders for 240 products across three channels; 14% lower forecast error than the incumbent moving-average method, used for the next production plan.
+
+### Lyon bike-share rebalancing dashboard
+**Personal project** | ${t.sideProject}
+- Open data, Python and a small web dashboard showing which stations empty first on weekday mornings.
+
+---
+
+## Technical Skills
+
+- **Programming:** Python (pandas, scikit-learn, statsmodels), SQL, R
+- **Data & Analytics:** pricing and elasticity models, forecasting, experiment design, customer segmentation
+- **Tools:** Excel (Power Query, pivot modelling), Tableau, Power BI, Git, dbt (basics)
+
+---
+
+## Languages
+
+${persona.languages.map(l => `- ${l.language} (${l.label})`).join('\n')}
+
+---
+
+## Activities & Interests
+
+- Road cycling; volunteer timekeeper at local races
+- Board-game design evenings with the ${persona.society}
+`
+}
+
+// ── user/profile.yml ─────────────────────────────────────────────────────────
+
+const q = (s) => JSON.stringify(s)
+const yamlList = (items, indent) => items.map(i => `${' '.repeat(indent)}- ${q(i)}`).join('\n')
+
+export function renderProfileYml(ctx) {
+  const t = ctx.t
+  const elig = ctx.eligibility
+  return `# Demo profile — fictional persona generated by scripts/demo/build-demo.mjs.
+# Every name, school, employer and number here is invented. Change
+# scripts/demo/seed.mjs and run \`npm run demo:build\` instead of editing.
+current_mode: scouting
+
+candidate:
+  full_name: ${q(persona.name)}
+  email: ${q(persona.email)}
+  phone: ""
+  location: ${q(persona.base)}
+  nationality: ${q(persona.nationality)}
+  work_permit: "EU"
+  languages: ${q(languagesLine())}
+  linkedin: ${q(persona.linkedin)}
+  portfolio_url: ${q(persona.portfolio)}
+
+target_roles:
+  primary:
+${yamlList(['Pricing Analyst', 'Commercial Analyst', 'Business Analyst', 'Data Analyst', 'Strategy & Operations Analyst', 'Graduate / Rotational Programme (analytics, strategy or commercial)'], 4)}
+  dream_companies:
+    - name: "Northwind Analytics"
+      functions: ["Graduate Analyst Programme", "Data Analyst", "Pricing Analyst"]
+      priority: "top"
+      note: "Analytics consultancy in Lyon with a pricing practice; a Northfield alumna works there."
+    - name: "Contoso"
+      functions: ["Strategy & Operations Analyst", "Business Analyst"]
+      priority: "lower"
+      note: "Industrial services group with a strong Vienna strategy team."
+    - name: "Tailspin Toys"
+      functions: ["Pricing Analyst", "Category Analyst"]
+      priority: "lower"
+      note: "Consumer brand whose pricing team works the way your thesis does."
+  archetypes:
+${archetypes.map(a => [
+    `    - name: ${q(a.name)}`,
+    `      level: ${q(a.level)}`,
+    `      fit: ${q(a.fit)}`,
+    ...(a.keywords ? [`      keywords: [${a.keywords.map(q).join(', ')}]`] : []),
+  ].join('\n')).join('\n')}
+
+narrative:
+  headline: "Analytics graduate who turns pricing and demand models into decisions"
+  exit_story: "Economics taught me why prices move; the MSc and an internship taught me to model it and get a commercial team to act on the result."
+  superpowers:
+${yamlList(['Pricing and elasticity models that commercial teams actually use', 'Forecasting on messy, promotion-heavy data', 'Explaining a model so the decision-owner knows where to overrule it'], 4)}
+  proof_points:
+    - name: "Markdown ladder (internship)"
+      url: "https://example.com/elise-varden/markdown-ladder"
+      hero_metric: "Leftover stock down 18% against the previous season"
+    - name: "Demand forecasting capstone"
+      url: "https://example.com/elise-varden/forecasting-capstone"
+      hero_metric: "14% lower forecast error than the incumbent method"
+
+compensation:
+  target_range: "€36K–46K"
+  currency: "EUR"
+  minimum: "€32K"
+  location_flexibility: "Open to relocation within the EU for the right role"
+  note: "Gross annual; Vienna and Munich offers need the higher end."
+
+location:
+  country: "France"
+  city: "Lyon"
+  timezone: "CET"
+  visa_status: "EU citizen — no sponsorship needed inside the EU"
+  preferred_cities:
+${yamlList(preferredCities, 4)}
+
+# Eligibility gate — checked before any listing is scored (docs/scoring-v2.md § 1).
+eligibility:
+  available_from: ${q(elig.available_from)}
+  blocked_windows: []
+  graduations:
+${elig.graduations.map(g => `    - { degree: ${q(g.degree)}, date: ${q(g.date)} }`).join('\n')}
+  languages:
+${elig.languages.map(l => `    - { language: ${q(l.language)}, level: ${q(l.level)} }`).join('\n')}
+  work_authorisation: ["EU"]
+  duration_months: { min: ${elig.duration_months.min}, max: ${elig.duration_months.max} }
+  permanent_start_ok_before_block: true
+
+# Calibration — applied deterministically by scripts/score-listing.mjs.
+calibration:
+  dream_companies: [${calibration.dream_companies.map(q).join(', ')}]
+  lower_tier_dream_companies: [${calibration.lower_tier_dream_companies.map(q).join(', ')}]
+  brand_affinity_companies: [${calibration.brand_affinity_companies.map(q).join(', ')}]
+  extra_brand_bonuses:
+${calibration.extra_brand_bonuses.map(b => `    - { company: ${q(b.company)}, bonus: ${b.bonus}, reason: ${q(b.reason)} }`).join('\n')}
+  has_structured_onboarding: false
+
+# Scoring weights: defaults (equal motivators; Ease 0.35 / 0.35 / 0.30).
+`.replace(/\n{3,}/g, '\n\n')
+}
+
+// ── user/_profile.md ─────────────────────────────────────────────────────────
+
+export function renderProfileMd() {
+  return `# Candidate Profile — ${persona.name}
+
+<!-- Demo persona: fictional, generated by scripts/demo/build-demo.mjs. -->
+
+## Summary
+
+Belgian analytics graduate (MSc Business Analytics, ${persona.msc.school}; BSc Economics, ${persona.bsc.school}) with one commercial-analytics internship. Stack: Python, SQL and R, applied to pricing, elasticity and demand forecasting. Differentiator: an economist’s instinct for why prices move, plus French, English and Dutch for work across France, Benelux and Central Europe.
+
+## Target Role Matrix
+
+| Archetype | Thematic axes | What they buy |
+|-----------|---------------|---------------|
+${archetypes.map(a => `| **${a.name}**${a.fit === 'secondary' ? ' (secondary)' : ''} | ${a.axes} | ${a.buys} |`).join('\n')}
+
+### Rotational programme detection
+
+Graduate schemes, trainee programmes and "early careers" tracks are primary-fit even when the destination function isn’t named. Score the programme, not the vague title.
+
+## Dream Companies — Always Prioritize
+
+| Company | Target functions | Why |
+|---------|------------------|-----|
+| **Northwind Analytics** | Graduate programme, data or pricing analyst | Lyon analytics consultancy with a pricing practice; Inès Moreau, a Northfield alumna, works there. |
+| **Contoso** (lower tier) | Strategy & operations, business analyst | A Vienna strategy team with a real ladder. |
+| **Tailspin Toys** (lower tier) | Pricing, category analytics | Retail pricing done the way your thesis does it. |
+
+Brand affinity (no score effect, a recruiting channel): **Woodgrove Bank** and **Fabrikam** both recruit at Northfield’s careers fair.
+
+## Your Adaptive Framing
+
+| If the role is... | Emphasize about you... | Proof point sources |
+|-------------------|------------------------|---------------------|
+| Pricing & Commercial Analytics | Thesis on private-label elasticity; the markdown ladder from your internship | cv.md + article-digest.md |
+| Business / Data Analyst | The automated trading report; SQL and Python fluency | cv.md |
+| Strategy & Operations | Forecasting work that fed a real production plan | cv.md + article-digest.md |
+| Graduate / Rotational Programme | Breadth: economics, analytics, a client capstone, society leadership | cv.md |
+
+## Your Exit Narrative
+
+> Economics taught me why prices move. The MSc and an internship taught me to model it, and to get a commercial team to act on the answer. The next step is a seat where pricing or planning decisions are the day job.
+
+- **In PDF summaries:** "Analytics graduate who turns pricing and demand models into decisions."
+- **In STAR stories:** anchor on the markdown ladder, the forecasting capstone and the thesis.
+- **In cover letters:** lead with one decision your model changed, not the degree list.
+
+## Your Cross-cutting Advantage
+
+**Signature positioning:** an economist’s reading of price behaviour, built into models a business team can overrule where it knows better.
+
+Most entry-level analysts can fit a model; fewer can explain where it is fragile. Frame that as the capability you bring, not as modesty.
+
+## Your Comp Targets
+
+- **Range:** €36,000 – €46,000 gross annual, depending on the city
+- **Right to work:** EU citizen; no sponsorship needed anywhere in the EU
+- **Equity/bonus:** not a lever at this stage
+
+## Your Negotiation Scripts
+
+**Salary expectations:**
+> "For analyst roles in {city} I’m seeing {range}. I’m flexible within that; the team and the work matter as much as the number right now."
+
+**When offered below target:**
+> "That’s a little below what I’ve seen for this kind of role in {city}. I’m keen on the team — is there flexibility, or room to revisit after the first review?"
+
+## Your Location Policy
+
+**Base:** Lyon
+**Preferred cities:** ${preferredCities.join(', ')}
+**Open to:** any EU city for the right role
+**Remote:** hybrid preferred; fully remote is fine for product and software teams
+
+**In offer evaluations (1-10 scale):**
+- Lyon → **9**
+- Vienna, Munich, Prague → **8**
+- Brussels, Porto → **7**
+- Another EU city → **6**
+- Outside the EU → **2–3**
+
+## Proof Points to Surface
+
+- **Markdown ladder** (internship): discount ladder for 1,800 items; leftover stock down 18%
+- **Forecasting capstone** (${persona.capstonePartner}): 240 products, three channels; forecast error down 14%, used for the next production plan
+- **Thesis**: private-label elasticity on 2.1 million transactions; a data error found and fixed before submission
+- **Trading report automation**: six hours of work down to twenty minutes of checks
+- **Languages**: French native, English C2, Dutch B2, German B1
+
+## Red Flags to Watch For
+
+- **Sales seats with analytics titles:** "Inside Sales Analyst", "Sales Development" — read the week, not the title
+- **Experience walls:** "2–3 years in consulting" or "3+ years in pricing"
+- **German C1 requirements** in Munich and Vienna postings — your German is B1
+- **UK roles** that require an existing right to work
+
+## Scoring Notes
+
+Weight structured programmes and mentoring at this stage. Apply on Go, Stretch and Solid; treat "If pipeline thin" as filler; never pursue Skip or Blocked.
+
+## Score Calibration (Entry-Level Lens)
+
+- **Growth:** structured onboarding or a mentor = +1; sink-or-swim = −1 (passed per listing to the scorer).
+- **Brand:** Lumen Freight is better known to Lyon logistics recruiters than its size suggests (+0.5).
+- **Verdict bar:** Go / Stretch / Solid; Skip and Blocked are not worth it at this stage.
+`
+}
+
+// ── user/article-digest.md ───────────────────────────────────────────────────
+
+export function renderArticleDigest(ctx) {
+  const t = ctx.t
+  return `# Article / Project Digest — ${persona.name}
+
+<!-- Demo persona: fictional, generated by scripts/demo/build-demo.mjs. -->
+
+## Markdown ladder for end-of-season stock
+
+**Where:** ${persona.internship.org}, commercial analytics team
+**When:** ${t.internship}
+**Link:** internal
+
+### Hero metric
+Leftover end-of-season stock down 18% against the previous season, across 1,800 items.
+
+### Context
+End-of-season discounts were set by feel, and the previous season had left a large share of stock unsold.
+
+### Approach
+- Estimated price sensitivity by product family from three past seasons of sales
+- Modelled stock remaining at each discount step and picked the cheapest ladder that cleared the target
+- Walked the category managers through the ladder family by family so they could overrule it with what they knew
+
+### Outcome
+Leftover stock fell 18%; the team kept the ladder for the following sale.
+
+### Why this is interesting for Pricing & Commercial Analytics
+It is pricing work that changed a real decision, and it shows how you work with the people who own that decision.
+
+---
+
+## Demand forecasting capstone
+
+**Where:** ${persona.msc.school}, with ${persona.capstonePartner}
+**When:** ${t.capstone}
+**Link:** https://example.com/elise-varden/forecasting-capstone
+
+### Hero metric
+Forecast error 14% lower than the incumbent moving-average method, on a full season the model never saw.
+
+### Context
+The partner planned production from a spreadsheet and kept running out of its best sellers.
+
+### Approach
+- Two weeks learning how orders arrive before touching a model
+- Gradient-boosted model with promotion, holiday and channel effects
+- Back-tested on a held-out season against the incumbent method
+
+### Outcome
+Adopted for the next production plan.
+
+### Why this is interesting for Strategy & Operations
+Forecasting that fed a real planning decision, with an honest comparison against the existing method.
+
+---
+
+## Thesis: private-label price elasticity
+
+**Where:** ${persona.bsc.school}
+**When:** ${t.bsc.split(' – ')[1]}
+**Link:** https://example.com/elise-varden/thesis
+
+### Hero metric
+Elasticity estimated on 2.1 million transactions across 140 stores.
+
+### Context
+Do shoppers treat private-label goods as substitutes for brands when prices move?
+
+### Approach
+- Panel regression with store and week effects
+- Found and fixed a coding error for store closures three weeks before submission
+
+### Outcome
+Corrected estimate of −1.6 (from −2.4 before the fix); the cleaning notes are now given to the next cohort.
+
+### Why this is interesting for Pricing & Commercial Analytics
+The core method of retail pricing, plus evidence that you check data against reality.
+`
+}
+
+// ── user/portals.yml ─────────────────────────────────────────────────────────
+
+const tracked = [
+  ['Northwind Analytics', 'greenhouse', 'Lyon. Analytics consultancy and data products. Dream company.'],
+  ['Contoso', 'greenhouse', 'Vienna / Prague. Industrial services group.'],
+  ['Tailspin Toys', 'greenhouse', 'Lyon. Toys and games retail; pricing team.'],
+  ['Fabrikam', 'smartrecruiters', 'Munich. Manufacturer; supply chain and category roles.'],
+  ['Woodgrove Bank', 'smartrecruiters', 'Brussels. Graduate programmes.'],
+  ['Wingtip Labs', 'ashby', 'Prague, remote-friendly. Product analytics.'],
+  ['Lumen Freight', 'lever', 'Lyon. Freight and logistics.'],
+  ['Litware', 'lever', 'Porto. Software; marketing analytics.'],
+  ['Alpine Ski House', 'greenhouse', 'Vienna. Leisure group; strategy and revenue management.'],
+  ['Nimbus Robotics', 'greenhouse', 'Lyon. Industrial automation; commercial excellence.'],
+]
+
+const atsApi = (ats, slug) => ({
+  greenhouse: `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`,
+  ashby: `https://api.ashbyhq.com/posting-api/job-board/${slug}?includeCompensation=true`,
+  lever: `https://api.lever.co/v0/postings/${slug}?mode=json`,
+  smartrecruiters: `https://api.smartrecruiters.com/v1/companies/${slug}/postings`,
+}[ats])
+
+export function renderPortalsYml(ctx) {
+  return `# Demo portals — fictional. Every tracked company below is a placeholder
+# name; careers pages live on example.com and the ATS slugs end in "-demo"
+# so a scan of this file finds nothing real. Generated by
+# scripts/demo/build-demo.mjs.
+
+search_templates:
+  roles_default: '"Analyst" OR "Pricing" OR "Strategy" OR "Operations" OR "Graduate"'
+  roles_analytics: '"Business Analyst" OR "Data Analyst" OR "Pricing Analyst" OR "Analytics"'
+  loc_targets: '${preferredCities.join(' OR ')}'
+
+title_filter:
+  positive:
+${yamlList(titleFilter.positive, 4)}
+  negative:
+${yamlList(titleFilter.negative, 4)}
+  seniority_boost:
+${yamlList(titleFilter.seniority_boost, 4)}
+
+lang_blocklist:
+  - "Deutschkenntnisse"
+  - "(m/w/d)"
+
+location_allowlist:
+${yamlList(['remote', ...preferredCities], 2)}
+
+search_queries:
+  - name: Greenhouse — analyst roles
+    query: 'site:boards.greenhouse.io {{roles_analytics}} {{loc_targets}}'
+    enabled: true
+  - name: Lever — pricing and strategy
+    query: 'site:jobs.lever.co {{roles_default}} {{loc_targets}}'
+    enabled: true
+
+tracked_companies:
+${tracked.map(([name, ats, notes]) => {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-demo'
+    return `  - name: ${q(name)}
+    careers_url: https://example.com/careers/${slug.replace(/-demo$/, '')}
+    api: ${atsApi(ats, slug)}
+    notes: ${q(notes)}
+    enabled: true`
+  }).join('\n\n')}
+`
+}
+
+// ── interview-prep/story-bank.md ─────────────────────────────────────────────
+
+export function renderStoryBank() {
+  return `# Story Bank
+
+<!-- Demo persona: fictional STAR+R stories, generated by scripts/demo/build-demo.mjs. -->
+
+Accumulated STAR+R stories, reused across interview prep and application drafting.
+Each story is one \`### {Title}\` heading with a \`**Themes:**\` line and the five beats.
+
+---
+
+${stories.map(s => `### ${s.title}
+**Themes:** ${s.themes}
+**Situation:** ${s.situation}
+**Task:** ${s.task}
+**Action:** ${s.action}
+**Result:** ${s.result}
+**Reflection:** ${s.reflection}`).join('\n\n')}
+`
+}
+
+// ── data/network.md, outreach.md, follow-ups.md ──────────────────────────────
+
+export function renderNetwork(ctx) {
+  const rows = network.map((c, i) =>
+    `| ${i + 1} | ${c.name} | ${c.company} | ${c.title} | ${c.relationship} | ${c.degree} | ${c.via || ''} | ${c.last == null ? 'n/d' : ctx.day(c.last)} | ${c.notes} |`)
+  return `# Network
+
+<!-- Demo data: fictional people. -->
+
+| # | Name | Company | Title | Relationship | Degree | Via | Last Contact | Notes |
+|---|------|---------|-------|--------------|--------|-----|--------------|-------|
+${rows.join('\n')}
+`
+}
+
+export function renderOutreach(ctx) {
+  const rows = outreach.map((o, i) =>
+    `| ${i + 1} | ${ctx.day(o.d)} | ${o.company} | ${o.role} | ${o.contact} | ${o.title} | ${o.channel} | ${o.touch} | ${o.outcome} | ${o.notes} |`)
+  return `# Outreach Log
+
+<!-- Demo data: fictional people. -->
+
+| # | Date | Company | Role | Contact | Title | Channel | Touch | Outcome | Notes |
+|---|------|---------|------|---------|-------|---------|-------|---------|-------|
+${rows.join('\n')}
+`
+}
+
+export function renderFollowUps(ctx) {
+  const rows = followUps.map((f, i) => {
+    const app = ctx.appsById.get(f.appId)
+    return `| ${i + 1} | ${app.num} | ${ctx.day(f.d)} | ${app.company} | ${app.role} | ${f.channel} | ${f.contact} | ${f.notes} |`
+  })
+  return `# Follow-up History
+
+<!-- Demo data: fictional. -->
+
+| # | App# | Date | Company | Role | Channel | Contact | Notes |
+|---|------|------|---------|------|---------|---------|-------|
+${rows.join('\n')}
+`
+}
+
+// ── interview-prep/{Company} - {Role}.md ─────────────────────────────────────
+
+export function renderNorthwindPrep(ctx) {
+  const rec = ctx.recById.get('northwind-gap')
+  return `# Interview Intel: ${rec.company} — ${rec.role}
+
+**Report:** [${rec.num}](${rec.reportPath})
+**Researched:** ${ctx.day(-10)}
+**Deep research:** none — researched fresh
+**Sources:** the posting, notes from Inès Moreau on last year’s process, the recruiter’s invitation emails
+
+## Process Overview
+- **Rounds:** 4 rounds, about five weeks end to end
+- **Format:** recruiter screen → online numerical test → case interview with two analysts → final round (case presentation to a partner, then a values conversation)
+- **Difficulty:** unknown — not enough data
+- **Positive experience rate:** unknown — not enough data
+- **Known quirks:** the final-round case arrives 48 hours ahead; after you present, they change one assumption and ask you to rework the answer on the spot [source: Inès Moreau, last year’s cohort]
+- **Sources:** the posting; Inès Moreau (your referrer); invitation emails from Paul Girard, graduate recruiter
+
+### Round 1: Recruiter screen (done)
+- **Duration:** 30 min
+- **Conducted by:** recruiter
+- **What they evaluate:** motivation, programme fit, start date
+- **Reported questions:**
+  - "Why Northwind rather than a consultancy?" — [source: your screen notes]
+- **How to prepare:** done; keep the answer for the partner, who will ask it again in other words.
+
+### Round 2: Online numerical test (done)
+- **Duration:** 40 min
+- **What they evaluate:** speed and accuracy with tables and percentages
+
+### Round 3: Case interview (passed)
+- **Duration:** 60 min
+- **Conducted by:** two analysts from the pricing and client-analytics teams
+- **What they evaluate:** structuring, quantitative reasoning, a clear recommendation
+- **Reported questions:**
+  - "A grocery client cut prices on its private label and sales stayed flat. Why might that be?" — [source: your case-round notes]
+
+### Round 4: Final round (next)
+- **Duration:** 90 min: a 20-minute case presentation to a partner, then a 40-minute values conversation
+- **Conducted by:** a partner and a programme manager
+- **What they evaluate:** how your recommendation holds up when an assumption changes; candour; client focus
+- **Reported questions:**
+  - "Your key assumption turns out 30% too optimistic. What changes in your recommendation?" — [source: Inès Moreau]
+  - "Tell me about a time you told someone something they didn’t want to hear." — [source: Inès Moreau]
+- **How to prepare:** rehearse the case twice against a timer, and bring one sensitivity slide for your main assumption.
+
+## Likely Questions
+
+### Technical
+- "How would you estimate price elasticity from transaction data with frequent promotions?" [inferred from JD] — your thesis method (store and week effects), then what you would change with promotion flags.
+- "How do you know a forecast is good enough to plan on?" [inferred from JD] — the capstone’s held-out season and the comparison against the incumbent method.
+- "Walk me through a dbt model you’ve built." [inferred from JD] — be honest that it was course-level, then show the capstone rebuild.
+
+### Behavioral
+- "Tell me about a time you told someone something they didn’t want to hear." [source: Inès Moreau] — The elasticity number that was wrong.
+- "Describe a time a teammate let the group down." [inferred from JD] — The teammate who went quiet.
+- "Tell me about something you built that people actually used." [inferred from JD] — The markdown ladder that cleared the season.
+
+### Role-Specific
+- "Which rotation would you pick first, and why?" [source: recruiter screen] — pricing first: it is where your thesis and internship already point, and it makes the client-analytics rotation sharper afterwards.
+- "What would you want to learn on a client pricing engagement?" [inferred from JD] — how a client decides which price changes to test, and what evidence moves them.
+
+### Background Red Flags
+- "You have one internship. Why should we expect you to handle client work?" — The internship had you presenting to category managers who could overrule you, and the capstone had a real client with a real deadline. Say that plainly.
+- "You studied in Ghent and Lyon. Are you staying in Lyon?" — Yes: Lyon is your first-choice city, and you are already there.
+
+## Story Bank Mapping
+
+| # | Likely question/topic | Competency | Best story from story-bank.md | Fit | Gap? |
+|---|----------------------|-----------|-------------------------------|-----|------|
+| 1 | Telling someone unwelcome news | communication | The elasticity number that was wrong | strong | |
+| 2 | A teammate who let the group down | conflict | The teammate who went quiet | strong | |
+| 3 | Something you built that people used | impact | The markdown ladder that cleared the season | strong | |
+| 4 | Working through ambiguity with a client | ambiguity | The forecast that beat the spreadsheet | partial | |
+| 5 | Leading without formal authority | leadership | Case night for 120 students | partial | |
+| 6 | A stakeholder who disagreed with your numbers | customer | — | none | yes |
+
+You need a story about a stakeholder who pushed back on your analysis. Consider the category manager at ${persona.internship.org} who overruled the ladder for two product families, and what the sales data showed afterwards.
+
+## Technical Prep Checklist
+- [ ] Rehearse a pricing case end to end against a timer — why: "the final round is a presented case with a changed assumption"
+- [ ] Build one sensitivity slide for your main assumption — why: "they change one assumption live" [source: Inès Moreau]
+- [ ] Rebuild the capstone data preparation in dbt — why: "dbt is listed as preferred in the posting"
+- [ ] Refresh fixed effects and clustered errors — why: "elasticity estimation is the pricing rotation’s core method" [inferred from JD]
+- [ ] Prepare two questions about the pricing practice’s client work — why: "shows you have already chosen a rotation"
+
+## Company Signals
+- **Values they screen for:** candour and client focus; the posting says they "would rather hear the bad news early".
+- **Vocabulary to use:** rotation, engagement, data product.
+- **Things to avoid:** overselling a model; Inès says partners like hearing what the model can’t tell you.
+- **Questions to ask them:**
+  - How does the pricing practice decide which engagements graduates join?
+  - What does a strong first rotation look like at the promotion review?
+  - Where is the data-products team taking its pricing tools next?
+`
+}
+
+export function renderWingtipPrep(ctx) {
+  const rec = ctx.recById.get('wingtip-pa')
+  return `# Interview Intel: ${rec.company} — ${rec.role}
+
+**Report:** [${rec.num}](${rec.reportPath})
+**Researched:** ${ctx.day(-12)}
+**Deep research:** none — researched fresh
+**Sources:** the posting, a conversation with Tomas Kral, the recruiter’s email
+
+## Process Overview
+- **Rounds:** 4 rounds, about four weeks end to end
+- **Format:** recruiter screen → take-home funnel analysis (about 3 hours) → product case with a product manager and the analytics lead → team conversation
+- **Difficulty:** unknown — not enough data
+- **Positive experience rate:** unknown — not enough data
+- **Known quirks:** the take-home comes with a real, anonymised event table; they care more about the questions you ask of it than the charts [source: Tomas Kral]
+- **Sources:** the posting; Tomas Kral (product analytics lead, next to the hiring team)
+
+### Round 1: Recruiter screen (scheduling)
+- **Duration:** 30 min
+- **What they evaluate:** motivation, remote set-up, salary expectations
+- **How to prepare:** have the €31K figure and your Prague or remote preference ready.
+
+### Round 2: Take-home funnel analysis
+- **Duration:** about 3 hours
+- **What they evaluate:** SQL on event data, a clear story, sensible next experiments
+- **How to prepare:** do one practice funnel on a public product dataset first; it doubles as the example your report suggested.
+
+## Likely Questions
+
+### Technical
+- "How would you size the effect of an onboarding change on week-one retention?" [inferred from JD]
+- "What would make you distrust an A/B test result?" [inferred from JD] — sample-ratio mismatch, novelty effects, peeking.
+
+### Behavioral
+- "Tell me about an analysis that changed a decision." [inferred from JD] — The markdown ladder that cleared the season.
+- "Describe learning a new domain quickly." [inferred from JD] — The forecast that beat the spreadsheet.
+
+### Background Red Flags
+- "Your experience is commercial, not product. Why product analytics?" — The questions are the same (what changed, for whom, and why); the data is events instead of tills. Show the practice funnel.
+
+## Story Bank Mapping
+
+| # | Likely question/topic | Competency | Best story from story-bank.md | Fit | Gap? |
+|---|----------------------|-----------|-------------------------------|-----|------|
+| 1 | An analysis that changed a decision | impact | The markdown ladder that cleared the season | strong | |
+| 2 | Learning a new domain quickly | learning | The forecast that beat the spreadsheet | strong | |
+| 3 | A product idea you pushed for | innovation | Six hours back every week | partial | |
+
+## Technical Prep Checklist
+- [ ] One practice funnel and retention analysis on public event data — why: "the take-home is a funnel analysis" [source: Tomas Kral]
+- [ ] Revise A/B test pitfalls — why: "experiment design is in the posting’s first bullet"
+- [ ] Write window-function SQL for sessionisation — why: "event data needs it" [inferred from JD]
+`
+}
+
+// ── demo/README.md ───────────────────────────────────────────────────────────
+
+export function renderReadme(ctx) {
+  const c = ctx.counts
+  return `# starpath demo workspace
+
+A fictional job search for trying the starpath app and taking screenshots. **Nothing here is real.** The candidate, her schools and employers, every company, person, URL and number are invented. Company names are placeholder names in the style of Contoso, Fabrikam and Northwind; every link and email address is on example.com; the tax, cost-of-living and salary-band caches hold illustrative demo values, not real data.
+
+This folder has the same layout as a private data root (\`private/\`), so the app and the scripts read it the same way.
+
+## The persona
+
+**${persona.name}**, Belgian, based in Lyon. ${persona.msc.degree} (${persona.msc.school}, Lyon) and ${persona.bsc.degree} (${persona.bsc.school}, Ghent), one commercial-analytics internship. She targets pricing, analytics and strategy roles in ${preferredCities.join(', ')}. French native, English C2, Dutch B2, German B1.
+
+## What's inside
+
+| Path | What |
+|------|------|
+| \`user/\` | CV, \`profile.yml\` (eligibility, calibration, preferred cities), \`_profile.md\`, \`portals.yml\`, \`article-digest.md\` |
+| \`data/scouting.md\` | ${c.scouting} evaluated listings: ${c.verdictLine} |
+| \`data/applications.md\` | ${c.applications} applications: ${c.statusLine} |
+| \`data/pipeline.md\` | ${c.pending} pending inbox URLs and ${c.processed} processed |
+| \`data/score-history.tsv\` | one row per evaluation (${c.scouting}) |
+| \`data/scan-history.tsv\` | ${c.scan} postings across ${c.runs} scanner runs |
+| \`data/network.md\`, \`outreach.md\`, \`follow-ups.md\` | ${c.network} contacts, ${c.outreach} outreach touches, ${c.followUps} follow-ups |
+| \`data/*-cache.tsv\` | demo tax, cost-of-living and salary-band values |
+| \`reports/tier-1..3/\` | ${c.reports} evaluation reports (Go, Stretch / Solid / If pipeline thin, Growth target); Skip and Blocked write no file |
+| \`reports/briefs/\` | one daily brief |
+| \`interview-prep/\` | a story bank with ${c.stories} STAR+R stories and ${c.preps} interview-prep files |
+
+## How it is made
+
+\`scripts/demo/build-demo.mjs\` generates everything from \`scripts/demo/seed.mjs\`. Each listing in the seed holds the facts from its posting, integer judgment scores and the report prose. The build runs every listing through \`scripts/score-listing.mjs\`, so Want, Ease, verdict and tier always come from the current rubric. Dates are day offsets from the as-of date in \`.demo-meta.json\`, so a rebuild never looks stale.
+
+Don't edit these files by hand. Change the seed and rebuild:
+
+\`\`\`bash
+npm run demo:build                           # as of today
+npm run demo:build -- --as-of ${ctx.asOf}     # reproduce this exact build
+node --test scripts/demo/build-demo.test.mjs # reproducibility + parser checks
+\`\`\`
+
+## Using it
+
+- **App:** pick "Explore the demo" at onboarding, or turn on Settings › General › Show demo data.
+- **CLI:** scripts that read through the data root accept \`STARPATH_DATA=demo\`, for example \`STARPATH_DATA=demo npm run brief\`.
+`
+}

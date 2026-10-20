@@ -1,0 +1,17 @@
+country	gross_band_eur	effective_rate	source	last_updated
+AT	40000	0.27	demo tax table	2026-09-20
+AT	45000	0.29	demo tax table	2026-09-20
+AT	55000	0.32	demo tax table	2026-09-20
+BE	40000	0.34	demo tax table	2026-09-20
+BE	45000	0.355	demo tax table	2026-09-20
+BE	50000	0.365	demo tax table	2026-09-20
+CZ	25000	0.22	demo tax table	2026-09-20
+CZ	30000	0.225	demo tax table	2026-09-20
+DE	55000	0.345	demo tax table	2026-09-20
+FR	30000	0.22	demo tax table	2026-09-20
+FR	35000	0.23	demo tax table	2026-09-20
+FR	40000	0.245	demo tax table	2026-09-20
+FR	45000	0.255	demo tax table	2026-09-20
+FR	50000	0.27	demo tax table	2026-09-20
+PT	20000	0.19	demo tax table	2026-09-20
+PT	25000	0.21	demo tax table	2026-09-20
