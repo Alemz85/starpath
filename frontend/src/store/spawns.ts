@@ -19,6 +19,8 @@ import {
   isAuthFailureText,
   diagnoseFailureText,
 } from '@/lib/spawnFormat'
+import { spawnSource, type SpawnUsage } from '@/lib/usage'
+import { recordAppUsage } from '@/lib/usageLog'
 
 // Re-exported for API stability — call sites across the app import these from
 // '@/store/spawns'. The implementations now live in lib/spawnFormat.ts so the
@@ -48,6 +50,9 @@ export interface SpawnRecord {
    *  Drives the sidebar's "N failed" badge so a run that dies in the
    *  background gets noticed, then stops nagging once acknowledged. */
   acked?: boolean
+  /** Tokens and cost, from the `result` event the Claude CLI ends its stream
+   *  with. Set only for claude spawns that got that far (a killed run has none). */
+  usage?: SpawnUsage
 }
 
 // Per-spawn carry-over buffer for split JSONL lines. The pure humanizer
@@ -56,10 +61,10 @@ export interface SpawnRecord {
 // clears it on start/clear so a re-run never inherits a stale half-line.
 const jsonlLineBuffer: Record<string, string> = {}
 
-function humanizeJsonlLines(id: string, chunk: string): string[] {
-  const { lines, buffer } = humanizeJsonlChunk(jsonlLineBuffer[id] ?? '', chunk)
+function humanizeJsonlLines(id: string, chunk: string): { lines: string[]; usage?: SpawnUsage } {
+  const { lines, buffer, usage } = humanizeJsonlChunk(jsonlLineBuffer[id] ?? '', chunk)
   jsonlLineBuffer[id] = buffer
-  return lines
+  return { lines, usage }
 }
 
 interface SpawnsState {
@@ -138,10 +143,10 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     // Claude spawns produce JSONL — parse + humanize before appending so the
     // panel shows readable progress instead of raw `{"type":"assistant",…}`.
     // node/shell spawns pass through verbatim (already plain text).
-    const linesToAppend = cur.tool === 'claude'
+    const { lines: linesToAppend, usage } = cur.tool === 'claude'
       ? humanizeJsonlLines(id, chunk)
-      : [chunk]
-    if (linesToAppend.length === 0) return
+      : { lines: [chunk], usage: undefined }
+    if (linesToAppend.length === 0 && !usage) return
     set(state => {
       const rec = state.spawns[id]
       if (!rec) return state
@@ -149,11 +154,25 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
       const capped = merged.length > OUTPUT_CAP
         ? merged.slice(merged.length - OUTPUT_CAP)
         : merged
-      return { spawns: { ...state.spawns, [id]: { ...rec, output: capped } } }
+      return { spawns: { ...state.spawns, [id]: { ...rec, output: capped, ...(usage ? { usage } : {}) } } }
     })
   },
 
   finish: (id, exitCode) => {
+    // The CLI's own numbers go to the ledger once the process is gone — the
+    // result event has long since arrived, so this is a file append, not a
+    // request. A run the user stopped, or one that died before its result
+    // event, has nothing to record.
+    const finished = get().spawns[id]
+    if (finished?.usage && finished.status !== 'killed') {
+      void recordAppUsage({
+        at: Date.now(),
+        spawnId: finished.id,
+        label: finished.label,
+        source: spawnSource(finished.args),
+        usage: finished.usage,
+      })
+    }
     set(state => {
       const rec = state.spawns[id]
       if (!rec) return state
