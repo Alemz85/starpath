@@ -1,0 +1,60 @@
+name: Leak scan
+
+# Backup net for the leak gate. This runs AFTER the push, so whatever it finds
+# is already public: the real protection is the local pre-push hook
+# (.githooks/pre-push, `npm run hooks`), which derives terms from private/.
+# CI has no private data, so it runs only the generic patterns of
+# scripts/lib/leak-patterns.mjs (emails, phone numbers, /Users/<name>/ paths,
+# API keys; salary-looking figures as warnings) over the added lines and
+# commit messages of the pushed range.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leak-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # The guard's generic mode is dependency-free: no npm install needed.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Scan the pushed range (generic patterns)
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -u
+          guard="node scripts/lib/hygiene-guard.mjs --generic-only --github"
+          if [ "$EVENT" = "pull_request" ]; then
+            echo "Scanning PR range $PR_BASE..$PR_HEAD"
+            $guard --range "$PR_BASE..$PR_HEAD"
+          elif [ -n "$BEFORE" ] && [ -n "${BEFORE##*[!0]*}" ]; then
+            # First push of the branch (before = all zeros): scan every tracked file.
+            echo "First push: scanning all tracked files"
+            $guard
+          elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "Scanning push range $BEFORE..$AFTER"
+            $guard --range "$BEFORE..$AFTER"
+          else
+            # Force-push over history this clone doesn't have: scan every tracked file.
+            echo "Previous tip $BEFORE not found: scanning all tracked files"
+            $guard
+          fi

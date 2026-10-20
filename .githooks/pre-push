@@ -1,0 +1,54 @@
+#!/bin/sh
+# starpath leak gate — pre-push: the real protection. Scans every added line
+# and every commit message in the push range for personal data and blocks the
+# push on a hit. Engine: scripts/lib/hygiene-guard.mjs --range.
+# Installed by `npm run hooks` (git config core.hooksPath .githooks).
+#
+# stdin: <local ref> <local sha> <remote ref> <remote sha>, one line per ref.
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+guard="$top/scripts/lib/hygiene-guard.mjs"
+[ -f "$guard" ] || exit 0
+
+node_bin=$(command -v node 2>/dev/null)
+if [ -z "$node_bin" ]; then
+  for c in /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node; do
+    if [ -x "$c" ]; then node_bin=$c; break; fi
+  done
+fi
+if [ -z "$node_bin" ]; then
+  echo "leak gate: node not found, push-range scan skipped (install Node.js to enable it)." >&2
+  exit 0
+fi
+
+is_zero() {
+  case "$1" in
+    *[!0]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+blocked=0
+failed=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ -n "$local_sha" ] || continue
+  is_zero "$local_sha" && continue                       # deleting a remote ref
+  if [ -n "$remote_sha" ] && ! is_zero "$remote_sha" && git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+    "$node_bin" "$guard" --range "$remote_sha..$local_sha" </dev/null
+  else
+    # New remote branch (or a remote tip we don't have): everything not on any remote.
+    "$node_bin" "$guard" --range "$local_sha" --not --remotes </dev/null
+  fi
+  status=$?
+  if [ "$status" -eq 1 ]; then blocked=1; elif [ "$status" -ne 0 ]; then failed=1; fi
+done
+
+if [ "$blocked" -ne 0 ]; then
+  echo "Push blocked: personal data in the push range. Fix the commits (amend/rebase) — never use --no-verify." >&2
+  exit 1
+fi
+if [ "$failed" -ne 0 ]; then
+  echo "Push blocked: the leak scan could not run (see above). Fix the cause and push again." >&2
+  exit 1
+fi
+exit 0

@@ -1,0 +1,31 @@
+#!/bin/sh
+# starpath leak gate — commit-msg: scan the commit message for personal data.
+# Engine: scripts/lib/hygiene-guard.mjs --message <file>.
+# Installed by `npm run hooks` (git config core.hooksPath .githooks).
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+guard="$top/scripts/lib/hygiene-guard.mjs"
+[ -f "$guard" ] || exit 0
+[ -n "$1" ] || exit 0
+
+node_bin=$(command -v node 2>/dev/null)
+if [ -z "$node_bin" ]; then
+  for c in /opt/homebrew/bin/node /usr/local/bin/node /usr/bin/node; do
+    if [ -x "$c" ]; then node_bin=$c; break; fi
+  done
+fi
+if [ -z "$node_bin" ]; then
+  echo "leak gate: node not found, commit-message scan skipped (install Node.js to enable it)." >&2
+  exit 0
+fi
+
+"$node_bin" "$guard" --message "$1" </dev/null
+status=$?
+if [ "$status" -eq 1 ]; then
+  echo "Commit blocked: personal data in the commit message. Reword it — never use --no-verify." >&2
+  exit 1
+elif [ "$status" -ne 0 ]; then
+  echo "Commit blocked: the leak scan could not run (see above)." >&2
+  exit 1
+fi
+exit 0
