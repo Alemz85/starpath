@@ -3,16 +3,17 @@ import assert from 'node:assert/strict'
 import {
   filterByDateWindow,
   avg, median,
-  buildByDate, buildTopBy, isNoiseLabel,
-  buildDistribution, SCORE_BANDS, APPLY_WORTHY_VERDICTS, scoredOnly, isApplyWorthy,
+  buildByPeriod, pickGranularity, listingKey, MIN_SCORED_PER_PERIOD_FOR_WANT,
+  buildTopBy, latestPerListing, isNoiseLabel,
+  APPLY_WORTHY_VERDICTS, scoredOnly, isApplyWorthy,
   buildFunnel,
-  buildDimensionProfile, PROFILE_DIMENSIONS, MIN_WINNERS_FOR_DELTA,
+  PROFILE_DIMENSIONS,
   buildTargetingMomentum, MIN_PER_HALF_FOR_MOMENTUM, MOMENTUM_DEADBANDS,
   buildArchetypeMix, MIN_PER_HALF_FOR_MIX,
   isoToFlag, locationFlag,
 } from '@/lib/trendsAnalytics'
 import { makeScoreEntry, makeApplication, makeBlockedEntry } from '@/test-utils/fixtures'
-import { TIER_COLORS } from '@/types'
+import { GATES } from '@/lib/scoringStats'
 
 // A fixed clock so the time-window cutoffs are exact and TZ-independent.
 // Dates are stored as YYYY-MM-DD and compared as ISO prefixes, so the diff
@@ -90,23 +91,108 @@ test('median handles odd, even, and empty sets', () => {
   assert.equal(median([], 'want'), 0)
 })
 
-// ─── buildByDate ─────────────────────────────────────────────────────────────
+// ─── buildByPeriod ───────────────────────────────────────────────────────────
 
-test('buildByDate buckets by day with Want / Ease averages over scored rows only', () => {
+// Fixtures share company + role by default; a URL per listing keeps them apart.
+let seq = 0
+const job = (over: Parameters<typeof makeScoreEntry>[0] = {}) => ({ url: `https://example.com/jobs/${++seq}`, ...over })
+// n scored listings on one day, every one at the given Want.
+const scoredOn = (date: string, n: number, want = 7) =>
+  Array.from({ length: n }, () => s(want, 6, job({ date })))
+
+test('the Want gate is the corpus-trend window gate, read from the shared contract', () => {
+  assert.equal(MIN_SCORED_PER_PERIOD_FOR_WANT, GATES.trendMinPerWindowForVerdict)
+})
+
+test('buildByPeriod skips blocked listings in the Want mean but counts them as listings', () => {
   const rows = [
-    s(8, 6, { date: '2026-06-02' }),
-    s(6, 8, { date: '2026-06-02T09:00:00Z', skills_match: 7 }),
-    makeBlockedEntry('x', { date: '2026-06-02' }),
-    s(7, 7, { date: '2026-06-01' }),
-    s(7, 7, { date: '' }),
+    ...scoredOn('2026-06-02', MIN_SCORED_PER_PERIOD_FOR_WANT, 8),
+    makeBlockedEntry('x', job({ date: '2026-06-03' })),   // no Want: must not drag the mean
+    makeBlockedEntry('y', job({ date: '2026-06-04' })),
   ]
-  const b = buildByDate(rows)
-  assert.deepEqual(b.map(x => x.label), ['2026-06-01', '2026-06-02'])
-  assert.equal(b[1].count, 3)
-  assert.equal(b[1].blocked, 1)
-  assert.equal(b[1].avg_want, 7)
-  assert.equal(b[1].avg_ease, 7)
-  assert.equal(b[1].avg_skills_match, 7)
+  const [june] = buildByPeriod(rows, 'month')
+  assert.equal(june.listings, MIN_SCORED_PER_PERIOD_FOR_WANT + 2)
+  assert.equal(june.blocked, 2)
+  assert.equal(june.scored, MIN_SCORED_PER_PERIOD_FOR_WANT)
+  assert.equal(june.avgWant, 8)
+})
+
+test('a period with only blocked listings has no Want point, not a 0', () => {
+  const rows = [
+    ...scoredOn('2026-06-01', MIN_SCORED_PER_PERIOD_FOR_WANT),
+    makeBlockedEntry('x', job({ date: '2026-06-09' })),
+    ...scoredOn('2026-06-15', MIN_SCORED_PER_PERIOD_FOR_WANT),
+  ]
+  const weeks = buildByPeriod(rows, 'week')
+  assert.deepEqual(weeks.map(w => w.start), ['2026-06-01', '2026-06-08', '2026-06-15'])
+  assert.equal(weeks[1].listings, 1)
+  assert.equal(weeks[1].blocked, 1)
+  assert.equal(weeks[1].avgWant, null)
+  assert.equal(weeks[1].wantWithheld, false)   // nothing scored to withhold
+  assert.equal(weeks[0].avgWant, 7)
+  assert.equal(weeks[2].avgWant, 7)
+})
+
+test('buildByPeriod withholds the Want mean below the gate and states its confidence above it', () => {
+  const gate = MIN_SCORED_PER_PERIOD_FOR_WANT
+  const rows = [
+    ...scoredOn('2026-05-10', gate - 1),
+    ...scoredOn('2026-06-10', gate),
+    ...scoredOn('2026-07-10', gate * 2),
+  ]
+  const [may, june, july] = buildByPeriod(rows, 'month')
+  assert.equal(may.avgWant, null)
+  assert.equal(may.wantWithheld, true)
+  assert.equal(may.wantConfidence, 'insufficient')
+  assert.equal(june.avgWant, 7)
+  assert.equal(june.wantConfidence, 'low')
+  assert.equal(july.wantConfidence, 'moderate')
+})
+
+test('buildByPeriod counts a re-evaluated listing once, where it was first seen, at its latest Want', () => {
+  const url = 'https://example.com/jobs/re-evaluated'
+  const rows = [
+    ...scoredOn('2026-06-05', MIN_SCORED_PER_PERIOD_FOR_WANT - 1, 6),
+    s(5, 6, { url, date: '2026-06-20' }),
+    s(6, 6, { url, date: '2026-06-10' }),   // first seen in June
+    s(9, 6, { url, date: '2026-07-02' }),   // latest judgment, a month later
+  ]
+  const months = buildByPeriod(rows, 'month')
+  assert.deepEqual(months.map(m => m.start), ['2026-06-01'])
+  assert.equal(months[0].listings, MIN_SCORED_PER_PERIOD_FOR_WANT)
+  assert.equal(months[0].avgWant, (6 * (MIN_SCORED_PER_PERIOD_FOR_WANT - 1) + 9) / MIN_SCORED_PER_PERIOD_FOR_WANT)
+})
+
+test('buildByPeriod starts weeks on Monday, keeps empty periods as zero bars, drops undated rows', () => {
+  const rows = [
+    s(7, 7, job({ date: '2026-06-07' })),   // Sunday → week of Jun 1
+    s(7, 7, job({ date: '2026-06-22T09:00:00Z' })),
+    s(7, 7, job({ date: '' })),
+  ]
+  const weeks = buildByPeriod(rows, 'week')
+  assert.deepEqual(weeks.map(w => [w.start, w.listings]), [
+    ['2026-06-01', 1], ['2026-06-08', 0], ['2026-06-15', 0], ['2026-06-22', 1],
+  ])
+  assert.equal(weeks[0].label, 'Jun 1')
+  assert.equal(weeks[0].title, 'Week of Jun 1, 2026')
+})
+
+test('buildByPeriod months roll over the year and label with it', () => {
+  const months = buildByPeriod([s(7, 7, job({ date: '2025-12-30' })), s(7, 7, job({ date: '2026-01-02' }))], 'month')
+  assert.deepEqual(months.map(m => m.label), ['Dec 2025', 'Jan 2026'])
+  assert.equal(months[1].title, 'January 2026')
+  assert.deepEqual(buildByPeriod([], 'week'), [])
+})
+
+test('pickGranularity uses weeks only when two weeks can draw a Want point', () => {
+  const gate = MIN_SCORED_PER_PERIOD_FOR_WANT
+  assert.equal(pickGranularity([...scoredOn('2026-06-01', gate), ...scoredOn('2026-06-08', gate)]), 'week')
+  assert.equal(pickGranularity([...scoredOn('2026-06-01', gate), ...scoredOn('2026-06-08', gate - 1)]), 'month')
+})
+
+test('listingKey prefers the URL and falls back to company|role', () => {
+  assert.equal(listingKey(makeScoreEntry({ url: ' https://example.com/x ' })), 'https://example.com/x')
+  assert.equal(listingKey(makeScoreEntry({ company: 'Nimbus Robotics', role: 'Analyst ' })), 'nimbus robotics|analyst')
 })
 
 // ─── buildTopBy ──────────────────────────────────────────────────────────────
@@ -116,62 +202,50 @@ test('isNoiseLabel flags blanks, n/d, dashes and "unknown" case-insensitively', 
   assert.equal(isNoiseLabel('Acme'), false)
 })
 
-test('buildTopBy ranks by mean Priority, shows Want and Ease, honours the limit', () => {
+test('buildTopBy ranks on the named axis, shows both, and honours the limit', () => {
   const rows = [
-    s(9, 9, { company: 'Top' }),
-    s(8, 4, { company: 'Mid' }), s(8, 4, { company: 'Mid' }),
-    s(5, 5, { company: 'Low' }),
-    s(6, 6, { company: 'n/d' }),
-    makeBlockedEntry('x', { company: 'Blocked' }),
+    s(9, 4, job({ company: 'Wanted' })),
+    s(5, 9, job({ company: 'Easy' })),
+    s(7, 7, job({ company: 'Both' })), s(7, 7, job({ company: 'Both' })),
+    s(6, 6, job({ company: 'n/d' })),
+    makeBlockedEntry('x', job({ company: 'Blocked' })),
   ]
-  const top = buildTopBy(rows, e => e.company, 2)
-  assert.deepEqual(top.map(r => r.label), ['Top', 'Mid'])
-  assert.equal(top[1].count, 2)
-  assert.equal(top[1].avgWant, 8)
-  assert.equal(top[1].avgEase, 4)
-  assert.ok(Math.abs(top[1].avgPriority - Math.sqrt(32)) < 0.01)
-  assert.ok(!buildTopBy(rows, e => e.company, 9).some(r => r.label === 'Blocked'))
+  assert.deepEqual(buildTopBy(rows, e => e.company, 'ease', 2).map(r => r.label), ['Easy', 'Both'])
+  const byWant = buildTopBy(rows, e => e.company, 'want', 9)
+  assert.deepEqual(byWant.map(r => r.label), ['Wanted', 'Both', 'Easy'])
+  assert.equal(byWant[1].count, 2)
+  assert.equal(byWant[1].avgEase, 7)
+  assert.ok(!byWant.some(r => r.label === 'Blocked'))
 })
 
-// ─── buildDistribution ───────────────────────────────────────────────────────
-
-test('SCORE_BANDS are the seven verdicts, best first, coloured by their tier', () => {
-  assert.deepEqual(SCORE_BANDS.map(b => b.key), ['go', 'stretch', 'solid', 'growth', 'thin', 'skip', 'blocked'])
-  assert.deepEqual(SCORE_BANDS.find(b => b.key === 'go')!.chip, TIER_COLORS.T1)
-  assert.deepEqual(SCORE_BANDS.find(b => b.key === 'thin')!.chip, TIER_COLORS.T2)
-  assert.deepEqual(SCORE_BANDS.find(b => b.key === 'growth')!.chip, TIER_COLORS.T3)
-  assert.deepEqual(SCORE_BANDS.find(b => b.key === 'blocked')!.chip, TIER_COLORS.T4)
-  assert.deepEqual(SCORE_BANDS.filter(b => b.applyWorthy).map(b => b.key), ['go', 'stretch', 'solid'])
-})
-
-test('buildDistribution counts verdicts (blocked included) and states applyPct over scored rows', () => {
+test('buildTopBy breaks a tie on the axis by count, then by the other axis', () => {
   const rows = [
-    s(9, 9), s(8, 6), s(7, 6), s(5, 5),
-    makeBlockedEntry(), makeBlockedEntry(),
-    s(7, 7, { eligibility: 'amber' }),
+    s(8, 5, job({ company: 'One' })),
+    s(8, 5, job({ company: 'Two' })), s(8, 5, job({ company: 'Two' })),
+    s(8, 9, job({ company: 'Easier' })),
   ]
-  const d = buildDistribution(rows)
-  const count = (k: string) => d.bands.find(b => b.key === k)!.count
-  assert.equal(count('go'), 1)
-  assert.equal(count('stretch'), 1)
-  assert.equal(count('solid'), 1)
-  assert.equal(count('thin'), 1)
-  assert.equal(count('skip'), 1)
-  assert.equal(count('blocked'), 2)
-  assert.equal(d.total, 7)
-  assert.equal(d.scored, 5)
-  assert.equal(d.applyPct, 60)        // go + stretch + solid of 5 scored
-  assert.equal(d.medianWant, 7)
-  assert.deepEqual(d.eligibility, { green: 4, amber: 1, red: 2 })
-  assert.equal(d.max, 2)
+  assert.deepEqual(buildTopBy(rows, e => e.company, 'want', 3).map(r => r.label), ['Two', 'Easier', 'One'])
 })
 
-test('buildDistribution over an empty corpus is all-zero, not NaN', () => {
-  const d = buildDistribution([])
-  assert.equal(d.total, 0)
-  assert.equal(d.applyPct, 0)
-  assert.equal(d.medianWant, 0)
-  assert.equal(d.max, 1)
+test('buildTopBy counts a re-evaluated listing once, at its latest evaluation', () => {
+  const url = 'https://example.com/jobs/again'
+  const rows = [
+    s(5, 5, { url, company: 'Nimbus Robotics', date: '2026-06-01' }),
+    s(8, 8, { url, company: 'Nimbus Robotics', date: '2026-06-09' }),
+  ]
+  const [row] = buildTopBy(rows, e => e.company, 'want', 5)
+  assert.equal(row.count, 1)
+  assert.equal(row.avgWant, 8)
+  assert.equal(latestPerListing(rows).length, 1)
+})
+
+test('buildTopBy drops a listing whose latest evaluation is blocked', () => {
+  const url = 'https://example.com/jobs/now-blocked'
+  const rows = [
+    s(8, 8, { url, company: 'Nimbus Robotics', date: '2026-06-01' }),
+    makeBlockedEntry('x', { url, company: 'Nimbus Robotics', date: '2026-06-09' }),
+  ]
+  assert.deepEqual(buildTopBy(rows, e => e.company, 'want', 5), [])
 })
 
 // ─── buildFunnel ─────────────────────────────────────────────────────────────
@@ -201,44 +275,7 @@ test('buildFunnel does not count a rejection as a real response', () => {
   assert.equal(f.rejected, 1)
 })
 
-// ─── buildDimensionProfile ───────────────────────────────────────────────────
-
-// Enough apply-worthy rows to clear MIN_WINNERS_FOR_DELTA. Ease is the
-// strongest driver (high in winners, low in the rest); brand_value is flat.
-function profileCorpus() {
-  return [
-    ...Array.from({ length: 4 }, () => s(8.5, 8, { brand_value: 7 })),    // go
-    ...Array.from({ length: 4 }, () => s(8.5, 3, { brand_value: 7 })),    // growth
-    makeBlockedEntry(),
-  ]
-}
-
-test('buildDimensionProfile counts scored rows and the apply-worthy subset (blocked excluded)', () => {
-  const p = buildDimensionProfile(profileCorpus())
-  assert.equal(p.scoredCount, 8)
-  assert.equal(p.winnerCount, 4)
-  assert.equal(p.lowSignal, false)
-})
-
-test('buildDimensionProfile ranks the strongest driver first; delta = winners − all', () => {
-  const p = buildDimensionProfile(profileCorpus())
-  assert.equal(p.dims[0].field, 'ease')
-  assert.equal(p.dims[0].delta, 8 - 5.5)
-  const brand = p.dims.find(d => d.field === 'brand_value')!
-  assert.equal(brand.delta, 0)
-})
-
-test('buildDimensionProfile flags low signal below the winner floor', () => {
-  const p = buildDimensionProfile([s(9, 9), s(5, 5)])
-  assert.equal(p.lowSignal, true)
-  assert.ok(MIN_WINNERS_FOR_DELTA > 1)
-})
-
-test('buildDimensionProfile over an empty corpus is all-zero, not NaN', () => {
-  const p = buildDimensionProfile([])
-  assert.equal(p.scoredCount, 0)
-  assert.ok(p.dims.every(d => d.avgAll === 0 && d.delta === 0))
-})
+// ─── dimensions ──────────────────────────────────────────────────────────────
 
 test('PROFILE_DIMENSIONS lead with Want and Ease and are real ScoreEntry fields', () => {
   assert.deepEqual(PROFILE_DIMENSIONS.slice(0, 2).map(d => d.field), ['want', 'ease'])
