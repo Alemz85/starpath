@@ -304,12 +304,15 @@ test('findRunningApp: dev Electron from this checkout, minus helpers and our own
     '  400     1 /Applications/Other.app/Contents/Frameworks/Electron Framework.framework/Helpers/crashpad',
     '  500     1 node /work/starpath/frontend/node_modules/.bin/next dev',
     '  600   100 node scripts/private.mjs init --json',
+    '  700     1 /Applications/Editor.app/Contents/MacOS/Editor Helper (Plugin) --ms-enable-electron-run-as-node /work/starpath/frontend/node_modules/typescript/lib/tsserver.js',
+    '  800     1 /work/starpath/frontend/dist/mac-arm64/starpath.app/Contents/MacOS/starpath',
+    '  900     1 node /work/starpath/frontend/node_modules/.bin/concurrently -n next,electron next dev',
     'garbage line',
   ].join('\n'))
-  assert.equal(ps.length, 7)
-  assert.deepEqual(findRunningApp(ps, { repoRoot: '/work/starpath', selfPid: 9999 }), { pids: [100], packagedPids: [300] })
+  assert.equal(ps.length, 10)
+  assert.deepEqual(findRunningApp(ps, { repoRoot: '/work/starpath', selfPid: 9999 }), { pids: [100, 800], packagedPids: [300] })
   // The app spawning `private init` itself is not a reason to refuse.
-  assert.deepEqual(findRunningApp(ps, { repoRoot: '/work/starpath', selfPid: 600 }).pids, [])
+  assert.deepEqual(findRunningApp(ps, { repoRoot: '/work/starpath', selfPid: 600 }).pids, [800])
 })
 
 // ── overrides report ────────────────────────────────────────────────────────

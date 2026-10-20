@@ -454,9 +454,11 @@ export function parsePs(text) {
 
 /**
  * The starpath app's MAIN processes that could be using this checkout,
- * excluding our own ancestors (the app spawning `private init` is fine).
- * Dev builds run Electron from <repo>/frontend/; a packaged app can't be
- * tied to a checkout, so it is reported separately (warning only).
+ * excluding Electron helpers (`--type=…`) and our own ancestors (the app
+ * spawning `private init` is fine). A dev build runs the Electron binary
+ * from <repo>/frontend/node_modules/electron/; a build packaged into
+ * <repo>/frontend/dist/ counts too. A packaged app elsewhere can't be tied
+ * to a checkout, so it is reported separately (warning only).
  *
  * @returns {{ pids: number[], packagedPids: number[] }}
  */
@@ -465,13 +467,14 @@ export function findRunningApp(rows, { repoRoot, selfPid }) {
   const ancestors = new Set()
   for (let p = selfPid, guard = 0; p && guard < 64; p = parent.get(p), guard++) ancestors.add(p)
   const frontend = toPosix(repoRoot).replace(/\/+$/, '') + '/frontend/'
+  const packaged = /\/starpath\.app\/Contents\/MacOS\/starpath(\s|$)/
   const pids = []
   const packagedPids = []
   for (const r of rows) {
     if (ancestors.has(r.pid) || /--type=/.test(r.command)) continue
     const cmd = toPosix(r.command)
-    if (cmd.includes(frontend) && /electron/i.test(cmd)) pids.push(r.pid)
-    else if (/\/starpath\.app\/Contents\/MacOS\/starpath(\s|$)/.test(cmd)) packagedPids.push(r.pid)
+    if (cmd.includes(frontend + 'node_modules/electron/')) pids.push(r.pid)
+    else if (packaged.test(cmd)) (cmd.includes(frontend) ? pids : packagedPids).push(r.pid)
   }
   return { pids, packagedPids }
 }

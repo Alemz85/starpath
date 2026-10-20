@@ -374,6 +374,17 @@ test('init refuses when a link inside a moved folder would stop resolving', () =
   assert.ok(!existsSync(join(r, 'private')), 'refused before anything moved')
 })
 
+test('init warns when the public repo still tracks files it moves', () => {
+  const r = makeRepo('tracked')
+  write(r, 'data/col-cache.tsv', 'city\tbaseline_eur\nLyon\t1\n')
+  git(r, 'add', '-f', 'data/col-cache.tsv')
+  git(r, 'commit', '-q', '-m', 'legacy tracked cache')
+  const { code, json } = run(r, 'init', '--json')
+  assert.equal(code, 0)
+  assert.ok(json.warnings.some((w) => /still tracks 1 file under data/.test(w) && /git rm -r --cached/.test(w)), json.warnings.join('\n'))
+  assert.equal(read(r, 'data/col-cache.tsv'), 'city\tbaseline_eur\nLyon\t1\n')
+})
+
 test('backup and link refuse without a private root', () => {
   const r = makeRepo('bare-checkout')
   const b = run(r, 'backup', '--json')

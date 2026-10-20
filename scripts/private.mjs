@@ -17,9 +17,10 @@
  *       Move this checkout's personal folders into private/ (rename, never
  *       copy), link them back, verify a sha256 manifest, git init + first
  *       commit. Refuses while eval output is unmerged, batch workers run,
- *       JobSpy staging is unmerged, or the starpath app runs from this
- *       checkout (--force overrides those and re-points wrong links). Never
- *       merges or overwrites: a path present in both places is a conflict.
+ *       JobSpy staging is unmerged, the starpath app runs from this
+ *       checkout, or a symlink inside a moving folder would stop resolving
+ *       (--force overrides those and re-points wrong links). Never merges or
+ *       overwrites: a path present in both places is a conflict.
  *   node scripts/private.mjs status
  *       Links, the private repo (branch, remote, uncommitted changes, last
  *       commit) and whether the public repo ignores private/.
@@ -401,6 +402,15 @@ function cmdInit() {
         { linkBreaks: breaks }, lines.map((l) => `  ✗ ${l}`))
     }
     result.warnings.push(...lines.map((l) => `link will break: ${l}`))
+  }
+
+  // Files the public repo still tracks under a moving path would show up as
+  // deletions there (untracking them is the fix, not a reason to refuse).
+  if (plan.moved.length && isPublicRepo()) {
+    const tracked = git(['ls-files', '--', ...plan.moved], REPO).stdout.split('\n').filter(Boolean)
+    if (tracked.length) {
+      result.warnings.push(`the public repo still tracks ${tracked.length} file${tracked.length === 1 ? '' : 's'} under ${plan.moved.join(', ')} — untrack with: git rm -r --cached --ignore-unmatch ${plan.moved.join(' ')} && git commit`)
+    }
   }
 
   // rename() only works within one filesystem; never fall back to copying.
