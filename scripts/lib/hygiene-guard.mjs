@@ -4,8 +4,10 @@
  * hygiene-guard.mjs — the leak gate's scanner.
  *
  * Keeps personal data out of the PUBLIC repo. Terms are never stored in the
- * repo (not even hashed): they are derived at run time from the data root
- * (`private/`, see scripts/lib/data-root.mjs):
+ * repo (not even hashed): they are derived at run time from the data root —
+ * $STARPATH_DATA, else <checkout>/private, else (from a linked worktree) the
+ * main checkout's private/, else a legacy <checkout>/user + data/ — see
+ * resolveGuardDataRoot():
  *
  *   identity   name, first+last pair, email, phone, profile handles (user/profile.yml, user/cv.md)
  *   school / employer / project   user/cv.md (`### ` headings and the old **bold** format)
@@ -45,7 +47,7 @@
  */
 
 import { readFileSync, existsSync, readdirSync, lstatSync, readlinkSync, statSync, realpathSync } from 'node:fs';
-import { join, relative, extname, basename, dirname, resolve, isAbsolute } from 'node:path';
+import { join, extname, basename, dirname, resolve, isAbsolute } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -1277,13 +1279,18 @@ export function formatHit(h) {
   return `${where}  [${h.category}]  ${h.masked}${tail}`;
 }
 
+// GitHub workflow-command escaping (data, then property values).
+const ghData = (s) => String(s).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+const ghProp = (s) => ghData(s).replace(/:/g, '%3A').replace(/,/g, '%2C');
+
 function githubAnnotation(h) {
   const level = h.severity === 'block' ? 'error' : 'warning';
   const msg = `[${h.category}] ${h.masked}${h.commit ? ` (commit ${h.commit.slice(0, 7)})` : ''}`;
   if (h.kind === 'file' && h.file && !h.file.includes('…') && !h.file.includes('·')) {
-    return `::${level} file=${h.file},line=${h.line},title=Leak scan::${msg}`;
+    return `::${level} file=${ghProp(h.file)},line=${h.line},title=Leak scan::${ghData(msg)}`;
   }
-  return `::${level} title=Leak scan::${h.kind === 'message' ? 'commit message ' : ''}${h.file || ''} ${msg}`.replace(/\s+/g, ' ');
+  const where = h.kind === 'message' ? 'commit message' : (h.file || '');
+  return `::${level} title=Leak scan::${ghData(`${where} ${msg}`.trim())}`;
 }
 
 export function parseArgs(argv) {
