@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 
 import {
   buildPost, buildUpdate, closedMessages, duplicateOf, findMessage, foldMessages, inferLinkKind, makeId,
-  normalizeLink, openCount, openMessages, parseRecords, planUpdate, renderList, serializeRecord,
+  normalizeLink, openCount, openMessages, parseRecords, planUpdate, postFromSuggestion, renderList, serializeRecord,
 } from './messages-core.mjs'
 
 const T0 = new Date('2026-07-10T09:00:00Z')
@@ -132,4 +132,19 @@ test('renderList: one line per message, body on request', () => {
   assert.match(renderList(msgs), /^m-a {2}2026-07-10 09:00 {2}fyi/)
   assert.match(renderList(msgs, { showBody: true }), /line 2\n {4}→ https:\/\/example.com/)
   assert.equal(renderList([]), 'no messages')
+})
+
+test('postFromSuggestion: an outcome suggestion becomes a keyed calibrate post', () => {
+  const input = postFromSuggestion({
+    id: 'outcomes:ease:high-no-progress', source: 'outcomes', kind: 'suggestion',
+    title: 'High-Ease applications are not progressing', body: '6 of 7 got no reply.',
+    target: 'user/profile.yml', evidence: { n: 7 },
+  })
+  assert.deepEqual(input, {
+    source: 'calibrate', kind: 'suggestion', key: 'outcomes:ease:high-no-progress',
+    title: 'High-Ease applications are not progressing', body: '6 of 7 got no reply.', links: ['user/profile.yml'],
+  })
+  const p = buildPost(input, { id: 'm-1', now: T0 })
+  assert.deepEqual(p.links, [{ kind: 'file', target: 'user/profile.yml' }])
+  assert.equal(postFromSuggestion({ id: 'x', kind: 'weird', title: 't' }).kind, 'suggestion')
 })

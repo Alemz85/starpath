@@ -117,6 +117,21 @@ export function buildUpdate(id, status, { note = '', now }) {
   return { type: 'update', id, at: now.toISOString(), status, ...(n ? { note: n } : {}) }
 }
 
+/**
+ * A post input from an outcome-learning suggestion (scripts/outcomes.mjs
+ * `result.suggestions[]`: { id, kind, title, body, target?, evidence? }). The
+ * stable suggestion id becomes the dedupe key, so re-running calibrate never
+ * repeats one that is open or was dismissed; `target` (a repo path) becomes a
+ * link. `evidence` already shows in the body's counts, so it is not repeated.
+ */
+export function postFromSuggestion(s) {
+  const kind = KINDS.includes(s?.kind) ? s.kind : 'suggestion'
+  return {
+    source: 'calibrate', kind, key: str(s?.id), title: s?.title, body: s?.body,
+    links: s?.target ? [s.target] : [],
+  }
+}
+
 /* ───── Parse / serialize ────────────────────────────────────────── */
 
 /** One record per line, newline-terminated. */
