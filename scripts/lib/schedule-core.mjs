@@ -24,12 +24,17 @@ export const INTERVAL_DAYS = 7
 /**
  * A run counts as "a week ago" 6 hours early. The run is long (the evaluation
  * workers), so one that starts at 09:00 finishes at, say, 10:30; without a
- * tolerance the next week's 09:00 fire would be 90 minutes short and slip to
- * the retry day.
+ * tolerance the next week's 09:00 fire would be 90 minutes short and the run
+ * would slip to a later retry fire.
  */
 export const CADENCE_TOLERANCE_HOURS = 6
-/** The job also fires on the next N days at the same time, so a failed run is retried. */
-export const RETRY_DAYS = 2
+/**
+ * The job also fires RETRY_COUNT more times, RETRY_EVERY_HOURS apart, later the
+ * same day (never the next day), so a failed run is retried while the user is
+ * still around. A fire after a finished run is a no-op.
+ */
+export const RETRY_EVERY_HOURS = 2
+export const RETRY_COUNT = 4
 export const MAX_RUNS_KEPT = 30
 /** A run lock older than this is presumed hung (the pid check handles crashes). */
 export const RUN_LOCK_STALE_MS = 12 * 3_600_000
@@ -134,9 +139,19 @@ export function decideRun({ state, now, force = false }) {
   }
 }
 
-/** Nominal fire times of the job: the slot, then the same time on the next RETRY_DAYS days. */
-function fireWeekdays(slot) {
-  return Array.from({ length: RETRY_DAYS + 1 }, (_, i) => (slot.weekday + i) % 7)
+/**
+ * Nominal fire times of the job as { weekday, hour, minute }: the slot, then
+ * RETRY_COUNT more every RETRY_EVERY_HOURS the same day. Retries that would
+ * pass midnight are dropped.
+ */
+export function fireTimes(slot) {
+  const out = []
+  for (let i = 0; i <= RETRY_COUNT; i++) {
+    const hour = slot.hour + i * RETRY_EVERY_HOURS
+    if (hour > 23) break
+    out.push({ weekday: slot.weekday, hour, minute: slot.minute ?? 0 })
+  }
+  return out
 }
 
 /**
@@ -147,12 +162,15 @@ function fireWeekdays(slot) {
 export function nextRunAt({ slot, state, now }) {
   if (!validSlot(slot)) return null
   const start = Math.max(now, eligibleAt(state, now))
-  const days = new Set(fireWeekdays(slot))
+  const times = fireTimes(slot)
   const first = new Date(start)
   for (let i = 0; i < 21; i++) {
-    const day = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i, slot.hour, slot.minute ?? 0, 0, 0)
-    if (!days.has(day.getDay())) continue
-    if (day.getTime() >= start) return day.getTime()
+    const probe = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i)
+    if (probe.getDay() !== slot.weekday) continue
+    for (const t of times) {
+      const at = new Date(probe.getFullYear(), probe.getMonth(), probe.getDate(), t.hour, t.minute, 0, 0).getTime()
+      if (at >= start) return at
+    }
   }
   return null
 }
@@ -225,9 +243,10 @@ export function isRunLocked(root) {
 const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 /**
- * The LaunchAgent plist. `StartCalendarInterval` fires at the slot and at the
- * same time on the next RETRY_DAYS days; the 7-day check inside the script
- * makes the extra fires no-ops once a run has finished. launchd runs a missed
+ * The LaunchAgent plist. `StartCalendarInterval` fires at the slot and then
+ * every RETRY_EVERY_HOURS later the same day (see fireTimes); the 7-day check
+ * inside the script makes the extra fires no-ops once a run has finished, and
+ * the run lock turns one that lands mid-run into a no-op. launchd runs a missed
  * interval when the Mac wakes, which is the "retry until it ran" behaviour.
  *
  * launchd's environment is minimal, so the PATH is explicit (the batch runner
@@ -235,10 +254,10 @@ const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  */
 export function buildPlist({ label = LABEL, nodePath, scriptPath, root, slot, pathEnv, home, logPath }) {
   if (!validSlot(slot)) throw new Error('buildPlist: invalid slot')
-  const intervals = fireWeekdays(slot).map((w) => `    <dict>
-      <key>Weekday</key><integer>${w}</integer>
-      <key>Hour</key><integer>${slot.hour}</integer>
-      <key>Minute</key><integer>${slot.minute ?? 0}</integer>
+  const intervals = fireTimes(slot).map((t) => `    <dict>
+      <key>Weekday</key><integer>${t.weekday}</integer>
+      <key>Hour</key><integer>${t.hour}</integer>
+      <key>Minute</key><integer>${t.minute}</integer>
     </dict>`).join('\n')
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

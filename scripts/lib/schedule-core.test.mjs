@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import {
   normalizeState, emptyState, decideRun, eligibleAt, lastFullRun, nextRunAt, newRun, reconcileRuns,
   upsertRun, finalStatus, summarizeRun, buildPlist, parseSlot, readState, updateState,
-  acquireRunLock, isRunLocked, runLockPath, LABEL, MAX_RUNS_KEPT, CADENCE_TOLERANCE_HOURS,
+  acquireRunLock, isRunLocked, runLockPath, fireTimes, LABEL, MAX_RUNS_KEPT, CADENCE_TOLERANCE_HOURS,
 } from './schedule-core.mjs'
 
 const DAY = 86_400_000
@@ -83,21 +83,30 @@ test('eligibleAt is now when nothing has run', () => {
 
 // ── next run ──
 
-test('nextRunAt: with no history, the next fire of the slot (or its retry days)', () => {
-  const slot = { weekday: 2, hour: 9, minute: 0 } // Tuesday
-  // Monday 2026-10-26 12:00 -> Tuesday 27th 09:00
-  assert.equal(nextRunAt({ slot, state: emptyState(), now: at(2026, 10, 26, 12) }), at(2026, 10, 27, 9))
-  // Tuesday 10:00 (slot passed) -> the Wednesday retry fire counts, since nothing has run.
-  assert.equal(nextRunAt({ slot, state: emptyState(), now: at(2026, 10, 27, 10) }), at(2026, 10, 28, 9))
-  // Thursday 10:00 -> past all three fires, next Tuesday.
-  assert.equal(nextRunAt({ slot, state: emptyState(), now: at(2026, 10, 29, 10) }), at(2026, 11, 3, 9))
+test('fireTimes: the slot, then every 2 hours the same day, nothing past midnight', () => {
+  assert.deepEqual(fireTimes({ weekday: 3, hour: 12, minute: 0 }).map((t) => t.hour), [12, 14, 16, 18, 20])
+  assert.ok(fireTimes({ weekday: 3, hour: 12, minute: 30 }).every((t) => t.weekday === 3 && t.minute === 30))
+  assert.deepEqual(fireTimes({ weekday: 3, hour: 21, minute: 0 }).map((t) => t.hour), [21, 23])
+  assert.deepEqual(fireTimes({ weekday: 3, hour: 23, minute: 0 }).map((t) => t.hour), [23])
+})
+
+test('nextRunAt: with no history, the next fire of the slot or one of its same-day retries', () => {
+  const slot = { weekday: 3, hour: 12, minute: 0 } // Wednesday
+  // Tuesday 2026-10-27 12:00 -> Wednesday the 28th 12:00
+  assert.equal(nextRunAt({ slot, state: emptyState(), now: at(2026, 10, 27, 12) }), at(2026, 10, 28, 12))
+  // Wednesday 12:30 (slot passed, never ran) -> the 14:00 retry counts.
+  assert.equal(nextRunAt({ slot, state: emptyState(), now: at(2026, 10, 28, 12, 30) }), at(2026, 10, 28, 14))
+  // Wednesday 21:00 -> past every fire, and there is no next-day retry: next Wednesday.
+  assert.equal(nextRunAt({ slot, state: emptyState(), now: at(2026, 10, 28, 21) }), at(2026, 11, 4, 12))
+  // Thursday: next Wednesday.
+  assert.equal(nextRunAt({ slot, state: emptyState(), now: at(2026, 10, 29, 10) }), at(2026, 11, 4, 12))
 })
 
 test('nextRunAt: after a run it waits for the cadence, then the next fire', () => {
-  const slot = { weekday: 2, hour: 9, minute: 0 }
-  const finished = at(2026, 10, 27, 10, 30)
+  const slot = { weekday: 3, hour: 12, minute: 0 }
+  const finished = at(2026, 10, 28, 12, 40)
   const state = stateWith(done(new Date(finished).toISOString()))
-  assert.equal(nextRunAt({ slot, state, now: at(2026, 10, 28, 9) }), at(2026, 11, 3, 9))
+  assert.equal(nextRunAt({ slot, state, now: at(2026, 10, 29, 9) }), at(2026, 11, 4, 12))
 })
 
 test('nextRunAt: null without a slot', () => {
@@ -209,12 +218,12 @@ test('a lock left by a dead process is reclaimed', () => {
 
 // ── plist + slot ──
 
-test('buildPlist has the calendar slot plus the retry days, absolute paths and a minimal env', () => {
+test('buildPlist has the slot plus the same-day retries, absolute paths and a minimal env', () => {
   const plist = buildPlist({
     nodePath: '/opt/homebrew/bin/node',
     scriptPath: '/work/repo/scripts/scheduled-run.mjs',
     root: '/work/repo',
-    slot: { weekday: 6, hour: 7, minute: 30 },
+    slot: { weekday: 3, hour: 12, minute: 30 },
     pathEnv: '/opt/homebrew/bin:/usr/bin:/bin',
     home: '/Users/someone',
     logPath: '/work/repo/data/scheduled-runs.log',
@@ -222,11 +231,12 @@ test('buildPlist has the calendar slot plus the retry days, absolute paths and a
   assert.match(plist, new RegExp(`<string>${LABEL}</string>`))
   assert.match(plist, /<string>\/opt\/homebrew\/bin\/node<\/string>\s*<string>\/work\/repo\/scripts\/scheduled-run\.mjs<\/string>\s*<string>run<\/string>/)
   assert.match(plist, /<key>WorkingDirectory<\/key>\s*<string>\/work\/repo<\/string>/)
-  // Saturday (6), then Sunday (0) and Monday (1): the weekday wraps.
+  // Wednesday only (no next-day retries), at 12:30 and every 2 hours after.
   const weekdays = [...plist.matchAll(/<key>Weekday<\/key><integer>(\d)<\/integer>/g)].map((m) => Number(m[1]))
-  assert.deepEqual(weekdays, [6, 0, 1])
-  assert.equal([...plist.matchAll(/<key>Hour<\/key><integer>7<\/integer>/g)].length, 3)
-  assert.equal([...plist.matchAll(/<key>Minute<\/key><integer>30<\/integer>/g)].length, 3)
+  assert.deepEqual(weekdays, [3, 3, 3, 3, 3])
+  const hours = [...plist.matchAll(/<key>Hour<\/key><integer>(\d+)<\/integer>/g)].map((m) => Number(m[1]))
+  assert.deepEqual(hours, [12, 14, 16, 18, 20])
+  assert.equal([...plist.matchAll(/<key>Minute<\/key><integer>30<\/integer>/g)].length, 5)
   assert.match(plist, /<key>PATH<\/key>\s*<string>\/opt\/homebrew\/bin:\/usr\/bin:\/bin<\/string>/)
   assert.match(plist, /<key>RunAtLoad<\/key>\s*<false\/>/)
 })

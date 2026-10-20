@@ -126,5 +126,5 @@ test('inspectPlist reads back what buildPlist wrote', () => {
   assert.equal(info.scriptPath, '/r/scripts/scheduled-run.mjs')
   assert.equal(info.root, '/r&x')
   assert.equal(info.pathEnv, '/a:/b')
-  assert.deepEqual(info.slots, [{ weekday: 6, hour: 7, minute: 30 }, { weekday: 0, hour: 7, minute: 30 }, { weekday: 1, hour: 7, minute: 30 }])
+  assert.deepEqual(info.slots, [7, 9, 11, 13, 15].map((hour) => ({ weekday: 6, hour, minute: 30 })))
 })

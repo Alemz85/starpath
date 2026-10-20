@@ -135,7 +135,7 @@ export function ScheduleSection() {
       <div>
         <div className="text-body font-medium text-text-1">Slot</div>
         <div className="text-label text-text-3 mt-0.5">
-          The hour of the week the job fires. If the Mac is asleep then, it runs when it wakes; a failed run is retried at the same time on the next two days.
+          The hour of the week the job fires. If the Mac is asleep then, it runs when it wakes; a failed run is retried every 2 hours later that day, never the next day.
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <SlotPicker value={current} onChange={setDraft} disabled={busy} />

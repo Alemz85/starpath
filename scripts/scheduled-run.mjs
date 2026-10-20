@@ -39,7 +39,7 @@ import { pathToFileURL } from 'node:url'
 import { repoRootFrom } from './lib/data-root.mjs'
 import { resolveWriteTarget } from './lib/write-file-atomic.mjs'
 import {
-  LABEL, LAUNCHD_LOG_REL, LOG_REL, buildPlist, isRunLocked, lastFullRun, lastRun, nextRunAt, parseSlot, readState,
+  RETRY_EVERY_HOURS, LABEL, LAUNCHD_LOG_REL, LOG_REL, buildPlist, isRunLocked, lastFullRun, lastRun, nextRunAt, parseSlot, readState,
   summarizeRun, updateState, validSlot, decideRun,
 } from './lib/schedule-core.mjs'
 import { runScheduled, resolveOptions, DEFAULT_OPTIONS } from './lib/scheduled-run-core.mjs'
@@ -314,7 +314,7 @@ async function cmdInstall({ root, flags }) {
   updateState(root, (s) => ({ ...s, enabled: true, slot }))
   console.log(`Installed ${LABEL}`)
   console.log(`  plist: ${res.plistPath}`)
-  console.log(`  slot:  ${formatSlot(slot)} (${source}); also fires the next 2 days at the same time as a retry, and runs when the Mac wakes if it was asleep`)
+  console.log(`  slot:  ${formatSlot(slot)} (${source}); retries every ${RETRY_EVERY_HOURS}h the same day if a run fails (never the next day), and runs when the Mac wakes if it was asleep`)
   console.log(`  runs:  at most once every 7 days, counted from the last run`)
   return 0
 }
