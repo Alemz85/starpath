@@ -10,7 +10,6 @@ import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
 import { cn, formatRelative } from '@/lib/utils'
 import type { Eligibility, EligibilityFlag, ScoreEntry, Verdict } from '@/types'
-import { tierVerdict } from '@/lib/tier'
 import {
   assignVerdict, blockedReason, eligibilityCheckLabel, isBlocked, isScored, parseEligibilityFlags,
   verdictOf, VERDICT_ACTIONS,
@@ -22,7 +21,7 @@ import remarkGfm from 'remark-gfm'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
-import { parseCities, entityId, formatLocation } from '@/lib/entityId'
+import { parseCities, entityId } from '@/lib/entityId'
 import {
   extractMetadata, parseDimensionalScoring, splitPeerBlock, parseReportHeader,
   splitEligibility, splitSalaryMath,
@@ -30,6 +29,10 @@ import {
 } from '@/lib/reportMarkdown'
 import { peerContext, type PeerContext } from '@/lib/peerRank'
 import { PeerContextCard } from '@/components/reports/PeerContextCard'
+import { JobFacts, SummaryCard, type JobFact } from '@/components/reports/DossierParts'
+import {
+  contractLabel, firstSeenFor, reportSummary, roleSummaryFields, splitLocationLine,
+} from '@/components/reports/reportFacts'
 import {
   GATES, classifyMovement, confidenceTier, formatWithinNoise, NOISE_FLOORS,
 } from '@/lib/scoringStats'
@@ -37,14 +40,16 @@ import { Button, Chip, ScoreNumber, ScoreBar, SectionHeading } from '@/component
 
 // ─── The report dossier ──────────────────────────────────────────────────────
 //
-// A right-hand panel that reads like a document: one compact header (identity,
-// verdict, actions), a tab strip, and a body split into a sticky section index
-// and the content. The content opens on the verdict (Want · Ease, verdict,
-// eligibility), then the eligibility checks, then the scores as a
-// statement-style table, then the prose sections of the report, closing on
-// the salary math footer. Nothing is shown twice: the scores live in the
-// header and the verdict card, the dimensions live in the table, the title
-// lives in the header. Scoring v2: docs/scoring-v2.md.
+// A right-hand panel that reads like a document. The header has the identity
+// line, then two zones: the job's own facts as a stacked list on the left,
+// and on the right a well with what the app made of the listing (verdict,
+// Want · Ease, eligibility, actions). Then a tab strip, and a body split into
+// a sticky section index and the content. The content opens on the summary
+// card (the two score tiles beside the report's own TL;DR, verbatim), then
+// the eligibility checks, the scores as a statement-style table, the prose
+// sections, and the salary math footer. Self-contained: it takes a listing
+// and reads everything else itself, so any view can mount it. Scoring v2:
+// docs/scoring-v2.md.
 
 type Tab = 'scouting' | 'application' | 'history'
 
@@ -115,8 +120,6 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     () => (peerEnabled ? peerContext(scoreEntry, scoreHistory) : null),
     [peerEnabled, scoreEntry, scoreHistory],
   )
-
-  const cityInfo = useMemo(() => parseCities(scoreEntry.location), [scoreEntry.location])
 
   // Same role evaluated in other cities (separate Database rows).
   const siblings: SiblingInfo[] = useMemo(() => {
@@ -223,7 +226,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   // Header metadata parsed from the report (archetype, verification, the
   // richer location line) — rendered once, in the header.
   const reportMeta = useMemo(() => {
-    if (!scoutingContent) return { archetype: '', location: '', unconfirmed: false, url: '' }
+    if (!scoutingContent) return { archetype: '', location: '', unconfirmed: false, url: '', roleFields: {} as Record<string, string> }
     const { meta } = extractMetadata(scoutingContent)
     const get = (k: string) => meta.find(m => m.key.toLowerCase() === k)?.value ?? ''
     const url = scoutingContent.match(/^\*\*URL:\*\*\s*(\S+)/im)?.[1] ?? ''
@@ -232,6 +235,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       location: get('location'),
       unconfirmed: /unconfirmed/i.test(get('verification')),
       url,
+      roleFields: roleSummaryFields(scoutingContent),
     }
   }, [scoutingContent])
 
@@ -239,12 +243,78 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     (scoreEntry.url && /^https?:\/\//i.test(scoreEntry.url) && scoreEntry.url) ||
     (/^https?:\/\//i.test(reportMeta.url) ? reportMeta.url : '')
 
+  // When the scanner first saw the listing: the closest thing to a posting
+  // date the data has (scan-history.tsv, matched on the URL).
+  const [firstSeen, setFirstSeen] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    setFirstSeen(null)
+    if (!repoPath || !url) return
+    ipc.readFile('data/scan-history.tsv')
+      .then(raw => { if (live) setFirstSeen(firstSeenFor(raw, url)) })
+      .catch(() => {})
+    return () => { live = false }
+  }, [repoPath, url])
+
   const entryVerdict = verdictOf(scoreEntry)
   const entryBlocked = isBlocked(scoreEntry)
-  const evaluatedRel = scoreEntry.date ? formatRelative(scoreEntry.date) : null
-  const locationLabel = cityInfo.isMulti
-    ? cityInfo.cities.join(', ')
-    : formatLocation(scoreEntry.location) !== '—' ? formatLocation(scoreEntry.location) : ''
+  const verdictGrid = entryBlocked || !isScored(scoreEntry)
+    ? null
+    : assignVerdict({ want: scoreEntry.want, ease: scoreEntry.ease, eligibility: scoreEntry.eligibility })?.reason ?? null
+
+  // The job facts column. A multi-city listing gets the same treatment as
+  // its Database row: the first (scored) city plus "+N more", every city on
+  // hover — never the whole list as one string.
+  const facts: JobFact[] = useMemo(() => {
+    const out: JobFact[] = []
+    const { place, workMode } = splitLocationLine(reportMeta.location)
+    const cityInfo = parseCities(scoreEntry.location || place)
+    if (cityInfo.cities.length > 0) {
+      const first = cityInfo.primary ?? cityInfo.cities[0]
+      const head = cityInfo.country && first !== cityInfo.country ? `${first}, ${cityInfo.country}` : first
+      out.push(cityInfo.isMulti
+        ? {
+            label: 'Location',
+            value: <>{head} <span className="text-text-3">+{cityInfo.cities.length - 1} more</span></>,
+            title: cityInfo.cities.join(' · '),
+          }
+        : { label: 'Location', value: head, title: reportMeta.location || scoreEntry.location })
+    } else if (place || scoreEntry.location) {
+      out.push({ label: 'Location', value: place || scoreEntry.location })
+    }
+    const mode = workMode || reportMeta.roleFields.Remote || ''
+    if (mode) out.push({ label: 'Work mode', value: capitalize(mode) })
+    const contract = contractLabel(scoreEntry.employment_type, scoreEntry.duration)
+    if (contract) out.push({ label: 'Contract', value: contract })
+    if (reportMeta.roleFields.Seniority) out.push({ label: 'Seniority', value: reportMeta.roleFields.Seniority })
+    if (scoreEntry.salary_raw && scoreEntry.salary_raw !== '—') out.push({ label: 'Salary', value: scoreEntry.salary_raw })
+    const archetype = reportMeta.archetype || scoreEntry.archetype
+    if (archetype) out.push({ label: 'Archetype', value: archetype })
+    if (firstSeen) out.push({ label: 'First seen', value: `${formatDay(firstSeen)} · ${formatRelative(firstSeen)}`, title: 'First picked up by a scan' })
+    if (scoreEntry.date) out.push({ label: 'Evaluated', value: `${formatDay(scoreEntry.date)} · ${formatRelative(scoreEntry.date)}` })
+    if (siblings.length > 0) {
+      out.push({
+        label: 'Also in',
+        value: (
+          <span className="inline-flex items-center gap-x-2.5 flex-wrap">
+            {siblings.map(s => (
+              <button
+                key={`${s.company}|${s.role}`}
+                onClick={() => onSwitchEntity?.(s.company, s.role)}
+                title={`${s.role} · ${s.city} · Want ${s.want?.toFixed(1) ?? '—'} · Ease ${s.ease?.toFixed(1) ?? '—'}`}
+                className="inline-flex items-center gap-0.5 text-accent-text hover:underline underline-offset-2"
+              >
+                {s.city}
+                <ArrowUpRight size={11} />
+              </button>
+            ))}
+          </span>
+        ),
+        title: 'Same role, evaluated in other cities',
+      })
+    }
+    return out
+  }, [reportMeta, scoreEntry, firstSeen, siblings, onSwitchEntity])
 
   return (
     <>
@@ -268,8 +338,11 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       >
         <div className="titlebar-drag h-10 shrink-0" />
 
-        {/* Header: identity · verdict line · actions */}
-        <div className="px-8 pt-2 pb-3 shrink-0">
+        {/* Header: identity, then two zones. Left, the job's own facts as a
+            stacked list (they belong to the listing, so they sit under its
+            name). Right, what the app made of it: verdict, scores, actions,
+            in a quiet well. */}
+        <div className="px-8 pt-2 pb-4 shrink-0">
           <div className="flex items-start gap-4">
             <CompanyLogo company={company} size={44} className="shrink-0" />
             <div className="flex-1 min-w-0">
@@ -279,62 +352,49 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
             <Button tone="ghost" size="sm" iconOnly aria-label="Close" title="Close (Esc)" onClick={handleClose} icon={<X size={15} />} />
           </div>
 
-          <div className="mt-4 flex items-center gap-x-3 gap-y-1.5 flex-wrap text-label text-text-3">
-            <EligibilityChip status={scoreEntry.eligibility} />
-            <VerdictChip verdict={entryVerdict} />
-            {(entryBlocked || isScored(scoreEntry)) && (
-              <WantEase
-                want={scoreEntry.want}
-                ease={scoreEntry.ease}
-                blockedReason={entryBlocked ? blockedReason(scoreEntry) : null}
-                decimals={2}
-                className="max-w-[320px]"
-              />
-            )}
-            {reportMeta.archetype && <Sep />}
-            {reportMeta.archetype && <span className="truncate max-w-[240px]" title={reportMeta.archetype}>{reportMeta.archetype}</span>}
-            {locationLabel && <Sep />}
-            {locationLabel && <span className="truncate max-w-[220px]" title={reportMeta.location || scoreEntry.location}>{locationLabel}</span>}
-            {evaluatedRel && <Sep />}
-            {evaluatedRel && <span>Evaluated {evaluatedRel}</span>}
-            {reportMeta.unconfirmed && (
-              <Chip tone="warning" icon={<AlertTriangle size={11} />} title="This report was written in batch mode without a live check of the listing.">
-                Listing unconfirmed
-              </Chip>
-            )}
-          </div>
+          <div className="mt-4 flex items-start gap-6">
+            <JobFacts facts={facts} className="flex-1 min-w-0 pl-[60px] pt-0.5" />
 
-          {siblings.length > 0 && (
-            <div className="mt-2 flex items-center gap-x-2.5 flex-wrap text-label text-text-3">
-              <span>Also evaluated in</span>
-              {siblings.map(s => (
-                <button
-                  key={`${s.company}|${s.role}`}
-                  onClick={() => onSwitchEntity?.(s.company, s.role)}
-                  title={`${s.role} · ${s.city} · Want ${s.want?.toFixed(1) ?? '—'} · Ease ${s.ease?.toFixed(1) ?? '—'}`}
-                  className="inline-flex items-center gap-0.5 text-accent-text hover:underline underline-offset-2"
-                >
-                  {s.city}
-                  <ArrowUpRight size={11} />
-                </button>
-              ))}
+            <div className="w-[392px] shrink-0 rounded-lg bg-bg-panel/50 border border-border-default/60 p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <VerdictChip verdict={entryVerdict} size="md" />
+                {entryVerdict && (
+                  <span className="text-body font-medium text-text-1 truncate" title={verdictGrid ?? undefined}>
+                    {capitalize(VERDICT_ACTIONS[entryVerdict])}
+                  </span>
+                )}
+                <div className="flex-1" />
+                <EligibilityChip status={scoreEntry.eligibility} className="shrink-0" />
+              </div>
+              {(entryBlocked || isScored(scoreEntry)) && (
+                <WantEase
+                  want={scoreEntry.want}
+                  ease={scoreEntry.ease}
+                  blockedReason={entryBlocked ? blockedReason(scoreEntry) : null}
+                  decimals={2}
+                  numberClassName="text-[16px]"
+                />
+              )}
+              {reportMeta.unconfirmed && (
+                <Chip tone="warning" icon={<AlertTriangle size={11} />} className="self-start" title="This report was written in batch mode without a live check of the listing.">
+                  Listing unconfirmed
+                </Chip>
+              )}
+              <div className="flex items-center gap-2 flex-wrap">
+                <ApplyAction company={company} role={role} scoreEntry={scoreEntry} size="sm" />
+                {url && (
+                  <Button tone="secondary" size="sm" icon={<ExternalLink size={13} />} onClick={() => ipc.openExternal(url)}>
+                    Open listing
+                  </Button>
+                )}
+                <FilesStrip company={company} role={role} size="sm" />
+              </div>
+              {!hideDatabaseLink && (
+                <Button tone="ghost" size="sm" className="self-start -ml-2 -mb-1" icon={<DatabaseIcon size={13} />} onClick={() => { navigate('database', company); handleClose() }}>
+                  View in Database
+                </Button>
+              )}
             </div>
-          )}
-
-          <div className="mt-5 flex items-center gap-2.5 flex-wrap">
-            <ApplyAction company={company} role={role} scoreEntry={scoreEntry} size="sm" />
-            {url && (
-              <Button tone="secondary" size="sm" icon={<ExternalLink size={13} />} onClick={() => ipc.openExternal(url)}>
-                Open listing
-              </Button>
-            )}
-            <FilesStrip company={company} role={role} size="sm" className="ml-2" />
-            <div className="flex-1" />
-            {!hideDatabaseLink && (
-              <Button tone="ghost" size="sm" icon={<DatabaseIcon size={13} />} onClick={() => { navigate('database', company); handleClose() }}>
-                View in Database
-              </Button>
-            )}
           </div>
         </div>
 
@@ -383,8 +443,14 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   )
 }
 
-function Sep() {
-  return <span className="text-text-4" aria-hidden>·</span>
+function capitalize(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s
+}
+
+const DAY_FMT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+function formatDay(iso: string): string {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : DAY_FMT.format(d)
 }
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
@@ -515,7 +581,7 @@ function SectionIndex({ scrollEl, contentKey }: { scrollEl: HTMLDivElement | nul
 function ReportBody({ content, entry, peer, onOpenComparable }: {
   content: string
   /** The listing's live score-history row: preferred over the report's
-   *  frozen header for the verdict card. */
+   *  frozen header for the summary card. */
   entry: ScoreEntry
   peer?: PeerContext | null
   onOpenComparable?: (company: string, role: string) => void
@@ -538,12 +604,11 @@ function ReportBody({ content, entry, peer, onOpenComparable }: {
     return { header, eligibility, salaryMath, dims, after: afterFinal, before: stripTitle(beforeWithoutMeta) }
   }, [content, peer])
 
-  // Verdict values: the live score-history row first, the report header second.
+  // Score values: the live score-history row first, the report header second.
   const { header } = parsed
   const blocked = isBlocked(entry) || header.eligibility === 'red'
   const want = entry.want ?? header.want
   const ease = entry.ease ?? header.ease
-  const verdict: Verdict | null = blocked ? 'blocked' : (verdictOf(entry) ?? header.verdict)
   const eligibility: Eligibility | null = entry.eligibility ?? header.eligibility
   const checks: EligibilityFlag[] = parsed.eligibility?.checks.length
     ? parsed.eligibility.checks
@@ -552,18 +617,12 @@ function ReportBody({ content, entry, peer, onOpenComparable }: {
   const reason = blocked
     ? (isBlocked(entry) ? blockedReason(entry) : (header.eligibilityReason || 'Not eligible'))
     : null
+  const summary = useMemo(() => reportSummary(content), [content])
 
   return (
     <div className="flex flex-col gap-7">
       {parsed.before.trim() && <ProseBody content={parsed.before} />}
-      <VerdictCard
-        want={want}
-        ease={ease}
-        verdict={verdict}
-        eligibility={eligibility}
-        eligibilityReason={header.eligibilityReason}
-        blockedReason={reason}
-      />
+      <SummaryCard want={want} ease={ease} blockedReason={reason} summary={summary} />
       <EligibilitySection status={eligibility} checks={checks} questions={questions} />
       {parsed.dims && <ScoresTable dims={parsed.dims} />}
       {peer && <PeerContextCard peer={peer} onOpenComparable={onOpenComparable} />}
@@ -576,46 +635,6 @@ function ReportBody({ content, entry, peer, onOpenComparable }: {
 // The report's H1 repeats the company and role already in the header.
 function stripTitle(md: string): string {
   return md.replace(/^\s*#\s[^\n]*\n?/, '').trim()
-}
-
-// ─── Verdict card ────────────────────────────────────────────────────────────
-//
-// Scoring v2: Want and Ease side by side (never one combined number, never
-// Priority), the verdict with its action, the Want × Ease grid cell that
-// produced it, and the eligibility status. A blocked listing shows its reason
-// in place of the numbers.
-
-function VerdictCard({ want, ease, verdict, eligibility, eligibilityReason, blockedReason: reason }: {
-  want: number | null
-  ease: number | null
-  verdict: Verdict | null
-  eligibility: Eligibility | null
-  eligibilityReason: string
-  blockedReason: string | null
-}) {
-  if (!verdict && want == null && ease == null && !reason && !eligibility) return null
-  const grid = reason ? null : assignVerdict({ want, ease, eligibility })
-  const action = verdict ? VERDICT_ACTIONS[verdict] : ''
-  return (
-    <section data-slug="summary" data-label="Summary" className="card p-5 flex gap-6 scroll-mt-4">
-      <div className="shrink-0 w-[190px] flex flex-col gap-1">
-        {reason
-          ? <span className="text-label text-danger">{reason}</span>
-          : <WantEase want={want} ease={ease} decimals={2} numberClassName="text-[16px]" />}
-        <div className="text-section text-text-1 mt-1">{tierVerdict(verdict, { short: true })}</div>
-      </div>
-      <div className="flex-1 min-w-0 border-l border-border-default pl-6 flex flex-col gap-2">
-        {action && <p className="text-body text-text-1 leading-relaxed">{action.charAt(0).toUpperCase() + action.slice(1)}.</p>}
-        {grid && <p className="text-label text-text-3">{grid.reason}</p>}
-        {eligibility && (
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <EligibilityChip status={eligibility} />
-            {eligibilityReason && <span className="text-label text-text-3">{eligibilityReason}</span>}
-          </div>
-        )}
-      </div>
-    </section>
-  )
 }
 
 // ─── Eligibility ─────────────────────────────────────────────────────────────

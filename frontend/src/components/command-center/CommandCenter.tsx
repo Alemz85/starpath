@@ -183,8 +183,9 @@ export function ScoutingActionPanel({
   }
 
   return (
-    <div className="shrink-0 flex flex-col">
+    <div className="shrink-0 flex flex-col items-center">
       <HoverDescriptionRow
+        align="center"
         slotMaxWidth={960}
         items={[
           {
@@ -267,7 +268,7 @@ export function ScoutingActionPanel({
       {/* Activity is now exclusively on the Activity tab. When something is
           running anywhere, surface a quiet pointer so the user knows where
           to go for the live log. */}
-      <RunningInScanFooter />
+      <RunningInScanFooter centered />
     </div>
   )
 }
@@ -628,7 +629,7 @@ function statusDone(rec: SpawnRecord | undefined): boolean {
 // Footer shown on Scouting / Applying when at least one spawn is running
 // somewhere. The live log lives on the Activity tab — this just points the
 // user there.
-function RunningInScanFooter() {
+function RunningInScanFooter({ centered = false }: { centered?: boolean }) {
   const anyRunning = useSpawnsStore(isAnyRunning)
   const navigate = useNavStore(s => s.navigate)
   const runningCount = useSpawnsStore(s =>
@@ -640,7 +641,7 @@ function RunningInScanFooter() {
       tone="tinted"
       size="sm"
       onClick={() => navigate('scan')}
-      className="shrink-0 self-start mt-2"
+      className={clsx('shrink-0 mt-2', centered ? 'self-center' : 'self-start')}
       icon={<span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" aria-hidden />}
       trailing={<ArrowRight size={12} aria-hidden />}
     >
@@ -728,7 +729,8 @@ function AddListingButton({ disabled, title }: { disabled?: boolean; title?: str
 }
 
 // ─── Hover-description row ──────────────────────────────────────────────────
-// A left-aligned button row with a single shared description slot under it.
+// A button row (left-aligned, or centred on Scout) with a single shared
+// description slot under it.
 // The slot has a fixed 20px height so it doesn't reflow when the description
 // appears or changes — only the text swaps. mouseEnter sets the description;
 // the row's mouseLeave clears it, so moving between buttons (across the gap
@@ -740,15 +742,16 @@ interface HoverItem {
   description?: string
 }
 
-function HoverDescriptionRow({ items, slotMaxWidth = 640 }: {
+function HoverDescriptionRow({ items, slotMaxWidth = 640, align = 'start' }: {
   items: HoverItem[]
   slotMaxWidth?: number
+  align?: 'start' | 'center'
 }) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const desc = hoverIdx !== null ? items[hoverIdx]?.description : null
 
   return (
-    <div className="shrink-0 flex flex-col items-start min-w-0">
+    <div className={clsx('shrink-0 flex flex-col min-w-0', align === 'center' ? 'items-center' : 'items-start')}>
       <div
         className="flex items-center gap-2"
         onMouseLeave={() => setHoverIdx(null)}
@@ -765,7 +768,7 @@ function HoverDescriptionRow({ items, slotMaxWidth = 640 }: {
       </div>
       <div className="h-5 mt-1.5 w-full" style={{ maxWidth: slotMaxWidth }}>
         <p
-          className="text-label leading-5 text-text-3 truncate transition-opacity duration-150"
+          className={clsx('text-label leading-5 text-text-3 truncate transition-opacity duration-150', align === 'center' && 'text-center')}
           style={{ opacity: desc ? 1 : 0 }}
         >
           {desc ?? ' '}

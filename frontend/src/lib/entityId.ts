@@ -130,19 +130,52 @@ const KNOWN_COUNTRIES = new Set<string>([
 
 const isCountry = (t: string) => KNOWN_COUNTRIES.has(t)
 
+// Separators a scan or an ATS uses between places: comma, semicolon, slash,
+// pipe, middle dot, bullet, and the words "and" / "or" ("London, Leeds and
+// York"). A spaced dash is split only when one side is a country ("Leeds -
+// United Kingdom"), so "Paris - La Défense" stays one place.
+const PLACE_SEPARATORS = /\s*[,;\/|·•]\s*|\s+(?:and|or|&)\s+/i
+const DASH = /^(.+?)\s+[-–—]\s+(.+)$/
+
+// Tokens that describe the work arrangement or the posting, not a place.
+// A token that only carries work-mode words ("hybrid", "3 office days")
+// is dropped; a place followed by one ("Spain hybrid") keeps the place.
+const WORK_MODE_TAIL = /\s+(?:hybrid|remote|on-?site|in-office|office-based)\b.*$/i
+const NOT_A_PLACE = /^(?:remote|hybrid|on-?site|in-office|office-based|flexible|n\/d|tbd|various|multiple)\b|\boffice days?\b|\bdays? (?:a|per) week\b|^\d/i
+// Labels that introduce a list ("Multiple locations: …", "Locations: …").
+const LIST_LABEL = /^(?:multiple\s+)?(?:locations?|offices?|cities)\s*:\s*/i
+
+function splitPlaces(s: string): string[] {
+  return s
+    .replace(LIST_LABEL, '')
+    .split(PLACE_SEPARATORS)
+    .flatMap(t => {
+      const m = DASH.exec(t.trim())
+      return m && (isCountry(m[1].trim()) || isCountry(m[2].trim())) ? [m[1], m[2]] : [t]
+    })
+    .map(t => t.replace(WORK_MODE_TAIL, '').trim())
+    .filter(t => t && !NOT_A_PLACE.test(t))
+}
+
 export function parseCities(location: string | null | undefined): ParsedLocation {
   if (!location) return { cities: [], isMulti: false, primary: null }
   const cleaned = location.replace(/\([^)]*\)/g, '').trim()
   if (!cleaned || /^n\/d$/i.test(cleaned)) return { cities: [], isMulti: false, primary: null }
 
-  const tokens = cleaned.split(/\s*[,;\/]\s*/).map(t => t.trim()).filter(Boolean)
-
   // Keep every token that names a place — actual cities AND regional
-  // labels like "EU". The only thing stripped is meta-noise like a bare
-  // "Remote". Country tokens are split off: they qualify the cities, they
-  // don't add one.
-  const places = tokens.filter(t => !/^remote$/i.test(t))
+  // labels like "EU". Work-mode noise ("Remote", "hybrid, 3 office days")
+  // is stripped. Country tokens are split off: they qualify the cities,
+  // they don't add one.
+  let places = splitPlaces(cleaned)
   if (places.length === 0) return { cities: [], isMulti: false, primary: null }
+
+  // Parenthesised text is a note ("Lyon (also Paris)" shows as Lyon) —
+  // except when the bare text is only a country and the brackets hold the
+  // cities: "United Kingdom (London, Leeds)".
+  if (places.every(isCountry)) {
+    const inner = [...location.matchAll(/\(([^)]*)\)/g)].flatMap(m => splitPlaces(m[1]))
+    if (inner.some(t => !isCountry(t))) places = [...places, ...inner]
+  }
 
   const countries = places.filter(isCountry)
   let cityHits = places.filter(t => !isCountry(t))
@@ -158,13 +191,13 @@ export function parseCities(location: string | null | undefined): ParsedLocation
       : { cities: dedup, isMulti: false, primary: dedup[0] }
   }
 
-  // Two or more named places → multi-city. Pick the first RECOGNIZED
-  // city as primary (falls back to the first token if none are in the
-  // known set — keeps things deterministic for unknown-city corpora).
-  const firstKnown = dedup.find(t => KNOWN_CITIES.has(t)) ?? dedup[0]
+  // Two or more named places → multi-city. The first one listed is the
+  // primary: the eval writes the city it scored first (modes/scouting.md
+  // § Multi-city), so "Lyon; Vienna" reads as "Lyon +1" even though only
+  // Vienna is in KNOWN_CITIES.
   return country
-    ? { cities: dedup, isMulti: true, primary: firstKnown, country }
-    : { cities: dedup, isMulti: true, primary: firstKnown }
+    ? { cities: dedup, isMulti: true, primary: dedup[0], country }
+    : { cities: dedup, isMulti: true, primary: dedup[0] }
 }
 
 // Every value a location contributes to the Database's Location facet: its

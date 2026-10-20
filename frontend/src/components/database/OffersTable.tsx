@@ -44,19 +44,27 @@ const col = createColumnHelper<ScoreEntry>()
 //
 // `table-layout: fixed`: every column but Listing has a fixed width and Listing
 // takes the rest (never below LISTING_MIN_WIDTH). The fixed columns sum to
-// 804px, so the table fits a ~1100px container (a 1530px window with the app
+// 564px, so the table fits a ~850px container (a 1280px window with the app
 // sidebar and the facet rail) without scrolling; narrower windows scroll
 // horizontally with the caret + Listing columns pinned on the left.
 const LISTING_MIN_WIDTH = 280
 const CARET_WIDTH = 28
+const STATUS_WIDTH = 104
 const RIGHT_ALIGNED = new Set(['score', 'date'])
 
 // Per-column cell padding. Listing hugs the caret; the action icons need the
-// full 56px for two 24px buttons.
+// full 56px for two 24px buttons; Status keeps 24px of air before the scores
+// so the chip and the numbers never read as one cluster.
 const CELL_PAD: Record<string, string> = {
   breakdown: 'px-0.5',
   company:   'pl-1 pr-3',
+  status:    'pl-2 pr-6',
   actions:   'px-1',
+}
+
+// Lifecycle order for the Status column's sort.
+const STATUS_RANK: Partial<Record<AppStatus, number>> = {
+  Applied: 1, Responded: 2, Interview: 3, Offer: 4, Rejected: 5,
 }
 const cellPad = (id: string) => CELL_PAD[id] ?? 'px-2'
 
@@ -381,6 +389,10 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     }
     return m
   }, [applications])
+  const statusOf = (entry: ScoreEntry): AppStatus | undefined => {
+    const status = statusByKey.get(livenessKey(entry.company, entry.role))
+    return status != null && ENGAGED_STATUSES.has(status) ? status : undefined
+  }
 
   const columns = useMemo(() => [
     col.display({
@@ -418,7 +430,6 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const company = info.getValue()
         const entry = info.row.original
         const role = entry.role
-        const status = statusByKey.get(livenessKey(entry.company, entry.role))
         return (
           <div className="flex items-center gap-2.5 min-w-0">
             <CompanyLink company={company} size={32} className="shrink-0" />
@@ -426,13 +437,24 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
               <div className="text-[13px] leading-tight font-semibold text-text-1 truncate" title={company}>
                 {company}
               </div>
-              <div className="flex items-center gap-1.5 min-w-0">
-                <span className="text-label text-text-3 truncate" title={role}>{role}</span>
-                {status != null && ENGAGED_STATUSES.has(status) && <StatusChip status={status} className="shrink-0" />}
-              </div>
+              <div className="text-label text-text-3 truncate" title={role}>{role}</div>
             </div>
           </div>
         )
+      },
+    }),
+    // The listing's application status in its own column, so Applied /
+    // Responded / Interview line up down the table instead of trailing each
+    // role. Sorts in lifecycle order; untouched listings always sort last.
+    col.accessor(e => { const st = statusOf(e); return st ? STATUS_RANK[st] : undefined }, {
+      id: 'status',
+      header: 'Status',
+      size: STATUS_WIDTH,
+      sortUndefined: 'last',
+      enableSorting: true,
+      cell: info => {
+        const status = statusOf(info.row.original)
+        return status ? <StatusChip status={status} /> : null
       },
     }),
     col.display({
