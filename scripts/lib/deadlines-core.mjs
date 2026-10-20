@@ -380,7 +380,7 @@ const TABLE_HEADER_ROLLING = `| # | Company | Role | Tier/Status | Notes |
 
 /**
  * Build a one-line action summary for the urgent bucket.
- * E.g. "2 URGENT entries — Revolut (T2, 3d) and Celonis (Applied, 6d)."
+ * E.g. "2 URGENT entries — Northwind (T2, 3d) and Fabrikam (Applied, 6d)."
  */
 function urgentSummary(urgentEntries) {
   if (!urgentEntries.length) return null;

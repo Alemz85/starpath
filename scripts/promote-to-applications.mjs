@@ -22,7 +22,7 @@
  *
  * Example:
  *   node scripts/promote-to-applications.mjs 17
- *   → moves Glovo QCommerce Finance & Strategy Intern from scouting.md to
+ *   → moves Nimbus Robotics Finance & Strategy Intern from scouting.md to
  *     applications.md as a new Evaluated entry, preserving the report link.
  */
 

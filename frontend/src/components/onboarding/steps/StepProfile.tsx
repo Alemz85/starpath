@@ -235,7 +235,7 @@ export function StepProfile({ onComplete }: { onComplete: () => void }) {
             value={cityInput}
             onChange={e => setCityInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addCity() } }}
-            placeholder="Add a city (e.g. Dublin, Barcelona, Berlin) and press Enter…"
+            placeholder="Add a city (e.g. Lyon, Vienna, Berlin) and press Enter…"
             className="flex-1 px-3 h-9 bg-bg-base border border-border-default focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15 rounded-md text-[13px] text-text-1 placeholder:text-text-4 transition-all"
           />
           <button

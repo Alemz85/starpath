@@ -195,7 +195,7 @@ export function parsePipeline(md: string): PipelineUrl[] {
 // ─── Report files (from file listing) ────────────────────────────────────────
 
 export function parseReportPath(filePath: string): ReportFile | null {
-  // e.g. reports/tier-1/Amazon - Business Analyst Intern 2026.md
+  // e.g. reports/tier-1/Northwind - Data Analyst Intern 2026.md
   const match = filePath.match(/reports\/(tier-[1-4])\/(.+)\.md$/)
   if (!match) return null
 

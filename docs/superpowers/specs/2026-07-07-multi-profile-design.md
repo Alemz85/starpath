@@ -2,8 +2,8 @@
 
 One installation, several *search profiles*. A profile = one job search: its
 preferences, scan keywords, scoring calibration, and its own database. Example:
-`career` (the current search) vs `cph-student` (any student job in Copenhagen,
-part-time, DKK band, role-agnostic archetypes). Exactly one profile is active
+`career` (the current search) vs `side-job` (any part-time student job in one
+city, local pay band, role-agnostic archetypes). Exactly one profile is active
 at a time, globally.
 
 **Architecture: symlink swap.** Real files live under `profiles/<slug>/…`; the
@@ -64,7 +64,7 @@ profiles/
     user/                # profile.yml, portals.yml, _profile.md
     data/                # the 9 data files above
     reports/             # tier-1..4/, briefs/
-  cph-student/           # same structure
+  side-job/           # same structure
 ```
 
 - Slug rules: `^[a-z0-9][a-z0-9-]{0,31}$`; `active` is reserved.
@@ -111,7 +111,7 @@ Commands (all accept `--json` for machine consumption):
 
 ```jsonc
 // switch / init / eject / create
-{ "ok": true, "active": "cph-student", "previous": "career" }
+{ "ok": true, "active": "side-job", "previous": "career" }
 { "ok": false, "error": "guards", "guardFailures": ["unmerged TSVs in batch/scouting-additions (3 files)"] }
 { "ok": false, "error": "unknown-profile", "message": "no profile 'x'" }
 // list
@@ -195,7 +195,7 @@ Exit code 0 on ok, 1 on refusal/error (JSON still printed with `--json`).
 
 1. Land the feature (this branch).
 2. `npm run profile -- init career` on the live repo (guards must pass).
-3. `npm run profile -- create cph-student --from career --label "Copenhagen student"`.
-4. Tune `cph-student`'s config through the normal career-ops personalization
-   flow (role-agnostic archetypes, DKK part-time comp band, Copenhagen-only
+3. `npm run profile -- create side-job --from career --label "Student side job"`.
+4. Tune `side-job`'s config through the normal career-ops personalization
+   flow (role-agnostic archetypes, a part-time comp band, a one-city
    location, student-job portal keywords) — content, not code; separate step.

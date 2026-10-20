@@ -1088,7 +1088,7 @@ function patchDreamCompanies(yaml: string, names: string[]): string {
 // the user wants to work in, in priority order. Used by the scoring rubric
 // for the Best Cities dimension and surfaced in the Trends Top Locations
 // panel. Kept separate from Dream Companies because they're orthogonal
-// signals — a Dublin role at Stripe and a Barcelona role at Stripe are
+// signals — a Vienna role at Stripe and a Lyon role at Stripe are
 // the same company, different locations; the rubric scores them
 // differently. (Older versions of this app collapsed both into a single
 // concept because Claude's narrative output sometimes combined them in
@@ -1192,7 +1192,7 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add() } }}
-          placeholder="Add a city (e.g. Dublin, Barcelona, Berlin) and press Enter…"
+          placeholder="Add a city (e.g. Lyon, Vienna, Berlin) and press Enter…"
           aria-label="Add a target city — press Enter or comma to confirm"
           className="input flex-1"
         />
@@ -1215,7 +1215,7 @@ function TargetLocationsSection({ rawYaml }: { rawYaml: string | null }) {
 
 function extractPreferredCities(yaml: string): string[] {
   // Look for `preferred_cities:` under the `location:` block. The block
-  // is a flat YAML list of strings (`- "Dublin"`).
+  // is a flat YAML list of strings (`- "Lyon"`).
   const m = yaml.match(/preferred_cities:\s*\n([\s\S]*?)(?=\n\w|\n#|$)/)
   if (!m) return []
   return [...m[1].matchAll(/^\s*-\s+["']?([^"'\n]+)["']?/gm)]

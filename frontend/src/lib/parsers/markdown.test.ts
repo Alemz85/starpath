@@ -237,9 +237,9 @@ test('F4: parsePipeline (frontend) and parsePendingEntries (triage-core) agree o
 })
 
 test('parseReportPath extracts company/role/tier and rejects non-report paths', () => {
-  const r = parseReportPath('reports/tier-1/Amazon - Business Analyst Intern 2026.md')
-  assert.equal(r?.company, 'Amazon')
-  assert.equal(r?.role, 'Business Analyst Intern 2026')
+  const r = parseReportPath('reports/tier-1/Northwind - Data Analyst Intern 2026.md')
+  assert.equal(r?.company, 'Northwind')
+  assert.equal(r?.role, 'Data Analyst Intern 2026')
   assert.equal(r?.tier, 'T1')
   assert.equal(parseReportPath('user/cv.md'), null)
 })

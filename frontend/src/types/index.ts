@@ -240,7 +240,7 @@ export interface PipelineUrl {
 // ─── Report file ──────────────────────────────────────────────────────────────
 
 export interface ReportFile {
-  path: string          // relative path from repo root, e.g. reports/tier-1/Amazon - BA Intern.md
+  path: string          // relative path from repo root, e.g. reports/tier-1/Northwind - Data Analyst.md
   company: string
   role: string
   tier: string

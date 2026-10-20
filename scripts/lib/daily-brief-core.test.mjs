@@ -596,7 +596,7 @@ test('renderBrief renders the deadlines section as a checklist', () => {
 
 test('renderBrief top-action for a deadline entry includes days-left callout', () => {
   const classified = classifiedDeadlinesStub({
-    urgent: [{ source: 'applications', num: 1, company: 'Revolut', role: 'Analyst', status: 'Applied', deadline: '2026-06-26', parsed: { kind: 'date' }, daysLeft: 1 }],
+    urgent: [{ source: 'applications', num: 1, company: 'Tailspin Toys', role: 'Analyst', status: 'Applied', deadline: '2026-06-26', parsed: { kind: 'date' }, daysLeft: 1 }],
   })
   const brief = assembleBrief(
     { classifiedDeadlines: classified, followupResult: { entries: [] } },

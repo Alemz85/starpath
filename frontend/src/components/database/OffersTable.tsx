@@ -154,7 +154,7 @@ function BreakdownRow({
 }) {
   // Parent representation: dim bars for the parent (this row) + a
   // Cities sub-list when sibling entities exist in the same group
-  // (PwC Roma + Milano shape). Each sibling sub-row is clickable —
+  // (one firm hiring the same role in two cities). Each sibling sub-row is clickable —
   // opens its own slide-over rather than the parent's.
   const siblings = entry.siblings ?? []
   // Show the parent in the city list too so the user sees explicitly
