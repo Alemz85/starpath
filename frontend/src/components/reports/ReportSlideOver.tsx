@@ -22,6 +22,7 @@ import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { parseCities, entityId } from '@/lib/entityId'
+import { listingDateKey } from '@/lib/listingDates'
 import {
   extractMetadata, parseDimensionalScoring, splitPeerBlock, parseReportHeader,
   splitEligibility, splitSalaryMath,
@@ -31,7 +32,7 @@ import { peerContext, type PeerContext } from '@/lib/peerRank'
 import { PeerContextCard } from '@/components/reports/PeerContextCard'
 import { JobFacts, SummaryCard, type JobFact } from '@/components/reports/DossierParts'
 import {
-  contractLabel, firstSeenFor, reportSummary, roleSummaryFields, splitLocationLine,
+  contractLabel, reportSummary, roleSummaryFields, splitLocationLine,
 } from '@/components/reports/reportFacts'
 import {
   GATES, classifyMovement, confidenceTier, formatWithinNoise, NOISE_FLOORS,
@@ -243,18 +244,10 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     (scoreEntry.url && /^https?:\/\//i.test(scoreEntry.url) && scoreEntry.url) ||
     (/^https?:\/\//i.test(reportMeta.url) ? reportMeta.url : '')
 
-  // When the scanner first saw the listing: the closest thing to a posting
-  // date the data has (scan-history.tsv, matched on the URL).
-  const [firstSeen, setFirstSeen] = useState<string | null>(null)
-  useEffect(() => {
-    let live = true
-    setFirstSeen(null)
-    if (!repoPath || !url) return
-    ipc.readFile('data/scan-history.tsv')
-      .then(raw => { if (live) setFirstSeen(firstSeenFor(raw, url)) })
-      .catch(() => {})
-    return () => { live = false }
-  }, [repoPath, url])
+  // The listing's dates from scan-history (store `listingDates`, joined in
+  // main by URL, then company + role): the posting date when the scan had
+  // one, else when a scan first saw it; the deadline when the source stated one.
+  const dates = useDataStore(s => s.listingDates[listingDateKey(company, role)])
 
   const entryVerdict = verdictOf(scoreEntry)
   const entryBlocked = isBlocked(scoreEntry)
@@ -290,7 +283,12 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     if (scoreEntry.salary_raw && scoreEntry.salary_raw !== '—') out.push({ label: 'Salary', value: scoreEntry.salary_raw })
     const archetype = reportMeta.archetype || scoreEntry.archetype
     if (archetype) out.push({ label: 'Archetype', value: archetype })
-    if (firstSeen) out.push({ label: 'First seen', value: `${formatDay(firstSeen)} · ${formatRelative(firstSeen)}`, title: 'First picked up by a scan' })
+    if (dates?.postedDate) {
+      out.push({ label: 'Posted', value: `${formatDay(dates.postedDate)} · ${formatRelative(dates.postedDate)}`, title: 'Posting date from the job board' })
+    } else if (dates?.firstSeen) {
+      out.push({ label: 'First seen', value: `${formatDay(dates.firstSeen)} · ${formatRelative(dates.firstSeen)}`, title: 'First picked up by a scan (no posting date on file)' })
+    }
+    if (dates?.deadline) out.push({ label: 'Deadline', value: `${formatDay(dates.deadline)} · ${formatRelative(dates.deadline)}`, title: 'Application deadline stated by the listing' })
     if (scoreEntry.date) out.push({ label: 'Evaluated', value: `${formatDay(scoreEntry.date)} · ${formatRelative(scoreEntry.date)}` })
     if (siblings.length > 0) {
       out.push({
@@ -314,7 +312,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       })
     }
     return out
-  }, [reportMeta, scoreEntry, firstSeen, siblings, onSwitchEntity])
+  }, [reportMeta, scoreEntry, dates, siblings, onSwitchEntity])
 
   return (
     <>

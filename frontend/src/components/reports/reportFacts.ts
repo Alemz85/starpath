@@ -87,26 +87,6 @@ export function splitLocationLine(line: string): { place: string; workMode: stri
   return { place: line.slice(0, i).trim(), workMode: line.slice(i + 3).trim() }
 }
 
-/** The `first_seen` date `data/scan-history.tsv` holds for a listing URL
- *  (columns found by header name), or null. The scanner's first sighting
- *  is the closest thing to a posting date the data has. */
-export function firstSeenFor(scanHistoryTsv: string | null, url: string): string | null {
-  if (!scanHistoryTsv || !url) return null
-  const lines = scanHistoryTsv.split('\n')
-  const head = (lines[0] ?? '').split('\t').map(h => h.trim().toLowerCase())
-  const urlCol = head.indexOf('url')
-  const seenCol = head.indexOf('first_seen')
-  if (urlCol < 0 || seenCol < 0) return null
-  let best: string | null = null
-  for (const line of lines.slice(1)) {
-    const c = line.split('\t')
-    if (c[urlCol]?.trim() !== url) continue
-    const d = c[seenCol]?.trim()
-    if (d && (!best || d < best)) best = d
-  }
-  return best
-}
-
 /** "full-time" + "permanent" → "Full-time · permanent". Empty parts drop. */
 export function contractLabel(employmentType: string, duration: string): string {
   const parts = [employmentType, duration].map(s => (s ?? '').trim()).filter(s => s && s !== '—')

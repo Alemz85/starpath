@@ -41,3 +41,9 @@ test('rejectionStage prefers an explicit stage, else infers it from the prior st
   // an application that was rejected straight away (origin row) has no prior status
   assert.equal(rejectionStage([e({ to: 'Rejected', from: '' })])?.stage, 'unknown')
 })
+
+test('rejectionStage: a move to Rejected straight from Evaluated is not a rejection', () => {
+  assert.equal(rejectionStage([e({ to: 'Rejected', from: 'Evaluated', date: '2026-06-05' })]), null)
+  assert.equal(rejectionStage([e({ to: 'Rejected', from: 'Evaluated', stage: 'at the CV screen' })]), null)
+  assert.equal(rejectionStage([e({ to: 'Rejected', from: 'Applied' })])?.stage, 'Applied')
+})

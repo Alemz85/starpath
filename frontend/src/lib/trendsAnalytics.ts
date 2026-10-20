@@ -16,7 +16,7 @@
 // analytic (averages, medians, the Want line) but counted as listings.
 
 import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict } from '@/types'
-import { GATES, NOISE_FLOORS, describeSample, type ConfidenceTier } from '@/lib/scoringStats'
+import { GATES, NOISE_FLOORS } from '@/lib/scoringStats'
 import { WANT_HIGH, isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
 import { parseCities } from '@/lib/entityId'
 
@@ -98,10 +98,11 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 
 // ─── Listings per period (week or month) ─────────────────────────────────────
 //
-// The time chart answers two questions on one axis: when the listings were
-// posted (bars, so hiring cycles show as peaks and troughs, each split into
-// the ones the user wants and the rest), and how much the user wanted what was
-// posted (a mean-Want line on top).
+// The time chart answers one question: when do listings get posted, and how
+// many of them does the user want? Bars, so hiring cycles show as peaks and
+// troughs, each split into the wanted ones and the rest. Only counts: a tally
+// is not a score claim, so nothing here is gated
+// (docs/scoring-statistical-design.md § 3.6).
 //
 // Counting rules:
 //   • a listing counts ONCE, in the period it was POSTED: its posting date
@@ -111,22 +112,15 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 //   • "wanted" = the high-Want row of the verdict grid (docs/scoring-v2.md
 //     §4): Want ≥ WANT_HIGH and not blocked, i.e. a Go, Stretch or Growth
 //     target verdict, on the listing's latest evaluation;
-//   • its Want is its LATEST evaluation, the current judgment of it;
+//   • each bucket says how many listings it placed by posting date and how
+//     many by first evaluation, so a bar of fallbacks isn't read as a hiring
+//     cycle;
 //   • blocked listings (eligibility red) count in the bars and in `blocked`,
-//     never in the Want mean — they have no Want (docs/scoring-v2.md §9). A
-//     period with only blocked listings has no Want point, not a 0;
-//   • the Want mean is a window mean, so it carries the corpus-trend gate
-//     (docs/scoring-statistical-design.md § 3.3): no single listing may move
-//     a period's mean by more than the Want noise floor, which needs
-//     GATES.trendMinPerWindowForVerdict scored listings in the period. Below
-//     it the point is withheld (null) and the bucket says so.
+//     never in `wanted` — they have no Want (docs/scoring-v2.md §9);
 //   • empty periods between the first and last are kept as zero bars, so a
 //     quiet stretch reads as a gap rather than disappearing.
 
 export type PeriodGranularity = 'week' | 'month'
-
-/** Scored listings a period needs before its mean Want is plotted. */
-export const MIN_SCORED_PER_PERIOD_FOR_WANT = GATES.trendMinPerWindowForVerdict
 
 export interface PeriodBucket {
   /** ISO date the period starts on (Monday for weeks, the 1st for months). */
@@ -138,22 +132,14 @@ export interface PeriodBucket {
   /** Distinct listings posted in the period (else first evaluated in it),
    *  blocked included. */
   listings: number
-  /** Of those, how many were placed by their posting date (the rest by their
-   *  first evaluation, having no posting date on file). */
+  /** Of those, placed by their posting date. */
   posted: number
+  /** Of those, placed by their first evaluation (no posting date on file). */
+  evaluated: number
   /** Of those, wanted: Want ≥ WANT_HIGH and not blocked (`isWanted`). */
   wanted: number
   /** Of those, blocked (eligibility red) on their latest evaluation. */
   blocked: number
-  /** Of those, scored (Want and Ease present, not blocked). */
-  scored: number
-  /** Mean latest Want over the scored listings; null when none are scored or
-   *  the period is under MIN_SCORED_PER_PERIOD_FOR_WANT. */
-  avgWant: number | null
-  /** True when there are scored listings but too few to plot their mean. */
-  wantWithheld: boolean
-  /** Confidence of the plotted mean (docs § 3.1), 'insufficient' when withheld. */
-  wantConfidence: ConfidenceTier
 }
 
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -238,29 +224,26 @@ export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity
     const start = isoDay(d)
     const items = groups.get(start) ?? []
     const entries = items.map(i => i.e)
-    const scored = scoredOnly(entries)
-    const sample = describeSample(scored.length, MIN_SCORED_PER_PERIOD_FOR_WANT)
+    const posted = items.filter(i => i.posted).length
     out.push({
       start,
       ...periodLabels(d, granularity),
       listings: entries.length,
-      posted: items.filter(i => i.posted).length,
+      posted,
+      evaluated: entries.length - posted,
       wanted: entries.filter(isWanted).length,
       blocked: entries.filter(e => e.eligibility === 'red').length,
-      scored: scored.length,
-      avgWant: sample.sufficient ? avg(scored, 'want') : null,
-      wantWithheld: scored.length > 0 && !sample.sufficient,
-      wantConfidence: sample.confidence,
     })
   }
   return out
 }
 
-/** The finer granularity that can still draw a Want line: weeks when at least
- *  two weeks clear the gate, months otherwise. */
+/** Weeks while the listings span at most MAX_WEEKS_FOR_WEEKLY weeks (a
+ *  readable number of bars), months beyond. */
+export const MAX_WEEKS_FOR_WEEKLY = 16
+
 export function pickGranularity(rows: ScoreEntry[], opts: ByPeriodOptions = {}): PeriodGranularity {
-  const plotted = buildByPeriod(rows, 'week', opts).filter(b => b.avgWant != null).length
-  return plotted >= 2 ? 'week' : 'month'
+  return buildByPeriod(rows, 'week', opts).length <= MAX_WEEKS_FOR_WEEKLY ? 'week' : 'month'
 }
 
 // ─── Top-X ranking ───────────────────────────────────────────────────────────

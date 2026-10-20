@@ -20,8 +20,8 @@ import { Button, PageHeader, ScoreNumber, Stat, StatStrip } from '@/components/u
 import { cn } from '@/lib/utils'
 import { parseScoreCell } from '@/lib/scoreBands'
 import {
-  BOARD_STAGES, STATUS_GROUPS, groupByStatus, inferredRejectionLabel, rejectionInfo,
-  rejectionStageOptions, type RejectionInfo,
+  STATUS_GROUPS, boardMoveTarget, groupByStatus, inferredRejectionLabel, rejectionInfo,
+  rejectionStageOptions, stagesFor, type RejectionInfo,
 } from '@/lib/applyingBoard'
 import { dateCue, listingDateKey, type DateCue, type DateCueKind } from '@/lib/listingDates'
 import type { AppStatus, ApplicationEntry, ScoreEntry } from '@/types'
@@ -89,8 +89,9 @@ export function ApplyingView() {
   // drop targets and so onDrop has the source info even if the dataTransfer
   // payload is missing (Electron's drag events occasionally drop the data).
   const [dragging, setDragging] = useState<{ company: string; role: string; from: AppStatus } | null>(null)
-  // Pending discard — the styled confirm modal reads from this.
-  const [pendingDiscard, setPendingDiscard] = useState<ApplicationEntry | null>(null)
+  // Pending discard — the styled confirm modal reads from this. `notSent`
+  // marks one that came from dropping an Evaluated card on Rejected.
+  const [pendingDiscard, setPendingDiscard] = useState<{ app: ApplicationEntry; notSent: boolean } | null>(null)
   // A rejection being recorded or corrected (the date + stage dialog).
   const [rejection, setRejection] = useState<RejectionDraft | null>(null)
   // The application whose report is open in the slide-over, in place.
@@ -140,9 +141,16 @@ export function ApplyingView() {
   }, [reportFor, scoreHistory])
 
   // Every status change from the board goes through here. Rejected opens the
-  // date + stage dialog first; anything else is written straight away.
-  const moveTo = (app: ApplicationEntry, to: AppStatus) => {
+  // date + stage dialog first; an Evaluated card was never sent, so "rejecting"
+  // it asks to discard it instead (boardMoveTarget). Anything else is written
+  // straight away.
+  const moveTo = (app: ApplicationEntry, requested: AppStatus) => {
+    const to = boardMoveTarget(app.status, requested)
     if (to === app.status) return
+    if (to === 'Discarded') {
+      setPendingDiscard({ app, notSent: requested === 'Rejected' })
+      return
+    }
     if (to === 'Rejected') {
       setRejection({ app, mode: 'move', from: app.status, date: todayIso(), stage: '' })
       return
@@ -179,7 +187,7 @@ export function ApplyingView() {
 
   const confirmDiscard = () => {
     if (!pendingDiscard) return
-    void setApplicationStatus(pendingDiscard.company, pendingDiscard.role, 'Discarded')
+    void setApplicationStatus(pendingDiscard.app.company, pendingDiscard.app.role, 'Discarded')
     setPendingDiscard(null)
   }
 
@@ -253,7 +261,7 @@ export function ApplyingView() {
                       onDragEnd={() => setDragging(null)}
                       onMove={(to) => moveTo(app, to)}
                       onEditRejection={() => editRejection(app)}
-                      onRemove={() => setPendingDiscard(app)}
+                      onRemove={() => setPendingDiscard({ app, notSent: false })}
                       onViewReport={() => setReportFor(app)}
                     />
                   )}
@@ -275,7 +283,8 @@ export function ApplyingView() {
 
       {pendingDiscard && (
         <DiscardConfirmModal
-          app={pendingDiscard}
+          app={pendingDiscard.app}
+          notSent={pendingDiscard.notSent}
           onConfirm={confirmDiscard}
           onCancel={() => setPendingDiscard(null)}
         />
@@ -435,8 +444,10 @@ function RejectionDialog({ draft, onSave, onClose }: {
 
 // ─── Discard confirm modal ──────────────────────────────────────────────────
 
-function DiscardConfirmModal({ app, onConfirm, onCancel }: {
+function DiscardConfirmModal({ app, notSent, onConfirm, onCancel }: {
   app: ApplicationEntry
+  /** Opened by moving an Evaluated card to Rejected. */
+  notSent: boolean
   onConfirm: () => void
   onCancel: () => void
 }) {
@@ -471,6 +482,11 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
               </p>
             </div>
           </div>
+          {notSent && (
+            <p className="text-label text-text-2 mt-3">
+              This one was never sent, so it can't be rejected. Remove it instead?
+            </p>
+          )}
           <p className="text-label text-text-3 mt-3">
             We'll mark this row Discarded in <code className="font-mono text-micro text-text-2 bg-bg-elevated px-1 py-0.5 rounded-sm">data/applications.md</code> and hide it from the kanban. The row stays in the file for audit — you can flip the status back any time.
           </p>
@@ -672,7 +688,7 @@ function ApplicationCard({
           onChange={onMove}
           size="xs"
           quiet
-          statuses={BOARD_STAGES}
+          statuses={stagesFor(app.status)}
           readOnlyTitle={readOnlyTitle}
         />
         <span className="flex-1" />

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  contractLabel, firstSeenFor, reportSummary, roleSummaryFields, splitLocationLine,
+  contractLabel, reportSummary, roleSummaryFields, splitLocationLine,
 } from './reportFacts'
 
 const T1 = `# Scouting: Nimbus Robotics — Pricing Analyst
@@ -72,19 +72,6 @@ test('roleSummaryFields: reads the Role summary table', () => {
 test('splitLocationLine: place and work mode', () => {
   assert.deepEqual(splitLocationLine('Lyon, France · hybrid, two office days'), { place: 'Lyon, France', workMode: 'hybrid, two office days' })
   assert.deepEqual(splitLocationLine('Porto, Portugal'), { place: 'Porto, Portugal', workMode: '' })
-})
-
-test('firstSeenFor: earliest first_seen for the URL, by header name', () => {
-  const tsv = [
-    'first_seen\turl\tcompany',
-    '2026-09-10\thttps://example.com/a\tNimbus Robotics',
-    '2026-09-06\thttps://example.com/a\tNimbus Robotics',
-    '2026-09-01\thttps://example.com/b\tLumen Freight',
-  ].join('\n')
-  assert.equal(firstSeenFor(tsv, 'https://example.com/a'), '2026-09-06')
-  assert.equal(firstSeenFor(tsv, 'https://example.com/zzz'), null)
-  assert.equal(firstSeenFor('url\tother\nx\ty', 'x'), null)
-  assert.equal(firstSeenFor(null, 'x'), null)
 })
 
 test('contractLabel: joins type and duration in sentence case', () => {

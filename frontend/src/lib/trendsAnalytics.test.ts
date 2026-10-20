@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   filterByDateWindow,
   avg, median,
-  buildByPeriod, pickGranularity, listingKey, isWanted, MIN_SCORED_PER_PERIOD_FOR_WANT,
+  buildByPeriod, pickGranularity, listingKey, isWanted, MAX_WEEKS_FOR_WEEKLY,
   buildTopBy, latestPerListing, isNoiseLabel, primaryPlace,
   APPLY_WORTHY_VERDICTS, scoredOnly, isApplyWorthy,
   buildFunnel,
@@ -100,67 +100,29 @@ const job = (over: Parameters<typeof makeScoreEntry>[0] = {}) => ({ url: `https:
 const scoredOn = (date: string, n: number, want = 7) =>
   Array.from({ length: n }, () => s(want, 6, job({ date })))
 
-test('the Want gate is the corpus-trend window gate, read from the shared contract', () => {
-  assert.equal(MIN_SCORED_PER_PERIOD_FOR_WANT, GATES.trendMinPerWindowForVerdict)
-})
-
-test('buildByPeriod skips blocked listings in the Want mean but counts them as listings', () => {
+test('buildByPeriod counts blocked listings in the bar and in blocked, never in wanted', () => {
   const rows = [
-    ...scoredOn('2026-06-02', MIN_SCORED_PER_PERIOD_FOR_WANT, 8),
-    makeBlockedEntry('x', job({ date: '2026-06-03' })),   // no Want: must not drag the mean
+    ...scoredOn('2026-06-02', 3, 8.5),
+    makeBlockedEntry('x', job({ date: '2026-06-03' })),
     makeBlockedEntry('y', job({ date: '2026-06-04' })),
   ]
   const [june] = buildByPeriod(rows, 'month')
-  assert.equal(june.listings, MIN_SCORED_PER_PERIOD_FOR_WANT + 2)
+  assert.equal(june.listings, 5)
   assert.equal(june.blocked, 2)
-  assert.equal(june.scored, MIN_SCORED_PER_PERIOD_FOR_WANT)
-  assert.equal(june.avgWant, 8)
-})
-
-test('a period with only blocked listings has no Want point, not a 0', () => {
-  const rows = [
-    ...scoredOn('2026-06-01', MIN_SCORED_PER_PERIOD_FOR_WANT),
-    makeBlockedEntry('x', job({ date: '2026-06-09' })),
-    ...scoredOn('2026-06-15', MIN_SCORED_PER_PERIOD_FOR_WANT),
-  ]
-  const weeks = buildByPeriod(rows, 'week')
-  assert.deepEqual(weeks.map(w => w.start), ['2026-06-01', '2026-06-08', '2026-06-15'])
-  assert.equal(weeks[1].listings, 1)
-  assert.equal(weeks[1].blocked, 1)
-  assert.equal(weeks[1].avgWant, null)
-  assert.equal(weeks[1].wantWithheld, false)   // nothing scored to withhold
-  assert.equal(weeks[0].avgWant, 7)
-  assert.equal(weeks[2].avgWant, 7)
-})
-
-test('buildByPeriod withholds the Want mean below the gate and states its confidence above it', () => {
-  const gate = MIN_SCORED_PER_PERIOD_FOR_WANT
-  const rows = [
-    ...scoredOn('2026-05-10', gate - 1),
-    ...scoredOn('2026-06-10', gate),
-    ...scoredOn('2026-07-10', gate * 2),
-  ]
-  const [may, june, july] = buildByPeriod(rows, 'month')
-  assert.equal(may.avgWant, null)
-  assert.equal(may.wantWithheld, true)
-  assert.equal(may.wantConfidence, 'insufficient')
-  assert.equal(june.avgWant, 7)
-  assert.equal(june.wantConfidence, 'low')
-  assert.equal(july.wantConfidence, 'moderate')
+  assert.equal(june.wanted, 3)
+  // Counts only: no mean, no gate, whatever the period's size.
+  assert.equal('avgWant' in june, false)
 })
 
 test('buildByPeriod counts a re-evaluated listing once, where it was first seen, at its latest Want', () => {
   const url = 'https://example.com/jobs/re-evaluated'
   const rows = [
-    ...scoredOn('2026-06-05', MIN_SCORED_PER_PERIOD_FOR_WANT - 1, 6),
     s(5, 6, { url, date: '2026-06-20' }),
     s(6, 6, { url, date: '2026-06-10' }),   // first seen in June
-    s(9, 6, { url, date: '2026-07-02' }),   // latest judgment, a month later
+    s(9, 6, { url, date: '2026-07-02' }),   // latest judgment (wanted), a month later
   ]
   const months = buildByPeriod(rows, 'month')
-  assert.deepEqual(months.map(m => m.start), ['2026-06-01'])
-  assert.equal(months[0].listings, MIN_SCORED_PER_PERIOD_FOR_WANT)
-  assert.equal(months[0].avgWant, (6 * (MIN_SCORED_PER_PERIOD_FOR_WANT - 1) + 9) / MIN_SCORED_PER_PERIOD_FOR_WANT)
+  assert.deepEqual(months.map(m => [m.start, m.listings, m.wanted]), [['2026-06-01', 1, 1]])
 })
 
 test('buildByPeriod starts weeks on Monday, keeps empty periods as zero bars, drops undated rows', () => {
@@ -190,11 +152,13 @@ test('buildByPeriod places a listing in the period it was posted, else where it 
   const rows = [s(8.5, 6, postedEarly), s(7, 6, noPostDate)]
   const posted: Record<string, string> = { [postedEarly.url]: '2026-05-20' }
   const months = buildByPeriod(rows, 'month', { postedDate: e => posted[e.url] ?? null })
-  assert.deepEqual(months.map(m => [m.start, m.listings, m.posted]), [
-    ['2026-05-01', 1, 1], ['2026-06-01', 0, 0], ['2026-07-01', 1, 0],
+  // The posted row and the evaluation-date-only row land in different buckets,
+  // and each bucket says which date placed its listings.
+  assert.deepEqual(months.map(m => [m.start, m.listings, m.posted, m.evaluated]), [
+    ['2026-05-01', 1, 1, 0], ['2026-06-01', 0, 0, 0], ['2026-07-01', 1, 0, 1],
   ])
-  // Without posting dates the old rule stands: first evaluation.
-  assert.deepEqual(buildByPeriod(rows, 'month').map(m => [m.start, m.listings, m.posted]), [['2026-07-01', 2, 0]])
+  // Without posting dates every listing falls back to its first evaluation.
+  assert.deepEqual(buildByPeriod(rows, 'month').map(m => [m.start, m.listings, m.posted, m.evaluated]), [['2026-07-01', 2, 0, 2]])
 })
 
 test('wanted = Want at or above the high band and not blocked; each bar splits on it', () => {
@@ -213,10 +177,15 @@ test('wanted = Want at or above the high band and not blocked; each bar splits o
   assert.equal(june.blocked, 1)
 })
 
-test('pickGranularity uses weeks only when two weeks can draw a Want point', () => {
-  const gate = MIN_SCORED_PER_PERIOD_FOR_WANT
-  assert.equal(pickGranularity([...scoredOn('2026-06-01', gate), ...scoredOn('2026-06-08', gate)]), 'week')
-  assert.equal(pickGranularity([...scoredOn('2026-06-01', gate), ...scoredOn('2026-06-08', gate - 1)]), 'month')
+test('pickGranularity uses weeks while the listings span a readable number of weeks', () => {
+  assert.equal(pickGranularity([...scoredOn('2026-06-01', 1), ...scoredOn('2026-06-08', 1)]), 'week')
+  const lastWeek = new Date(Date.UTC(2026, 5, 1 + 7 * (MAX_WEEKS_FOR_WEEKLY - 1))).toISOString().slice(0, 10)
+  const tooFar = new Date(Date.UTC(2026, 5, 1 + 7 * MAX_WEEKS_FOR_WEEKLY)).toISOString().slice(0, 10)
+  assert.equal(pickGranularity([...scoredOn('2026-06-01', 1), ...scoredOn(lastWeek, 1)]), 'week')
+  assert.equal(pickGranularity([...scoredOn('2026-06-01', 1), ...scoredOn(tooFar, 1)]), 'month')
+  // A posting date can widen the span.
+  const early = job({ date: '2026-06-08' })
+  assert.equal(pickGranularity([s(7, 7, early), ...scoredOn('2026-06-08', 1)], { postedDate: e => (e.url === early.url ? '2025-12-01' : null) }), 'month')
 })
 
 test('listingKey prefers the URL and falls back to company|role', () => {

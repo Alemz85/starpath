@@ -158,7 +158,7 @@ export function TrendsView() {
                 <TopListCard title="Top archetypes by Ease" items={topArchetypes} />
               </div>
 
-              {/* Volume over time, with the gated mean-Want line on top. */}
+              {/* Listings by posting date, wanted vs the rest. */}
               {byPeriod.length > 0 && (
                 <ListingsChart
                   buckets={byPeriod}

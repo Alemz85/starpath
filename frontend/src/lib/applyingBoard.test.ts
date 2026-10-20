@@ -5,9 +5,11 @@ import {
   URGENCY_RANK,
   compareByDeadline,
   groupByStatus,
+  boardMoveTarget,
   inferredRejectionLabel,
   rejectionInfo,
   rejectionStageOptions,
+  stagesFor,
 } from '@/lib/applyingBoard'
 import type { StatusLogEntry } from '@/lib/statusLog'
 import { makeApplication } from '@/test-utils/fixtures'
@@ -186,4 +188,19 @@ test('rejectionStageOptions fit the stage it was rejected from', () => {
   assert.ok(rejectionStageOptions('Applied').includes('at the CV screen'))
   assert.ok(rejectionStageOptions('').length >= rejectionStageOptions('Interview').length)
   assert.equal(inferredRejectionLabel('Responded'), 'after they replied')
+})
+
+test('an Evaluated card cannot be rejected: the move becomes Discarded and the dropdown omits Rejected', () => {
+  assert.equal(boardMoveTarget('Evaluated', 'Rejected'), 'Discarded')
+  assert.equal(boardMoveTarget('Applied', 'Rejected'), 'Rejected')
+  assert.equal(boardMoveTarget('Evaluated', 'Applied'), 'Applied')
+  assert.ok(!stagesFor('Evaluated').includes('Rejected'))
+  assert.ok(stagesFor('Applied').includes('Rejected'))
+  assert.ok(stagesFor('Rejected').includes('Rejected'))
+})
+
+test('a logged Evaluated → Rejected move reads as no rejection on record', () => {
+  const app = makeApplication({ num: 1, company: 'Nimbus Robotics', role: 'Strategy Analyst', status: 'Rejected' })
+  const log = [entry({ to: 'Rejected', from: 'Evaluated', date: '2026-06-20' })]
+  assert.deepEqual(rejectionInfo(log, app), { date: null, from: '', stage: '', label: 'stage unknown' })
 })

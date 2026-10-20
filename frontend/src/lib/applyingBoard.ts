@@ -18,6 +18,19 @@ export const STATUS_GROUPS: AppStatus[] = ['Evaluated', 'Applied', 'Responded', 
 // The stages a card can be set to from its dropdown (same as the columns).
 export const BOARD_STAGES: readonly AppStatus[] = STATUS_GROUPS
 
+/** The dropdown's stages for a card: an Evaluated card was never sent, so it
+ *  can't be rejected (its way off the board is Remove → Discarded). */
+export function stagesFor(status: AppStatus): readonly AppStatus[] {
+  return status === 'Evaluated' ? BOARD_STAGES.filter(s => s !== 'Rejected') : BOARD_STAGES
+}
+
+/** What a board move really writes. Evaluated → Rejected becomes Discarded:
+ *  nothing was applied to, and a rejection row from Evaluated would count
+ *  in response rates. Every other move is written as asked. */
+export function boardMoveTarget(from: AppStatus, to: AppStatus): AppStatus {
+  return from === 'Evaluated' && to === 'Rejected' ? 'Discarded' : to
+}
+
 // Urgency bucket → sort rank (lower = nearer deadline, floats to the top of its
 // column). 'none' (Rolling / no deadline) and 'missed' sink below live dates.
 export const URGENCY_RANK: Record<ReturnType<typeof deadlineUrgency>, number> = {
@@ -74,7 +87,6 @@ export interface RejectionInfo {
 
 // How a rejection reads from the stage it left. Plain words, no blame.
 const FROM_LABEL: Record<string, string> = {
-  Evaluated: 'before applying',
   Applied:   'after applying',
   Responded: 'after they replied',
   Interview: 'after interviewing',
@@ -100,7 +112,7 @@ export function rejectionInfo(log: StatusLogEntry[], app: ApplicationEntry): Rej
 // it can follow. Free text is never needed: the inferred stage stands when
 // none is picked.
 const STAGE_OPTIONS: ReadonlyArray<{ label: string; after: readonly string[] }> = [
-  { label: 'at the CV screen',          after: ['Evaluated', 'Applied'] },
+  { label: 'at the CV screen',          after: ['Applied'] },
   { label: 'after an online test',      after: ['Applied', 'Responded'] },
   { label: 'after the recruiter call',  after: ['Responded', 'Interview'] },
   { label: 'after the case study',      after: ['Responded', 'Interview'] },
