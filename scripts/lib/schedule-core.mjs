@@ -1,0 +1,304 @@
+/**
+ * schedule-core.mjs — state, cadence, lock and launchd plist for the weekly
+ * scheduled run (scripts/scheduled-run.mjs).
+ *
+ * The decisions are pure and unit-tested (decideRun, nextRunAt, buildPlist,
+ * summarizeRun, normalizeState); the few I/O helpers (readState, updateState,
+ * acquireRunLock) are thin and take a root folder so tests use a temp dir.
+ *
+ * State lives in `data/scheduled-runs.json` (a link into private/, so the run
+ * history stays out of the public repo and in the user's backup).
+ */
+
+import { existsSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { writeFileAtomic, resolveWriteTarget } from './write-file-atomic.mjs'
+import { lockPathFor, tryAcquire, withLockSync } from './dir-lock.mjs'
+
+export const LABEL = 'com.starpath.scheduled-run'
+export const STATE_REL = 'data/scheduled-runs.json'
+export const LOG_REL = 'data/scheduled-runs.log'
+/** launchd's own capture of stdout/stderr (the run writes LOG_REL itself, so they don't double up). */
+export const LAUNCHD_LOG_REL = 'data/scheduled-runs.launchd.log'
+export const INTERVAL_DAYS = 7
+/**
+ * A run counts as "a week ago" 6 hours early. The run is long (the evaluation
+ * workers), so one that starts at 09:00 finishes at, say, 10:30; without a
+ * tolerance the next week's 09:00 fire would be 90 minutes short and slip to
+ * the retry day.
+ */
+export const CADENCE_TOLERANCE_HOURS = 6
+/** The job also fires on the next N days at the same time, so a failed run is retried. */
+export const RETRY_DAYS = 2
+export const MAX_RUNS_KEPT = 30
+/** A run lock older than this is presumed hung (the pid check handles crashes). */
+export const RUN_LOCK_STALE_MS = 12 * 3_600_000
+
+const HOUR_MS = 3_600_000
+const DAY_MS = 24 * HOUR_MS
+
+/** Statuses that count as a finished full run for the weekly cadence. */
+const FULL_STATUSES = new Set(['completed', 'completed-with-errors'])
+
+// ── State ──────────────────────────────────────────────────────────────────
+
+export function emptyState() {
+  return { version: 1, enabled: false, slot: null, runs: [] }
+}
+
+function validSlot(s) {
+  return s && Number.isInteger(s.weekday) && s.weekday >= 0 && s.weekday <= 6
+    && Number.isInteger(s.hour) && s.hour >= 0 && s.hour <= 23
+    && Number.isInteger(s.minute ?? 0) && (s.minute ?? 0) >= 0 && (s.minute ?? 0) <= 59
+}
+
+/** Tolerant read of whatever is on disk: unknown shapes become the empty state. */
+export function normalizeState(raw) {
+  const base = emptyState()
+  if (!raw || typeof raw !== 'object') return base
+  const slot = validSlot(raw.slot) ? { weekday: raw.slot.weekday, hour: raw.slot.hour, minute: raw.slot.minute ?? 0 } : null
+  const runs = Array.isArray(raw.runs)
+    ? raw.runs.filter((r) => r && typeof r === 'object' && typeof r.startedAt === 'string')
+    : []
+  const options = raw.options && typeof raw.options === 'object' && !Array.isArray(raw.options) ? raw.options : undefined
+  return { version: 1, enabled: raw.enabled === true, slot, ...(options ? { options } : {}), runs: runs.slice(-MAX_RUNS_KEPT) }
+}
+
+export function statePath(root) { return join(root, STATE_REL) }
+
+export function readState(root) {
+  try {
+    return normalizeState(JSON.parse(readFileSync(statePath(root), 'utf8')))
+  } catch {
+    return emptyState()
+  }
+}
+
+/** Read-modify-write under the state file's lock. `fn(state)` returns the new state. */
+export function updateState(root, fn) {
+  const file = statePath(root)
+  return withLockSync(lockPathFor(file), () => {
+    const next = normalizeState(fn(readState(root)))
+    writeFileAtomic(file, JSON.stringify(next, null, 2) + '\n')
+    return next
+  }, { label: 'scheduled-runs-state', timeoutMs: 10_000 })
+}
+
+// ── Cadence ────────────────────────────────────────────────────────────────
+
+/** The most recent finished full run (manual or scheduled), or null. */
+export function lastFullRun(state) {
+  let best = null
+  for (const r of state.runs) {
+    if (!FULL_STATUSES.has(r.status) || !r.finishedAt) continue
+    const t = Date.parse(r.finishedAt)
+    if (!Number.isFinite(t)) continue
+    if (!best || t > best.at) best = { run: r, at: t }
+  }
+  return best
+}
+
+/** The most recent run of any status, or null. */
+export function lastRun(state) {
+  let best = null
+  for (const r of state.runs) {
+    const t = Date.parse(r.finishedAt || r.startedAt)
+    if (!Number.isFinite(t)) continue
+    if (!best || t > best.at) best = { run: r, at: t }
+  }
+  return best
+}
+
+/** The moment the weekly cadence next allows a run, or `now` when none has run. */
+export function eligibleAt(state, now) {
+  const last = lastFullRun(state)
+  if (!last) return now
+  return last.at + INTERVAL_DAYS * DAY_MS - CADENCE_TOLERANCE_HOURS * HOUR_MS
+}
+
+/**
+ * Should this invocation do a full run? A full run finished within the last
+ * 7 days (minus the tolerance) means no; `force` overrides.
+ * Returns { run, reason, eligibleAt }.
+ */
+export function decideRun({ state, now, force = false }) {
+  if (force) return { run: true, reason: 'forced', eligibleAt: eligibleAt(state, now) }
+  const at = eligibleAt(state, now)
+  if (now >= at) return { run: true, reason: lastFullRun(state) ? 'due' : 'first run', eligibleAt: at }
+  const last = lastFullRun(state)
+  const days = (now - last.at) / DAY_MS
+  return {
+    run: false,
+    reason: `last full run finished ${days.toFixed(1)} days ago (${last.run.finishedAt}); next run is due after ${new Date(at).toISOString()}`,
+    eligibleAt: at,
+  }
+}
+
+/** Nominal fire times of the job: the slot, then the same time on the next RETRY_DAYS days. */
+function fireWeekdays(slot) {
+  return Array.from({ length: RETRY_DAYS + 1 }, (_, i) => (slot.weekday + i) % 7)
+}
+
+/**
+ * The next time the job fires AND the cadence allows a run, as epoch ms.
+ * (launchd fires the missed interval on wake; that run happens whenever the
+ * Mac wakes, so this is the nominal time.)
+ */
+export function nextRunAt({ slot, state, now }) {
+  if (!validSlot(slot)) return null
+  const start = Math.max(now, eligibleAt(state, now))
+  const days = new Set(fireWeekdays(slot))
+  const first = new Date(start)
+  for (let i = 0; i < 21; i++) {
+    const day = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i, slot.hour, slot.minute ?? 0, 0, 0)
+    if (!days.has(day.getDay())) continue
+    if (day.getTime() >= start) return day.getTime()
+  }
+  return null
+}
+
+// ── Run records ────────────────────────────────────────────────────────────
+
+/** A new in-progress run record. */
+export function newRun({ id, trigger, now }) {
+  return { id, trigger, startedAt: new Date(now).toISOString(), finishedAt: null, status: 'running', stages: [], summary: {}, error: null }
+}
+
+/** Mark records left `running` by a process that died as `interrupted`. */
+export function reconcileRuns(state, { now }) {
+  const runs = state.runs.map((r) => r.status === 'running'
+    ? { ...r, status: 'interrupted', finishedAt: new Date(now).toISOString(), error: r.error ?? 'the process ended before the run finished' }
+    : r)
+  return { ...state, runs }
+}
+
+/** Append a run (replacing the same id), keeping the newest MAX_RUNS_KEPT. */
+export function upsertRun(state, run) {
+  const runs = state.runs.filter((r) => r.id !== run.id)
+  runs.push(run)
+  return { ...state, runs: runs.slice(-MAX_RUNS_KEPT) }
+}
+
+/** Final status from stage outcomes: failed if a required stage failed, else completed (with errors when evaluations failed). */
+export function finalStatus(stages, summary) {
+  if (stages.some((s) => s.status === 'failed' && s.required !== false)) return 'failed'
+  if ((summary?.evalFailed ?? 0) + (summary?.evalNoResult ?? 0) > 0 || stages.some((s) => s.status === 'failed')) return 'completed-with-errors'
+  return 'completed'
+}
+
+/** One line for the UI and the log. */
+export function summarizeRun(run) {
+  if (!run) return 'no runs yet'
+  const s = run.summary ?? {}
+  const parts = []
+  if (run.status === 'failed') {
+    const bad = (run.stages ?? []).find((x) => x.status === 'failed')
+    return `failed${bad ? ` at ${bad.name}` : ''}${run.error ? `: ${run.error}` : ''}`
+  }
+  if (run.status === 'interrupted') return 'interrupted before it finished'
+  if (run.status === 'running') return 'running'
+  if (Number.isFinite(s.scanNew)) parts.push(`${s.scanNew} new listing${s.scanNew === 1 ? '' : 's'}`)
+  if (Number.isFinite(s.queued)) parts.push(`${s.queued} queued for evaluation`)
+  if (Number.isFinite(s.evalCompleted)) parts.push(`${s.evalCompleted} evaluated`)
+  if ((s.evalFailed ?? 0) > 0) parts.push(`${s.evalFailed} failed`)
+  if ((s.evalNoResult ?? 0) > 0) parts.push(`${s.evalNoResult} without a result`)
+  return parts.length ? parts.join(', ') : run.status
+}
+
+// ── Run lock ───────────────────────────────────────────────────────────────
+
+export function runLockPath(root) {
+  return join(dirname(resolveWriteTarget(statePath(root))), '.scheduled-run.lock')
+}
+
+/** Take the run lock, or null when another run holds it. */
+export function acquireRunLock(root, { label = 'scheduled-run' } = {}) {
+  return tryAcquire(runLockPath(root), { label, staleMs: RUN_LOCK_STALE_MS })
+}
+
+export function isRunLocked(root) {
+  return existsSync(runLockPath(root))
+}
+
+// ── launchd plist ──────────────────────────────────────────────────────────
+
+const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/**
+ * The LaunchAgent plist. `StartCalendarInterval` fires at the slot and at the
+ * same time on the next RETRY_DAYS days; the 7-day check inside the script
+ * makes the extra fires no-ops once a run has finished. launchd runs a missed
+ * interval when the Mac wakes, which is the "retry until it ran" behaviour.
+ *
+ * launchd's environment is minimal, so the PATH is explicit (the batch runner
+ * needs `claude`, `node`, `bc`) and every executable is an absolute path.
+ */
+export function buildPlist({ label = LABEL, nodePath, scriptPath, root, slot, pathEnv, home, logPath }) {
+  if (!validSlot(slot)) throw new Error('buildPlist: invalid slot')
+  const intervals = fireWeekdays(slot).map((w) => `    <dict>
+      <key>Weekday</key><integer>${w}</integer>
+      <key>Hour</key><integer>${slot.hour}</integer>
+      <key>Minute</key><integer>${slot.minute ?? 0}</integer>
+    </dict>`).join('\n')
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${xml(label)}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${xml(nodePath)}</string>
+    <string>${xml(scriptPath)}</string>
+    <string>run</string>
+    <string>--trigger</string>
+    <string>scheduled</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${xml(root)}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${xml(pathEnv)}</string>
+    <key>HOME</key>
+    <string>${xml(home)}</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+${intervals}
+  </array>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>Nice</key>
+  <integer>10</integer>
+  <key>LowPriorityIO</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>${xml(logPath)}</string>
+  <key>StandardErrorPath</key>
+  <string>${xml(logPath)}</string>
+</dict>
+</plist>
+`
+}
+
+// ── Slot parsing ───────────────────────────────────────────────────────────
+
+const DAY_ALIASES = {
+  sun: 0, sunday: 0, mon: 1, monday: 1, tue: 2, tues: 2, tuesday: 2, wed: 3, wednesday: 3,
+  thu: 4, thur: 4, thurs: 4, thursday: 4, fri: 5, friday: 5, sat: 6, saturday: 6,
+}
+
+/** "tue 09:00", "Tuesday 9", "2 9:30" -> { weekday, hour, minute }, or null. */
+export function parseSlot(text) {
+  const m = /^\s*([a-z]+|\d)\s+(\d{1,2})(?::(\d{2}))?\s*$/i.exec(String(text ?? ''))
+  if (!m) return null
+  const wd = /^\d$/.test(m[1]) ? Number(m[1]) % 7 : DAY_ALIASES[m[1].toLowerCase()]
+  if (wd === undefined) return null
+  const slot = { weekday: wd, hour: Number(m[2]), minute: m[3] ? Number(m[3]) : 0 }
+  return validSlot(slot) ? slot : null
+}
+
+export { validSlot }

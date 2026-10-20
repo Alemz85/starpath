@@ -9,6 +9,7 @@
 - [Script catalog](#script-catalog)
 - [Scanners](#scanners)
 - [Evaluation spawns](#evaluation-spawns)
+- [Scheduled runs](#scheduled-runs)
 - [Frontend app (starpath)](#frontend-app-starpath)
 - [Tracker TSV](#tracker-tsv)
 - [System layer hygiene](#system-layer-hygiene)
@@ -119,6 +120,9 @@ All under `scripts/`. `docs/SCRIPTS.md` has usage detail for the older maintenan
 - `respond-plan.mjs` — I/O wrapper for the `respond` recruiter-reply mode.
 - `training-roi.mjs` — ROI evaluator for the `training` mode.
 
+**Scheduling**
+- `scheduled-run.mjs` — the weekly scan → triage → evaluate run and its macOS LaunchAgent: `npm run schedule -- run|suggest|install|uninstall|status|config`. See [Scheduled runs](#scheduled-runs).
+
 **Agent plumbing**
 - `cv-summary.mjs` — compact CV summary for eval workers: deterministically derives gitignored `batch/cv-summary.md` from `user/cv.md` + `user/profile.yml` so per-listing eval spawns ingest a trimmed proof-point summary instead of the full CV; mtime-gated via `--if-stale`; refreshed automatically by `batch/batch-runner.sh` and the frontend's eval buttons before spawning workers; `batch/batch-prompt.md` documents the fallback to `user/cv.md` when the artifact is missing (`npm run cv-summary`).
 - `agent-log.mjs` — agent issue log (`data/agent-log.tsv`): `log` / `list [--unresolved]` / `counts` (the repeat-flag view) / `resolve <id>` (`npm run agent-log`).
@@ -141,6 +145,33 @@ Both the batch runner and the frontend's per-listing evaluation spawns (Filter t
 - Structural parity of the bundle with `modes/_shared.md` is pinned by `scripts/batch-prompt-parity.test.mjs`: change one, change the other.
 - Per-listing *follow-up* actions (Tailor CV / Draft Application / Prep Application) and `positioning` are different modes and still use their slash commands.
 - Batch workers can't run Playwright, so they verify postings with WebFetch and mark the report header `**Verification:** unconfirmed (batch mode)`.
+
+## Scheduled runs
+
+`scripts/scheduled-run.mjs` (`npm run schedule -- <command>`) does the weekly job with no Claude session to orchestrate it: `scan.mjs` → (optional JobSpy + staging merge) → `triage-pipeline.mjs --emit-batch` (top slice) → `batch/batch-runner.sh --model sonnet` → `merge-scouting.mjs` + `merge-tracker.mjs` + `verify-pipeline.mjs`. Scan and triage cost no tokens; the batch workers (`claude -p`) are the only spend. It never applies, sends or submits: the workers write reports and tracker rows, nothing else. It runs in the checkout it lives in (cwd = repo root, so `data/` and `user/` resolve through the links into `private/`); install it from the main checkout.
+
+| Command | What it does |
+|---------|--------------|
+| `run [--force] [--dry-run] [--no-eval] [--trigger scheduled\|manual] [--top N] [--parallel N] [--model M] [--jobspy]` | One run. `--dry-run` prints the plan, runs only the read-only stages (`triage` without `--emit-batch`, `batch-runner.sh --dry-run`), writes nothing and spawns no worker. `--no-eval` stops before the workers (zero tokens) and is recorded as `partial`, which does not start the 7 days. |
+| `suggest [--weeks N] [--json]` | The 3 quietest weekly slots with the evidence behind each. |
+| `install [--slot "tue 09:00"] [--print]` | Write `~/Library/LaunchAgents/com.starpath.scheduled-run.plist` and load it (`launchctl bootstrap gui/<uid>`). Slot: `--slot`, else the saved one, else the top suggestion. `--print` shows the plist without installing. Rerun to change the slot (it rewrites and reloads the job). Refuses in a folder with no `private/` or `data/`. |
+| `uninstall` | Unload and delete the plist. The saved slot and the run history stay. |
+| `status [--json]` | Slot, last run and result, next run, whether the job is loaded, and what no longer matches (moved node, a different checkout, `claude` off the job PATH). |
+| `config [--top N] [--parallel N] [--model M] [--jobspy on\|off]` | Saved options for scheduled runs (defaults: top 15, parallel 2, Sonnet, JobSpy off). |
+
+**Cadence.** Weekly, counted from the last *full* run, manual or scheduled: a run that finished within the last 7 days (less a 6 hour tolerance, because the run itself takes a while) makes `run` exit early. `completed` and `completed-with-errors` (some workers failed or wrote nothing) count; `failed`, `interrupted` and `partial` do not. `--force` overrides. A skip writes no record.
+
+**The job.** `StartCalendarInterval` fires at the slot and at the same time on the next two days. If the Mac is asleep at fire time, launchd runs the job when it wakes (the "retry later" behaviour); the extra days retry a failed run; the 7-day check turns every fire after a finished run into a no-op. launchd's environment is minimal, so the plist carries absolute paths to node and the script, `WorkingDirectory` = the checkout, and an explicit `PATH` that reaches `claude`, `bash` and `bc` (node is found on PATH without resolving links, so a `brew upgrade` does not strand it). `caffeinate -i` keeps the Mac from idle-sleeping during a run.
+
+**One run at a time.** A directory lock `data/.scheduled-run.lock` (`scripts/lib/dir-lock.mjs`, stale only when its pid is gone or after 12 hours) stops two runs overlapping; the second exits as `locked` and records nothing. `batch-runner.sh` keeps its own lock, and the merges take the tracker locks. SIGTERM/Ctrl-C stops the child tree and records the run as `interrupted`.
+
+**State and log** (both under `data/`, so in `private/`): `data/scheduled-runs.json` holds `{ enabled, slot, options, runs[] }` (the last 30 runs with per-stage status, counts and the one-line result); `data/scheduled-runs.log` is the timestamped log of every stage's output (rotated at 2 MB); `data/scheduled-runs.launchd.log` is launchd's raw capture. Run statuses: `running` · `completed` · `completed-with-errors` · `partial` · `failed` · `interrupted`.
+
+**Choosing the slot.** `scripts/lib/idle-slot-core.mjs` (pure, tested) builds an hour-of-week histogram from the timestamps of Claude Code transcripts (`~/.claude/projects/**/*.jsonl`; `idle-slot-io.mjs` reads only each line's `"timestamp"` field and never parses or keeps content) and from when the Mac was fully awake (`pmset -g log`: `Wake` to `Sleep`, `DarkWake` maintenance excluded; the log reaches back about a week). Usage is the share of days on which Claude was active in that hour, blended 50/50 with the same hour across all days; the score adds half the next hour. Only hours where the Mac is awake on at least 70% of days qualify, and the picks are on different weekdays. The scheduler's own earlier runs are excluded from the usage so its workers do not make its slot look busy. With no data it falls back to Tuesday 09:00 and says so.
+
+**Settings.** Settings › General › Scheduled runs (`frontend/src/components/settings/ScheduleSection.tsx`, pure parsing in `src/lib/schedule.ts`) shows the slot, last run and result, next run and log, with an On/Off switch (`install` / `uninstall`) and a slot override (`install --slot`). It needs no IPC of its own: it runs the script through `ipc.run`. In the demo it explains why it is disabled.
+
+**Testing without touching the machine.** `$STARPATH_LAUNCH_AGENTS_DIR` (or `--plist-dir`) redirects the plist, `$STARPATH_SCHEDULE_NO_LOAD=1` (or `--no-load`) skips `launchctl`. `--root <dir>` points the script at another checkout. Tests (`scripts/lib/*schedule*.test.mjs`, `idle-slot-core.test.mjs`, `scheduled-run-core.test.mjs`, `frontend/src/lib/schedule.test.ts`) inject a fake `exec` and `launchctl`, so no worker and no launchd job is ever started by them.
 
 ## Frontend app (starpath)
 

@@ -392,6 +392,10 @@ process_offer() {
   local date
   date=$(date +%Y-%m-%d)
   local jd_file="/tmp/batch-jd-${id}.txt"
+  # Nothing writes this file for the worker: a leftover from an earlier batch
+  # with the same id would be read as this listing's JD. Absent, the worker
+  # fetches the JD from the URL (batch-prompt.md § Unresolved placeholders).
+  rm -f "$jd_file"
 
   echo "--- Processing offer #$id: $url (report $report_num, attempt $((retries + 1)))"
 
@@ -682,8 +686,9 @@ main() {
           fi
         done
         # Compact arrays
-        pids=("${pids[@]}")
-        pid_ids=("${pid_ids[@]}")
+        # ${arr[@]+...}: an empty array is "unbound" under set -u on macOS bash 3.2.
+        pids=(${pids[@]+"${pids[@]}"})
+        pid_ids=(${pid_ids[@]+"${pid_ids[@]}"})
         sleep 1
       done
 
@@ -695,7 +700,7 @@ main() {
     done
 
     # Wait for remaining workers
-    for pid in "${pids[@]}"; do
+    for pid in ${pids[@]+"${pids[@]}"}; do
       wait "$pid" 2>/dev/null || true
     done
   fi
