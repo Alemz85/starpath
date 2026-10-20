@@ -114,6 +114,9 @@ Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y dedu
    g. Acumular en lista de candidatos (dedup con Nivel 1)
 
 6. **Nivel 3 — WebSearch queries** (paralelo si posible):
+
+   **Presupuesto de tokens.** Antes de empezar, `node scripts/portal-health.mjs review`: las empresas que salgan como *No fit for a while* o *Endpoint failing* se saltan este scan (el usuario decide si pausarlas en `user/portals.yml`). Por empresa sin API: **una** búsqueda (su `scan_query`) y como máximo **3 verificaciones** de URLs nuevas; una vez que un host responde 403 o redirige a su listado genérico, no volver a pedirle nada en este scan. Las `search_queries` de tablón (`site:…`) son las que descubren empresas nuevas: ejecutarlas siempre.
+
    Para cada query en `search_queries` con `enabled: true`:
    a. Reemplazar cualquier variable `{{variable}}` presente en el string del `query` (o `scan_query` en `tracked_companies`) usando el valor correspondiente definido en el bloque `search_templates` (al principio de `user/portals.yml`).
    b. Ejecutar WebSearch con el `query` interpolado.
@@ -156,6 +159,13 @@ Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y dedu
    e. Si activa: continuar al paso 8
 
    **No interrumpir el scan entero si una URL falla.** Si `browser_navigate` da error (timeout, 403, etc.), no registrarla (no es expirada, es no verificable), anotarla en el resumen y continuar con la siguiente.
+
+7.6. **Registrar la salud de cada empresa sin API** (una fila por empresa y scan, cero tokens):
+   ```
+   node scripts/portal-health.mjs record --company "{name}" --source websearch --outcome ok --jobs {resultados relevantes} --kept {añadidas}
+   node scripts/portal-health.mjs record --company "{name}" --source websearch --outcome unreachable --note "403 en todas las URLs"
+   ```
+   `ok` = la búsqueda devolvió resultados verificables (aunque `kept` sea 0); `unreachable` = ninguna URL se pudo verificar (403, redirecciones, timeouts); `error` = la búsqueda misma falló. Con esto, tras varios scans, `review` propone pausar las empresas que nunca encajan y arreglar las que no responden; y propone seguir a las empresas nuevas que las queries de tablón encuentran repetidamente o que puntúan bien.
 
 8. **Para cada oferta nueva verificada que pase filtros**:
    a. Add to the `pipeline.md` "Pending" section: `- [ ] {url} | {company} | {title}`
@@ -206,6 +216,8 @@ Duplicadas: N (ya evaluadas o en pipeline)
 Expiradas descartadas: N (links muertos, Nivel 3)
 No verificables: N (403 / timeout — revisar con navegador)
 Nuevas añadidas a pipeline.md: N
+
+{salida de `node scripts/portal-health.mjs review`, si propone algo}
 
   + {company} | {title} | {query_name}
   ...
