@@ -44,6 +44,7 @@ _normalize_company = _scan._normalize_company
 _normalize_title = _scan._normalize_title
 normalize_posting_date = _scan.normalize_posting_date
 posting_age_days = _scan.posting_age_days
+extract_deadline = _scan.extract_deadline
 
 
 # ── Word-boundary matching parity with scan-core.mjs ───────────────────────────
@@ -655,6 +656,32 @@ class TestPostingAgeDays(unittest.TestCase):
         age = posting_age_days("2026-02-21", "2026-06-01")
         self.assertIsNotNone(age)
         self.assertGreater(age, 90)
+
+
+class TestExtractDeadline(unittest.TestCase):
+    """Parity with scripts/lib/listing-fields.mjs extractDeadlineFromText."""
+
+    def test_iso_date_after_cue(self):
+        self.assertEqual(extract_deadline("Please apply by 2026-12-31."), "2026-12-31")
+        self.assertEqual(
+            extract_deadline("<p>Application deadline: <b>2026-11-15</b></p>"), "2026-11-15"
+        )
+
+    def test_ambiguous_or_non_iso_is_absent(self):
+        self.assertIsNone(extract_deadline("Application deadline: 03/04/2026"))
+        self.assertIsNone(extract_deadline("Apply by next Friday"))
+        self.assertIsNone(extract_deadline("Application deadline: 2026-02-30"))  # impossible date
+
+    def test_bare_date_without_cue_is_absent(self):
+        self.assertIsNone(extract_deadline("Start date: 2026-09-01"))
+
+    def test_conflicting_dates_are_absent(self):
+        self.assertIsNone(extract_deadline("Apply by 2026-10-01. Closing date: 2026-10-15"))
+
+    def test_blank_and_non_string(self):
+        self.assertIsNone(extract_deadline(""))
+        self.assertIsNone(extract_deadline(None))
+        self.assertIsNone(extract_deadline(float("nan")))
 
 
 if __name__ == "__main__":

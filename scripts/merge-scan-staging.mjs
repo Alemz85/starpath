@@ -37,12 +37,12 @@ import {
 } from 'fs';
 import { join } from 'path';
 import {
-  HISTORY_HEADER as CORE_HISTORY_HEADER,
-  dataLines,
   indexHistory,
   mergeHistory,
   filterPipelineLines,
 } from './lib/merge-staging-core.mjs';
+import { parseHistoryFile, upgradeColumns, fillLocations } from './lib/scan-history.mjs';
+import { DEFAULT_LOCATION_ALLOWLIST } from './scan-core.mjs';
 
 // ── Paths ───────────────────────────────────────────────────────────────
 
@@ -55,24 +55,23 @@ const TMP_HISTORY_PATH     = 'data/scan-history.jobspy.tsv.tmp';
 const TMP_PIPELINE_PATH    = 'data/pipeline.jobspy.md.tmp';
 const ARCHIVE_DIR          = 'batch/jobspy-merged';
 
-const HISTORY_HEADER = CORE_HISTORY_HEADER;
-
 // ── History helpers (file IO; merge math lives in merge-staging-core) ────
 
-/** Load existing scan-history data rows (header dropped). */
-function loadHistoryRows() {
-  if (!existsSync(SCAN_HISTORY_PATH)) return [];
-  return dataLines(readFileSync(SCAN_HISTORY_PATH, 'utf-8'));
+/** Load existing scan-history: the file's own columns + data rows (header dropped). */
+function loadHistory() {
+  if (!existsSync(SCAN_HISTORY_PATH)) return parseHistoryFile('');
+  return parseHistoryFile(readFileSync(SCAN_HISTORY_PATH, 'utf-8'));
 }
 
-function saveHistory(rows) {
-  const content = HISTORY_HEADER + '\n' + rows.join('\n') + (rows.length > 0 ? '\n' : '');
+/** Header upgraded in place: known columns the file lacked are appended. */
+function saveHistory(columns, rows) {
+  const content = upgradeColumns(columns).join('\t') + '\n' + rows.join('\n') + (rows.length > 0 ? '\n' : '');
   writeFileSync(SCAN_HISTORY_PATH, content, 'utf-8');
 }
 
 /** Normalized (company, role) keys already in scan-history — pipeline dedup seed. */
-function companyRoleKeysInHistory(rows) {
-  return indexHistory(rows).companyRoleSeen;
+function companyRoleKeysInHistory(rows, columns) {
+  return indexHistory(rows, columns).companyRoleSeen;
 }
 
 // ── Pipeline helpers ───────────────────────────────────────────────────
@@ -159,9 +158,11 @@ function main() {
 
   // 1. Merge scan-history (URL dedup → (company, role) dedup → append)
   const today = new Date().toISOString().slice(0, 10);
-  const existingRows = loadHistoryRows();
+  const existing = loadHistory();
+  const columns = upgradeColumns(existing.columns);
+  const existingRows = existing.rows;
   // Keys already on disk before this merge — seed for the pipeline dedup pass.
-  const historyKeys = companyRoleKeysInHistory(existingRows);
+  const historyKeys = companyRoleKeysInHistory(existingRows, columns);
 
   let appended = 0;
   let updatedScanDates = 0;
@@ -170,14 +171,17 @@ function main() {
   let rows = existingRows;
 
   if (stagingHistoryExists) {
-    const stagingLines = dataLines(readFileSync(TMP_HISTORY_PATH, 'utf-8'));
-    const result = mergeHistory(existingRows, stagingLines, today);
+    const staging = parseHistoryFile(readFileSync(TMP_HISTORY_PATH, 'utf-8'));
+    // The aggregator gives one location string; split it into `locations` here
+    // (one implementation, shared with scan.mjs).
+    const stagingLines = fillLocations(staging.rows, staging.columns, DEFAULT_LOCATION_ALLOWLIST);
+    const result = mergeHistory(existingRows, stagingLines, today, { columns, stagingColumns: staging.columns });
     rows = result.rows;
     appended = result.appended;
     updatedScanDates = result.updatedScanDates;
     historyDupRoles = result.droppedDuplicateRole;
     historyDupUrls = result.droppedDuplicateUrl;
-    saveHistory(rows);
+    saveHistory(columns, rows);
   }
 
   // 2. Merge pipeline.md — dedup against pipeline + applications URLs, plus

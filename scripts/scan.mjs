@@ -3,12 +3,22 @@
 /**
  * scan.mjs — Zero-token portal scanner
  *
- * Fetches Greenhouse, Ashby, and Lever APIs directly, applies title
- * filters from user/portals.yml, deduplicates against existing history,
- * ranks the survivors by relevance (best first), and appends them to
+ * Fetches Greenhouse, Ashby, Lever, Workday and SmartRecruiters APIs directly,
+ * applies title filters from user/portals.yml, deduplicates against existing
+ * history, ranks the survivors by relevance (best first), and appends them to
  * pipeline.md + scan-history.tsv.
  *
  * Zero Claude API tokens — pure HTTP + JSON.
+ *
+ * Transport: every request goes through lib/http.mjs (https only, per-ATS host
+ * allowlist for portals.yml URLs, no redirects, private-address guard, bounded
+ * timeout/body, retry with jitter).
+ *
+ * Per listing it also records, in header-named scan-history.tsv columns
+ * (lib/scan-history.mjs): posted_date, deadline (only when the source states an
+ * ISO date), the ATS-native posting_id / req_id, and `locations` — a multi-city
+ * string split into separate locations. A listing passes the location gate when
+ * ANY of its locations is allowed.
  *
  * Relevance ranking: postings that clear the 4-pass filter funnel are scored
  * and ordered best-first so the strongest matches sit at the top of the
@@ -26,6 +36,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { pathToFileURL } from 'url';
 import yaml from 'js-yaml';
 import {
   buildTitleFilter,
@@ -33,12 +44,30 @@ import {
   buildLocationFilter,
   rankOffers,
   formatRelevanceNote,
+  parsePostingDate,
+  DEFAULT_LOCATION_ALLOWLIST,
 } from './scan-core.mjs';
 import {
   canonicalizeUrl,
   seedScanSeen,
   classifyScanOffer,
+  postingIdKey,
 } from './lib/merge-staging-core.mjs';
+import { http as defaultHttp } from './lib/http.mjs';
+import {
+  resolveDeadline,
+  splitLocations,
+  anyLocationAllowed,
+  cleanId,
+} from './lib/listing-fields.mjs';
+import {
+  HISTORY_COLUMNS,
+  parseHistoryFile,
+  upgradeColumns,
+  buildHistoryRow,
+  getCell,
+  setCells,
+} from './lib/scan-history.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -51,11 +80,12 @@ const AUDIT_STATE_PATH = 'data/filter-audit-state.json';
 
 const AUDIT_REPORT_INTERVAL_DAYS = 30; // how often to print the full keyword health report
 
-// Ensure required directories exist (fresh setup)
-mkdirSync('data', { recursive: true });
-
 const CONCURRENCY = 10;
-const FETCH_TIMEOUT_MS = 10_000;
+// Workday's list endpoint carries no absolute date, deadline or full location
+// list, so each NEW (post-filter, post-dedup) Workday offer gets one detail
+// request. Capped per scan; a failed detail fetch just leaves the fields empty.
+const WORKDAY_DETAIL_LIMIT = 60;
+const WORKDAY_DETAIL_CONCURRENCY = 5;
 
 // ── API detection ───────────────────────────────────────────────────
 
@@ -121,15 +151,31 @@ function detectApi(company) {
 
 // ── API parsers ─────────────────────────────────────────────────────
 //
-// Each parser also carries `postedDate` — the role's TRUE posting/update date
-// straight from the ATS payload — so scan-core's relevance ranking can reward
-// genuinely-fresh roles over long-open reposts (instead of treating every offer
-// in a batch as "posted today", which is all `first_seen` can tell it).
-// scan-core.parsePostingDate normalizes the varied shapes (ISO ts, epoch ms,
-// bare date); a missing/odd value is fail-open (null → falls back to the scan
-// date, i.e. the prior behaviour, never worse).
+// Each parser carries, per posting, everything the ATS payload gives us beyond
+// title/url/location:
+//   postedDate  the TRUE posting/update date (scan-core.parsePostingDate
+//               normalizes the varied shapes; missing/odd → null, fail-open to
+//               the scan date) — also what the relevance ranking's freshness
+//               uses;
+//   deadline    the application deadline, ONLY when the source states one as an
+//               ISO date (structured field, or an explicit "apply by
+//               YYYY-MM-DD" in the JD body) — anything else is null, never
+//               guessed (listing-fields.mjs › parseDeadline);
+//   postingId   the ATS-native posting id (identity, together with the source);
+//   reqId       the requisition id (a label — never an identity on its own);
+//   location + extraLocations   the primary location string and any further
+//               locations the payload lists; main() splits them into the
+//               separate `locations` list.
 
-function parseGreenhouse(json, companyName) {
+/** Greenhouse custom `metadata` entries whose name says "deadline"/"closing". */
+function greenhouseMetaDeadline(meta) {
+  if (!Array.isArray(meta)) return [];
+  return meta
+    .filter(m => /deadline|closing|close date|apply by/i.test(String(m?.name || '')))
+    .map(m => m?.value);
+}
+
+export function parseGreenhouse(json, companyName) {
   const jobs = json.jobs || [];
   return jobs.map(j => ({
     title: j.title || '',
@@ -137,32 +183,43 @@ function parseGreenhouse(json, companyName) {
     company: companyName,
     location: j.location?.name || '',
     postedDate: j.first_published || j.updated_at || null,
+    deadline: resolveDeadline([j.application_deadline, ...greenhouseMetaDeadline(j.metadata)], j.content),
+    postingId: cleanId(j.id),
+    reqId: cleanId(j.requisition_id),
   }));
 }
 
-function parseAshby(json, companyName) {
+export function parseAshby(json, companyName) {
   const jobs = json.jobs || [];
   return jobs.map(j => ({
     title: j.title || '',
     url: j.jobUrl || '',
     company: companyName,
     location: j.location || '',
+    extraLocations: (j.secondaryLocations || []).map(l => l?.location).filter(Boolean),
     postedDate: j.publishedAt || j.updatedAt || null,
+    deadline: resolveDeadline([], j.descriptionPlain || j.descriptionHtml),
+    postingId: cleanId(j.id),
+    reqId: cleanId(j.requisitionId),
   }));
 }
 
-function parseLever(json, companyName) {
+export function parseLever(json, companyName) {
   if (!Array.isArray(json)) return [];
   return json.map(j => ({
     title: j.text || '',
     url: j.hostedUrl || '',
     company: companyName,
     location: j.categories?.location || '',
+    extraLocations: Array.isArray(j.categories?.allLocations) ? j.categories.allLocations : [],
     postedDate: j.createdAt ?? null, // epoch ms
+    deadline: resolveDeadline([], [j.descriptionPlain, j.additionalPlain].filter(Boolean).join('\n')),
+    postingId: cleanId(j.id),
+    reqId: '',
   }));
 }
 
-function parseSmartRecruiters(jobs, companyName, brandFilter) {
+export function parseSmartRecruiters(jobs, companyName, brandFilter) {
   let filtered = jobs;
   if (brandFilter) {
     filtered = jobs.filter(j =>
@@ -175,70 +232,75 @@ function parseSmartRecruiters(jobs, companyName, brandFilter) {
     company: companyName,
     location: j.location?.city || j.location?.fullLocation || '',
     postedDate: j.releasedDate || j.createdOn || null,
+    // SmartRecruiters has no standard deadline field; some tenants add a custom
+    // one ("Application deadline", "Closing date") with an ISO value.
+    deadline: resolveDeadline(
+      (j.customField || [])
+        .filter(f => /deadline|closing|close date|apply by/i.test(String(f?.fieldLabel || '')))
+        .map(f => f?.valueLabel ?? f?.valueId),
+    ),
+    postingId: cleanId(j.id),
+    reqId: cleanId(j.refNumber),
   }));
 }
 
-function parseWorkday(json, companyName, baseUrl) {
+export function parseWorkday(json, companyName, baseUrl) {
   const jobs = json.jobPostings || [];
   return jobs.map(j => ({
     title: j.title || '',
     url: baseUrl && j.externalPath ? `${baseUrl}${j.externalPath}` : j.externalPath || '',
     company: companyName,
     location: j.locationsText || '',
-    // Workday exposes only a relative "Posted Today / 30+ Days Ago" string, not
-    // an absolute date — too lossy to trust, so leave the scan-date fallback.
+    // Workday's list endpoint exposes only a relative "Posted Today / 30+ Days
+    // Ago" string — too lossy to trust. The absolute date, deadline and full
+    // location list come from the per-posting detail call (enrichWorkday).
     postedDate: null,
+    deadline: null,
+    postingId: '',
+    // bulletFields[0] is the requisition id ("R-1042"); the path's trailing
+    // `_R-1042` is the fallback.
+    reqId: cleanId(j.bulletFields?.[0]) || cleanId(/_([A-Za-z0-9-]+)$/.exec(j.externalPath || '')?.[1]),
+    _workdayPath: j.externalPath || '',
   }));
+}
+
+/**
+ * Merge a Workday per-posting detail payload into an offer. Pure; the caller
+ * does the fetch. `startDate` is the absolute posting date, `endDate` (when a
+ * tenant sets it) the application end date; the JD body may also state one.
+ */
+export function applyWorkdayDetail(offer, detail) {
+  const info = detail?.jobPostingInfo;
+  if (!info) return offer;
+  return {
+    ...offer,
+    postedDate: info.startDate || offer.postedDate,
+    deadline: resolveDeadline([info.endDate], info.jobDescription) || offer.deadline,
+    postingId: cleanId(info.jobPostingId || info.id) || offer.postingId,
+    reqId: cleanId(info.jobReqId) || offer.reqId,
+    location: info.location || offer.location,
+    extraLocations: Array.isArray(info.additionalLocations) ? info.additionalLocations : offer.extraLocations,
+  };
 }
 
 const PARSERS = { greenhouse: parseGreenhouse, ashby: parseAshby, lever: parseLever };
 
-// ── Fetch with timeout ──────────────────────────────────────────────
-
-async function fetchJson(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ── POST fetch with timeout ────────────────────────────────────────
-
-async function fetchJsonPost(url, body) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
+// ── Fetch (all through lib/http.mjs: https + ATS host allowlist, no redirects,
+// private-address guard, timeout, retry with jitter, bounded body) ─────────
 
 // ── Workday paginated fetch ────────────────────────────────────────
 
-async function fetchWorkdayJobs(apiUrl, companyName, baseUrl) {
+async function fetchWorkdayJobs(client, apiUrl, companyName, baseUrl) {
   const allJobs = [];
   let offset = 0;
   const limit = 20;
   while (true) {
-    const json = await fetchJsonPost(apiUrl, {
+    const json = await client.postJson(apiUrl, {
       appliedFacets: {},
       limit,
       offset,
       searchText: '',
-    });
+    }, { type: 'workday' });
     const jobs = parseWorkday(json, companyName, baseUrl);
     allJobs.push(...jobs);
     const total = json.total || 0;
@@ -248,14 +310,34 @@ async function fetchWorkdayJobs(apiUrl, companyName, baseUrl) {
   return allJobs;
 }
 
+/**
+ * One detail request per NEW Workday offer (capped), to learn the absolute
+ * posting date, deadline, posting id and the full location list. Fail-open: a
+ * failed request leaves that offer as the list endpoint described it.
+ */
+async function enrichWorkday(client, offers, apiUrl) {
+  const listSuffix = /\/jobs$/;
+  if (!listSuffix.test(apiUrl)) return offers;
+  const base = apiUrl.replace(listSuffix, '');
+  const todo = offers.filter(o => o._workdayPath).slice(0, WORKDAY_DETAIL_LIMIT);
+  const byUrl = new Map();
+  await parallelFetch(todo.map(o => async () => {
+    try {
+      const detail = await client.getJson(`${base}${o._workdayPath}`, { type: 'workday', retries: 1 });
+      byUrl.set(o.url, applyWorkdayDetail(o, detail));
+    } catch { /* fail-open */ }
+  }), WORKDAY_DETAIL_CONCURRENCY);
+  return offers.map(o => byUrl.get(o.url) || o);
+}
+
 // ── SmartRecruiters paginated fetch ─────────────────────────────────
 
-async function fetchSmartRecruitersJobs(baseUrl, companyName, brandFilter) {
+async function fetchSmartRecruitersJobs(client, baseUrl, companyName, brandFilter) {
   const allJobs = [];
   let offset = 0;
   const limit = 100;
   while (true) {
-    const json = await fetchJson(`${baseUrl}?limit=${limit}&offset=${offset}`);
+    const json = await client.getJson(`${baseUrl}?limit=${limit}&offset=${offset}`, { type: 'smartrecruiters' });
     const page = json.content || [];
     allJobs.push(...page);
     if (page.length < limit || allJobs.length >= (json.totalFound || 0)) break;
@@ -271,12 +353,12 @@ async function fetchSmartRecruitersJobs(baseUrl, companyName, brandFilter) {
 // Lead") is fixed there.
 // ── Dedup ───────────────────────────────────────────────────────────
 
-const HISTORY_HEADER = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates';
-
 /**
  * Load scan-history.tsv into memory.
- * Returns { rows: string[], urlToIndex: Map<canonicalUrl, rowIndex> }
- * Rows are the data lines (no header), ready to be mutated and re-saved.
+ * Returns { columns, rows: string[], urlToIndex: Map<canonicalUrl, rowIndex>,
+ *           idToIndex: Map<portal:postingId, rowIndex> }
+ * `columns` is the file's own header (old 8-column files included); rows are
+ * the data lines (no header), ready to be mutated and re-saved.
  *
  * URLs are keyed under their CANONICAL form (canonicalizeUrl) so a re-seen
  * posting whose URL only differs by a tracking param / redirect wrapper maps
@@ -284,49 +366,67 @@ const HISTORY_HEADER = 'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatu
  */
 function loadHistory() {
   if (!existsSync(SCAN_HISTORY_PATH)) {
-    return { rows: [], urlToIndex: new Map() };
+    return { columns: [...HISTORY_COLUMNS], rows: [], urlToIndex: new Map(), idToIndex: new Map() };
   }
 
-  const lines = readFileSync(SCAN_HISTORY_PATH, 'utf-8').split('\n');
+  const { columns, rows } = parseHistoryFile(readFileSync(SCAN_HISTORY_PATH, 'utf-8'));
   const urlToIndex = new Map();
-  const rows = [];
-
-  for (const line of lines.slice(1)) { // skip header
-    if (!line.trim()) continue;
+  const idToIndex = new Map();
+  rows.forEach((line, i) => {
     const url = line.split('\t')[0];
-    if (url) urlToIndex.set(canonicalizeUrl(url), rows.length);
-    rows.push(line);
-  }
+    if (url) urlToIndex.set(canonicalizeUrl(url), i);
+    const idKey = postingIdKey(getCell(line, columns, 'portal'), getCell(line, columns, 'posting_id'));
+    if (idKey) idToIndex.set(idKey, i);
+  });
 
-  return { rows, urlToIndex };
+  return { columns, rows, urlToIndex, idToIndex };
 }
 
-/** Rewrite the entire scan-history.tsv from in-memory rows. */
-function saveHistory(rows) {
-  const content = HISTORY_HEADER + '\n' + rows.join('\n') + (rows.length > 0 ? '\n' : '');
+/**
+ * Rewrite the entire scan-history.tsv from in-memory rows. The header is
+ * upgraded in place (known columns the file lacked are appended; existing
+ * order and unknown columns are kept), so an old 8-column file becomes the
+ * wide schema on its first write and old rows just have empty trailing cells.
+ */
+function saveHistory(columns, rows) {
+  const content = upgradeColumns(columns).join('\t') + '\n' + rows.join('\n') + (rows.length > 0 ? '\n' : '');
   writeFileSync(SCAN_HISTORY_PATH, content, 'utf-8');
 }
 
 /**
- * For URLs already in scan-history, append today's date to their scan_dates column.
+ * For listings already in scan-history, append today's date to their
+ * scan_dates column and back-fill any date/id/location cell the old row lacks
+ * from the freshly fetched posting (never overwriting a value already there).
  * Handles old rows that may not yet have the scan_dates column.
  */
-function updateScanDates(rows, urlToIndex, reseenUrls, date) {
-  for (const url of reseenUrls) {
-    const idx = urlToIndex.get(url);
-    if (idx === undefined) continue;
-    const cols = rows[idx].split('\t');
-    if (cols.length < 8) {
-      // Migrate old row (pre-location schema): pad to 8 cols then set scan_dates
-      while (cols.length < 7) cols.push('');
+function updateScanDates(rows, columns, reseen, date) {
+  const scanIdx = columns.indexOf('scan_dates');
+  for (const [idx, job] of reseen) {
+    let row = rows[idx];
+    const cols = row.split('\t');
+    if (cols.length <= scanIdx) {
+      // Migrate old row (pre-location schema): pad up to scan_dates, then set it
+      while (cols.length < scanIdx) cols.push('');
       cols.push(date);
     } else {
-      const existing = cols[7] || '';
+      const existing = cols[scanIdx] || '';
       if (!existing.split('|').includes(date)) {
-        cols[7] = existing ? `${existing}|${date}` : date;
+        cols[scanIdx] = existing ? `${existing}|${date}` : date;
       }
     }
-    rows[idx] = cols.join('\t');
+    row = cols.join('\t');
+    const fill = {
+      posted_date: parsePostingDate(job.postedDate) || '',
+      deadline: job.deadline || '',
+      posting_id: job.postingId || '',
+      req_id: job.reqId || '',
+      locations: (job.locations || []).join('|'),
+    };
+    const patch = {};
+    for (const [name, value] of Object.entries(fill)) {
+      if (value && !getCell(row, columns, name)) patch[name] = value;
+    }
+    rows[idx] = Object.keys(patch).length ? setCells(row, columns, patch) : row;
   }
 }
 
@@ -422,12 +522,18 @@ function appendToPipeline(offers) {
 }
 
 /** Append new offer rows to the in-memory history rows array. */
-function addToHistory(rows, urlToIndex, offers, date) {
+function addToHistory(history, offers, date) {
+  const columns = upgradeColumns(history.columns);
   for (const o of offers) {
-    urlToIndex.set(canonicalizeUrl(o.url), rows.length);
-    const location = (o.location || '').replace(/\t/g, ' '); // sanitize tabs
-    rows.push(`${o.url}\t${date}\t${o.source}\t${o.title}\t${o.company}\t${location}\tadded\t${date}`);
+    history.urlToIndex.set(canonicalizeUrl(o.url), history.rows.length);
+    const idKey = postingIdKey(o.source, o.postingId);
+    if (idKey) history.idToIndex.set(idKey, history.rows.length);
+    history.rows.push(buildHistoryRow({
+      ...o,
+      postedDate: parsePostingDate(o.postedDate) || '',
+    }, date, columns));
   }
+  history.columns = columns;
 }
 
 // ── Parallel fetch with concurrency limit ───────────────────────────
@@ -450,8 +556,18 @@ async function parallelFetch(tasks, limit) {
 
 // ── Main ────────────────────────────────────────────────────────────
 
-async function main() {
-  const args = process.argv.slice(2);
+/**
+ * Run one scan. Exported so tests can drive it with a fake HTTP client in a
+ * temp working directory; the CLI entry at the bottom just calls it.
+ *
+ * @param {object} [opts]
+ * @param {string[]} [opts.argv] CLI args (`--dry-run`, `--company <name>`)
+ * @param {ReturnType<typeof import('./lib/http.mjs').createHttp>} [opts.http] transport
+ * @param {(line:string)=>void} [opts.log] stdout sink (default console.log)
+ * @returns {Promise<{rankedOffers: object[], errors: object[], dryRun: boolean}>}
+ */
+export async function runScan({ argv = process.argv.slice(2), http: client = defaultHttp, log = console.log } = {}) {
+  const args = argv;
   const dryRun = args.includes('--dry-run');
   const companyFlag = args.indexOf('--company');
   const filterCompany = companyFlag !== -1 ? args[companyFlag + 1]?.toLowerCase() : null;
@@ -469,9 +585,10 @@ async function main() {
 
   // 1. Read user/portals.yml
   if (!existsSync(PORTALS_PATH)) {
-    console.error('Error: user/portals.yml not found. Run onboarding first.');
-    process.exit(1);
+    throw new Error('user/portals.yml not found. Run onboarding first.');
   }
+  // Ensure required directories exist (fresh setup) — never on a dry run.
+  if (!dryRun) mkdirSync('data', { recursive: true });
 
   const config = parseYaml(readFileSync(PORTALS_PATH, 'utf-8'));
   const companies = config.tracked_companies || [];
@@ -479,6 +596,10 @@ async function main() {
   const langFilter = buildLangFilter(config);
   // Optional user override; falls back to the generic EU/UK allowlist.
   const locationFilter = buildLocationFilter(config.location_allowlist);
+  // Names the location splitter may treat as separate places in a bare
+  // "CityA, CityB" string: the effective allowlist (user's or the default).
+  const userAllowlist = Array.isArray(config.location_allowlist) ? config.location_allowlist.filter(Boolean) : [];
+  const knownPlaces = userAllowlist.length ? userAllowlist : DEFAULT_LOCATION_ALLOWLIST;
 
   // 2. Filter to enabled companies with detectable APIs
   const targets = companies
@@ -489,8 +610,8 @@ async function main() {
 
   const skippedCount = companies.filter(c => c.enabled !== false).length - targets.length;
 
-  console.log(`Scanning ${targets.length} companies via API (${skippedCount} skipped — no API detected)`);
-  if (dryRun) console.log('(dry run — no files will be written)\n');
+  log(`Scanning ${targets.length} companies via API (${skippedCount} skipped — no API detected)`);
+  if (dryRun) log('(dry run — no files will be written)\n');
 
   // 3. Load dedup sets — seeded through the SAME canonical primitives the
   //    JobSpy merge path uses (canonicalizeUrl + companyRoleKey), so a re-seen
@@ -498,9 +619,10 @@ async function main() {
   //    trailing-location title variant of a role already in scan-history,
   //    collapses onto the existing entry instead of re-entering the pipeline.
   const history = loadHistory();
-  const { seenUrls, seenKeys } = seedScanSeen({
+  const { seenUrls, seenKeys, seenIds } = seedScanSeen({
     urls: loadSeenUrls(),                       // pipeline.md + applications.md URLs
-    historyRows: history.rows,                  // scan-history URLs + (company, role) keys
+    historyRows: history.rows,                  // scan-history URLs + (company, role) keys + posting ids
+    historyColumns: history.columns,
     companyRolePairs: loadSeenCompanyRoles(),   // applications.md (company, role) pairs
   });
 
@@ -513,49 +635,68 @@ async function main() {
   let totalDupes = 0;
   let totalReseen = 0;
   const newOffers = [];
-  const reseenUrls = new Set(); // URLs in scan-history seen again today
+  const reseen = new Map();     // history row index → fresh posting (scan_dates bump + back-fill)
+  const batchByKey = new Map(); // (company, role) key → offer kept this run (for location union)
   const errors = [];
+
+  /** A listing's separate locations: its primary string plus any extras the ATS listed. */
+  const withLocations = (job) => ({
+    ...job,
+    locations: splitLocations([job.location, ...(job.extraLocations || [])], { knownPlaces }),
+  });
+  /**
+   * Location gate: kept when ANY of the listing's locations is allowed, so a
+   * role open in several cities stays if one of them is a target. (A source
+   * string the splitter reduced to nothing falls back to the raw string.)
+   */
+  const locationOk = (job) =>
+    job.locations.length === 0 && job.location
+      ? locationFilter(job.location)
+      : anyLocationAllowed(job.locations, locationFilter);
 
   const tasks = targets.map(company => async () => {
     const { type, url, brandFilter, baseUrl } = company._api;
     const startedAt = Date.now();
-    process.stdout.write(`→ ${company.name} (${type})\n`);
+    log(`→ ${company.name} (${type})`);
     let kept = 0;
     try {
       let jobs;
       if (type === 'workday') {
-        jobs = await fetchWorkdayJobs(url, company.name, baseUrl);
+        jobs = await fetchWorkdayJobs(client, url, company.name, baseUrl);
       } else if (type === 'smartrecruiters') {
-        jobs = await fetchSmartRecruitersJobs(url, company.name, brandFilter);
+        jobs = await fetchSmartRecruitersJobs(client, url, company.name, brandFilter);
       } else {
-        const json = await fetchJson(url);
+        const json = await client.getJson(url, { type });
         jobs = PARSERS[type](json, company.name);
       }
       totalFound += jobs.length;
+      const source = `${type}-api`;
 
-      for (const job of jobs) {
-        if (!titleFilter(job.title)) {
+      // Phase 1 — title / language, then READ-ONLY canonical dedup. Known
+      // postings are final here (re-seen → scan_dates bump + back-fill); the
+      // rest are candidates.
+      const candidates = [];
+      for (const raw of jobs) {
+        if (!titleFilter(raw.title)) {
           totalFiltered++;
           continue;
         }
-        if (!langFilter(job.title)) {
+        if (!langFilter(raw.title)) {
           totalLangFiltered++;
           continue;
         }
-        if (!locationFilter(job.location)) {
-          totalLocationFiltered++;
-          continue;
-        }
-        // Canonical dedup: exact (canonical) URL first, then normalized
-        // (company, role). Mirrors mergeHistory's precedence so the live
-        // scanner and the merge path agree on "already seen".
-        const { decision, canonicalUrl, key } = classifyScanOffer(job, { seenUrls, seenKeys });
-        if (decision === 'duplicate-url') {
+        const job = withLocations({ ...raw, source });
+        // Canonical dedup: exact (canonical) URL first, then the ATS posting id,
+        // then normalized (company, role). Mirrors mergeHistory's precedence so
+        // the live scanner and the merge path agree on "already seen".
+        const { decision, canonicalUrl, idKey } = classifyScanOffer(job, { seenUrls, seenKeys, seenIds });
+        if (decision === 'duplicate-url' || decision === 'duplicate-id') {
           totalDupes++;
-          // Bump scan_dates only when the canonical URL is a known scan-history
-          // row (not a pipeline/apps-only URL we don't own).
-          if (history.urlToIndex.has(canonicalUrl)) {
-            reseenUrls.add(canonicalUrl);
+          // Bump scan_dates only when the posting is a known scan-history row
+          // (not a pipeline/apps-only URL we don't own).
+          const idx = history.urlToIndex.get(canonicalUrl) ?? (idKey ? history.idToIndex.get(idKey) : undefined);
+          if (idx !== undefined) {
+            reseen.set(idx, job);
             totalReseen++;
           }
           continue;
@@ -564,17 +705,46 @@ async function main() {
           totalDupes++;
           continue;
         }
-        // New: mark as seen (canonical) to avoid intra-scan dupes.
+        candidates.push(job);
+      }
+
+      // Workday: the list gives neither date nor deadline nor the real location
+      // list, so enrich the survivors (capped) before the location gate.
+      const enriched = type === 'workday'
+        ? (await enrichWorkday(client, candidates, url)).map(withLocations)
+        : candidates;
+
+      // Phase 2 — location gate, then claim the dedup keys (intra-scan dupes
+      // among this company's candidates are caught here).
+      for (const job of enriched) {
+        if (!locationOk(job)) {
+          totalLocationFiltered++;
+          continue;
+        }
+        const { decision, canonicalUrl, key, idKey } = classifyScanOffer(job, { seenUrls, seenKeys, seenIds });
+        if (decision !== 'new') {
+          totalDupes++;
+          // The same role listed again for another city in this very run:
+          // fold the extra cities into the offer we kept instead of dropping them.
+          if (decision === 'duplicate-role' && batchByKey.has(key)) {
+            const kept0 = batchByKey.get(key);
+            kept0.locations = splitLocations([...kept0.locations, ...job.locations], { knownPlaces });
+          }
+          continue;
+        }
         seenUrls.add(canonicalUrl);
+        if (idKey) seenIds.add(idKey);
         if (key) seenKeys.add(key);
-        newOffers.push({ ...job, source: `${type}-api` });
+        const { _workdayPath, ...offer } = job;
+        newOffers.push(offer);
+        if (key) batchByKey.set(key, offer);
         kept++;
       }
       const took = ((Date.now() - startedAt) / 1000).toFixed(1);
-      process.stdout.write(`  ✓ ${company.name} · ${jobs.length} jobs · ${kept} kept (${took}s)\n`);
+      log(`  ✓ ${company.name} · ${jobs.length} jobs · ${kept} kept (${took}s)`);
     } catch (err) {
       const took = ((Date.now() - startedAt) / 1000).toFixed(1);
-      process.stdout.write(`  ✗ ${company.name} · ${err.message} (${took}s)\n`);
+      log(`  ✗ ${company.name} · ${err.message} (${took}s)`);
       errors.push({ company: company.name, error: err.message });
     }
   });
@@ -597,49 +767,49 @@ async function main() {
   if (!dryRun) {
     if (rankedOffers.length > 0) {
       appendToPipeline(rankedOffers);
-      addToHistory(history.rows, history.urlToIndex, rankedOffers, date);
+      addToHistory(history, rankedOffers, date);
     }
-    if (reseenUrls.size > 0) {
-      updateScanDates(history.rows, history.urlToIndex, reseenUrls, date);
+    if (reseen.size > 0) {
+      updateScanDates(history.rows, history.columns, reseen, date);
     }
-    if (newOffers.length > 0 || reseenUrls.size > 0) {
-      saveHistory(history.rows);
+    if (newOffers.length > 0 || reseen.size > 0) {
+      saveHistory(history.columns, history.rows);
     }
   }
 
   // 6. Print summary
-  console.log(`\n${'━'.repeat(45)}`);
-  console.log(`Portal Scan — ${date}`);
-  console.log(`${'━'.repeat(45)}`);
-  console.log(`Companies scanned:     ${targets.length}`);
-  console.log(`Total jobs found:      ${totalFound}`);
-  console.log(`Filtered by title:     ${totalFiltered} removed`);
-  console.log(`Filtered by language:  ${totalLangFiltered} removed`);
-  console.log(`Filtered by location:  ${totalLocationFiltered} removed`);
-  console.log(`Duplicates:            ${totalDupes} skipped (${totalReseen} still open → scan_dates updated)`);
-  console.log(`New offers added:      ${newOffers.length}`);
+  log(`\n${'━'.repeat(45)}`);
+  log(`Portal Scan — ${date}`);
+  log(`${'━'.repeat(45)}`);
+  log(`Companies scanned:     ${targets.length}`);
+  log(`Total jobs found:      ${totalFound}`);
+  log(`Filtered by title:     ${totalFiltered} removed`);
+  log(`Filtered by language:  ${totalLangFiltered} removed`);
+  log(`Filtered by location:  ${totalLocationFiltered} removed`);
+  log(`Duplicates:            ${totalDupes} skipped (${totalReseen} still open → scan_dates updated)`);
+  log(`New offers added:      ${newOffers.length}`);
 
   if (errors.length > 0) {
-    console.log(`\nErrors (${errors.length}):`);
+    log(`\nErrors (${errors.length}):`);
     for (const e of errors) {
-      console.log(`  ✗ ${e.company}: ${e.error}`);
+      log(`  ✗ ${e.company}: ${e.error}`);
     }
   }
 
   if (rankedOffers.length > 0) {
-    console.log('\nNew offers (ranked by relevance, best first):');
+    log('\nNew offers (ranked by relevance, best first):');
     for (const o of rankedOffers) {
       const score = o.relevance ? o.relevance.score.toFixed(1).padStart(4) : ' n/a';
-      console.log(`  [${score}] ${o.company} | ${o.title} | ${o.location || 'N/A'}`);
+      log(`  [${score}] ${o.company} | ${o.title} | ${o.location || 'N/A'}`);
     }
     if (dryRun) {
-      console.log('\n(dry run — run without --dry-run to save results)');
+      log('\n(dry run — run without --dry-run to save results)');
     } else {
-      console.log(`\nResults saved to ${PIPELINE_PATH} and ${SCAN_HISTORY_PATH}`);
+      log(`\nResults saved to ${PIPELINE_PATH} and ${SCAN_HISTORY_PATH}`);
     }
   }
 
-  console.log(`\n→ Run /career-ops pipeline to evaluate new offers.`);
+  log(`\n→ Run /career-ops pipeline to evaluate new offers.`);
 
   // ── Silent filter health check (runs every scan, reports conditionally) ──────
 
@@ -657,30 +827,30 @@ async function main() {
   const zeroHitKeywords = sortedHits.filter(([, c]) => c === 0).map(([k]) => k);
 
   if (overFilter || monthlyDue) {
-    console.log(`\n${'─'.repeat(50)}`);
-    console.log(overFilter
+    log(`\n${'─'.repeat(50)}`);
+    log(overFilter
       ? `⚠  FILTER HEALTH — Over-filter detected`
       : `Filter health check (monthly)`);
-    console.log(`${'─'.repeat(50)}`);
-    console.log(`Pass rate: ${passRate.toFixed(1)}%  (${passCount} of ${totalFound} postings)`);
+    log(`${'─'.repeat(50)}`);
+    log(`Pass rate: ${passRate.toFixed(1)}%  (${passCount} of ${totalFound} postings)`);
 
     const topBlockers = sortedHits.filter(([, c]) => c > 0).slice(0, 5);
     if (topBlockers.length > 0) {
-      console.log(`Top blockers:`);
+      log(`Top blockers:`);
       for (const [keyword, count] of topBlockers) {
         const pct = totalFiltered > 0 ? (count / totalFiltered * 100).toFixed(0) : '0';
-        console.log(`  "${keyword}" — ${count} blocked (${pct}%)`);
+        log(`  "${keyword}" — ${count} blocked (${pct}%)`);
       }
     }
 
     if (zeroHitKeywords.length > 0) {
-      console.log(`Zero-hit keywords this scan (${zeroHitKeywords.length} — possible dead weight):`);
-      console.log(`  ${zeroHitKeywords.slice(0, 8).map(k => `"${k}"`).join(', ')}`);
+      log(`Zero-hit keywords this scan (${zeroHitKeywords.length} — possible dead weight):`);
+      log(`  ${zeroHitKeywords.slice(0, 8).map(k => `"${k}"`).join(', ')}`);
     }
 
     if (overFilter) {
-      console.log(`\n→ Filters may be too aggressive. Review top blockers above.`);
-      console.log(`  Use /career-ops to ask Claude for removal suggestions.`);
+      log(`\n→ Filters may be too aggressive. Review top blockers above.`);
+      log(`  Use /career-ops to ask Claude for removal suggestions.`);
     }
 
     // Save last report date
@@ -690,9 +860,14 @@ async function main() {
       } catch { /* non-fatal */ }
     }
   }
+
+  return { rankedOffers, errors, dryRun };
 }
 
-main().catch(err => {
-  console.error('Fatal:', err.message);
-  process.exit(1);
-});
+// CLI entry (skipped when imported by tests).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  runScan().catch(err => {
+    console.error('Fatal:', err.message);
+    process.exit(1);
+  });
+}

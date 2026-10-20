@@ -39,9 +39,22 @@
  */
 
 import { normalizeCompany, normalizeRole } from './dedup-index.mjs';
+import { createHash } from 'node:crypto';
+import {
+  HISTORY_COLUMNS,
+  alignRow,
+  getCell,
+  setCells,
+  parseHistoryFile,
+  pickDisplayDate,
+} from './scan-history.mjs';
 
-export const HISTORY_HEADER =
-  'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates';
+// The ORIGINAL scan-history header (8 columns): what every scan-history.tsv
+// must at least carry, and what `npm run doctor` validates against. The files
+// the scanner writes are wider (HISTORY_COLUMNS in scan-history.mjs adds
+// posted_date / deadline / posting_id / req_id / locations); readers find
+// columns by name, so both shapes are valid.
+export const HISTORY_HEADER = HISTORY_COLUMNS.slice(0, 8).join('\t');
 
 // scan-history.tsv column order (0-indexed)
 const COL_URL = 0;
@@ -159,6 +172,36 @@ export function companyRoleKey(company, role) {
   return `${c}\t${r}`;
 }
 
+/**
+ * ATS-native identity: `<portal>:<posting id>` ('' when either is missing).
+ * Stable across URL changes (tracking params, slug renames) where the
+ * (company, role) key is not — and independent of the company string, so it
+ * works for companies whose name has no usable key. A requisition id is NOT an
+ * identity (reposts and multi-location roles share one); never pass it here.
+ */
+export function postingIdKey(portal, postingId) {
+  const p = String(portal ?? '').trim().toLowerCase();
+  const id = String(postingId ?? '').trim();
+  return p && id ? `${p}:${id}` : '';
+}
+
+/**
+ * The best identity key for a listing, with its kind:
+ *   id  — ATS posting id (strongest)
+ *   cr  — normalized (company, role)
+ *   url — hash of the canonical URL (company or title unusable)
+ * '' key when the listing has nothing to key on.
+ */
+export function listingIdentity({ portal, source, postingId, company, title, url } = {}) {
+  const idKey = postingIdKey(portal ?? source, postingId);
+  if (idKey) return { kind: 'id', key: idKey };
+  const cr = companyRoleKey(company || '', title || '');
+  if (cr) return { kind: 'cr', key: cr };
+  const canon = canonicalizeUrl(url || '');
+  if (canon) return { kind: 'url', key: createHash('sha256').update(canon).digest('hex').slice(0, 16) };
+  return { kind: 'none', key: '' };
+}
+
 // ── Low-quality row guarding ────────────────────────────────────────────────
 
 // Titles with no usable signal — aggregator placeholders, "apply" CTAs, etc.
@@ -201,19 +244,24 @@ export function dataLines(text, { hasHeader = true } = {}) {
  *
  * `rows` is the array of raw TSV data lines (no header). URLs are stored under
  * their canonical form so a re-seen posting whose URL only differs by a
- * tracking param still maps onto the existing row.
+ * tracking param still maps onto the existing row. `idToIndex` maps the
+ * ATS-native `<portal>:<posting_id>` of rows that carry one (header-named
+ * columns, `columns` = the file's header; old rows without ids are skipped).
  */
-export function indexHistory(rows) {
+export function indexHistory(rows, columns = HISTORY_COLUMNS) {
   const urlToIndex = new Map();
   const companyRoleSeen = new Set();
+  const idToIndex = new Map();
   rows.forEach((line, i) => {
     const cols = line.split('\t');
     const url = cols[COL_URL];
     if (url) urlToIndex.set(canonicalizeUrl(url), i);
     const key = companyRoleKey(cols[COL_COMPANY], cols[COL_TITLE]);
     if (key) companyRoleSeen.add(key);
+    const idKey = postingIdKey(getCell(line, columns, 'portal'), getCell(line, columns, 'posting_id'));
+    if (idKey) idToIndex.set(idKey, i);
   });
-  return { urlToIndex, companyRoleSeen };
+  return { urlToIndex, companyRoleSeen, idToIndex };
 }
 
 /** Append/refresh the scan_dates column (index 7) with `date`, idempotently. */
@@ -256,9 +304,9 @@ export function appendScanDate(row, date) {
  * `acceptedUrls` holds CANONICAL urls (so the pipeline pass can compare against
  * the same canonical space).
  */
-export function mergeHistory(existingRows, stagingLines, today) {
+export function mergeHistory(existingRows, stagingLines, today, { columns = HISTORY_COLUMNS, stagingColumns = columns } = {}) {
   const rows = existingRows.slice();
-  const { urlToIndex, companyRoleSeen } = indexHistory(rows);
+  const { urlToIndex, companyRoleSeen, idToIndex } = indexHistory(rows, columns);
 
   let appended = 0;
   let updatedScanDates = 0;
@@ -271,7 +319,18 @@ export function mergeHistory(existingRows, stagingLines, today) {
   // scan date (which would double-count it as "re-seen").
   const appendedUrls = new Set();
 
-  for (const line of stagingLines) {
+  // Fill the cells an older row lacks (dates, ids, locations) from a re-seen
+  // staging row, never overwriting a value already there.
+  const enrich = (idx, stagingRow) => {
+    const patch = {};
+    for (const c of ['posted_date', 'deadline', 'posting_id', 'req_id', 'locations']) {
+      if (!getCell(rows[idx], columns, c) && getCell(stagingRow, columns, c)) patch[c] = getCell(stagingRow, columns, c);
+    }
+    if (Object.keys(patch).length) rows[idx] = setCells(rows[idx], columns, patch);
+  };
+
+  for (const rawLine of stagingLines) {
+    const line = alignRow(rawLine, stagingColumns, columns);
     const cols = line.split('\t');
     const rawUrl = cols[COL_URL];
     if (!rawUrl) continue;
@@ -288,6 +347,18 @@ export function mergeHistory(existingRows, stagingLines, today) {
     if (urlToIndex.has(url)) {
       const idx = urlToIndex.get(url);
       rows[idx] = appendScanDate(rows[idx], today);
+      enrich(idx, line);
+      updatedScanDates++;
+      acceptedUrls.add(url);
+      continue;
+    }
+
+    // 1c. Same ATS-native posting id under a different URL → re-seen.
+    const idKey = postingIdKey(getCell(line, columns, 'portal'), getCell(line, columns, 'posting_id'));
+    if (idKey && idToIndex.has(idKey)) {
+      const idx = idToIndex.get(idKey);
+      rows[idx] = appendScanDate(rows[idx], today);
+      enrich(idx, line);
       updatedScanDates++;
       acceptedUrls.add(url);
       continue;
@@ -302,6 +373,7 @@ export function mergeHistory(existingRows, stagingLines, today) {
 
     // 3. Genuinely new.
     urlToIndex.set(url, rows.length);
+    if (idKey) idToIndex.set(idKey, rows.length);
     appendedUrls.add(url);
     if (key) {
       companyRoleSeen.add(key);
@@ -358,10 +430,11 @@ export function mergeHistory(existingRows, stagingLines, today) {
  * @param {string[]} [opts.historyRows] raw scan-history.tsv data lines (no header)
  * @param {Iterable<[string,string]>} [opts.companyRolePairs] extra `[company, role]`
  *        tuples (e.g. parsed from applications.md)
- * @returns {{seenUrls: Set<string>, seenKeys: Set<string>}}
+ * @returns {{seenUrls: Set<string>, seenKeys: Set<string>, seenIds: Set<string>}}
  */
-export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [] } = {}) {
+export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [], historyColumns = HISTORY_COLUMNS } = {}) {
   const seenUrls = new Set();
+  const seenIds = new Set();
   for (const u of urls) {
     if (u) seenUrls.add(canonicalizeUrl(u));
   }
@@ -371,15 +444,16 @@ export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [
   // cross-run safety net scan.mjs used to miss by reading role dedup from
   // applications.md alone). indexHistory canonicalizes URLs the same way.
   if (historyRows.length) {
-    const { urlToIndex, companyRoleSeen } = indexHistory(historyRows);
+    const { urlToIndex, companyRoleSeen, idToIndex } = indexHistory(historyRows, historyColumns);
     for (const u of urlToIndex.keys()) seenUrls.add(u);
     for (const k of companyRoleSeen) seenKeys.add(k);
+    for (const id of idToIndex.keys()) seenIds.add(id);
   }
   for (const [company, role] of companyRolePairs) {
     const key = companyRoleKey(company, role);
     if (key) seenKeys.add(key);
   }
-  return { seenUrls, seenKeys };
+  return { seenUrls, seenKeys, seenIds };
 }
 
 /**
@@ -387,8 +461,9 @@ export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [
  * canonical dedup precedence the merge path uses:
  *
  *   1. canonical URL already seen     → 'duplicate-url'  (re-seen; bump scan_dates)
- *   2. canonical (company, role) seen → 'duplicate-role' (cross-URL/boilerplate dup; skip)
- *   3. otherwise                      → 'new'            (keep)
+ *   2. ATS posting id already seen    → 'duplicate-id'   (same posting, new URL; re-seen)
+ *   3. canonical (company, role) seen → 'duplicate-role' (cross-URL/boilerplate dup; skip)
+ *   4. otherwise                      → 'new'            (keep)
  *
  * Pure and side-effect-free. The caller owns mutation: on 'new' it should add
  * the returned `canonicalUrl` and `key` to the seen sets so later offers in the
@@ -397,20 +472,25 @@ export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [
  * URL→index map to decide whether a 'duplicate-url' is a known-history re-seen
  * (bump scan_dates) versus a pipeline/apps URL it shouldn't touch.
  *
- * @param {{url?:string, company?:string, title?:string}} offer
- * @param {{seenUrls:Set<string>, seenKeys:Set<string>}} seen
- * @returns {{decision:'new'|'duplicate-url'|'duplicate-role', canonicalUrl:string, key:string}}
+ * @param {{url?:string, company?:string, title?:string, source?:string, postingId?:string}} offer
+ * @param {{seenUrls:Set<string>, seenKeys:Set<string>, seenIds?:Set<string>}} seen
+ * @returns {{decision:'new'|'duplicate-url'|'duplicate-id'|'duplicate-role', canonicalUrl:string, key:string, idKey:string}}
  */
-export function classifyScanOffer(offer, { seenUrls, seenKeys }) {
+export function classifyScanOffer(offer, { seenUrls, seenKeys, seenIds = new Set() }) {
   const canonicalUrl = canonicalizeUrl(offer?.url || '');
   const key = companyRoleKey(offer?.company || '', offer?.title || '');
+  const idKey = postingIdKey(offer?.source, offer?.postingId);
   if (canonicalUrl && seenUrls.has(canonicalUrl)) {
-    return { decision: 'duplicate-url', canonicalUrl, key };
+    return { decision: 'duplicate-url', canonicalUrl, key, idKey };
+  }
+  // Same ATS posting id under a new URL (slug rename, changed tracking scheme).
+  if (idKey && seenIds.has(idKey)) {
+    return { decision: 'duplicate-id', canonicalUrl, key, idKey };
   }
   if (key && seenKeys.has(key)) {
-    return { decision: 'duplicate-role', canonicalUrl, key };
+    return { decision: 'duplicate-role', canonicalUrl, key, idKey };
   }
-  return { decision: 'new', canonicalUrl, key };
+  return { decision: 'new', canonicalUrl, key, idKey };
 }
 
 const PIPELINE_LINE_RE = /- \[[ x]\] (https?:\/\/\S+)(?:\s*\|\s*([^|]*?)\s*\|\s*(.*))?$/;
@@ -488,4 +568,35 @@ export function filterPipelineLines(
     droppedDuplicateRole,
     droppedLowQuality,
   };
+}
+
+/**
+ * Find a listing's dates in scan-history text. Match order: canonical URL, then
+ * the normalized (company, role) key. Returns null when the listing is unknown.
+ *
+ * Intended for consumers that only hold an application row (company, role,
+ * report URL) and need "deadline, else posted date, else scan date".
+ *
+ * @param {string} text scan-history.tsv content
+ * @param {{url?:string, company?:string, role?:string}} q
+ */
+export function lookupListingDates(text, { url, company, role } = {}) {
+  const { columns, rows } = parseHistoryFile(text);
+  const wantUrl = url ? canonicalizeUrl(url) : '';
+  const wantKey = company && role ? companyRoleKey(company, role) : '';
+  let byKey = null;
+  for (const row of rows) {
+    const rowUrl = getCell(row, columns, 'url');
+    const hit = {
+      url: rowUrl,
+      deadline: getCell(row, columns, 'deadline') || null,
+      postedDate: getCell(row, columns, 'posted_date') || null,
+      firstSeen: getCell(row, columns, 'first_seen') || null,
+    };
+    if (wantUrl && canonicalizeUrl(rowUrl) === wantUrl) return { ...hit, display: pickDisplayDate(hit) };
+    if (!byKey && wantKey && companyRoleKey(getCell(row, columns, 'company'), getCell(row, columns, 'title')) === wantKey) {
+      byKey = { ...hit, display: pickDisplayDate(hit) };
+    }
+  }
+  return byKey;
 }

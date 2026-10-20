@@ -271,3 +271,60 @@ test('buildIndexLines: output lines are tab-joined key + date (format contract)'
   assert.equal(roleNorm, 'analyst');
   assert.equal(date, '2026-04-15');
 });
+
+// ── identity keys: non-Latin names, diacritics, legacy rows ───────────────
+import { legacyCompanyKey, companyKeyAliases } from './dedup-index.mjs';
+
+test('normalizeCompany: non-Latin names get a slug plus hash instead of colliding on ""', () => {
+  const a = normalizeCompany('Северный Ветер');
+  const b = normalizeCompany('Золотой Луч');
+  const c = normalizeCompany('星河科技');
+  for (const k of [a, b, c]) {
+    assert.notEqual(k, '');
+    assert.match(k, /~[0-9a-f]{8}$/);
+  }
+  assert.equal(new Set([a, b, c]).size, 3, 'distinct names -> distinct keys');
+  assert.equal(normalizeCompany('Северный Ветер'), a, 'stable');
+  assert.equal(normalizeCompany('  северный   ветер  '), a, 'case/space-insensitive');
+  assert.equal(normalizeCompany('Северный Ветер.'), a, 'punctuation-insensitive');
+});
+
+test('normalizeCompany: the old key collapsed every such name to "" (the bug)', () => {
+  assert.equal(legacyCompanyKey('Северный Ветер'), '');
+  assert.equal(legacyCompanyKey('星河科技'), '');
+});
+
+test('normalizeCompany: a mixed-script name no longer collides with its ASCII fragment', () => {
+  assert.notEqual(normalizeCompany('Acme Северный Ветер'), normalizeCompany('Acme'));
+  assert.equal(legacyCompanyKey('Acme Северный Ветер'), 'acme', 'legacy folded them together');
+});
+
+test('normalizeCompany: plain ASCII keys are byte-identical to the legacy key', () => {
+  for (const n of ['Acme Corp.', 'N26 GmbH', 'AT&T', 'Booking.com', 'Nimbus Robotics']) {
+    assert.equal(normalizeCompany(n), legacyCompanyKey(n), n);
+  }
+});
+
+test('normalizeCompany: Latin diacritics fold cleanly; the legacy key stays reachable as an alias', () => {
+  assert.equal(normalizeCompany('Café Noir'), 'cafenoir');
+  assert.equal(normalizeCompany('Straße GmbH'), 'strassegmbh');
+  assert.equal(normalizeCompany('ＡＢＣ Corp'), 'abccorp', 'NFKD compatibility fold');
+  assert.deepEqual(companyKeyAliases('Café Noir'), ['cafenoir', 'cafnoir']);
+  assert.deepEqual(companyKeyAliases('Acme'), ['acme'], 'no alias when nothing changed');
+  assert.deepEqual(companyKeyAliases('Северный Ветер').length, 1, 'no legacy alias for non-Latin (it would be the collision)');
+  assert.deepEqual(companyKeyAliases('ＡＢＣ Corp'), ['abccorp'], 'no fragment alias');
+});
+
+test('buildIndexLines: rows written by the old scheme still match (alias rows), and non-Latin rows no longer merge', () => {
+  const md = [
+    '| 1 | 2026-01-05 | Café Noir | Barista | x |',
+    '| 2 | 2026-01-06 | Северный Ветер | Analyst | x |',
+    '| 3 | 2026-01-07 | Золотой Луч | Analyst | x |',
+  ].join('\n');
+  const lines = buildIndexLines(md);
+  const keys = lines.map((l) => l.split('\t').slice(0, 2).join('\t'));
+  assert.ok(keys.includes('cafenoir\tbarista'));
+  assert.ok(keys.includes('cafnoir\tbarista'), 'legacy alias row kept for readers still on the old scheme');
+  assert.equal(keys.filter((k) => k.endsWith('\tanalyst')).length, 2, 'two non-Latin companies, two rows');
+  assert.ok(!keys.some((k) => k.startsWith('\t')), 'no empty-company rows');
+});
