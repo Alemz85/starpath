@@ -4,7 +4,7 @@
 // docs/scoring-v2.md § 9 (WANT / EASE / PRIORITY noise floors by exact name).
 //
 // Every analytic the app derives from data/score-history.tsv (peer rank in
-// lib/peerRank.ts, re-evaluation movement in lib/scoreTrend.ts, and the
+// lib/peerRank.ts, the Trends analytics in lib/trendsAnalytics.ts, and the
 // components that render them) is bound by that document. The numbers live in
 // exactly ONE place per runtime: scripts/lib/scoring-stats.mjs for the Node
 // CLIs, this module for the renderer — and scoringStats.test.ts imports BOTH

@@ -80,6 +80,9 @@ Scoring v2 (`docs/scoring-v2.md`) colours **Want** and **Ease** each on their ow
 
 `chart-1…7` are for categorical series only. They never appear in chrome, chips or text.
 
+- **Count bars with a gated line** (Trends › Listings per week / month): bars are a count in `chart-7`, the blocked share stacked on top in `danger` at 0.4 (the eligibility red), and one score line in `chart-1` on its own right-hand 0–10 axis. A line point below its sample gate is left out (the line breaks there), never drawn as 0; the tooltip states n and the confidence tier, or the shortfall, and a `text-micro text-4` footnote under the chart names the gate.
+- **Composition bars** (Trends › Archetype focus): 100% stacked rows, one per half of the window, segments in the categorical palette with the muted `chart-7` for the tail, and a legend that doubles as the table (share, shift). No scores on a composition card.
+
 ## 3. Type
 
 IBM Plex Sans for everything, self-hosted through `next/font` (`--font-sans`). IBM Plex Mono (`--font-mono`) only for log output, file paths and code. Numbers use tabular figures in the sans (`tabular-nums` is set on `body`); never reach for mono to make a number look like data.
@@ -188,6 +191,7 @@ Retired: the Meta-store hero cards, pill buttons, ring dials, the teal "stellar"
 
 Newest first; every entry below landed on 2026-10-20. The audit that started this is `docs/design-audit-2026-10-20.md`.
 
+- **Trends rework.** Trends is one page (the Score trend sub-tab, Verdict distribution and What drives your fit are gone): top lists first, named by their axis (Top companies by Ease, Top locations by Want, Top archetypes by Ease); the score line became listings per week / month with a gated mean-Want line; Archetype mix became Archetype focus (composition bars, no scores).
 - **Dossier header and summary.** Report header split into job facts (stacked, left) and a decision well (verdict, scores, actions, right); the summary card becomes two stacked score tiles beside the report's verbatim TL;DR. Database gets a Status column; Scout's action row is centred; the Add listing dialog loses its helper line and keyboard hints.
 - **Demo mode.** Onboarding opens on a choice (Explore the demo / Set up my own search); the demo badge sits in the profile-switcher slot; write actions are disabled with a "Demo data is read-only" tooltip; Settings › General gains a Data row with the Show demo data switch.
 - **Colour themes.** Switchable colour themes: every colour became a role token in `app/themes.css` (Blue hour default; Aurora, Star chart, Observatory, Galaxy), Settings › Appearance picker, primary buttons on their own `action` role, the sidebar on `nav-*` roles with a per-theme sky, Tailwind's default palette removed, and two guard tests (theme completeness + contrast, colour literals). Fixed in passing: `bg-accent/12` (off Tailwind's opacity scale) had silently dropped the active-nav and count-badge highlight.

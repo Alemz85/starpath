@@ -8,18 +8,16 @@
 //     lib/profileStats.ts and lib/scanHistory.ts;
 //   • the "is this a real, scored evaluation" guard (`isScored` — Want and
 //     Ease present, not blocked — plus noise labels) lives in one place so the
-//     distribution, top-X panels, and any future view agree on what counts.
+//     time chart, top-X panels, and any future view agree on what counts.
 //
 // Scoring v2 (docs/scoring-v2.md §9): there is no Overall. Score analytics
 // are stated on Want and Ease separately; bands come from the VERDICT, never
 // from cut-offs on a number; blocked (red) rows are excluded from every score
-// analytic but counted in the eligibility analytics.
+// analytic (averages, medians, the Want line) but counted as listings.
 
-import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict, Eligibility } from '@/types'
-import { TIER_COLORS } from '@/types'
-import { tierColor } from '@/lib/tier'
-import { GATES, NOISE_FLOORS } from '@/lib/scoringStats'
-import { isScored, priorityOf, verdictOf, VERDICT_LABELS, VERDICT_TIER } from '@/lib/scoreBands'
+import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict } from '@/types'
+import { GATES, NOISE_FLOORS, describeSample, type ConfidenceTier } from '@/lib/scoringStats'
+import { isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
 
 /** Rows a score analytic may use: Want and Ease present, not blocked. */
 export function scoredOnly(rows: ScoreEntry[]): ScoreEntry[] {
@@ -86,7 +84,7 @@ export function avg(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 
 // Median is the honest "typical" figure for a skewed score corpus — the
 // mean gets dragged by a cluster of T1 hits or a long T4 tail, the median
-// doesn't. Shown alongside the distribution as a one-number summary.
+// doesn't. The momentum card compares per-half medians.
 export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
   const xs = rows
     .map(r => r[field])
@@ -97,49 +95,154 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
   return xs.length % 2 === 0 ? (xs[mid - 1] + xs[mid]) / 2 : xs[mid]
 }
 
-// ─── Time-series (one bucket per calendar day) ───────────────────────────────
+// ─── Listings per period (week or month) ─────────────────────────────────────
+//
+// The time chart answers two questions on one axis: how many listings turned
+// up in each period (bars, so hiring cycles show as peaks and troughs), and how
+// much the user wanted what turned up (a mean-Want line on top).
+//
+// Counting rules:
+//   • a listing counts ONCE, in the period it was first evaluated — a
+//     re-evaluation is not a new listing (key: URL, else company|role);
+//   • its Want is its LATEST evaluation, the current judgment of it;
+//   • blocked listings (eligibility red) count in the bars and in `blocked`,
+//     never in the Want mean — they have no Want (docs/scoring-v2.md §9). A
+//     period with only blocked listings has no Want point, not a 0;
+//   • the Want mean is a window mean, so it carries the corpus-trend gate
+//     (docs/scoring-statistical-design.md § 3.3): no single listing may move
+//     a period's mean by more than the Want noise floor, which needs
+//     GATES.trendMinPerWindowForVerdict scored listings in the period. Below
+//     it the point is withheld (null) and the bucket says so.
+//   • empty periods between the first and last are kept as zero bars, so a
+//     quiet stretch reads as a gap rather than disappearing.
 
-/** One calendar day. `count` is every evaluation that day; `blocked` the red
- *  ones; every average is over the SCORED rows only. */
-export interface DateBucket {
-  label: string; count: number; blocked: number
-  avg_want: number; avg_ease: number
-  avg_skills_match: number; avg_brand_value: number
-  avg_growth: number; avg_wlb: number
+export type PeriodGranularity = 'week' | 'month'
+
+/** Scored listings a period needs before its mean Want is plotted. */
+export const MIN_SCORED_PER_PERIOD_FOR_WANT = GATES.trendMinPerWindowForVerdict
+
+export interface PeriodBucket {
+  /** ISO date the period starts on (Monday for weeks, the 1st for months). */
+  start: string
+  /** Axis label: "Sep 7" (week) or "Sep 2026" (month). */
+  label: string
+  /** Tooltip heading: "Week of Sep 7, 2026" or "September 2026". */
+  title: string
+  /** Distinct listings first evaluated in the period, blocked included. */
+  listings: number
+  /** Of those, blocked (eligibility red) on their latest evaluation. */
+  blocked: number
+  /** Of those, scored (Want and Ease present, not blocked). */
+  scored: number
+  /** Mean latest Want over the scored listings; null when none are scored or
+   *  the period is under MIN_SCORED_PER_PERIOD_FOR_WANT. */
+  avgWant: number | null
+  /** True when there are scored listings but too few to plot their mean. */
+  wantWithheld: boolean
+  /** Confidence of the plotted mean (docs § 3.1), 'insufficient' when withheld. */
+  wantConfidence: ConfidenceTier
 }
 
-export function buildByDate(rows: ScoreEntry[]): DateBucket[] {
-  const map = new Map<string, ScoreEntry[]>()
-  for (const s of rows) {
-    if (!s.date) continue
-    const date = s.date.slice(0, 10)
-    const list = map.get(date)
-    if (list) list.push(s)
-    else map.set(date, [s])
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTH_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+// Dates are YYYY-MM-DD (or an ISO timestamp); parse the day part as UTC so the
+// period math is TZ-stable.
+function parseDay(iso: string): Date | null {
+  const d = new Date(`${iso.slice(0, 10)}T00:00:00Z`)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+const isoDay = (d: Date) => d.toISOString().slice(0, 10)
+
+function periodStart(d: Date, g: PeriodGranularity): Date {
+  if (g === 'month') return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1))
+  const back = (d.getUTCDay() + 6) % 7   // days since Monday
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - back))
+}
+
+function nextPeriod(d: Date, g: PeriodGranularity): Date {
+  return g === 'month'
+    ? new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1))
+    : new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 7))
+}
+
+function periodLabels(d: Date, g: PeriodGranularity): { label: string; title: string } {
+  const m = d.getUTCMonth(), y = d.getUTCFullYear()
+  return g === 'month'
+    ? { label: `${MONTH_SHORT[m]} ${y}`, title: `${MONTH_LONG[m]} ${y}` }
+    : { label: `${MONTH_SHORT[m]} ${d.getUTCDate()}`, title: `Week of ${MONTH_SHORT[m]} ${d.getUTCDate()}, ${y}` }
+}
+
+/** The key one listing's evaluations share: its URL, else company|role. */
+export function listingKey(e: Pick<ScoreEntry, 'url' | 'company' | 'role'>): string {
+  const url = (e.url ?? '').trim()
+  return url ? url : `${(e.company ?? '').trim().toLowerCase()}|${(e.role ?? '').trim().toLowerCase()}`
+}
+
+export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity): PeriodBucket[] {
+  // One entry per listing: its first evaluation date and its latest row. On a
+  // same-day tie the later row in the file wins (it was written last).
+  const listings = new Map<string, { first: string; latest: ScoreEntry }>()
+  for (const r of rows) {
+    if (!r.date || !parseDay(r.date)) continue
+    const day = r.date.slice(0, 10)
+    const key = listingKey(r)
+    const seen = listings.get(key)
+    if (!seen) { listings.set(key, { first: day, latest: r }); continue }
+    if (day < seen.first) seen.first = day
+    if (day >= seen.latest.date.slice(0, 10)) seen.latest = r
   }
-  return [...map.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, entries]) => {
-      const scored = scoredOnly(entries)
-      return {
-        label: date,
-        count: entries.length,
-        blocked: entries.length - scored.length,
-        avg_want:         avg(scored, 'want'),
-        avg_ease:         avg(scored, 'ease'),
-        avg_skills_match: avg(scored, 'skills_match'),
-        avg_brand_value:  avg(scored, 'brand_value'),
-        avg_growth:       avg(scored, 'growth_mobility'),
-        avg_wlb:          avg(scored, 'work_life_balance'),
-      }
+  if (listings.size === 0) return []
+
+  const groups = new Map<string, ScoreEntry[]>()
+  for (const { first, latest } of listings.values()) {
+    const start = isoDay(periodStart(parseDay(first)!, granularity))
+    const list = groups.get(start)
+    if (list) list.push(latest)
+    else groups.set(start, [latest])
+  }
+
+  const starts = [...groups.keys()].sort()
+  const last = starts[starts.length - 1]
+  const out: PeriodBucket[] = []
+  for (let d = parseDay(starts[0])!; isoDay(d) <= last; d = nextPeriod(d, granularity)) {
+    const start = isoDay(d)
+    const entries = groups.get(start) ?? []
+    const scored = scoredOnly(entries)
+    const sample = describeSample(scored.length, MIN_SCORED_PER_PERIOD_FOR_WANT)
+    out.push({
+      start,
+      ...periodLabels(d, granularity),
+      listings: entries.length,
+      blocked: entries.filter(e => e.eligibility === 'red').length,
+      scored: scored.length,
+      avgWant: sample.sufficient ? avg(scored, 'want') : null,
+      wantWithheld: scored.length > 0 && !sample.sufficient,
+      wantConfidence: sample.confidence,
     })
+  }
+  return out
+}
+
+/** The finer granularity that can still draw a Want line: weeks when at least
+ *  two weeks clear the gate, months otherwise. */
+export function pickGranularity(rows: ScoreEntry[]): PeriodGranularity {
+  const plotted = buildByPeriod(rows, 'week').filter(b => b.avgWant != null).length
+  return plotted >= 2 ? 'week' : 'month'
 }
 
 // ─── Top-X ranking ───────────────────────────────────────────────────────────
+//
+// "Top companies by Ease", "Top locations by Want", "Top archetypes by Ease":
+// every list ranks on ONE named axis (v2 never folds Want and Ease into one
+// number) and shows both, so the axis it is not ranked on is still visible.
+// Each listing counts once, at its latest evaluation, so a re-evaluated role
+// doesn't count twice. The averages are descriptive, stated with their n.
 
-/** A top-X row: Want and Ease shown side by side; ranked by mean Priority
- *  (the sort key — never rendered as the headline). */
-export interface TopRow { label: string; count: number; avgWant: number; avgEase: number; avgPriority: number }
+export type RankAxis = 'want' | 'ease'
+
+export interface TopRow { label: string; count: number; avgWant: number; avgEase: number }
 
 // Skip useless labels — the score-history TSV uses "n/d" for unstated values
 // and most files have a few legacy rows with empty / dash entries.
@@ -148,116 +251,55 @@ export const isNoiseLabel = (s: string): boolean => {
   return !t || t === 'n/d' || t === '—' || t === '-' || t === 'unknown'
 }
 
-export function buildTopBy(rows: ScoreEntry[], key: (e: ScoreEntry) => string, limit: number): TopRow[] {
+/** One row per listing: its latest evaluation (undated rows rank oldest; a
+ *  same-day tie goes to the later row in the file). */
+export function latestPerListing(rows: ScoreEntry[]): ScoreEntry[] {
+  const latest = new Map<string, ScoreEntry>()
+  for (const r of rows) {
+    const key = listingKey(r)
+    const seen = latest.get(key)
+    if (!seen || (r.date ?? '').slice(0, 10) >= (seen.date ?? '').slice(0, 10)) latest.set(key, r)
+  }
+  return [...latest.values()]
+}
+
+export function buildTopBy(
+  rows: ScoreEntry[],
+  key: (e: ScoreEntry) => string,
+  rankBy: RankAxis,
+  limit: number,
+): TopRow[] {
   const map = new Map<string, ScoreEntry[]>()
-  for (const e of scoredOnly(rows)) {
+  for (const e of scoredOnly(latestPerListing(rows))) {
     const k = (key(e) ?? '').trim()
     if (isNoiseLabel(k)) continue
     const list = map.get(k)
     if (list) list.push(e)
     else map.set(k, [e])
   }
+  const other: RankAxis = rankBy === 'want' ? 'ease' : 'want'
+  const metric = (r: TopRow, axis: RankAxis) => (axis === 'want' ? r.avgWant : r.avgEase)
   return [...map.entries()]
     .map(([label, entries]) => ({
       label,
       count: entries.length,
       avgWant: avg(entries, 'want'),
       avgEase: avg(entries, 'ease'),
-      avgPriority: avgPriority(entries),
     }))
-    // Rank by mean Priority — the user wants "what scored high", not "what
-    // showed up the most." Count is the tiebreaker.
-    .filter(r => r.avgPriority > 0)
-    .sort((a, b) => b.avgPriority - a.avgPriority || b.count - a.count)
+    // The named axis first; then the better-evidenced group, then the other axis.
+    .sort((a, b) =>
+      metric(b, rankBy) - metric(a, rankBy)
+      || b.count - a.count
+      || metric(b, other) - metric(a, other)
+      || a.label.localeCompare(b.label))
     .slice(0, limit)
 }
 
-// ─── Verdict distribution ────────────────────────────────────────────────────
+// ─── Scoring dimensions ──────────────────────────────────────────────────────
 //
-// v2 bands are the verdict cells (spec §4), coloured by their storage tier's
-// tokens (DESIGN-meta § Tier and Status Sections) — no number cut-offs.
-// Blocked is a band of its own; the apply-worthy share is stated over the
-// SCORED rows, and the eligibility split is stated over every row.
+// The dimensions the momentum card reports shifts on, in display order.
+// `field` is the ScoreEntry column; `label` is the human name.
 
-export interface ScoreBand {
-  key: Verdict
-  label: string
-  color: string
-  /** Tailwind chip classes for the band (the tier's TIER_COLORS). */
-  chip: { bg: string; text: string; border: string }
-  applyWorthy: boolean
-}
-
-export const SCORE_BANDS: ScoreBand[] = (['go', 'stretch', 'solid', 'growth', 'thin', 'skip', 'blocked'] as Verdict[])
-  .map(v => ({
-    key: v,
-    label: VERDICT_LABELS[v],
-    color: tierColor(VERDICT_TIER[v]),
-    chip: TIER_COLORS[VERDICT_TIER[v]],
-    applyWorthy: APPLY_WORTHY_VERDICTS.has(v),
-  }))
-
-export interface Distribution {
-  bands: Array<ScoreBand & { count: number }>
-  /** Rows with a verdict (blocked included). */
-  total: number
-  /** Scored rows (blocked excluded) — the base for applyPct and the medians. */
-  scored: number
-  max: number         // tallest band, for bar scaling (min 1 to avoid /0)
-  applyPct: number    // % of scored rows with an apply-worthy verdict
-  medianWant: number
-  medianEase: number
-  /** Eligibility split over every row that has a gate status. */
-  eligibility: Record<Eligibility, number>
-}
-
-export function buildDistribution(rows: ScoreEntry[]): Distribution {
-  const counts = new Map<Verdict, number>(SCORE_BANDS.map(b => [b.key, 0]))
-  const eligibility: Record<Eligibility, number> = { green: 0, amber: 0, red: 0 }
-  let total = 0
-  for (const r of rows) {
-    if (r.eligibility) eligibility[r.eligibility]++
-    const v = verdictOf(r)
-    if (!v) continue
-    counts.set(v, (counts.get(v) ?? 0) + 1)
-    total++
-  }
-  const scored = scoredOnly(rows)
-  const bands = SCORE_BANDS.map(b => ({ ...b, count: counts.get(b.key) ?? 0 }))
-  const applyWorthy = scored.filter(isApplyWorthy).length
-  return {
-    bands,
-    total,
-    scored: scored.length,
-    max: Math.max(1, ...bands.map(b => b.count)),
-    applyPct: scored.length ? Math.round((applyWorthy / scored.length) * 100) : 0,
-    medianWant: median(scored, 'want'),
-    medianEase: median(scored, 'ease'),
-    eligibility,
-  }
-}
-
-// ─── Dimension profile ───────────────────────────────────────────────────────
-//
-// The time-series plots each dimension over time and the top-X panels rank
-// companies/locations — but neither answers "across everything I've evaluated,
-// which scoring dimensions are my market's strengths, and which actually
-// separate an apply-worthy role from a dud?".
-//
-// For each dimension we compute two averages over the scored corpus: the
-// average across ALL scored rows, and the average across the apply-worthy
-// subset (verdict go / stretch / solid). The DELTA between them is the signal —
-// a dimension with a large positive delta is one that high-scoring roles have
-// and low-scoring roles lack, i.e. a *driver* of fit. A dimension that's flat
-// across both groups doesn't discriminate (it's noise for targeting), and a
-// negative delta means apply-worthy roles are actually WEAKER on it (a tradeoff
-// the user accepts to land the win). Ranking by delta turns the raw score
-// columns into a targeting cheat-sheet: chase roles strong on the high-delta
-// dimensions.
-
-// The dimensions in display order. `field` is the ScoreEntry column; `label`
-// is the human name (matches the Trends time-series legend so the two views
-// speak the same language).
 export interface DimensionDef { field: keyof ScoreEntry; label: string }
 
 export const PROFILE_DIMENSIONS: DimensionDef[] = [
@@ -271,58 +313,11 @@ export const PROFILE_DIMENSIONS: DimensionDef[] = [
   { field: 'work_life_balance', label: 'Work-Life'      },
 ]
 
-export interface DimensionStat {
-  field: keyof ScoreEntry
-  label: string
-  avgAll: number        // mean over every scored row
-  avgWinners: number    // mean over the apply-worthy subset (go / stretch / solid)
-  delta: number         // avgWinners - avgAll; the discriminating signal
-}
-
-export interface DimensionProfile {
-  dims: DimensionStat[]      // sorted by delta desc (strongest driver first)
-  scoredCount: number        // scored rows (blocked excluded)
-  winnerCount: number        // rows with an apply-worthy verdict
-  /** True when there aren't enough winners to make the delta meaningful.
-   *  The component greys the delta column and shows a hint instead of
-   *  reading noise as signal. */
-  lowSignal: boolean
-}
-
-// Minimum apply-worthy rows before the winners-vs-all delta is worth trusting.
-// Below this the split is too small to separate signal from sampling noise, so
-// the profile reports `lowSignal` and the view falls back to plain averages.
-export const MIN_WINNERS_FOR_DELTA = 4
-
-export function buildDimensionProfile(rows: ScoreEntry[]): DimensionProfile {
-  const scored = scoredOnly(rows)
-  const winners = scored.filter(isApplyWorthy)
-
-  const dims: DimensionStat[] = PROFILE_DIMENSIONS.map(({ field, label }) => {
-    const avgAll = avg(scored, field)
-    const avgWinners = avg(winners, field)
-    return { field, label, avgAll, avgWinners, delta: avgWinners - avgAll }
-  })
-
-  // Rank by discriminating power (delta) when we have enough winners to trust
-  // it; otherwise fall back to ranking by raw average so the panel still leads
-  // with the corpus's strongest dimension instead of a noisy delta.
-  const lowSignal = winners.length < MIN_WINNERS_FOR_DELTA
-  dims.sort((a, b) =>
-    lowSignal
-      ? b.avgAll - a.avgAll
-      : b.delta - a.delta || b.avgWinners - a.avgWinners,
-  )
-
-  return { dims, scoredCount: scored.length, winnerCount: winners.length, lowSignal }
-}
-
 // ─── Targeting momentum (recent vs earlier) ──────────────────────────────────
 //
-// The time-series chart plots raw per-day averages — honest but noisy: a single
-// n=1 day swings the line, and the eye can't separate "my targeting is getting
-// sharper" from day-to-day sampling jitter. The dimension profile and the funnel
-// are both *static* snapshots over the whole window. Neither answers the question
+// The time chart plots a gated mean Want per period, which shows the level but
+// not a verdict, and the funnel is a *static* snapshot over the whole window.
+// Neither answers the question
 // the tool actually exists to push on (TODO § directive: optimize toward
 // outcomes): **as I refine what I evaluate, is the quality of what I evaluate
 // trending up?**
@@ -423,7 +418,7 @@ function summarizeHalf(rows: ScoreEntry[]): MomentumHalf {
 // Pre-sort the scored corpus by date ascending, then split at the midpoint so
 // the two halves carry equal n (the earlier half takes the extra row on an odd
 // count). Rows are scored-only (blocked excluded, mirroring the
-// distribution/profile guard). Undated rows can't be placed on the timeline, so they're dropped from
+// time chart and top lists). Undated rows can't be placed on the timeline, so they're dropped from
 // the split rather than silently anchored to one end.
 export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
   const scored = scoredOnly(rows)
@@ -479,10 +474,8 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
 
 // ─── Archetype mix over time ─────────────────────────────────────────────────
 //
-// Every panel above answers a question about *quality*: the time-series plots
-// averages, the distribution shows the quality shape, the dimension profile
-// explains what drives a high score, and targeting momentum tracks whether
-// quality is rising. None of them answer the orthogonal question — *where is my
+// The top lists rank archetypes by score and targeting momentum tracks whether
+// quality is rising. Neither answers the orthogonal question — *where is my
 // evaluation effort actually going, and is that allocation drifting?*
 //
 // A job search is a portfolio-allocation problem as much as a quality one: a

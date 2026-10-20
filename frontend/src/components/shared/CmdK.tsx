@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, Route, GitBranch, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User,
+  TrendingUp, GitBranch, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { useProfilesStore } from '@/store/profiles'
@@ -95,8 +95,8 @@ export function CmdK() {
             <Command.Group heading={<GroupHeading>Navigate</GroupHeading>}>
               {/* Former standalone views kept as entries targeting their new
                   sub-tab home, so muscle-memory searches still land right:
-                  Network → Outreach › Network, Score Trend → Trends › Score
-                  Trend. Configuration's editor sections live under Settings. */}
+                  Network → Outreach › Network. Configuration's editor
+                  sections live under Settings. */}
               {([
                 { view: 'scouting', label: 'Scout',    icon: Map        },
                 { view: 'applying', label: 'Applying', icon: Briefcase  },
@@ -106,18 +106,13 @@ export function CmdK() {
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-                { view: 'trends',   label: 'Score trend', icon: Route, tab: 'scoretrend' },
                 { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
                 { view: 'scan',     label: 'Activity', icon: Activity   },
                 { view: 'settings', label: 'Settings', icon: Settings   },
                 { view: 'profile',  label: 'Profile',  icon: User       },
               ] as const)
-                // Deactivated features drop their entries: whole-view gates
-                // via isViewEnabled, plus the Score Trend sub-tab jump which
-                // has its own flag (its host view, Trends, stays).
-                .filter(({ view, ...rest }) =>
-                  isViewEnabled(view, features) &&
-                  !('tab' in rest && rest.tab === 'scoretrend' && !features.scoreTrendTab))
+                // Deactivated features drop their entries (isViewEnabled).
+                .filter(({ view }) => isViewEnabled(view, features))
                 .map(({ view, label, icon: Icon, ...rest }) => (
                 <Command.Item
                   key={label}
