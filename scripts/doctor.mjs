@@ -3,40 +3,58 @@
 /**
  * doctor.mjs — Setup validation for career-ops / starpath.
  *
- * Checks all prerequisites and prints a pass/fail checklist.  Covers:
+ * Checks all prerequisites and prints a pass/warn/fail checklist. Covers:
  *   1. Runtime prerequisites (Node, dependencies, Playwright chromium)
- *   2. User-layer onboarding (cv, profile.yml, _profile.md, portals.yml)
- *   3. Data artifacts (scan/score history, scouting, applications, caches…)
- *   4. Multi-profile layout (profiles/active, canonical symlinks, shadows —
- *      all skipped with one OK line on pre-migration single-profile repos)
- *   5. Capability inventory (modes, CLI tools, JobSpy, story bank)
- *   6. Auto-created output directories
+ *   2. Private root (private/ + the repo-root links, its git repo, remote and
+ *      last backup, the public repo's ignore rule, no tracked personal paths,
+ *      leak-gate hooks, demo dataset, overrides drift)
+ *   3. User-layer onboarding (cv, profile.yml, _profile.md, portals.yml)
+ *   4. Data artifacts (scan/score history, scouting, applications, caches…)
+ *   5. Multi-profile layout (profiles/active, canonical symlinks, shadows —
+ *      all skipped with one OK line on single-profile setups)
+ *   6. Capability inventory (modes, CLI tools, JobSpy, story bank, fonts)
  *   7. Glanceable pipeline snapshot (row counts)
+ *
+ * Sections 3–5 and 7 read through the data root (scripts/lib/data-root.mjs ›
+ * dataRootFor): private/ when it exists, else the repo root. Doctor never
+ * creates folders: a real data/ next to a data → private/data link would
+ * shadow it, so missing links are reported with the fix instead.
  *
  * Pure check logic lives in scripts/lib/doctor-checks.mjs (unit-tested).
  * This file is I/O only: reads files, calls checkers, renders output.
  *
- * Usage: npm run doctor
+ * Usage: npm run doctor [-- --root <repoRoot>]
  */
 
-import { existsSync, readdirSync, readFileSync, mkdirSync, lstatSync, readlinkSync } from 'fs';
-import { join, dirname } from 'path';
+import { existsSync, readdirSync, readFileSync, lstatSync, readlinkSync, statSync, realpathSync } from 'fs';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { spawnSync } from 'child_process';
 
 import {
   buildUserLayerChecks,
   buildArtifactChecks,
   buildCapabilityInventory,
   buildProfileChecks,
+  buildPrivateRootChecks,
+  findTrackedPersonal,
   buildPipelineSummary,
   countTsvDataRows,
   countMarkdownTableRows,
   countPendingPipelineItems,
 } from './lib/doctor-checks.mjs';
 import { PROFILE_PATHS } from './lib/profile-core.mjs';
+import { LINKED_PATHS, PRIVATE_DIR, DEMO_DIR, dataRootFor, resolveDataRoot } from './lib/data-root.mjs';
+import { MOVE_ONLY_PATHS, classifyRootPath, linkOk } from './lib/private-core.mjs';
+import { gatherOverrideReport, overridesDataRoot } from './overrides.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const projectRoot = dirname(__dirname);
+const rootArg = process.argv.indexOf('--root');
+const projectRoot = rootArg !== -1 && process.argv[rootArg + 1]
+  ? resolve(process.argv[rootArg + 1])
+  : dirname(__dirname);
+/** Where user/, data/, reports/ … actually live (private/, or the repo root). */
+const dataRoot = dataRootFor(projectRoot);
 
 // ── ANSI colors (only on TTY) ───────────────────────────────────────────────
 const isTTY = process.stdout.isTTY;
@@ -52,7 +70,13 @@ function printSection(title) {
 }
 
 function printCheck(result) {
-  if (result.pass) {
+  if (result.pass && result.warn) {
+    console.log(`${yellow('!')} ${result.label}`);
+    const fixes = Array.isArray(result.fix) ? result.fix : [result.fix];
+    for (const hint of fixes) {
+      if (hint) console.log(`  ${dim('→ ' + hint)}`);
+    }
+  } else if (result.pass) {
     const note = result.note ? `  ${dim('→ ' + result.note)}` : '';
     console.log(`${green('✓')} ${result.label}${note ? '\n' + note : ''}`);
   } else {
@@ -65,8 +89,9 @@ function printCheck(result) {
 }
 
 // ── File readers (safe — return null on missing/error) ──────────────────────
+// Personal files are read through the data root, never the repo root.
 function readFileSafe(relPath) {
-  const full = join(projectRoot, relPath);
+  const full = join(dataRoot, relPath);
   try {
     return existsSync(full) ? readFileSync(full, 'utf-8') : null;
   } catch {
@@ -75,7 +100,7 @@ function readFileSafe(relPath) {
 }
 
 function countFiles(relDir) {
-  const full = join(projectRoot, relDir);
+  const full = join(dataRoot, relDir);
   if (!existsSync(full)) return 0;
   try {
     return readdirSync(full).length;
@@ -133,7 +158,7 @@ async function checkPlaywright() {
 // Gathers the raw filesystem facts; all judgment lives in buildProfileChecks
 // (pure, unit-tested). Pre-migration repos (no profiles/) get one OK line.
 function gatherProfilesLayout() {
-  const profilesDir = join(projectRoot, 'profiles');
+  const profilesDir = join(dataRoot, 'profiles');
   if (!existsSync(profilesDir)) return { profilesDirExists: false };
 
   let profileDirs = [];
@@ -144,7 +169,7 @@ function gatherProfilesLayout() {
   } catch { /* unreadable — treated as empty */ }
 
   const links = PROFILE_PATHS.map((p) => {
-    const abs = join(projectRoot, p);
+    const abs = join(dataRoot, p);
     let present = false, isSymlink = false, linkTarget = null;
     try {
       const st = lstatSync(abs);
@@ -167,8 +192,8 @@ function gatherProfilesLayout() {
 
   let reportsChildren = [];
   try {
-    reportsChildren = readdirSync(join(projectRoot, 'reports'));
-  } catch { /* reports/ missing — the auto-dir check below recreates it */ }
+    reportsChildren = readdirSync(join(dataRoot, 'reports'));
+  } catch { /* reports/ missing — nothing to classify */ }
 
   return {
     profilesDirExists: true,
@@ -180,22 +205,119 @@ function gatherProfilesLayout() {
   };
 }
 
-// ── 6. Auto-created directories ─────────────────────────────────────────────
-function checkAutoDir(name) {
-  const dirPath = join(projectRoot, name);
-  if (existsSync(dirPath)) {
-    return { pass: true, label: `${name}/ directory ready` };
-  }
+// ── 2. Private root ─────────────────────────────────────────────────────────
+// Raw facts only; judgment lives in buildPrivateRootChecks (pure, tested).
+
+function git(args, cwd) {
+  const env = { ...process.env };
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[k];
+  const r = spawnSync('git', args, { cwd, encoding: 'utf-8', env });
+  return { code: r.status ?? 1, stdout: (r.stdout || '').trim() };
+}
+
+function safeRealpath(p) {
+  try { return realpathSync(p); } catch { return null; }
+}
+
+/** Is `dir` the top of its own git work tree? */
+function isRepoTop(dir) {
+  const top = git(['rev-parse', '--show-toplevel'], dir);
+  return top.code === 0 && safeRealpath(top.stdout) === safeRealpath(dir);
+}
+
+function lstatType(abs) {
+  let st;
+  try { st = lstatSync(abs); } catch { return 'absent'; }
+  if (st.isSymbolicLink()) return 'symlink';
+  return st.isDirectory() ? 'dir' : st.isFile() ? 'file' : 'other';
+}
+
+function statType(abs) {
   try {
-    mkdirSync(dirPath, { recursive: true });
-    return { pass: true, label: `${name}/ directory ready (auto-created)` };
+    const st = statSync(abs);
+    return st.isDirectory() ? 'dir' : st.isFile() ? 'file' : 'other';
   } catch {
-    return {
-      pass: false,
-      label: `${name}/ directory could not be created`,
-      fix: `Run: mkdir ${name}`,
-    };
+    return lstatType(abs) === 'absent' ? 'absent' : 'other';
   }
+}
+
+function gatherPrivateRoot() {
+  const privAbs = join(projectRoot, PRIVATE_DIR);
+  const privateExists = statType(privAbs) === 'dir';
+  const repoRoots = [...new Set([projectRoot, safeRealpath(projectRoot)].filter(Boolean))];
+
+  const links = LINKED_PATHS.map((entry) => {
+    const abs = join(projectRoot, entry.path);
+    const type = lstatType(abs);
+    const root = { type, linkTarget: null, targetExists: false };
+    if (type === 'symlink') {
+      try { root.linkTarget = readlinkSync(abs); } catch { /* unreadable */ }
+      root.targetExists = existsSync(abs);
+    }
+    const state = classifyRootPath(entry, root, repoRoots);
+    const privType = statType(join(privAbs, entry.path));
+    return { path: entry.path, kind: entry.kind, state, ok: linkOk(entry.kind, state, privType), target: root.linkTarget };
+  });
+  const legacyPaths = [
+    ...links.filter((l) => l.state === 'real').map((l) => l.path),
+    ...MOVE_ONLY_PATHS.filter((e) => lstatType(join(projectRoot, e.path)) === 'dir').map((e) => e.path),
+  ];
+
+  let gitFacts = null;
+  if (privateExists) {
+    if (existsSync(join(privAbs, '.git')) && isRepoTop(privAbs)) {
+      const branch = git(['symbolic-ref', '--short', 'HEAD'], privAbs);
+      const remotes = git(['remote'], privAbs).stdout.split('\n').filter(Boolean);
+      const remoteName = remotes.includes('origin') ? 'origin' : remotes[0];
+      const remote = remoteName ? git(['remote', 'get-url', remoteName], privAbs) : null;
+      const last = git(['log', '-1', '--format=%ct'], privAbs);
+      const ahead = git(['rev-list', '--count', '@{u}..HEAD'], privAbs);
+      gitFacts = {
+        isRepo: true,
+        branch: branch.code === 0 ? branch.stdout : null,
+        remote: remote && remote.code === 0 ? remote.stdout : null,
+        uncommitted: git(['status', '--porcelain'], privAbs).stdout.split('\n').filter(Boolean).length,
+        lastCommitAt: last.code === 0 && last.stdout ? Number(last.stdout) * 1000 : null,
+        unpushed: ahead.code === 0 ? Number(ahead.stdout) || 0 : null,
+      };
+    } else {
+      gitFacts = { isRepo: false };
+    }
+  }
+
+  const publicRepo = isRepoTop(projectRoot);
+  let ignored = null;
+  let trackedPersonal = [];
+  let hooksPath = null;
+  if (publicRepo) {
+    // Trailing slash: /private/ only matches directories, and it may not exist yet.
+    ignored = git(['check-ignore', '-q', `${PRIVATE_DIR}/`], projectRoot).code === 0;
+    const files = spawnSync('git', ['ls-files', '-z'], { cwd: projectRoot, encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 });
+    trackedPersonal = findTrackedPersonal((files.stdout || '').split('\0'));
+    const hp = git(['config', 'core.hooksPath'], projectRoot);
+    hooksPath = hp.code === 0 && hp.stdout ? hp.stdout : null;
+  }
+
+  let overrides = null;
+  try {
+    const ovRoot = overridesDataRoot(projectRoot);
+    if (ovRoot) overrides = gatherOverrideReport({ repoRoot: projectRoot, dataRoot: ovRoot }).entries;
+  } catch { /* unreadable overrides — reported as none */ }
+
+  return {
+    privateExists,
+    links,
+    legacyPaths,
+    dataRoot: resolveDataRoot({ repoRoot: projectRoot }),
+    git: gitFacts,
+    now: Date.now(),
+    publicRepo,
+    ignored,
+    trackedPersonal,
+    hooksPath,
+    demoPresent: existsSync(join(projectRoot, DEMO_DIR, 'user', 'profile.yml')),
+    overrides,
+  };
 }
 
 function checkFonts() {
@@ -236,6 +358,7 @@ async function main() {
 
   const record = (result) => {
     if (!result.pass) failures++;
+    else if (result.warn) warnings++;
     printCheck(result);
   };
 
@@ -245,8 +368,14 @@ async function main() {
   record(checkDependencies());
   record(await checkPlaywright());
 
-  // ── 2. User-layer onboarding ─────────────────────────────────────────────
-  printSection('2. User-layer onboarding');
+  // ── 2. Private root ──────────────────────────────────────────────────────
+  printSection('2. Private root');
+  for (const check of buildPrivateRootChecks(gatherPrivateRoot())) {
+    record(check);
+  }
+
+  // ── 3. User-layer onboarding ─────────────────────────────────────────────
+  printSection('3. User-layer onboarding');
   const userFiles = {
     cv:            readFileSafe('user/cv.md'),
     profileYml:    readFileSafe('user/profile.yml'),
@@ -258,8 +387,8 @@ async function main() {
     record(check);
   }
 
-  // ── 3. Data artifacts ────────────────────────────────────────────────────
-  printSection('3. Data artifacts');
+  // ── 4. Data artifacts ────────────────────────────────────────────────────
+  printSection('4. Data artifacts');
   const dataFiles = {
     scanHistory:   readFileSafe('data/scan-history.tsv'),
     scoreHistory:  readFileSafe('data/score-history.tsv'),
@@ -275,14 +404,14 @@ async function main() {
     record(check);
   }
 
-  // ── 4. Multi-profile layout ──────────────────────────────────────────────
-  printSection('4. Profiles');
+  // ── 5. Multi-profile layout ──────────────────────────────────────────────
+  printSection('5. Profiles');
   for (const check of buildProfileChecks(gatherProfilesLayout())) {
     record(check);
   }
 
-  // ── 5. Capability inventory ──────────────────────────────────────────────
-  printSection('5. Capability inventory');
+  // ── 6. Capability inventory ──────────────────────────────────────────────
+  printSection('6. Capability inventory');
 
   const scriptsDir = join(projectRoot, 'scripts');
   const modesDir   = join(projectRoot, 'modes');
@@ -299,17 +428,11 @@ async function main() {
     modeCount,
     jobspyPyExists:  existsSync(join(projectRoot, 'scripts/jobspy/scan.py')),
     jobspyVenvReady,
-    storyBankExists: existsSync(join(projectRoot, 'interview-prep/story-bank.md')),
+    storyBankExists: existsSync(join(dataRoot, 'interview-prep/story-bank.md')),
   })) {
     record(check);
   }
-
-  // ── 6. Output directories (auto-created) ─────────────────────────────────
-  printSection('6. Output directories');
   record(checkFonts());
-  for (const dir of ['data', 'output', 'reports', 'jds', 'batch']) {
-    record(checkAutoDir(dir));
-  }
 
   // ── 7. Pipeline snapshot ─────────────────────────────────────────────────
   const scanned   = dataFiles.scanHistory  ? countTsvDataRows(dataFiles.scanHistory)        : 0;
@@ -329,11 +452,12 @@ async function main() {
 
   // ── Result ───────────────────────────────────────────────────────────────
   console.log('');
+  const warned = warnings > 0 ? ` ${yellow(`${warnings} warning${warnings === 1 ? '' : 's'}`)}.` : '';
   if (failures > 0) {
-    console.log(`Result: ${red(`${failures} issue${failures === 1 ? '' : 's'} found`)}. Fix them and run \`npm run doctor\` again.`);
+    console.log(`Result: ${red(`${failures} issue${failures === 1 ? '' : 's'} found`)}.${warned} Fix them and run \`npm run doctor\` again.`);
     process.exit(1);
   } else {
-    console.log(`Result: ${green('All checks passed.')} You\'re ready to go! Run \`claude\` to start.`);
+    console.log(`Result: ${green('All checks passed.')}${warned} You\'re ready to go! Run \`claude\` to start.`);
     console.log('');
     console.log('Join the community: https://discord.gg/8pRpHETxa4');
     process.exit(0);
