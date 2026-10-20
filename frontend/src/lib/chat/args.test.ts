@@ -15,9 +15,9 @@ import {
 
 // ─── Arg builder ─────────────────────────────────────────────────────────────
 
-// Stand-in for the `chat` kind's flags (main derives the real ones from
+// Stand-in for the `chat` kind's flags (attended: acceptEdits + deny list; main derives the real ones from
 // scripts/lib/worker-capabilities.mjs; spawnFormat.test.ts covers that).
-const PERMS = ['--permission-mode', 'dontAsk', '--tools', 'Read,Glob,Grep,Bash,WebSearch']
+const PERMS = ['--permission-mode', 'acceptEdits', '--tools', 'Read,Glob,Grep,Edit,Write,Bash,WebFetch,WebSearch']
 
 test('the chat spawn loads modes/chat.md as an appended system prompt', () => {
   const args = buildChatClaudeArgs('what is urgent?', { permissionArgs: PERMS })
@@ -177,5 +177,5 @@ test('permission denials fail a chat turn with each refused call named', () => {
     permission_denials: [{ tool_name: 'Write', tool_input: { file_path: '/repo/data/applications.md' } }],
   })
   assert.deepEqual(denied, ['Write: /repo/data/applications.md'])
-  assert.match(permissionDenialMessage(denied ?? []), /read-only.*Write: \/repo\/data\/applications\.md/)
+  assert.match(permissionDenialMessage(denied ?? []), /not allowed.*Write: \/repo\/data\/applications\.md/)
 })

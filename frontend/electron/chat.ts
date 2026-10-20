@@ -90,7 +90,7 @@ export interface ChatDeps {
   /** A refusal message when sending is not allowed (demo mode), else null. */
   refuseSend: () => Promise<string | null>
   /** The chat worker's permission flags (scripts/lib/worker-capabilities.mjs,
-   *  kind `chat`: read-only). A failure refuses the send. */
+   *  kind `chat`: attended, acceptEdits + deny list). A failure refuses the send. */
   getPermissionArgs: () => Promise<string[]>
 }
 
@@ -385,8 +385,8 @@ async function sendMessage(
       }), ownSessionsPath)
     }
 
-    // Chat is read-only: a call outside its permissions fails the turn
-    // visibly instead of reading as an answer that quietly skipped a step.
+    // A call on chat's deny list fails the turn visibly instead of reading
+    // as an answer that quietly skipped a step.
     if (denied.length > 0 && !stopped) {
       dispatchOwn({ type: 'failed', message: permissionDenialMessage(denied) })
     } else if (code === 0 || stopped) {

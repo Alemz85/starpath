@@ -3,12 +3,17 @@
  *
  * Every background worker (batch evaluations, the app's eval spawns, scans,
  * Tailor CV / Draft / Prep, chat…) used to run --dangerously-skip-permissions.
- * A job posting is untrusted internet text, so a worker that reads one must
- * not be able to do more than its job needs. This module is the single
- * capability table; the CLI flags are DERIVED from it, never hand-written:
+ * A job posting is untrusted internet text, so an UNATTENDED worker that
+ * reads one must not be able to do more than its job needs. This module is
+ * the single capability table; the CLI flags are DERIVED from it, never
+ * hand-written:
  *
  *   --permission-mode dontAsk   anything not allowed below is denied, never
- *                               prompted (there is nobody to answer)
+ *                               prompted (there is nobody to answer). The one
+ *                               attended kind, chat, runs acceptEdits instead:
+ *                               the user is present for every turn and asks it
+ *                               to change their files; it keeps a deny list
+ *                               for destructive and outward actions.
  *   --strict-mcp-config         no MCP servers (the user's desktop/browser
  *                               MCPs would bypass every rule here)
  *   --setting-sources project   only the repo's .claude/settings.json (its
@@ -99,14 +104,17 @@ const READ_TOOLS = ['Read', 'Glob', 'Grep']
 // The trackers only merge scripts and the app's status ledger may write.
 const TRACKERS = ['data/applications.md', 'data/scouting.md']
 
-// Evaluation outputs (batch/batch-prompt.md § Step 6–7, modes/scouting.md),
-// plus batch/work/: the JSON inputs a worker hands to score-listing.mjs --input.
+// Evaluation outputs (batch/batch-prompt.md § Step 6–7, modes/scouting.md):
+// reports, the archived job description (jds/{num}-…md), the score rows and
+// caches, plus batch/work/: the JSON inputs a worker hands to
+// score-listing.mjs --input and the readable posting the posting check saves.
 const EVAL_WRITES = [
   'reports/tier-1/**',
   'reports/tier-2/**',
   'reports/tier-3/**',
   'batch/scouting-additions/**',
   'batch/work/**',
+  'jds/**',
   'data/score-history.tsv',
   'data/report-summaries.tsv',
   'data/comp-cache.tsv',
@@ -116,29 +124,50 @@ const EVAL_WRITES = [
 
 const EVAL_COMMANDS = [
   'node scripts/posting-guard.mjs',
+  'node scripts/fetch-posting.mjs',
   'node scripts/score-listing.mjs',
   'node scripts/reserve-report-num.mjs',
   'node scripts/cv-summary.mjs',
   'node scripts/agent-log.mjs log',
+  // Read-only outcome stats (docs/scoring-statistical-design.md § 3.7).
+  { exact: 'node scripts/outcomes.mjs --json' },
+  // One optional message to the user when only they can unblock a listing.
+  'node scripts/messages.mjs post --source eval',
 ]
 
-// Read-only digests chat may run. Prefix rules, so each script here must have
-// no write flag (daily-brief and apply-kit do, so they are exact or absent).
-const READ_ONLY_SCRIPTS = [
-  'node scripts/deadlines.mjs',
-  'node scripts/whats-new.mjs',
-  'node scripts/outreach-plan.mjs',
-  'node scripts/peer-rank.mjs',
-  'node scripts/comp-bench.mjs',
-  'node scripts/score-trend.mjs',
-  'node scripts/analyze-patterns.mjs',
-  'node scripts/cv-gap.mjs',
-  'node scripts/positioning-intel.mjs',
-  'node scripts/network.mjs',
-  'node scripts/company-research.mjs check',
-  { exact: 'node scripts/daily-brief.mjs --json' },
-  { exact: 'node scripts/session-handoff.mjs read' },
-  { exact: 'npm run handoff -- read' },
+// Chat: attended, so broad. What it may never do, even when asked: change
+// permissions or the git hooks, push, rewrite history, run the backup (it
+// pushes private/ to its remote), install the scheduler, or edit the tracker
+// directly (statuses go through set-status.mjs, which locks and logs them).
+// `node scripts/*` is a pattern, not a `:*` prefix: prefixes match whole
+// words, so `node scripts/:*` would match nothing. CHAT_DENY stops `..` in it.
+const CHAT_COMMANDS = [
+  { pattern: 'node scripts/*' },
+  { pattern: 'npm run *' },
+  'git status',
+  'git diff',
+  'git log',
+  'pdftotext',
+  'pdfinfo',
+  'private/CV/bin/new-cv',
+  'private/CV/bin/build-cv',
+  { pattern: 'cp private/CV/applications/*.pdf output/*.pdf' },
+]
+
+const CHAT_DENY = [
+  'Bash(node scripts/*..*)',
+  'Edit(./.claude/**)',
+  'Edit(./data/applications.md)',
+  'Bash(git push*)',
+  'Bash(git reset*)',
+  'Bash(git commit*)',
+  'Bash(npm run backup*)',
+  'Bash(npm run private*)',
+  'Bash(node scripts/private.mjs*)',
+  'Bash(npm run hooks*)',
+  'Bash(node scripts/install-hooks.mjs*)',
+  'Bash(npm run schedule*)',
+  'Bash(node scripts/scheduled-run.mjs*)',
 ]
 
 /**
@@ -150,6 +179,8 @@ const READ_ONLY_SCRIPTS = [
  *             { pattern } → a `*` pattern, matched as written
  *   web       'fetch+search' | 'fetch' | 'search' | 'none'
  *   deny      extra rules on top of PROJECT_DENY
+ *   attended  true only for chat: the user is there, so it runs acceptEdits
+ *             (writes anywhere in the checkout) with a deny list
  */
 export const WORKER_CAPABILITIES = {
   // batch/batch-runner.sh and the scheduled run: one listing per worker.
@@ -260,16 +291,18 @@ export const WORKER_CAPABILITIES = {
     web: 'none',
     deny: ['Edit(./user/cv.md)'],
   },
-  // Chat advisor: reads everything, writes nothing (it proposes changes in
-  // starpath:* fences the user confirms). No WebFetch: chat reads reports
-  // that quote untrusted postings, and a fetch is the way data would leave.
+  // Chat: the user is present in every turn and asks it to edit their CV and
+  // profile, update memory, post or resolve messages, run starpath scripts
+  // and research. Least privilege is for unattended workers; chat keeps the
+  // deny list (destructive and outward actions) and the untrusted-content rule.
   chat: {
-    summary: 'Chat advisor (read-only; proposals go through confirm cards)',
-    writes: [],
-    tmp: [],
-    commands: READ_ONLY_SCRIPTS,
-    web: 'search',
-    deny: ['Edit', 'Write', 'NotebookEdit', 'WebFetch'],
+    summary: 'Chat (attended: edits the checkout, runs starpath scripts, researches; never pushes, sends or edits the tracker directly)',
+    attended: true,
+    writes: ['**'],
+    tmp: ['jd-*.txt', 'cv-*.txt', 'cv-*.html'],
+    commands: CHAT_COMMANDS,
+    web: 'fetch+search',
+    deny: CHAT_DENY,
   },
 }
 
@@ -348,10 +381,15 @@ export function disallowedRules(kind) {
   return [...PROJECT_DENY, ...own]
 }
 
+/** Unattended kinds deny anything not allowed; chat auto-accepts edits. */
+export function permissionMode(kind) {
+  return capabilityFor(kind).attended ? 'acceptEdits' : 'dontAsk'
+}
+
 /** The permission flags for a worker kind, ready to splice into argv. */
 export function workerPermissionArgs(kind, opts = {}) {
   return [
-    '--permission-mode', 'dontAsk',
+    '--permission-mode', permissionMode(kind),
     '--strict-mcp-config',
     '--setting-sources', 'project',
     '--tools', workerTools(kind).join(','),

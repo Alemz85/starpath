@@ -74,13 +74,14 @@ test('report headers carry Posted and Posting check; the posted date is never gu
     assert.match(text, /Never guess, and never use an `updated_at`/, rel)
   }
   // Batch: the check sits next to Verification.
-  assert.match(read('batch/batch-prompt.md'), /\*\*Verification:\*\* unconfirmed \(batch mode\)\n\*\*Posting check:\*\*/)
+  assert.match(read('batch/batch-prompt.md'), /^\*\*Verification:\*\* \{[^\n]*unconfirmed \(batch mode\)[^\n]*\}\n\*\*Posting check:\*\*/m)
 })
 
 test('the batch runner checks the posting itself and launches workers least-privilege', () => {
   const sh = read('batch/batch-runner.sh')
   assert.match(sh, /scripts\/posting-guard\.mjs"? --url "\$url" --save-text "\$jd_rel"/)
   assert.match(sh, /JD file: \$jd_line/)
+  assert.match(sh, /jd_rel="batch\/work\/\$\{id\}-posting\.txt"/, 'scratch, not the jds/ archive')
   assert.match(sh, /Posting check: \$posting_check/)
   assert.match(sh, /worker-capabilities\.mjs" args eval/)
   assert.match(sh, /"\$\{WORKER_ARGS\[@\]\}"/)

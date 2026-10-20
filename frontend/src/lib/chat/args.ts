@@ -2,8 +2,9 @@
 //
 // Same shape as the app's other spawns (`claudeArgs` in lib/spawnFormat.ts,
 // `claudeEvalArgs` in lib/evalSpawn.ts) — stream-json so the transcript can
-// render live, and the least-privilege flags of worker kind `chat` (read-only:
-// derived by scripts/lib/worker-capabilities.mjs in main and passed in as
+// render live, and the flags of worker kind `chat` (attended: acceptEdits with
+// a deny list for destructive and outward actions; derived by
+// scripts/lib/worker-capabilities.mjs in main and passed in as
 // `permissionArgs`) — plus the two flags chat specifically needs:
 //
 //   --include-partial-messages   token-level `stream_event` deltas, so the

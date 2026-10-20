@@ -418,10 +418,10 @@ process_offer() {
   # fails the run — an unreachable page is "unchecked"). It also returns the
   # page's own posting date, and saves the readable posting (JSON-LD job text
   # + visible text, hidden content removed) as the worker's JD file under
-  # jds/: client-rendered ATS pages give WebFetch little more than a title,
+  # batch/work/: client-rendered ATS pages give WebFetch little more than a title,
   # and the worker never sees the page's hidden text. No file → the worker
   # fetches the URL itself (batch-prompt.md § Unresolved placeholders).
-  local jd_rel="jds/batch-${id}.txt"
+  local jd_rel="batch/work/${id}-posting.txt"
   rm -f "$PROJECT_DIR/$jd_rel"
   local posting_check posted_from_page jd_saved guard_out
   guard_out=$(cd "$PROJECT_DIR" && node scripts/posting-guard.mjs --url "$url" --save-text "$jd_rel" 2>/dev/null \
@@ -479,8 +479,8 @@ process_offer() {
   local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied
   IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied <<< "$parsed"
 
-  # The worker's score-listing inputs (batch-prompt.md: --input batch/work/…).
-  rm -f "$PROJECT_DIR/batch/work/${id}-"*.json
+  # The worker's scratch: score-listing inputs and the saved posting (batch/work/<id>-…).
+  rm -f "$PROJECT_DIR/batch/work/${id}-"*
 
   # A worker that hit its permissions failed, whatever it exited with: the
   # CLI refused a call and the run may have skipped work to carry on.

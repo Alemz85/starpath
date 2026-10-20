@@ -93,10 +93,10 @@ export function extractPermissionDenials(event: unknown): string[] | null {
   })
 }
 
-/** The failure line for a chat turn that hit its read-only permissions. */
+/** The failure line for a chat turn that hit its deny list (push, backup, settings, the tracker…). */
 export function permissionDenialMessage(denied: string[]): string {
-  return `Chat is read-only and the reply tried ${denied.length === 1 ? 'an action' : `${denied.length} actions`} ` +
-    `outside that (${denied.slice(0, 3).join('; ')}). Ask it to propose the change instead.`
+  return `The reply tried ${denied.length === 1 ? 'an action' : `${denied.length} actions`} chat is not allowed to do ` +
+    `(${denied.slice(0, 3).join('; ')}). Do it yourself, or ask for another way (statuses go through set-status).`
 }
 
 /** Map one parsed stream-json event to the directives it implies. */

@@ -22,7 +22,11 @@ import {
   personalVariants,
   deniedTools,
   bashRule,
+  permissionMode,
 } from './worker-capabilities.mjs'
+
+// Every kind but chat runs unattended; chat is the one attended kind.
+const UNATTENDED = WORKER_KINDS.filter((k) => !WORKER_CAPABILITIES[k].attended)
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -40,10 +44,12 @@ const bashRules = (kind) => allowedRules(kind).filter((r) => r.startsWith('Bash(
 
 // ─── Every kind ──────────────────────────────────────────────────────────────
 
-test('every kind derives dontAsk, no MCP, project settings only, and both rule lists', () => {
+test('every kind derives its mode, no MCP, project settings only, and both rule lists', () => {
+  assert.deepEqual(WORKER_KINDS.filter((k) => WORKER_CAPABILITIES[k].attended), ['chat'])
   for (const kind of WORKER_KINDS) {
     const argv = workerPermissionArgs(kind)
-    assert.deepEqual(flagValues(argv, '--permission-mode'), ['dontAsk'], kind)
+    assert.deepEqual(flagValues(argv, '--permission-mode'), [kind === 'chat' ? 'acceptEdits' : 'dontAsk'], kind)
+    assert.equal(permissionMode(kind), kind === 'chat' ? 'acceptEdits' : 'dontAsk')
     assert.ok(argv.includes('--strict-mcp-config'), kind)
     assert.deepEqual(flagValues(argv, '--setting-sources'), ['project'], kind)
     assert.deepEqual(flagValues(argv, '--tools'), [workerTools(kind).join(',')], kind)
@@ -54,8 +60,8 @@ test('every kind derives dontAsk, no MCP, project settings only, and both rule l
   }
 })
 
-test('no kind gets an unscoped write, unscoped Bash, MCP or subagent tool', () => {
-  for (const kind of WORKER_KINDS) {
+test('no unattended kind gets an unscoped write, unscoped Bash, MCP or subagent tool', () => {
+  for (const kind of UNATTENDED) {
     const allowed = allowedRules(kind)
     for (const bare of ['Edit', 'Write', 'Bash', 'NotebookEdit', 'Agent', 'Task']) {
       assert.ok(!allowed.includes(bare), `${kind} allows bare ${bare}`)
@@ -75,8 +81,8 @@ test('every kind denies the project deny list first', () => {
   }
 })
 
-test('Bash counts as a write tool: a kind has Bash only through named commands', () => {
-  for (const kind of WORKER_KINDS) {
+test('Bash counts as a write tool: an unattended kind has Bash only through named commands', () => {
+  for (const kind of UNATTENDED) {
     const hasBash = workerTools(kind).includes('Bash')
     assert.equal(hasBash, WORKER_CAPABILITIES[kind].commands.length > 0, kind)
     for (const r of bashRules(kind)) {
@@ -106,7 +112,7 @@ test('eval workers write only under batch/ and reports/, plus their data rows an
   const dataRows = ['score-history.tsv', 'report-summaries.tsv', 'comp-cache.tsv', 'tax-cache.tsv', 'col-cache.tsv']
   for (const kind of ['eval', 'eval-app']) {
     for (const p of WORKER_CAPABILITIES[kind].writes) {
-      const ok = p.startsWith('batch/') || p.startsWith('reports/tier-') ||
+      const ok = p.startsWith('batch/') || p.startsWith('reports/tier-') || p === 'jds/**' ||
         dataRows.some((f) => p === `data/${f}`) || (kind === 'eval-app' && p === 'data/pipeline.md')
       assert.ok(ok, `${kind} writes ${p}`)
     }
@@ -128,16 +134,20 @@ test('the batch eval worker argv, exactly', () => {
     'Edit(./reports/tier-3/**)', 'Edit(./private/**/reports/tier-3/**)',
     'Edit(./batch/scouting-additions/**)', 'Edit(./private/**/batch/scouting-additions/**)',
     'Edit(./batch/work/**)',
+    'Edit(./jds/**)', 'Edit(./private/**/jds/**)',
     'Edit(./data/score-history.tsv)', 'Edit(./private/**/data/score-history.tsv)',
     'Edit(./data/report-summaries.tsv)', 'Edit(./private/**/data/report-summaries.tsv)',
     'Edit(./data/comp-cache.tsv)', 'Edit(./private/**/data/comp-cache.tsv)',
     'Edit(./data/tax-cache.tsv)', 'Edit(./private/**/data/tax-cache.tsv)',
     'Edit(./data/col-cache.tsv)', 'Edit(./private/**/data/col-cache.tsv)',
     'Bash(node scripts/posting-guard.mjs:*)',
+    'Bash(node scripts/fetch-posting.mjs:*)',
     'Bash(node scripts/score-listing.mjs:*)',
     'Bash(node scripts/reserve-report-num.mjs:*)',
     'Bash(node scripts/cv-summary.mjs:*)',
     'Bash(node scripts/agent-log.mjs log:*)',
+    'Bash(node scripts/outcomes.mjs --json)',
+    'Bash(node scripts/messages.mjs post --source eval:*)',
     'Bash(cd .)',
     'WebFetch', 'WebSearch',
     '--disallowedTools',
@@ -154,16 +164,20 @@ test('the app eval worker adds the pipeline inbox and its merge, nothing broader
   assert.ok(bashRules('eval-app').includes('Bash(node scripts/merge-scouting.mjs:*)'))
 })
 
-test('the chat advisor is read-only', () => {
-  assert.deepEqual(workerTools('chat'), ['Read', 'Glob', 'Grep', 'Bash', 'WebSearch'])
-  assert.deepEqual(editRules('chat'), [])
-  assert.ok(!allowedRules('chat').includes('WebFetch'))
-  for (const d of ['Edit', 'Write', 'NotebookEdit', 'WebFetch']) assert.ok(disallowedRules('chat').includes(d), d)
-  // Scripts with a write flag are allowed only as an exact read-only command.
-  for (const r of bashRules('chat')) {
-    if (/daily-brief|apply-kit|triage-pipeline|session-handoff|npm run/.test(r)) assert.ok(!r.endsWith(':*)'), r)
+test('chat is attended: it edits the checkout and runs starpath scripts, but never pushes, backs up or edits the tracker', () => {
+  const allowed = allowedRules('chat')
+  assert.ok(allowed.includes('Edit(./**)'))
+  for (const r of ['Bash(node scripts/*)', 'Bash(npm run *)', 'Bash(git status:*)', 'Bash(git diff:*)', 'Bash(git log:*)', 'WebFetch', 'WebSearch']) {
+    assert.ok(allowed.includes(r), r)
   }
-  assert.ok(bashRules('chat').includes('Bash(node scripts/daily-brief.mjs --json)'))
+  assert.ok(!allowed.some((r) => /^Bash\((git (push|commit|reset)|rm|curl)/.test(r)))
+  const denied = disallowedRules('chat')
+  for (const r of ['Edit(./.claude/**)', 'Edit(./data/applications.md)', 'Edit(./private/**/data/applications.md)',
+    'Bash(git push*)', 'Bash(git reset*)', 'Bash(npm run backup*)', 'Bash(node scripts/private.mjs*)',
+    'Bash(npm run schedule*)', 'Bash(node scripts/*..*)']) {
+    assert.ok(denied.includes(r), r)
+  }
+  assert.ok(!allowed.includes('Bash') && !allowed.includes('Edit'), 'no bare tools even when attended')
 })
 
 test('apply flows run the CV tools and write under private/CV/applications and output/', () => {

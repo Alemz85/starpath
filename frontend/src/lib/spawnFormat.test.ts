@@ -54,11 +54,11 @@ test('every frontend worker kind is a kind of the capability table', async () =>
   assert.deepEqual([...WORKER_KINDS].sort(), [...caps.WORKER_KINDS].sort())
 })
 
-test('main expands each kind into least-privilege flags (dontAsk, scoped tools)', async () => {
+test('main expands each kind into its derived flags (dontAsk for unattended kinds, acceptEdits for chat)', async () => {
   const caps = await loadCaps()
   for (const kind of WORKER_KINDS) {
     const argv = caps.expandWorkerArgs(claudeArgs('/x', 'sonnet', kind))
-    assert.deepEqual(argv.slice(0, 2), ['--permission-mode', 'dontAsk'], kind)
+    assert.deepEqual(argv.slice(0, 2), ['--permission-mode', kind === 'chat' ? 'acceptEdits' : 'dontAsk'], kind)
     assert.ok(argv.includes('--allowedTools') && argv.includes('--disallowedTools'), kind)
     assert.ok(!argv.includes(WORKER_FLAG), kind)
     assert.equal(argv.at(-1), '/x' + NON_INTERACTIVE_SUFFIX, kind)
