@@ -51,6 +51,7 @@ import { execFileSync } from 'child_process'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import yaml from 'js-yaml'
+import { dataRootFor } from './lib/data-root.mjs'
 
 import { parseScoreHistory } from './lib/targeting-core.mjs'
 import { parseScanHistory, buildDigest } from './lib/whats-new-core.mjs'
@@ -83,18 +84,21 @@ import {
 } from './lib/profile-core.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
-const SCAN_FILE = join(ROOT, 'data/scan-history.tsv')
-const SCORE_FILE = join(ROOT, 'data/score-history.tsv')
-const OUTREACH_FILE = join(ROOT, 'data/outreach.md')
-const NETWORK_FILE = join(ROOT, 'data/network.md')
-const APPS_FILE = join(ROOT, 'data/applications.md')
-const SCOUTING_FILE = join(ROOT, 'data/scouting.md')
-const PIPELINE_FILE = join(ROOT, 'data/pipeline.md')
-const DEDUP_FILE = join(ROOT, 'data/dedup-index.tsv')
-const PROFILE_FILE = join(ROOT, 'user/profile.yml')
+// Personal files: the data root ($STARPATH_DATA, private/, or this checkout's
+// own folders). The app sets $STARPATH_DATA when it shows the demo dataset.
+const DATA = dataRootFor(ROOT)
+const SCAN_FILE = join(DATA, 'data/scan-history.tsv')
+const SCORE_FILE = join(DATA, 'data/score-history.tsv')
+const OUTREACH_FILE = join(DATA, 'data/outreach.md')
+const NETWORK_FILE = join(DATA, 'data/network.md')
+const APPS_FILE = join(DATA, 'data/applications.md')
+const SCOUTING_FILE = join(DATA, 'data/scouting.md')
+const PIPELINE_FILE = join(DATA, 'data/pipeline.md')
+const DEDUP_FILE = join(DATA, 'data/dedup-index.tsv')
+const PROFILE_FILE = join(DATA, 'user/profile.yml')
 const FOLLOWUP_SCRIPT = join(ROOT, 'scripts/followup-cadence.mjs')
 const PATTERNS_SCRIPT = join(ROOT, 'scripts/analyze-patterns.mjs')
-const BRIEFS_DIR = join(ROOT, 'reports/briefs')
+const BRIEFS_DIR = join(DATA, 'reports/briefs')
 
 // --- CLI args ---
 const args = process.argv.slice(2)
@@ -298,7 +302,7 @@ function readProfileFile(slug, canonicalPath) {
   // Read a canonical path inside a specific (inactive) profile directly, never
   // through the active symlink. Best-effort: absent/unreadable → ''.
   try {
-    const p = join(ROOT, profileRelPath(slug, canonicalPath))
+    const p = join(DATA, profileRelPath(slug, canonicalPath))
     return existsSync(p) ? readFileSync(p, 'utf8') : ''
   } catch {
     return ''
@@ -310,7 +314,7 @@ function readProfileFile(slug, canonicalPath) {
 // profileRelPath (which prefixes a canonical sub-path).
 function readMetaRaw(slug) {
   try {
-    const p = join(ROOT, PROFILES_DIR, slug, 'meta.yml')
+    const p = join(DATA, PROFILES_DIR, slug, 'meta.yml')
     return existsSync(p) ? readFileSync(p, 'utf8') : ''
   } catch {
     return ''
@@ -318,11 +322,11 @@ function readMetaRaw(slug) {
 }
 
 function getCrossProfileSummaries() {
-  const profilesDir = join(ROOT, PROFILES_DIR)
+  const profilesDir = join(DATA, PROFILES_DIR)
   if (!existsSync(profilesDir)) return [] // pre-migration single-profile layout
 
-  const activeSlug = existsSync(join(ROOT, ACTIVE_POINTER))
-    ? parseActive(read(join(ROOT, ACTIVE_POINTER)))
+  const activeSlug = existsSync(join(DATA, ACTIVE_POINTER))
+    ? parseActive(read(join(DATA, ACTIVE_POINTER)))
     : null
 
   let slugs

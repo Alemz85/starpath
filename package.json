@@ -4,6 +4,12 @@
   "description": "AI-powered job search pipeline built on Claude Code, with the starpath desktop GUI on top",
   "scripts": {
     "doctor": "node scripts/doctor.mjs",
+    "private": "node scripts/private.mjs",
+    "backup": "node scripts/private.mjs backup",
+    "overrides": "node scripts/overrides.mjs",
+    "hooks": "node scripts/install-hooks.mjs",
+    "leak-check": "node scripts/lib/hygiene-guard.mjs",
+    "demo:build": "node scripts/demo/build-demo.mjs",
     "verify": "node scripts/verify-pipeline.mjs",
     "normalize": "node scripts/normalize-statuses.mjs",
     "dedup": "node scripts/dedup-tracker.mjs",

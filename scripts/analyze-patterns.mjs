@@ -19,13 +19,14 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
+import { dataRootFor } from './lib/data-root.mjs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseScoreHistory, analyzeScouting } from './lib/targeting-core.mjs';
 import { VERDICT_ORDER, VERDICT_LABELS } from './lib/score-bands.mjs';
 import { parseTracker, enrichEntries, analyzeOutcomes } from './lib/patterns-core.mjs';
 
-const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
+const CAREER_OPS = dataRootFor(dirname(dirname(fileURLToPath(import.meta.url))));  // data root (STARPATH_DATA / private / this checkout)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
   : join(CAREER_OPS, 'applications.md');

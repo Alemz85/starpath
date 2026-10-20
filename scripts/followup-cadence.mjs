@@ -21,11 +21,12 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
+import { dataRootFor } from './lib/data-root.mjs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { analyze, renderSummary, buildCadence } from './lib/followup-cadence-core.mjs';
 
-const CAREER_OPS = dirname(dirname(fileURLToPath(import.meta.url)));
+const CAREER_OPS = dataRootFor(dirname(dirname(fileURLToPath(import.meta.url))));  // data root (STARPATH_DATA / private / this checkout)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
   ? join(CAREER_OPS, 'data/applications.md')
   : join(CAREER_OPS, 'applications.md');
