@@ -15,6 +15,7 @@ import { ViewTabs, viewTabId, viewPanelId } from '@/components/shared/ViewTabs'
 import { UnsavedChangesModal } from '@/components/shared/UnsavedChangesModal'
 import { ThemePicker } from '@/components/settings/ThemePicker'
 import { ScheduleSection } from '@/components/settings/ScheduleSection'
+import { UsageSection } from '@/components/settings/UsageSection'
 import { FeatureToggle } from '@/components/settings/FeatureToggle'
 import { ipc } from '@/lib/ipc'
 import { slugValidationHint, formatProfileCounts, profileInitial, describeProfileFailure } from '@/lib/profiles'
@@ -530,6 +531,13 @@ function GeneralTab() {
         description="Let the app scan the job boards and rank the new listings by itself, about once a week, in an hour you are not using Claude. Scanning is free; evaluating the best listings with Claude workers is a separate switch, off by default."
       >
         <ScheduleSection />
+      </SettingRow>
+
+      <SettingRow
+        title="Token usage"
+        description="What Claude runs cost: this week and last, and every recent run with the tokens and cost Claude reported when it finished. Nothing is measured while a run is going."
+      >
+        <UsageSection />
       </SettingRow>
 
       <SettingRow

@@ -7,6 +7,8 @@
 // SpawnRecord shape, and re-exports `claudeArgs` / `NON_INTERACTIVE_SUFFIX`
 // for API stability (both are imported by call sites across the app).
 
+import { parseResultUsage, formatCost, type SpawnUsage } from './usage'
+
 // ─── Claude invocation ──────────────────────────────────────────────────────
 
 export type ClaudeModel = 'sonnet' | 'opus' | 'haiku'
@@ -129,6 +131,7 @@ export interface JsonlEvent {
   duration_ms?: number
   num_turns?: number
   usage?: JsonlUsage
+  total_cost_usd?: number
 }
 
 export interface HumanizeChunkResult {
@@ -136,6 +139,8 @@ export interface HumanizeChunkResult {
   lines: string[]
   /** Trailing partial line carried over to prepend to the next chunk. */
   buffer: string
+  /** Usage from the final `result` event when this chunk carried it. */
+  usage?: SpawnUsage
 }
 
 // Humanize a raw stdout chunk against the carry-over buffer from the previous
@@ -147,15 +152,17 @@ export function humanizeJsonlChunk(prevBuffer: string, chunk: string): HumanizeC
   const parts = (prevBuffer + chunk).split('\n')
   const buffer = parts.pop() ?? ''  // last item is incomplete — carry it over
   const lines: string[] = []
+  let usage: SpawnUsage | undefined
   for (const raw of parts) {
     if (!raw.trim()) continue
+    usage = parseResultUsage(raw) ?? usage
     const formatted = humanizeJsonlLine(raw)
     if (formatted == null) continue
     for (const line of formatted.split('\n')) {
       if (line.trim()) lines.push(line)
     }
   }
-  return { lines, buffer }
+  return usage ? { lines, buffer, usage } : { lines, buffer }
 }
 
 export function humanizeJsonlLine(raw: string): string | null {
@@ -209,7 +216,7 @@ export function permissionDenials(evt: JsonlEvent): string[] {
 }
 
 // Compact "how much did this spawn cost" tail for the result capstone, e.g.
-// "3m 04s · 41 turns · 356.2k in (87% cached) / 5.4k out". Token visibility in
+// "3m 04s · 41 turns · 356.2k in (87% cached) / 5.4k out · $0.42". Token visibility in
 // the activity panel is the user-facing half of the token-cost measurement
 // work (the batch runner logs the same numbers to batch/logs/usage.tsv).
 // Returns null when the event carries no stats (older CLI versions).
@@ -231,6 +238,7 @@ export function formatResultStats(evt: JsonlEvent): string | null {
       parts.push(`${formatTokens(inTotal)} in${cachedPct} / ${formatTokens(out)} out`)
     }
   }
+  if (typeof evt.total_cost_usd === 'number' && evt.total_cost_usd > 0) parts.push(formatCost(evt.total_cost_usd))
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
