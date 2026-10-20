@@ -147,6 +147,11 @@ export function demoToggleState(info: DataRootInfo | null | undefined): {
     return { checked: false, disabled: true, hint: 'Choose a repository first' }
   }
   if (isDemo(info)) {
+    // STARPATH_DATA=demo in the app's own environment wins over config:
+    // nothing in the app can switch it off for this launch.
+    if (info.source === 'env') {
+      return { checked: true, disabled: true, hint: 'STARPATH_DATA pins the demo for this launch' }
+    }
     return info.ownDataAvailable
       ? { checked: true, disabled: false, hint: undefined }
       : { checked: true, disabled: true, hint: 'Set up your own search first (Use my own data)' }

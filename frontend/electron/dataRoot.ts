@@ -103,7 +103,7 @@ export async function computeDataRoot(
     source = r.source
     isPersonal = (rel: string) => mod.isPersonalPath(rel)
   } catch (e) {
-    console.error('[data-root] scripts/lib/data-root.mjs unavailable; using repo-relative paths:', e)
+    console.error('[data-root] scripts/lib/data-root.mjs unavailable; using repo-relative paths:', e instanceof Error ? e.message : e)
   }
   return {
     repoPath, root, kind, source, isPersonal, demoAvailable, privateExists,

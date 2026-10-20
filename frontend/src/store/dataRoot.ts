@@ -40,6 +40,11 @@ export const useDataRootStore = create<DataRootState>((set, get) => ({
     try {
       const info = await ipc.dataRoot.setDataPath(on ? DEMO_DATA_PATH : null)
       if (info) set({ info })
+      // Leaving the demo can be overruled by STARPATH_DATA=demo in the app's
+      // environment; say so instead of pretending it worked.
+      if (!on && info?.kind === 'demo') {
+        return { ok: false, message: 'STARPATH_DATA pins the demo for this launch' }
+      }
       return { ok: true }
     } catch (e) {
       return { ok: false, message: e instanceof Error ? e.message : String(e) }

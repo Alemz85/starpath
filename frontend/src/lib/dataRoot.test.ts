@@ -101,6 +101,8 @@ test('Show demo data switch: on/off rules', () => {
   assert.equal(stuck.disabled, true)
   assert.ok(stuck.hint)
   assert.equal(demoToggleState(info({ repoPath: null })).disabled, true)
+  // STARPATH_DATA=demo set in the app's environment can't be switched off.
+  assert.equal(demoToggleState(info({ kind: 'demo', source: 'env' })).disabled, true)
   assert.equal(demoToggleState(null).disabled, true)
 })
 
