@@ -14,6 +14,8 @@
  *   node scripts/set-status.mjs history <num> [--json]
  *   node scripts/set-status.mjs history [--json]          (the whole log)
  *   node scripts/set-status.mjs backfill [--dry-run]      (origin row per application, idempotent)
+ *   node scripts/set-status.mjs amend <num> <status> [--date YYYY-MM-DD] [--stage "…"]
+ *                                                         (correct the latest logged move to <status>)
  *
  * --date defaults to today; a past date is fine (rejections are often logged
  * late). --stage is free text, e.g. where a rejection happened.
@@ -23,7 +25,7 @@
 
 import { join } from 'node:path'
 import { dataRootFor, repoRootFrom } from './lib/data-root.mjs'
-import { backfill, ledgerPathFor, readHistory, setStatus } from './lib/status-ledger.mjs'
+import { amendStatus, backfill, ledgerPathFor, readHistory, setStatus } from './lib/status-ledger.mjs'
 
 const argv = process.argv.slice(2)
 const VALUE_FLAGS = new Set(['--date', '--stage', '--note', '--company', '--role', '--source'])
@@ -62,6 +64,26 @@ function main() {
       console.log(`#${e.num}  ${e.date}  ${move}  (${e.source})${extra ? '  ' + extra : ''}`)
     }
     return
+  }
+
+  if (first === 'amend') {
+    const byName = flag('--company') !== undefined
+    const [, a, b] = positional
+    const to = byName ? a : b
+    if (!to || (flag('--date') === undefined && flag('--stage') === undefined)) {
+      console.error('Usage: set-status.mjs amend <num> <status> [--date YYYY-MM-DD] [--stage "…"]')
+      process.exit(2)
+    }
+    const result = amendStatus({
+      appsFile, statesFile,
+      num: byName ? null : a, company: flag('--company'), role: flag('--role'),
+      to, date: flag('--date'), stage: flag('--stage'),
+      source: flag('--source') ?? 'cli',
+    })
+    if (JSON_OUT) return console.log(JSON.stringify(result))
+    const e = result.entry
+    if (!result.changed) return console.log(`#${e.num} already ${e.to} on ${e.date}${e.stage ? ` (${e.stage})` : ''}; nothing changed`)
+    return console.log(`#${e.num} ${e.company} — ${e.role}: ${e.to} on ${e.date}${e.stage ? ` (${e.stage})` : ''}`)
   }
 
   const byName = flag('--company') !== undefined
