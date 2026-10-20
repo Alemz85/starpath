@@ -19,6 +19,8 @@
     "electron/**/*",
     "src/lib/parsers/**/*",
     "src/lib/chat/**/*",
+    "src/lib/dataRoot.ts",
+    "src/lib/dataRootMain.ts",
     "src/types/**/*"
   ],
   "exclude": ["node_modules", "**/*.test.ts"]
