@@ -115,6 +115,7 @@ Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thi
 **Want:** {want}/10 · **Ease:** {ease}/10
 **Eligibility:** {green | amber — reasons ;-joined}
 **Verdict:** {verdict_label} — {action}
+**TL;DR:** {one plain sentence: the deciding factor and the call}
 **Tier:** {T1|T2|T3}
 **URL:** {listing-specific url or "—"}
 ```

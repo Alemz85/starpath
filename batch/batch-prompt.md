@@ -178,6 +178,7 @@ Header:
 **Want:** {want}/10 · **Ease:** {ease}/10
 **Eligibility:** {green | amber — reasons ;-joined}
 **Verdict:** {verdict_label} — {apply now | apply with prep | close the gap first | apply | apply only if your pipeline is thin}
+**TL;DR:** {one plain sentence: the deciding factor and the call}
 **Tier:** {T1|T2|T3}
 **URL:** {listing-specific URL, or "—" if you only have a portal homepage}
 **Verification:** unconfirmed (batch mode)

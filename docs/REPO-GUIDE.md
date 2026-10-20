@@ -69,7 +69,7 @@ To protect a term the gate can't infer (a contact's name, an address, a company 
 | `interview-prep/story-bank.md` | Accumulated STAR+R stories across evaluations |
 | `interview-prep/{Company} - {Role}.md` | Per-listing application prep (interview intel + STAR mapping) |
 | `templates/cv-template.html` | HTML template for CVs |
-| `reports/tier-{1..4}/{Company} - {Role}.md` | Evaluation reports — **banded depth** (every report keeps the universal header + `## Eligibility` + `## Dimensional scoring` table + a closing `Salary math:` line; T1 adds the full prose sections — Role summary + Gaps + Comp + Recommendation + Career path impact; T2 a short Fit/gaps + Verdict + Path forward; T3 a compact Gap & Growth roadmap; T4 writes **no file** — scores still land in score-history + scouting). See `modes/scouting.md` § Output Behavior |
+| `reports/tier-{1..4}/{Company} - {Role}.md` | Evaluation reports — **banded depth** (every report keeps the universal header (Date, Location, Archetype, Want · Ease, Eligibility, Verdict, one-line `**TL;DR:**`, Tier, URL) + `## Eligibility` + `## Dimensional scoring` table + a closing `Salary math:` line; T1 adds the full prose sections — Role summary + Gaps + Comp + Recommendation + Career path impact; T2 a short Fit/gaps + Verdict + Path forward; T3 a compact Gap & Growth roadmap; T4 writes **no file** — scores still land in score-history + scouting). See `modes/scouting.md` § Output Behavior |
 
 ## Script catalog
 

@@ -484,17 +484,19 @@ Sibling roles still differ on **Skills Match** (different stacks), **Role conten
 
 ### Standard report block format
 
-**Header** (after the `# Scouting:` / `# Gap & Growth:` title and the Date / Location / Archetype lines), exactly these five lines in this order:
+**Header** (after the `# Scouting:` / `# Gap & Growth:` title and the Date / Location / Archetype lines), exactly these six lines in this order:
 
 ```markdown
 **Want:** 8.25/10 · **Ease:** 5.6/10
 **Eligibility:** amber — start date not stated
 **Verdict:** Stretch — apply with prep
+**TL;DR:** The role fits on skills; the start date is the open question, so ask first.
 **Tier:** T2
 **URL:** {listing-specific url or "—"}
 ```
 
 - `**Eligibility:**` is `green`, or `amber — {reasons, ;-joined}`. (Red listings write no report.)
+- `**TL;DR:**` is one plain sentence: the deciding factor and the call. Every report that writes a file carries it (the app shows it as the report's summary).
 - `**Verdict:**` is `{verdict_label} — {action}`: `Go — apply now` · `Stretch — apply with prep` · `Growth target — close the gap first` · `Solid — apply` · `If pipeline thin — apply only if your pipeline is thin`.
 
 **Body**, in order:

@@ -150,7 +150,7 @@ test('key Competition / work_auth constants agree with _shared.md', () => {
 test('report header lines and dimensional-table tags agree', () => {
   for (const [name, text] of [...BOTH, ['scouting mode', scouting]]) {
     for (const token of [
-      '**Want:**', '**Ease:**', '**Eligibility:**', '**Verdict:**', '**Tier:**', '**URL:**',
+      '**Want:**', '**Ease:**', '**Eligibility:**', '**Verdict:**', '**TL;DR:**', '**Tier:**', '**URL:**',
       '## Eligibility', '## Dimensional scoring', 'Salary math:',
     ]) {
       assert.ok(text.includes(token), `${name} carries ${token}`)
