@@ -1,11 +1,10 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useState } from 'react'
 import { useDataStore } from '@/store/data'
-import { Globe } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { canonicalizeArchetype } from '@/lib/archetype'
-import { CompanyLogo } from '@/components/shared/CompanyLogo'
+import { TOP_LIST_DEFS, TopListCard, buildTopList } from '@/components/shared/TopListCard'
 import { EmptyState } from '@/components/shared/EmptyState'
 import {
   Button, Chip, Panel, PageHeader, StatStrip, Stat, type ChipTone,
@@ -13,12 +12,11 @@ import {
 import { WantEase } from '@/components/shared/WantEase'
 import { ListingsChart } from '@/components/trends/ListingsChart'
 import {
-  type TimeRange, type TopRow, type Funnel, type PeriodGranularity,
+  type TimeRange, type Funnel, type PeriodGranularity,
   type TargetingMomentum, type MomentumDirection, type ArchetypeMix,
   TIME_RANGE_LABEL, filterByDateWindow,
-  avg, buildByPeriod, pickGranularity, buildTopBy, buildFunnel, scoredOnly,
+  avg, buildByPeriod, pickGranularity, buildFunnel, scoredOnly,
   buildTargetingMomentum, buildArchetypeMix,
-  locationFlag, primaryPlace,
 } from '@/lib/trendsAnalytics'
 import { themeColor } from '@/lib/themes'
 import { listingDateKey, postedDateOf } from '@/lib/listingDates'
@@ -66,9 +64,9 @@ export function TrendsView() {
   const byPeriod = useMemo(() => buildByPeriod(filtered, granularity, periodOpts), [filtered, granularity, periodOpts])
 
   // Top lists, each ranked on one named axis (Want or Ease, never both folded).
-  const topCompanies  = useMemo(() => buildTopBy(filtered, e => e.company, 'ease', TOP_LIMIT), [filtered])
-  const topLocations  = useMemo(() => buildTopBy(filtered, e => primaryPlace(e.location), 'want', TOP_LIMIT), [filtered])
-  const topArchetypes = useMemo(() => buildTopBy(filtered, e => canonicalizeArchetype(e.archetype), 'ease', TOP_LIMIT), [filtered])
+  const topCompanies  = useMemo(() => buildTopList(filtered, 'companies', TOP_LIMIT), [filtered])
+  const topLocations  = useMemo(() => buildTopList(filtered, 'locations', TOP_LIMIT), [filtered])
+  const topArchetypes = useMemo(() => buildTopList(filtered, 'archetypes', TOP_LIMIT), [filtered])
 
   const stats = useMemo(() => {
     if (filtered.length === 0) return null
@@ -149,21 +147,9 @@ export function TrendsView() {
               {/* Top lists lead: each answers "which X is best on one axis",
                   named in the title. They share the page's time range. */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                <TopListCard
-                  title="Top companies by Ease"
-                  items={topCompanies}
-                  icon={label => <CompanyLogo company={label} size={20} className="shrink-0" />}
-                />
-                <TopListCard
-                  title="Top locations by Want"
-                  items={topLocations}
-                  icon={label => (
-                    <span className="w-5 shrink-0 flex items-center justify-center text-section leading-none" aria-hidden>
-                      {locationFlag(label) ?? <Globe size={13} className="text-text-4" />}
-                    </span>
-                  )}
-                />
-                <TopListCard title="Top archetypes by Ease" items={topArchetypes} />
+                <TopListCard title={TOP_LIST_DEFS.companies.title} icon={TOP_LIST_DEFS.companies.icon} items={topCompanies} />
+                <TopListCard title={TOP_LIST_DEFS.locations.title} icon={TOP_LIST_DEFS.locations.icon} items={topLocations} />
+                <TopListCard title={TOP_LIST_DEFS.archetypes.title} icon={TOP_LIST_DEFS.archetypes.icon} items={topArchetypes} />
               </div>
 
               {/* Listings by posting date, wanted vs the rest. */}
@@ -199,42 +185,6 @@ export function TrendsView() {
       </div>
     </div>
   )
-}
-
-// ─── Top lists ───────────────────────────────────────────────────────────────
-
-// Every top list has the same anatomy: optional leading icon, label, the
-// Want · Ease pair (both shown, whichever axis ranks), and the listing count.
-function TopListCard({
-  title, items, icon,
-}: {
-  title: string
-  items: TopRow[]
-  icon?: (label: string) => ReactNode
-}) {
-  return (
-    <Panel
-      title={title}
-      meta={<span title="Average Want · Ease · number of scored listings">Want · Ease · n</span>}
-    >
-      {items.length === 0 ? <EmptyHint /> : (
-        <ul className="divide-y divide-border-default">
-          {items.map(({ label, count, avgWant, avgEase }) => (
-            <li key={label} className="h-9 flex items-center gap-2.5">
-              {icon?.(label)}
-              <span className="flex-1 min-w-0 text-body text-text-1 truncate" title={label}>{label}</span>
-              <WantEase want={avgWant} ease={avgEase} size="sm" bare className="shrink-0" />
-              <span className="w-6 shrink-0 text-right text-label tabular-nums text-text-4">{count}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
-  )
-}
-
-function EmptyHint() {
-  return <p className="text-label text-text-4 py-4 text-center">No data</p>
 }
 
 // ─── Targeting momentum card ─────────────────────────────────────────────────

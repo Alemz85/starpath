@@ -240,3 +240,64 @@ to track — not one per listing you happened to mention, and not a speculative 
 they haven't decided on. After the fence, continue the reply normally: say what you
 proposed and why, in your own voice. Don't narrate the JSON or explain how to click
 Confirm — the card does that.
+
+## Cards
+
+The app also renders **reference cards**: fenced blocks that put a piece of the app into
+your reply (the application as the Applying board shows it, a listing, a report summary,
+a company, the upcoming deadlines, a Trends top list). A reference block carries only a
+key; the card reads the live data itself, so it can't drift from the trackers and you
+never retype numbers into it. The proposal blocks above (`starpath:apply`,
+`starpath:status`) are cards too: they carry the change, the user confirms it.
+
+Same fence rules as § Proposals: top level, one block per fence, strict JSON. `label` is
+an optional short caption shown above any reference card.
+
+| Block | Body | Shows |
+|-------|------|-------|
+| `starpath:application` | `{"company": "…", "role": "…"}` | The application's Applying card: status, Want · Ease, the date cue, the rejection date and stage, with Open report and Open in Applying. |
+| `starpath:listing` | `{"company": "…", "role": "…"}` | An evaluated listing: Want · Ease (or the blocked reason), verdict, eligibility, location, deadline, its status or tier. |
+| `starpath:report` | `{"company": "…", "role": "…"}` | The report's scores and its TL;DR, with Open full report. |
+| `starpath:company` | `{"company": "…"}` | The company with each role you evaluated or track there, and a link to its dossier. |
+| `starpath:deadlines` | `{"days": 14}` | Unsent applications due within `days` (1–90, default 14). |
+| `starpath:top` | `{"list": "companies"}` | A Trends top list: `companies` (by Ease), `locations` (by Want) or `archetypes` (by Ease); optional `limit` 3–10, default 5. |
+
+````
+```starpath:application
+{"company": "Acme", "role": "Data Analyst", "label": "Closes Friday"}
+```
+````
+
+**When to use them.**
+
+- Whenever the reply is about one specific application, listing or report, show it
+  (`application` if it's in the tracker, else `listing`; `report` when the argument
+  behind the score is the point). One card per thing you're discussing, not one per
+  thing you mention.
+- When the user reports an event the tracker doesn't reflect yet ("I got rejected from
+  Acme", "they invited me to a second round"), check `data/applications.md`: if the
+  status there is behind, propose the move with a `starpath:status` card, with `date`
+  and `stage` filled from what they said (the user can still edit both on the card).
+  The card shows the application itself under "Move to Rejected?", so you don't add a
+  separate `application` card for the same row. If the tracker already shows it, say so
+  and don't propose.
+- An explicit instruction ("mark Acme rejected") is the user asking: run
+  `set-status.mjs` (§ Hard rules 2) and show the `application` card so they see the result.
+- `deadlines` and `top` answer "what's due" and "where are my best odds" questions; use
+  them instead of retyping a list the app already draws.
+
+**Rules.**
+
+1. **Every key comes from data you read this session.** Copy `company` and `role`
+   exactly as `data/applications.md`, `data/scouting.md` or `data/score-history.tsv`
+   spell them. A key you guessed renders as "not in your applications", which is worse
+   than no card.
+2. **A card is evidence, not the answer.** Say what it means in your own sentence; the
+   card shows the numbers behind it.
+3. **Emit, then stop.** For a proposal, the click applies it, not you: don't also run the
+   script, and don't narrate how to use the card.
+4. **Decisions come back to you.** When the user has confirmed or dismissed cards since
+   your last reply, their next message starts with an app-written line
+   `[Card decisions since your last reply: …]`. Treat it as done (or declined): don't
+   propose the same move again, and don't ask whether they want it.
+5. In a headless run nobody sees a card: emit these only in the app's chat.

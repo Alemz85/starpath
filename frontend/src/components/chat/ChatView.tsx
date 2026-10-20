@@ -12,12 +12,16 @@ import { isLivePhase } from '@/lib/chat/types'
 import type {
   ChatPhase, ChatRuntimeEnvelope, ChatRuntimeSnapshot, ChatSession, ChatSessionMeta,
 } from '@/lib/chat/types'
-import { describeProposal, tierForProposal } from '@/lib/chat/proposals'
+import { describeDecision, tierForProposal } from '@/lib/chat/proposals'
 import type { ChatProposal } from '@/lib/chat/proposals'
 import type { AppStatus } from '@/types'
 import { ChatSessionRail } from './ChatSessionRail'
 import { ChatTranscript } from './ChatTranscript'
 import { ChatComposer } from './ChatComposer'
+import { ChatCardContext, type ChatCardActions } from './cards/context'
+import { latestEvaluation } from './cards/cardData'
+import { ReportSlideOver } from '@/components/reports/ReportSlideOver'
+import { orphanScoreEntry } from '@/components/reports/ReportsView'
 
 const APPLICATIONS_PATH = 'data/applications.md'
 
@@ -50,7 +54,7 @@ async function setStatusFromChat(
 async function applyProposalToTracker(proposal: ChatProposal): Promise<string> {
   if (proposal.kind === 'status') {
     await setStatusFromChat(proposal.company, proposal.role, proposal.status, { date: proposal.date, stage: proposal.stage })
-    return describeProposal(proposal).appliedLabel
+    return describeDecision(proposal, 'applied')
   }
 
   const raw = await ipc.readFile(APPLICATIONS_PATH) ?? ''
@@ -72,7 +76,7 @@ async function applyProposalToTracker(proposal: ChatProposal): Promise<string> {
   })
   if (next !== raw) await ipc.writeFile(APPLICATIONS_PATH, next)
   if (proposal.status) await setStatusFromChat(proposal.company, proposal.role, proposal.status)
-  return describeProposal(proposal).appliedLabel
+  return describeDecision(proposal, 'applied')
 }
 
 // Header chip copy per phase. "Working elsewhere" covers the case where a
@@ -117,6 +121,17 @@ export function ChatView() {
   const [proposalBusy, setProposalBusy] =
     useState<{ blockId: string; kind: 'applying' | 'dismissing' } | null>(null)
   const [proposalErrors, setProposalErrors] = useState<Record<string, string>>({})
+  // The report a card asked to open, shown in the same sheet as everywhere else.
+  const [reportFor, setReportFor] = useState<{ company: string; role: string } | null>(null)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
+  const reportEntry = useMemo(() => {
+    if (!reportFor) return null
+    return latestEvaluation(scoreHistory, reportFor.company, reportFor.role)
+      ?? orphanScoreEntry({ path: '', company: reportFor.company, role: reportFor.role, tier: '', url: '' })
+  }, [reportFor, scoreHistory])
+  const cardActions = useMemo<ChatCardActions>(() => ({
+    openReport: (company, role) => setReportFor({ company, role }),
+  }), [])
 
   // Mirrors `runtime` for the event listener, which is registered once and
   // must not close over a stale snapshot.
@@ -253,12 +268,13 @@ export function ChatView() {
     }
   }, [proposalBusy, selectedId, session?.id])
 
-  const dismissProposal = useCallback(async (blockId: string, messageId: string) => {
+  const dismissProposal = useCallback(async (blockId: string, messageId: string, proposal: ChatProposal) => {
     if (proposalBusy) return
     setProposalBusy({ blockId, kind: 'dismissing' })
     try {
       const updated = await ipc.chat.recordDecision(
-        session?.id ?? selectedId ?? '', messageId, blockId, { status: 'dismissed' },
+        session?.id ?? selectedId ?? '', messageId, blockId,
+        { status: 'dismissed', detail: describeDecision(proposal, 'dismissed') },
       )
       if (updated) setSession(updated)
     } catch (e) {
@@ -273,8 +289,8 @@ export function ChatView() {
     errors: proposalErrors,
     onConfirm: (blockId: string, messageId: string, proposal: ChatProposal) =>
       void confirmProposal(blockId, messageId, proposal),
-    onDismiss: (blockId: string, messageId: string) =>
-      void dismissProposal(blockId, messageId),
+    onDismiss: (blockId: string, messageId: string, proposal: ChatProposal) =>
+      void dismissProposal(blockId, messageId, proposal),
   }), [confirmProposal, dismissProposal, proposalBusy, proposalErrors])
 
   const removeSession = useCallback(async (id: string) => {
@@ -333,13 +349,15 @@ export function ChatView() {
         />
 
         <div className="flex-1 flex flex-col min-w-0">
-          <ChatTranscript
-            session={session}
-            runtime={runtimeIsHere ? runtime : null}
-            generating={live}
-            proposals={proposalHandlers}
-            onSuggestion={(prompt) => void send(prompt)}
-          />
+          <ChatCardContext.Provider value={cardActions}>
+            <ChatTranscript
+              session={session}
+              runtime={runtimeIsHere ? runtime : null}
+              generating={live}
+              proposals={proposalHandlers}
+              onSuggestion={(prompt) => void send(prompt)}
+            />
+          </ChatCardContext.Provider>
 
           {notice && (
             <div
@@ -362,6 +380,15 @@ export function ChatView() {
           />
         </div>
       </div>
+
+      {reportFor && reportEntry && (
+        <ReportSlideOver
+          company={reportFor.company}
+          role={reportFor.role}
+          scoreEntry={reportEntry}
+          onClose={() => setReportFor(null)}
+        />
+      )}
     </div>
   )
 }

@@ -7,10 +7,11 @@ import { ChevronRight, Terminal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isLivePhase } from '@/lib/chat/types'
 import type { ChatProposalDecision, ChatRuntimeSnapshot, ChatSession } from '@/lib/chat/types'
-import { splitChatContent } from '@/lib/chat/proposals'
+import { splitChatContent } from '@/lib/chat/blocks'
 import type { ChatProposal } from '@/lib/chat/proposals'
 import { EmptyState } from '@/components/shared/EmptyState'
-import { ChatProposalCard, type ProposalLock } from './ChatProposalCard'
+import type { ProposalLock } from './ChatProposalCard'
+import { ChatBlockCard, PendingBlockCard } from './cards/ChatBlockCard'
 
 // Openers that are genuinely answerable from the repo's own data — each one
 // maps to files the agent can read (pipeline, scouting tiers, deadlines) rather
@@ -29,8 +30,10 @@ export interface ProposalHandlers {
   busy: { blockId: string; kind: 'applying' | 'dismissing' } | null
   /** blockId → last transient failure, cleared on retry. */
   errors: Record<string, string>
+  /** `proposal` is the block as edited on the card (a status move's date
+   *  and stage), not necessarily as the agent wrote it. */
   onConfirm(blockId: string, messageId: string, proposal: ChatProposal): void
-  onDismiss(blockId: string, messageId: string): void
+  onDismiss(blockId: string, messageId: string, proposal: ChatProposal): void
 }
 
 interface ChatTranscriptProps {
@@ -183,11 +186,12 @@ function UserTurn({ content }: { content: string }) {
  * ReportSlideOver and ReportsView use) — one markdown treatment app-wide, and
  * no new dependency.
  *
- * `starpath:apply` / `starpath:status` fences are lifted out of the prose and
- * rendered as Confirm cards (`lib/chat/proposals.ts`). Anything that doesn't
- * validate stays in the markdown and draws as an ordinary code block, so a
- * malformed proposal degrades to exactly what it looked like before cards
- * existed — never a half-card.
+ * `starpath:` fences are lifted out of the prose and rendered as cards
+ * (`lib/chat/blocks.ts`): reference cards that read the live store, and
+ * Confirm cards for proposed writes. A fence still arriving shows a skeleton;
+ * one that doesn't validate stays in the markdown and draws as an ordinary
+ * code block, so a malformed block degrades to exactly what it looked like
+ * before cards existed — never a half-card.
  */
 function AssistantTurn({
   content, streaming = false, messageId = null, decisions, lock = null, proposals,
@@ -223,22 +227,26 @@ function AssistantTurn({
             </div>
           )
         }
+        if (segment.kind === 'pending') {
+          return <PendingBlockCard key={segment.id} tag={segment.tag} />
+        }
+        const busy = proposals?.busy ?? null
         return (
-          <ChatProposalCard
+          <ChatBlockCard
             key={segment.id}
-            proposal={segment.proposal}
-            decision={decisions?.[segment.id] ?? null}
-            error={proposals?.errors[segment.id] ?? null}
-            busy={proposals?.busy?.blockId === segment.id}
-            applying={
-              proposals?.busy?.blockId === segment.id && proposals.busy.kind === 'applying'
-            }
-            lock={messageId ? lock : (lock ?? 'unpersisted')}
-            onConfirm={() => {
-              if (messageId) proposals?.onConfirm(segment.id, messageId, segment.proposal)
-            }}
-            onDismiss={() => {
-              if (messageId) proposals?.onDismiss(segment.id, messageId)
+            block={segment.block}
+            state={{
+              decision: decisions?.[segment.id] ?? null,
+              error: proposals?.errors[segment.id] ?? null,
+              busy: busy?.blockId === segment.id,
+              applying: busy?.blockId === segment.id && busy.kind === 'applying',
+              lock: messageId ? lock : (lock ?? 'unpersisted'),
+              onConfirm: (proposal) => {
+                if (messageId) proposals?.onConfirm(segment.id, messageId, proposal)
+              },
+              onDismiss: (proposal) => {
+                if (messageId) proposals?.onDismiss(segment.id, messageId, proposal)
+              },
             }}
           />
         )

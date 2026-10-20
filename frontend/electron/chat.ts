@@ -42,6 +42,7 @@ import type {
   ChatSessionsFile,
 } from '../src/lib/chat/types'
 import { isLivePhase } from '../src/lib/chat/types'
+import { withCardDigest } from '../src/lib/chat/digest'
 import {
   MAX_RUNTIME_BYTES,
   reduceRuntime,
@@ -303,7 +304,10 @@ async function sendMessage(
   const generationId = snapshot?.generationId ?? ''
   if (session.claudeSessionId) dispatch({ type: 'resume-available', available: true })
 
-  const args = buildChatClaudeArgs(prompt, {
+  // Card decisions the agent hasn't seen ride in front of this turn's prompt
+  // (lib/chat/digest); the transcript keeps the user's own words.
+  const agentPrompt = withCardDigest(prompt, session)
+  const args = buildChatClaudeArgs(agentPrompt, {
     permissionArgs,
     resumeId: session.claudeSessionId,
     model: d.getModel() ?? null,

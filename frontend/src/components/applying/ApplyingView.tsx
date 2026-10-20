@@ -4,26 +4,22 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
-import { useWriteGate } from '@/store/dataRoot'
 import {
-  Briefcase, X, ArrowRight, CalendarClock, CalendarPlus, Radar, Pencil, ScrollText,
+  Briefcase, ArrowRight,
 } from 'lucide-react'
 import { RunningInScanFooter } from '@/components/command-center/CommandCenter'
 import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
+import { ApplicationCard } from './ApplicationCard'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
-import { FilesStrip } from '@/components/shared/FilesStrip'
-import { StatusDropdown } from '@/components/shared/ApplyAction'
-import { WantEase } from '@/components/shared/WantEase'
 import { ReportSlideOver } from '@/components/reports/ReportSlideOver'
 import { orphanScoreEntry } from '@/components/reports/ReportsView'
-import { Button, PageHeader, ScoreNumber, Stat, StatStrip } from '@/components/ui'
+import { Button, PageHeader, Stat, StatStrip } from '@/components/ui'
 import { cn } from '@/lib/utils'
-import { parseScoreCell } from '@/lib/scoreBands'
 import {
   STATUS_GROUPS, boardMoveTarget, groupByStatus, inferredRejectionLabel, rejectionInfo,
-  rejectionStageOptions, stagesFor, type RejectionInfo,
+  rejectionStageOptions, type RejectionInfo,
 } from '@/lib/applyingBoard'
-import { dateCue, listingDateKey, type DateCue, type DateCueKind } from '@/lib/listingDates'
+import { dateCue, listingDateKey } from '@/lib/listingDates'
 import type { AppStatus, ApplicationEntry, ScoreEntry } from '@/types'
 
 // Status hue for the column-header dot. Literal classes so Tailwind's JIT
@@ -39,13 +35,6 @@ const STATUS_FILL: Record<AppStatus, string> = {
   SKIP:      'bg-text-4',
 }
 
-// Which date a card's cue shows, by icon: closes, posted, first scanned.
-const CUE_ICON: Record<DateCueKind, typeof CalendarClock> = {
-  deadline: CalendarClock,
-  posted:   CalendarPlus,
-  scanned:  Radar,
-}
-
 const norm = (s: string) => s.trim().toLowerCase()
 
 /** Today as YYYY-MM-DD (local), the latest date a rejection may carry. */
@@ -53,15 +42,6 @@ function todayIso(): string {
   const d = new Date()
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/** "14 Sep", with the year only when it isn't this year ("14 Sep 2025"). */
-function shortDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  if (!y || !m || !d) return iso
-  return y === new Date().getFullYear() ? `${d} ${MONTHS[m - 1]}` : `${d} ${MONTHS[m - 1]} ${y}`
 }
 
 /** A rejection being recorded (move) or corrected (edit). */
@@ -590,141 +570,5 @@ function KanbanColumn({ status, items, dragging, onDropOnColumn, renderCard }: C
         )}
       </div>
     </div>
-  )
-}
-
-function ApplicationCard({
-  app, cue, rejection, isDragging, onDragStart, onDragEnd, onMove, onEditRejection, onRemove, onViewReport,
-}: {
-  app: ApplicationEntry
-  cue: DateCue | null
-  rejection: RejectionInfo | null
-  isDragging: boolean
-  onDragStart: () => void
-  onDragEnd: () => void
-  onMove: (to: AppStatus) => void
-  onEditRejection: () => void
-  onRemove: () => void
-  onViewReport: () => void
-}) {
-  // Demo mode: the card reads normally, but every action that writes (stage,
-  // drag, remove, edit rejection) is disabled.
-  const { canWrite, readOnlyTitle } = useWriteGate()
-  const score = useMemo(() => parseScoreCell(app.score), [app.score])
-
-  return (
-    <div
-      draggable={canWrite}
-      onDragStart={(e) => {
-        // Native drag needs *some* dataTransfer payload to fire drop events
-        // reliably across platforms — Electron on macOS otherwise silently
-        // ignores the drop. The actual move target comes from React state.
-        e.dataTransfer.effectAllowed = 'move'
-        try { e.dataTransfer.setData('text/plain', `${app.company}|${app.role}`) } catch { /* noop */ }
-        onDragStart()
-      }}
-      onDragEnd={onDragEnd}
-      className={cn(
-        'card group relative p-2.5 transition-colors duration-150 hover:border-border-strong',
-        canWrite && 'cursor-grab active:cursor-grabbing',
-        isDragging && 'opacity-40',
-      )}
-    >
-      {/* Remove — top-right, fades in on hover. Confirms before marking the
-          row Discarded so the card can't disappear by accident. */}
-      <Button
-        tone="ghost"
-        size="xs"
-        iconOnly
-        onClick={(e) => { e.stopPropagation(); onRemove() }}
-        onPointerDown={(e) => e.stopPropagation()}
-        disabled={!canWrite}
-        title={readOnlyTitle ?? 'Remove from Applying'}
-        aria-label="Remove from Applying"
-        icon={<X size={12} />}
-        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-danger"
-      />
-      <div className="flex items-start gap-2 pr-6">
-        <CompanyLogo company={app.company} size={24} className="shrink-0 mt-0.5" />
-        <div className="min-w-0 flex-1">
-          <div className="text-body font-medium text-text-1 truncate leading-tight" title={app.company}>
-            {app.company}
-          </div>
-          <div className="text-label text-text-3 truncate mt-0.5" title={app.role}>{app.role}</div>
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between mt-2 gap-2 min-h-5">
-        {score && 'want' in score
-          ? <WantEase want={score.want} ease={score.ease} size="sm" decimals={1} />
-          : <ScoreNumber value={score && 'legacy' in score ? score.legacy : null} size="sm" />}
-        {cue && <DateCueLabel cue={cue} emphasize={app.status === 'Evaluated'} />}
-      </div>
-
-      {rejection && (
-        <div className="flex items-center gap-1 mt-1.5 min-w-0">
-          <p className="text-label text-text-3 truncate flex-1 min-w-0" title={rejection.date ? `Rejected on ${rejection.date}, ${rejection.label}` : `Rejected, date not recorded, ${rejection.label}`}>
-            {rejection.date ? shortDate(rejection.date) : 'No date'} · {rejection.label}
-          </p>
-          <Button
-            tone="ghost"
-            size="xs"
-            iconOnly
-            onClick={(e) => { e.stopPropagation(); onEditRejection() }}
-            onPointerDown={(e) => e.stopPropagation()}
-            disabled={!canWrite}
-            title={readOnlyTitle ?? 'Edit the rejection date or stage'}
-            aria-label="Edit the rejection date or stage"
-            icon={<Pencil size={12} />}
-            className="shrink-0"
-          />
-        </div>
-      )}
-
-      <div className="flex items-center gap-1 mt-2 -mb-0.5 -ml-2">
-        <StatusDropdown
-          current={app.status}
-          busy={false}
-          onChange={onMove}
-          size="xs"
-          quiet
-          statuses={stagesFor(app.status)}
-          readOnlyTitle={readOnlyTitle}
-        />
-        <span className="flex-1" />
-        <FilesStrip company={app.company} role={app.role} size="sm" />
-        <Button
-          tone="ghost"
-          size="xs"
-          iconOnly
-          onClick={(e) => { e.stopPropagation(); onViewReport() }}
-          onPointerDown={(e) => e.stopPropagation()}
-          title="Open the report"
-          aria-label="Open the report"
-          icon={<ScrollText size={13} />}
-          className="-mr-1"
-        />
-      </div>
-    </div>
-  )
-}
-
-// The card's one date: a small icon says which (closes / posted / first
-// scanned), the label says how far ("12d"), the tooltip says the rest. Only a
-// deadline within a week takes a colour, and only on a card not yet sent.
-function DateCueLabel({ cue, emphasize }: { cue: DateCue; emphasize: boolean }) {
-  const Icon = CUE_ICON[cue.kind]
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 text-label tabular-nums shrink-0',
-        cue.soon && emphasize ? 'text-warning-text' : 'text-text-3',
-      )}
-      title={cue.title}
-      aria-label={cue.title}
-    >
-      <Icon size={12} className="shrink-0" aria-hidden />
-      {cue.label}
-    </span>
   )
 }
