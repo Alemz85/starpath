@@ -10,7 +10,12 @@
 //     runs is rejected rather than queued — two `claude` children writing to
 //     one transcript has no coherent reading),
 //   - the child spawn / stream loop / kill,
-//   - persistence to `{userData}/chat/{sessions,runtime}.json`,
+//   - persistence to `<chat dir>/{sessions,runtime}.json` — `<data root>/chat/`
+//     for a private or external root (backed up with the rest of it),
+//     `{userData}/chat-demo/` in demo mode, `{userData}/chat/` before a
+//     private root exists. Main picks the folder (lib/dataRootMain.ts →
+//     chatDirFor) and re-points it with setChatDir() whenever the data root
+//     moves,
 //   - the `chat:*` IPC surface.
 //
 // Persistence is JSON, NOT the SQLite cache: that cache is fully derivable
@@ -57,7 +62,7 @@ import {
   setClaudeSessionId,
   setProposalDecision,
 } from '../src/lib/chat/sessions'
-import { buildChatClaudeArgs } from '../src/lib/chat/args'
+import { buildChatClaudeArgs, CHAT_SYSTEM_PROMPT_FILE } from '../src/lib/chat/args'
 import {
   extractClaudeCliFailure,
   interpretChatEvent,
@@ -69,15 +74,19 @@ const PERSIST_THROTTLE_MS = 200
 const CHAT_EVENT_CHANNEL = 'chat:event'
 
 export interface ChatDeps {
-  /** `app.getPath('userData')`. */
-  userDataDir: string
   /** Configured repo root — the spawn's cwd. null while onboarding. */
   getRepoPath: () => string | null
   getWindow: () => BrowserWindow | null
-  /** PATH-augmented env used by every other spawn in main. */
-  env: NodeJS.ProcessEnv
+  /** PATH-augmented env used by every other spawn in main (plus
+   *  STARPATH_DATA for a demo or external data root). */
+  getEnv: () => NodeJS.ProcessEnv
   /** Model alias for chat turns; undefined lets the CLI default apply. */
   getModel: () => ModelAlias | undefined
+  /** Absolute system-prompt file for a repo-relative one (private overrides
+   *  applied; the repo default on any error). */
+  resolveSystemPrompt: (rel: string) => Promise<string>
+  /** A refusal message when sending is not allowed (demo mode), else null. */
+  refuseSend: () => Promise<string | null>
 }
 
 // ─── Persisted runtime ────────────────────────────────────────────────────────
@@ -183,6 +192,7 @@ interface ActiveChat {
 let deps: ChatDeps | null = null
 let runtime: ChatRuntimeFile | null = null
 let sessionsPath = ''
+let chatDir: string | null = null
 let active: ActiveChat | null = null
 
 function requireDeps(): ChatDeps {
@@ -192,20 +202,25 @@ function requireDeps(): ChatDeps {
 
 // ─── Sessions file ────────────────────────────────────────────────────────────
 
-function readSessions(): ChatSessionsFile {
+// `file` defaults to the current folder's sessions.json; a running reply
+// passes the path it started with, so a data-root switch mid-reply never
+// writes one root's conversation into another's file.
+function readSessions(file: string = sessionsPath): ChatSessionsFile {
+  if (!file) return emptySessionsFile()
   try {
-    return parseSessionsFile(fs.readFileSync(sessionsPath, 'utf-8'))
+    return parseSessionsFile(fs.readFileSync(file, 'utf-8'))
   } catch {
     return emptySessionsFile()
   }
 }
 
-function writeSessions(file: ChatSessionsFile): void {
+function writeSessions(data: ChatSessionsFile, file: string = sessionsPath): void {
+  if (!file) return
   try {
-    fs.mkdirSync(path.dirname(sessionsPath), { recursive: true })
-    const tmp = `${sessionsPath}.tmp`
-    fs.writeFileSync(tmp, serializeSessionsFile(file), { encoding: 'utf-8', mode: 0o600 })
-    fs.renameSync(tmp, sessionsPath)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const tmp = `${file}.tmp`
+    fs.writeFileSync(tmp, serializeSessionsFile(data), { encoding: 'utf-8', mode: 0o600 })
+    fs.renameSync(tmp, file)
   } catch (e) {
     console.error('[chat] sessions persist failed:', e)
   }
@@ -226,12 +241,19 @@ function dispatch(action: ChatRuntimeAction): void {
 
 // ─── Send ─────────────────────────────────────────────────────────────────────
 
-function sendMessage(
+async function sendMessage(
   sessionId: unknown,
   message: unknown,
-): { sessionId: string; generationId: string } {
+): Promise<{ sessionId: string; generationId: string }> {
   const d = requireDeps()
-  const store = runtime!
+  const refusal = await d.refuseSend()
+  if (refusal) throw new Error(refusal)
+  // Resolved before any state changes: everything after this await runs in
+  // one synchronous stretch, so two racing sends still meet the `active`
+  // guard below rather than both spawning.
+  const systemPromptFile = await d.resolveSystemPrompt(CHAT_SYSTEM_PROMPT_FILE)
+  const store = runtime
+  if (!store) throw new Error('Chat is not ready yet.')
   if (active || store.isLive()) throw new Error('A chat reply is already running.')
   if (typeof message !== 'string') throw new Error('message must be text')
   const prompt = message.trim()
@@ -242,6 +264,12 @@ function sendMessage(
   const repoPath = d.getRepoPath()
   if (!repoPath) throw new Error('No repository is configured yet.')
 
+  const ownSessionsPath = sessionsPath
+  // Runtime transitions for this reply go to the runtime it started on; after
+  // a data-root switch (setChatDir) that runtime is gone and they are dropped.
+  const dispatchOwn = (action: ChatRuntimeAction): void => {
+    if (runtime === store) dispatch(action)
+  }
   const now = new Date().toISOString()
   let file = readSessions()
   let session = typeof sessionId === 'string' ? getSession(file, sessionId) : null
@@ -272,6 +300,7 @@ function sendMessage(
   const args = buildChatClaudeArgs(prompt, {
     resumeId: session.claudeSessionId,
     model: d.getModel() ?? null,
+    systemPromptFile,
   })
   // stdio ['ignore','pipe','pipe'] closes stdin — same reason as shell:spawn:
   // `claude -p` otherwise waits on stdin before it starts.
@@ -280,7 +309,7 @@ function sendMessage(
     child = spawn('claude', args, {
       cwd: repoPath,
       shell: false,
-      env: d.env,
+      env: d.getEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
     })
   } catch (e) {
@@ -307,13 +336,13 @@ function sendMessage(
     cliFailure = extractClaudeCliFailure(event) ?? cliFailure
     for (const directive of interpretChatEvent(event, streamState)) {
       if (directive.kind === 'session') {
-        writeSessions(setClaudeSessionId(readSessions(), sessionRowId, directive.id))
-        dispatch({ type: 'resume-available', available: true })
+        writeSessions(setClaudeSessionId(readSessions(ownSessionsPath), sessionRowId, directive.id), ownSessionsPath)
+        dispatchOwn({ type: 'resume-available', available: true })
       } else if (directive.kind === 'text') {
         assistantText += directive.text
-        dispatch({ type: 'text', text: directive.text })
+        dispatchOwn({ type: 'text', text: directive.text })
       } else {
-        dispatch({
+        dispatchOwn({
           type: 'work',
           kind: directive.entry.kind,
           label: directive.entry.label,
@@ -339,23 +368,23 @@ function sendMessage(
     if (active?.generationId === generationId) active = null
 
     if (assistantText.trim()) {
-      writeSessions(appendMessage(readSessions(), sessionRowId, {
+      writeSessions(appendMessage(readSessions(ownSessionsPath), sessionRowId, {
         role: 'assistant',
         content: assistantText,
         ts: new Date().toISOString(),
         id: randomUUID(),
-      }))
+      }), ownSessionsPath)
     }
 
     if (code === 0 || stopped) {
-      dispatch({ type: 'completed' })
+      dispatchOwn({ type: 'completed' })
     } else {
       const detail =
         spawnError ||
         cliFailure ||
         stderr.trim().split('\n').slice(-3).join(' ').slice(0, 500) ||
         `the claude CLI exited with code ${code}`
-      dispatch({ type: 'failed', message: detail })
+      dispatchOwn({ type: 'failed', message: detail })
     }
   })
 
@@ -424,12 +453,33 @@ export function killChatChild(): void {
 
 // ─── IPC ──────────────────────────────────────────────────────────────────────
 
+/**
+ * Point chat persistence at a folder (main calls this at startup and every
+ * time the data root moves). A reply still running against the old folder is
+ * stopped and recorded there as interrupted — its transcript belongs to the
+ * data it was talking about.
+ */
+export function setChatDir(dir: string): void {
+  if (chatDir === dir && runtime) return
+  if (active) {
+    if (runtime?.isLive()) emit(runtime.dispatch({ type: 'interrupted' }))
+    try { active.child.kill('SIGTERM') } catch { /* already gone */ }
+    active = null
+  }
+  runtime?.flush()
+  chatDir = dir
+  sessionsPath = path.join(dir, 'sessions.json')
+  runtime = new ChatRuntimeFile(path.join(dir, 'runtime.json'))
+  runtime.restore()
+}
+
+/** The folder chat currently persists to (null before setChatDir). */
+export function getChatDir(): string | null {
+  return chatDir
+}
+
 export function registerChat(dependencies: ChatDeps): void {
   deps = dependencies
-  const chatDir = path.join(dependencies.userDataDir, 'chat')
-  sessionsPath = path.join(chatDir, 'sessions.json')
-  runtime = new ChatRuntimeFile(path.join(chatDir, 'runtime.json'))
-  runtime.restore()
 
   ipcMain.handle('chat:send', (_e, sessionId: unknown, message: unknown) =>
     sendMessage(sessionId, message))

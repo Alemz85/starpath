@@ -12,7 +12,6 @@ import fs from 'fs'
 import { FEATURE_IDS } from '../src/types'
 import https from 'https'
 import http from 'http'
-import { pathToFileURL } from 'url'
 import { exec, spawn, ChildProcess, execFile } from 'child_process'
 import { promisify } from 'util'
 import {
@@ -21,7 +20,17 @@ import {
   queryApplications, queryScouting, queryScoreHistory, queryPipeline,
   queryReports, queryApplicationsWithScores, queryTrends,
 } from './db'
-import { registerChat, killChatChild } from './chat'
+import { registerChat, killChatChild, setChatDir } from './chat'
+import {
+  computeDataRoot, dataRootMoved, importRepoModule, moveChatFolder, rootContext, toInfo,
+  type DataRootState, type OverridesModule,
+} from './dataRoot'
+import {
+  cacheSlugFor, chatDirFor, demoAllowsRun, demoSpawnRefusal, demoWriteRefusal,
+  findRepoRoot, normalizeRel, personalBase, planChatMigration, resolveAppPath,
+  spawnEnvFor, type ResolvedAppPath,
+} from '../src/lib/dataRootMain'
+import { DEMO_DATA_PATH, DEMO_READ_ONLY, DEMO_READ_ONLY_TOOLTIP } from '../src/lib/dataRoot'
 
 const execAsync = promisify(exec)
 
@@ -68,6 +77,10 @@ interface AppConfig {
    *  renderer merges over DEFAULT_FEATURE_PREFS. Keys mirror FEATURE_IDS in
    *  src/types (single source of truth; validated in app:set-features). */
   features?: Record<string, boolean>
+  /** Where personal data is read from, passed to resolveDataRoot as its
+   *  `configured` value: 'demo' while the user explores the fictional demo
+   *  (read-only), absent for their own data (private/ by default). */
+  dataPath?: string
 }
 
 function readConfig(): AppConfig {
@@ -90,14 +103,128 @@ function getRepoPath(): string | null {
   return cfg.repoPath ?? null
 }
 
-function resolveRepoPath(filePath: string): string | null {
-  const repoPath = getRepoPath()
-  if (!repoPath) return null
-  const base = path.resolve(repoPath)
-  const resolved = path.resolve(base, filePath)
-  const relative = path.relative(base, resolved)
-  if (relative.startsWith('..') || path.isAbsolute(relative)) return null
-  return resolved
+// Dev convenience: with no repo configured yet, use the checkout the app is
+// running from (frontend/ sits inside it). Packaged builds keep the folder
+// picker — an installed app has no checkout around it.
+function adoptDevCheckout(): void {
+  if (app.isPackaged) return
+  const cfg = readConfig()
+  if (cfg.repoPath) return
+  const found = findRepoRoot([__dirname, app.getAppPath()], fs.existsSync)
+  if (!found) return
+  writeConfig({ ...cfg, repoPath: found })
+  console.log(`[repo] no repo configured; using the checkout the app runs from: ${found}`)
+}
+
+// ─── Data root ────────────────────────────────────────────────────────────────
+//
+// Personal files (user/, data/, reports/, profiles/, …) are served from the
+// data root that scripts/lib/data-root.mjs resolves: <repo>/private by
+// default, <repo>/demo when the user chose the demo (config `dataPath`), or
+// $STARPATH_DATA. Everything else stays repo-relative. The renderer keeps
+// passing `data/applications.md`; resolveForRenderer maps it. Kind 'none'
+// (no private root yet) keeps today's repo-relative behaviour.
+
+let dataRoot: DataRootState | null = null
+let dataRootPending: Promise<DataRootState> | null = null
+
+async function getDataRoot(): Promise<DataRootState> {
+  if (dataRoot && dataRoot.repoPath === getRepoPath()) return dataRoot
+  return refreshDataRoot()
+}
+
+/** Recompute from config + env; applies the swap when the root moved. */
+function refreshDataRoot(): Promise<DataRootState> {
+  if (dataRootPending) return dataRootPending
+  dataRootPending = (async () => {
+    try {
+      const cfg = readConfig()
+      const next = await computeDataRoot(cfg.repoPath ?? null, cfg.dataPath ?? null, process.env)
+      const prev = dataRoot
+      dataRoot = next
+      if (dataRootMoved(prev, next)) applyDataRoot(prev, next)
+      return next
+    } finally {
+      dataRootPending = null
+    }
+  })()
+  return dataRootPending
+}
+
+/** The folder holding data/ and reports/ for the cache, watcher and CLIs. */
+function dataBase(s: DataRootState): string | null {
+  return s.repoPath ? personalBase({ repoPath: s.repoPath, root: s.root, kind: s.kind }) : null
+}
+
+function spawnEnv(s: DataRootState | null): NodeJS.ProcessEnv {
+  return s ? spawnEnvFor(SHELL_ENV, s) : SHELL_ENV
+}
+
+// The data moved (startup, demo on/off, private init, a new repo): point
+// chat at its folder (moving the legacy one in once), swap the cache file
+// and the watcher, and tell the renderer to reload everything.
+function applyDataRoot(prev: DataRootState | null, next: DataRootState): void {
+  const userDataDir = app.getPath('userData')
+  const plan = planChatMigration({ kind: next.kind, root: next.root, userDataDir, exists: fs.existsSync })
+  if (plan) {
+    try {
+      moveChatFolder(plan.from, plan.to)
+      console.log(`[chat] moved conversations from ${plan.from} to ${plan.to}`)
+    } catch (e) {
+      console.error('[chat] could not move conversations into the data root:', e)
+    }
+  }
+  setChatDir(chatDirFor({ kind: next.kind, root: next.root, userDataDir }))
+
+  const base = dataBase(next)
+  if (base) {
+    try {
+      openDb(userDataDir, cacheSlug(next))
+      // Same slug can mean another folder (private ↔ external): force it.
+      if (prev) resync(base); else ensureSynced(base)
+      restartWatcher(base, watcherCallbacks)
+    } catch (e) {
+      console.error('[db] cache swap after a data-root change failed:', e)
+    }
+  }
+  if (!prev) return
+  console.log(`[data-root] ${prev.kind} → ${next.kind} (${next.root ?? 'no repo'})`)
+  mainWindow?.webContents.send('db:changed', ALL_SOURCES)
+  mainWindow?.webContents.send('data-root:changed', toInfo(next))
+}
+
+const ALL_SOURCES = ['applications', 'scouting', 'pipeline', 'score_history', 'reports']
+
+/** Map a renderer path through the data root (null = refused/no repo). */
+async function resolveForRenderer(input: string): Promise<{ r: ResolvedAppPath; s: DataRootState } | null> {
+  const s = await getDataRoot()
+  const ctx = rootContext(s)
+  if (!ctx) return null
+  const r = resolveAppPath(ctx, input)
+  return r ? { r, s } : null
+}
+
+async function readPersonal(rel: string): Promise<string | null> {
+  const hit = await resolveForRenderer(rel)
+  if (!hit) return null
+  try { return fs.readFileSync(hit.r.abs, 'utf-8') } catch { return null }
+}
+
+/** System-prompt file for a spawn: the private override (or composed copy)
+ *  via scripts/lib/overrides.mjs; the repo default on any error. */
+async function resolveSystemPrompt(rel: string): Promise<string> {
+  const s = await getDataRoot()
+  if (!s.repoPath) return rel
+  const fallback = path.join(s.repoPath, rel)
+  if (!s.root) return fallback
+  try {
+    const mod = await importRepoModule<OverridesModule>(s.repoPath, 'scripts/lib/overrides.mjs')
+    const file = mod.materializeSystemFile({ repoRoot: s.repoPath, dataRoot: s.root, rel })
+    return typeof file === 'string' && file ? file : fallback
+  } catch (e) {
+    console.error(`[prompt] could not resolve ${rel}; using the repo default:`, e)
+    return fallback
+  }
 }
 
 function validateString(val: unknown, name: string): string {
@@ -129,21 +256,24 @@ function validateSlug(val: unknown, name: string): string {
 
 // null = pre-migration layout (no profiles/active, or an unreadable/invalid
 // one — the CLI-facing surfaces treat those the same and hide themselves).
-function readActiveProfileSlug(repoPath: string): string | null {
+// `base` is the data folder (profiles/ is personal: it lives in the data root).
+function readActiveProfileSlug(base: string): string | null {
   try {
-    const raw = fs.readFileSync(path.join(repoPath, 'profiles', 'active'), 'utf-8').trim()
+    const raw = fs.readFileSync(path.join(base, 'profiles', 'active'), 'utf-8').trim()
     return PROFILE_SLUG_RE.test(raw) ? raw : null
   } catch {
     return null
   }
 }
 
-// The slug the SQLite cache file is keyed by — 'default' pre-migration, so
-// launch behavior on single-profile repos stays identical apart from the
-// cache filename (cache-default.db instead of cache.db).
-function cacheSlug(repoPath: string): string {
-  return readActiveProfileSlug(repoPath) ?? 'default'
+// The slug the SQLite cache file is keyed by — 'demo' for the demo dataset,
+// else the active profile, or 'default' pre-migration (cache-default.db).
+function cacheSlug(s: DataRootState): string {
+  const base = dataBase(s)
+  return cacheSlugFor(s.kind, s.kind !== 'demo' && base ? readActiveProfileSlug(base) : null)
 }
+
+const DEMO_REFUSAL = { ok: false, error: DEMO_READ_ONLY, message: DEMO_READ_ONLY_TOOLTIP }
 
 interface ProfileCliResult {
   ok?: boolean
@@ -153,29 +283,41 @@ interface ProfileCliResult {
   [k: string]: unknown
 }
 
-// Shell out to the repo's profile CLI — execFile with an args array (never a
-// shell string), cwd = repo root, SHELL_ENV for node resolution. --root is
-// passed explicitly (the CLI defaults to its own script location, which
-// happens to match, but explicit beats incidental). --json is always
-// appended: the CLI prints machine-readable JSON even on refusal (exit 1),
-// so the exit code is ignored in favor of parsing stdout. A run that
-// produced no parseable JSON (script missing, crash) maps to ok:false with
-// the stderr tail as the message.
-function runProfileCli(repoPath: string, args: string[]): Promise<ProfileCliResult> {
+// Shell out to one of the repo's JSON CLIs — execFile with an args array
+// (never a shell string), cwd = repo root, PATH-augmented env. The CLIs print
+// machine-readable JSON even on refusal (exit 1), so the exit code is ignored
+// in favor of parsing stdout. A run that produced no parseable JSON (script
+// missing, crash) maps to ok:false with the stderr tail as the message.
+function runJsonCli(
+  repoPath: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  what: string,
+  timeout = 60_000,
+): Promise<ProfileCliResult> {
   return new Promise((resolve) => {
     execFile(
-      'node', ['scripts/profile.mjs', ...args, '--root', repoPath, '--json'],
-      { cwd: repoPath, env: SHELL_ENV, timeout: 60_000 },
+      'node', args,
+      { cwd: repoPath, env, timeout },
       (_err, stdout, stderr) => {
         try {
           resolve(JSON.parse(stdout) as ProfileCliResult)
         } catch {
           const detail = (stderr || stdout || '').trim().split('\n').slice(-3).join(' ').slice(0, 300)
-          resolve({ ok: false, error: 'cli', message: detail || 'profile CLI produced no JSON' })
+          resolve({ ok: false, error: 'cli', message: detail || `${what} produced no JSON` })
         }
       },
     )
   })
+}
+
+// The profile CLI operates on the data folder: --root <data root> (profiles/
+// and the canonical symlinks live there), the repo itself on an un-migrated
+// checkout. --json is always appended.
+function runProfileCli(s: DataRootState, args: string[]): Promise<ProfileCliResult> {
+  const base = dataBase(s)
+  if (!s.repoPath || !base) return Promise.resolve({ ok: false, error: 'no-repo', message: 'no repository configured' })
+  return runJsonCli(s.repoPath, ['scripts/profile.mjs', ...args, '--root', base, '--json'], spawnEnv(s), 'profile CLI')
 }
 
 async function checkClaudeInstalled(): Promise<boolean> {
@@ -358,9 +500,54 @@ function createWindow(): void {
 
 ipcMain.handle('app:get-config', () => readConfig())
 
-ipcMain.handle('app:set-repo-path', (_e, repoPath: unknown) => {
+ipcMain.handle('app:set-repo-path', async (_e, repoPath: unknown) => {
   const p = validateString(repoPath, 'repoPath')
   writeConfig({ ...readConfig(), repoPath: p })
+  await refreshDataRoot()
+})
+
+// ─── IPC: Data root ───────────────────────────────────────────────────────────
+
+ipcMain.handle('app:data-root', async () => toInfo(await getDataRoot()))
+
+// 'demo' → explore the fictional demo (read-only); null → back to own data.
+// Recomputes, swaps cache/watcher/chat, and emits db:changed +
+// data-root:changed when the data moved.
+ipcMain.handle('app:set-data-path', async (_e, value: unknown) => {
+  if (value !== DEMO_DATA_PATH && value !== null) throw new Error("dataPath must be 'demo' or null")
+  const s = await getDataRoot()
+  if (value === DEMO_DATA_PATH && !s.demoAvailable) throw new Error('This checkout has no demo/ folder')
+  const cfg = readConfig()
+  const next: AppConfig = { ...cfg }
+  if (value === DEMO_DATA_PATH) next.dataPath = DEMO_DATA_PATH
+  else delete next.dataPath
+  writeConfig(next)
+  return toInfo(await refreshDataRoot())
+})
+
+// `node scripts/private.mjs init --json`: create private/, move legacy
+// folders in, link them, init the private git repo. The script owns all of
+// that; main relays its JSON and then re-resolves the data root (which now
+// finds private/).
+ipcMain.handle('private:init', async () => {
+  const repoPath = getRepoPath()
+  if (!repoPath) return { ok: false, error: 'no-repo', message: 'Choose your career-ops folder first.' }
+  // Plain env: a STARPATH_DATA aimed at the demo must not steer the init.
+  const env: NodeJS.ProcessEnv = { ...SHELL_ENV }
+  delete env.STARPATH_DATA
+  const res = await runJsonCli(repoPath, ['scripts/private.mjs', 'init', '--json'], env, 'private init', 180_000)
+  if (res.ok !== true) console.error('[private] init failed:', res.error, res.message)
+  await refreshDataRoot()
+  return res
+})
+
+// Absolute system-prompt file for `claude --append-system-prompt-file`:
+// the user's private override or a composed copy (scripts/lib/overrides.mjs),
+// the repo default otherwise or on any error.
+ipcMain.handle('prompt:resolve', async (_e, rel: unknown) => {
+  const r = normalizeRel(validateString(rel, 'rel'))
+  if (!r) throw new Error('rel must be a repo-relative file path')
+  return resolveSystemPrompt(r)
 })
 
 ipcMain.handle('app:set-onboarding-complete', (_e, value: unknown) => {
@@ -457,17 +644,30 @@ ipcMain.handle('app:open-external', (_e, url: unknown) => {
 })
 
 // Reveal a file in the OS file manager (Finder / Explorer). Path is
-// resolved against the repo root so a renderer can't escape it.
-ipcMain.handle('app:reveal-file', (_e, filePath: unknown) => {
+// resolved like fs:read (data root for personal paths, confined either way)
+// so a renderer can't escape it.
+ipcMain.handle('app:reveal-file', async (_e, filePath: unknown) => {
   const rel = validateString(filePath, 'filePath')
-  const full = resolveRepoPath(rel)
-  if (!full) return false
+  const hit = await resolveForRenderer(rel)
+  if (!hit) return false
   try {
-    shell.showItemInFolder(full)
+    shell.showItemInFolder(hit.r.abs)
     return true
   } catch {
     return false
   }
+})
+
+// Open a file with the system's default app (Preview for a tailored CV PDF,
+// the editor for a prep doc). Same resolution and confinement as fs:read —
+// the renderer never builds file:// URLs from the repo path, which would
+// miss the data root.
+ipcMain.handle('app:open-file', async (_e, filePath: unknown) => {
+  const rel = validateString(filePath, 'filePath')
+  const hit = await resolveForRenderer(rel)
+  if (!hit || !fs.existsSync(hit.r.abs)) return false
+  const err = await shell.openPath(hit.r.abs)
+  return err === ''
 })
 
 // ─── IPC: Claude checks ───────────────────────────────────────────────────────
@@ -493,64 +693,79 @@ ipcMain.handle('app:run-claude-login', () => {
 
 // ─── IPC: File system ─────────────────────────────────────────────────────────
 
-ipcMain.handle('fs:read', (_e, filePath: unknown) => {
+// Every fs:* path goes through resolveForRenderer: personal paths (data/,
+// user/, reports/, profiles/, …) resolve under the data root, everything else
+// under the repo, and both are confined to their base.
+
+ipcMain.handle('fs:read', async (_e, filePath: unknown) => {
   const fp = validateString(filePath, 'filePath')
-  const full = resolveRepoPath(fp)
-  if (!full) return null
-  try { return fs.readFileSync(full, 'utf-8') } catch { return null }
+  return readPersonal(fp)
 })
 
-ipcMain.handle('fs:write', (_e, filePath: unknown, content: unknown) => {
+ipcMain.handle('fs:write', async (_e, filePath: unknown, content: unknown) => {
   const fp = validateString(filePath, 'filePath')
   const c = validateString(content, 'content')
-  const full = resolveRepoPath(fp)
-  if (!full) throw new Error('No repo path configured')
-  fs.mkdirSync(path.dirname(full), { recursive: true })
-  fs.writeFileSync(full, c, 'utf-8')
+  const hit = await resolveForRenderer(fp)
+  if (!hit) throw new Error(getRepoPath() ? `Refusing to write outside the repository: ${fp}` : 'No repo path configured')
+  // The demo is read-only: personal paths (and demo/, private/ by name)
+  // are refused with the demo-read-only code the renderer recognises.
+  const refusal = demoWriteRefusal(hit.s.kind, hit.r, hit.s.isPersonal)
+  if (refusal) throw new Error(refusal)
+  fs.mkdirSync(path.dirname(hit.r.abs), { recursive: true })
+  fs.writeFileSync(hit.r.abs, c, 'utf-8')
 })
 
-ipcMain.handle('fs:exists', (_e, filePath: unknown) => {
+ipcMain.handle('fs:exists', async (_e, filePath: unknown) => {
   const fp = validateString(filePath, 'filePath')
-  const full = resolveRepoPath(fp)
-  return full ? fs.existsSync(full) : false
+  const hit = await resolveForRenderer(fp)
+  return hit ? fs.existsSync(hit.r.abs) : false
 })
 
-ipcMain.handle('fs:list', (_e, dirPath: unknown) => {
+ipcMain.handle('fs:list', async (_e, dirPath: unknown) => {
   const dp = validateString(dirPath, 'dirPath')
-  const full = resolveRepoPath(dp)
-  if (!full || !fs.existsSync(full)) return []
-  try { return fs.readdirSync(full) } catch { return [] }
+  const hit = await resolveForRenderer(dp)
+  if (!hit || !fs.existsSync(hit.r.abs)) return []
+  try { return fs.readdirSync(hit.r.abs) } catch { return [] }
 })
 
-ipcMain.handle('fs:list-recursive', (_e, dirPath: unknown, ext: unknown) => {
+ipcMain.handle('fs:list-recursive', async (_e, dirPath: unknown, ext: unknown) => {
   const dp = validateString(dirPath, 'dirPath')
   const ex = validateString(ext, 'ext')
-  const repoPath = getRepoPath()
-  if (!repoPath) return []
-  // Resolve through the same path-traversal guard as the other fs:* handlers —
-  // a renderer passing '../..' must not be able to walk above repoPath.
-  const full = resolveRepoPath(dp)
-  if (!full || !fs.existsSync(full)) return []
+  // Same path-traversal guard as the other fs:* handlers — a renderer
+  // passing '../..' must not be able to walk above its base.
+  const hit = await resolveForRenderer(dp)
+  if (!hit || !fs.existsSync(hit.r.abs)) return []
+  // Results are relative to the folder the walk is confined to (data root
+  // or repo), i.e. the same `reports/tier-1/…` form the renderer reads back.
+  const base = hit.r.base
   const results: string[] = []
   function walk(dir: string) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const fp = path.join(dir, entry.name)
       if (entry.isDirectory()) walk(fp)
-      else if (entry.name.endsWith(ex)) results.push(path.relative(repoPath as string, fp))
+      else if (entry.name.endsWith(ex)) results.push(path.relative(base, fp))
     }
   }
-  walk(full)
+  walk(hit.r.abs)
   return results
 })
 
 // ─── IPC: Shell (one-shot) ────────────────────────────────────────────────────
+//
+// Spawned scripts get STARPATH_DATA when the data root is the demo or an
+// external folder (scripts resolve their data through dataRootFor). In demo
+// mode only the read-only digests run; anything else could write.
 
 ipcMain.handle('shell:run', async (_e, cmd: unknown, args: unknown) => {
   const c = validateString(cmd, 'cmd')
   if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) throw new Error('args must be string[]')
+  const s = await getDataRoot()
+  if (s.kind === 'demo' && !demoAllowsRun(c, args as string[])) {
+    return { stdout: '', stderr: demoSpawnRefusal(s.kind) ?? '', code: 1 }
+  }
   const repoPath = getRepoPath() ?? app.getPath('home')
   return new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
-    execFile(c, args as string[], { cwd: repoPath, env: SHELL_ENV }, (err, stdout, stderr) => {
+    execFile(c, args as string[], { cwd: repoPath, env: spawnEnv(s) }, (err, stdout, stderr) => {
       const code = typeof err?.code === 'number' ? err.code : (err ? 1 : 0)
       resolve({ stdout, stderr, code })
     })
@@ -561,17 +776,27 @@ ipcMain.handle('shell:run', async (_e, cmd: unknown, args: unknown) => {
 
 const spawnedProcesses = new Map<string, ChildProcess>()
 
-ipcMain.handle('shell:spawn', (_e, id: unknown, cmd: unknown, args: unknown) => {
+ipcMain.handle('shell:spawn', async (_e, id: unknown, cmd: unknown, args: unknown) => {
   const sid = validateString(id, 'id')
   const c = validateString(cmd, 'cmd')
   if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) throw new Error('args must be string[]')
+  const s = await getDataRoot()
+  // Streaming spawns are work (scans, evaluations, tailoring): the demo
+  // refuses them the same way a failed spawn reports, so the Activity panel
+  // shows why instead of hanging.
+  const refusal = demoSpawnRefusal(s.kind)
+  if (refusal) {
+    mainWindow?.webContents.send('shell:output', sid, `${DEMO_READ_ONLY_TOOLTIP}: this action is disabled while the demo is shown.\n`)
+    mainWindow?.webContents.send('shell:done', sid, 1)
+    return
+  }
   const repoPath = getRepoPath() ?? app.getPath('home')
   // stdio: ['ignore', 'pipe', 'pipe'] closes stdin entirely — without this,
   // `claude -p` waits 3s for stdin and emits a warning before proceeding.
   const proc = spawn(c, args as string[], {
     cwd: repoPath,
     shell: false,
-    env: SHELL_ENV,
+    env: spawnEnv(s),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   spawnedProcesses.set(sid, proc)
@@ -666,77 +891,84 @@ const watcherCallbacks = {
   onChanged: (sources: string[]) => mainWindow?.webContents.send('db:changed', sources),
 }
 
-function ensureDbReady(): boolean {
-  const repoPath = getRepoPath()
-  if (!repoPath) return false
-  // Keyed by the active profile — openDb closes and reopens (dropping the
-  // watcher) if the slug changed since the last call, so even an
-  // out-of-band CLI switch converges on the right cache at the next query.
-  openDb(app.getPath('userData'), cacheSlug(repoPath))
-  ensureSynced(repoPath)
-  startWatcher(repoPath, watcherCallbacks)
+async function ensureDbReady(): Promise<boolean> {
+  const s = await getDataRoot()
+  const base = dataBase(s)
+  if (!base) return false
+  // Keyed by the active profile (or 'demo') — openDb closes and reopens
+  // (dropping the watcher) if the slug changed since the last call, so even
+  // an out-of-band CLI switch converges on the right cache at the next query.
+  openDb(app.getPath('userData'), cacheSlug(s))
+  ensureSynced(base)
+  startWatcher(base, watcherCallbacks)
   return true
 }
 
-ipcMain.handle('db:applications', (_e, filters: unknown) => {
-  if (!ensureDbReady()) return []
+ipcMain.handle('db:applications', async (_e, filters: unknown) => {
+  if (!await ensureDbReady()) return []
   return queryApplications((filters ?? {}) as Parameters<typeof queryApplications>[0])
 })
 
-ipcMain.handle('db:scouting', (_e, filters: unknown) => {
-  if (!ensureDbReady()) return []
+ipcMain.handle('db:scouting', async (_e, filters: unknown) => {
+  if (!await ensureDbReady()) return []
   return queryScouting((filters ?? {}) as Parameters<typeof queryScouting>[0])
 })
 
-ipcMain.handle('db:score-history', (_e, filters: unknown) => {
-  if (!ensureDbReady()) return []
+ipcMain.handle('db:score-history', async (_e, filters: unknown) => {
+  if (!await ensureDbReady()) return []
   return queryScoreHistory((filters ?? {}) as Parameters<typeof queryScoreHistory>[0])
 })
 
-ipcMain.handle('db:pipeline', () => {
-  if (!ensureDbReady()) return []
+ipcMain.handle('db:pipeline', async () => {
+  if (!await ensureDbReady()) return []
   return queryPipeline()
 })
 
-ipcMain.handle('db:reports', (_e, filters: unknown) => {
-  if (!ensureDbReady()) return []
+ipcMain.handle('db:reports', async (_e, filters: unknown) => {
+  if (!await ensureDbReady()) return []
   return queryReports((filters ?? {}) as Parameters<typeof queryReports>[0])
 })
 
-ipcMain.handle('db:applications-with-scores', () => {
-  if (!ensureDbReady()) return []
+ipcMain.handle('db:applications-with-scores', async () => {
+  if (!await ensureDbReady()) return []
   return queryApplicationsWithScores()
 })
 
-ipcMain.handle('db:trends', () => {
-  if (!ensureDbReady()) return { byDate: [], byArchetype: [], tierDistribution: [], verdictDistribution: [], eligibilityDistribution: [] }
+ipcMain.handle('db:trends', async () => {
+  if (!await ensureDbReady()) return { byDate: [], byArchetype: [], tierDistribution: [], verdictDistribution: [], eligibilityDistribution: [] }
   return queryTrends()
 })
 
-ipcMain.handle('db:resync', () => {
-  const repoPath = getRepoPath()
-  if (!repoPath) return null
-  openDb(app.getPath('userData'), cacheSlug(repoPath))
-  return resync(repoPath)
+ipcMain.handle('db:resync', async () => {
+  const s = await getDataRoot()
+  const base = dataBase(s)
+  if (!base) return null
+  openDb(app.getPath('userData'), cacheSlug(s))
+  return resync(base)
 })
 
-ipcMain.handle('db:rebuild', () => {
-  const repoPath = getRepoPath()
-  if (!repoPath) return null
-  rebuildDb(app.getPath('userData'), cacheSlug(repoPath))
-  return ensureSynced(repoPath)
+ipcMain.handle('db:rebuild', async () => {
+  const s = await getDataRoot()
+  const base = dataBase(s)
+  if (!base) return null
+  rebuildDb(app.getPath('userData'), cacheSlug(s))
+  return ensureSynced(base)
 })
 
 // ─── IPC: Profiles ────────────────────────────────────────────────────────────
 
+// The demo has no profiles: list is empty (every profile surface hides) and
+// switch/create are refused. Otherwise the CLI runs against the data folder.
+
 ipcMain.handle('profile:list', async () => {
-  const repoPath = getRepoPath()
-  // Pre-migration (or no repo yet): report "no profiles" without spawning
-  // node — the renderer hides every profile surface on this shape.
-  if (!repoPath || !fs.existsSync(path.join(repoPath, 'profiles'))) {
+  const s = await getDataRoot()
+  const base = dataBase(s)
+  // Pre-migration, demo, or no repo yet: report "no profiles" without
+  // spawning node — the renderer hides every profile surface on this shape.
+  if (!base || s.kind === 'demo' || !fs.existsSync(path.join(base, 'profiles'))) {
     return { active: null, profiles: [] }
   }
-  const res = await runProfileCli(repoPath, ['list'])
+  const res = await runProfileCli(s, ['list'])
   if (Array.isArray(res.profiles)) return res
   // profiles/ exists but the CLI couldn't answer (script missing, crash) —
   // degrade to the hidden state rather than surfacing a broken switcher.
@@ -744,32 +976,34 @@ ipcMain.handle('profile:list', async () => {
   return { active: null, profiles: [] }
 })
 
-ipcMain.handle('profile:active', () => {
-  const repoPath = getRepoPath()
-  return { active: repoPath ? readActiveProfileSlug(repoPath) : null }
+ipcMain.handle('profile:active', async () => {
+  const s = await getDataRoot()
+  const base = dataBase(s)
+  return { active: base && s.kind !== 'demo' ? readActiveProfileSlug(base) : null }
 })
 
 ipcMain.handle('profile:switch', async (_e, slug: unknown) => {
-  const s = validateSlug(slug, 'slug')
-  const repoPath = getRepoPath()
-  if (!repoPath) return { ok: false, error: 'no-repo', message: 'no repository configured' }
-  const res = await runProfileCli(repoPath, ['switch', s])
+  const sl = validateSlug(slug, 'slug')
+  const s = await getDataRoot()
+  const base = dataBase(s)
+  if (!base) return { ok: false, error: 'no-repo', message: 'no repository configured' }
+  if (s.kind === 'demo') return DEMO_REFUSAL
+  const res = await runProfileCli(s, ['switch', sl])
   if (res.ok === true) {
     // The canonical paths now point into the new profile: swap to its cache
     // file (openDb closes the old one), mirror it from disk, and restart the
     // watcher — chokidar resolved the old symlink targets at watch time.
     try {
-      openDb(app.getPath('userData'), s)
-      ensureSynced(repoPath)
-      restartWatcher(repoPath, watcherCallbacks)
+      openDb(app.getPath('userData'), sl)
+      ensureSynced(base)
+      restartWatcher(base, watcherCallbacks)
     } catch (e) {
       console.error('[profile] cache swap after switch failed:', e)
     }
     // Existing data-refresh channel first (the data store re-pulls on it),
     // then the profile-specific event for the switcher/list surfaces.
-    mainWindow?.webContents.send('db:changed',
-      ['applications', 'scouting', 'pipeline', 'score_history', 'reports'])
-    mainWindow?.webContents.send('profile:changed', s)
+    mainWindow?.webContents.send('db:changed', ALL_SOURCES)
+    mainWindow?.webContents.send('profile:changed', sl)
   }
   return res
 })
@@ -778,8 +1012,9 @@ ipcMain.handle('profile:create', async (_e, opts: unknown) => {
   if (!opts || typeof opts !== 'object') throw new Error('opts must be object')
   const o = opts as Record<string, unknown>
   const slug = validateSlug(o.slug, 'slug')
-  const repoPath = getRepoPath()
-  if (!repoPath) return { ok: false, error: 'no-repo', message: 'no repository configured' }
+  const s = await getDataRoot()
+  if (!dataBase(s)) return { ok: false, error: 'no-repo', message: 'no repository configured' }
+  if (s.kind === 'demo') return DEMO_REFUSAL
   const args = ['create', slug]
   if (o.from !== undefined && o.from !== null && o.from !== '') {
     args.push('--from', validateSlug(o.from, 'from'))
@@ -788,7 +1023,7 @@ ipcMain.handle('profile:create', async (_e, opts: unknown) => {
     const label = validateString(o.label, 'label').trim().slice(0, 80)
     if (label) args.push('--label', label)
   }
-  return runProfileCli(repoPath, args)
+  return runProfileCli(s, args)
 })
 
 // ─── IPC: Network lens ────────────────────────────────────────────────────────
@@ -797,16 +1032,12 @@ ipcMain.handle('profile:create', async (_e, opts: unknown) => {
 // network-lens-core.mjs — the same modules `npm run network`, `npm run
 // outreach-plan`, and the daily brief use) instead of re-implementing the
 // roster / pipeline / cadence parsing in the renderer. The cores are ESM;
-// this main bundle is compiled to CommonJS, so we go through a real dynamic
-// import() — the Function indirection stops tsc from down-compiling it to a
-// require() (which cannot load ESM).
+// this main bundle is compiled to CommonJS, so they load through
+// importRepoModule (electron/dataRoot.ts: a real dynamic import() that tsc
+// cannot down-compile to require(), cached per file, retried after a failure).
 //
 // Markdown stays canonical: this handler reads the files fresh on every call
 // and derives everything in-memory — nothing network-related is persisted.
-
-// eslint-disable-next-line @typescript-eslint/no-implied-eval
-const dynamicImport = new Function('s', 'return import(s)') as
-  (s: string) => Promise<Record<string, unknown>>
 
 interface NetworkLensModule {
   buildNetworkOverview: (input: {
@@ -818,35 +1049,20 @@ interface NetworkLensModule {
   }) => unknown
 }
 
-// Cache the module per repo path — the cores are code, not data, so a stale
-// module across an app session is fine (Node's ESM cache can't be evicted
-// anyway). A failed import is NOT cached, so a repo updated mid-session gets
-// retried on the next call.
-let networkLensCache: { repoPath: string; mod: Promise<NetworkLensModule> } | null = null
-function loadNetworkLens(repoPath: string): Promise<NetworkLensModule> {
-  if (networkLensCache?.repoPath === repoPath) return networkLensCache.mod
-  const file = path.join(repoPath, 'scripts', 'lib', 'network-lens-core.mjs')
-  const mod = dynamicImport(pathToFileURL(file).href) as unknown as Promise<NetworkLensModule>
-  networkLensCache = { repoPath, mod }
-  mod.catch(() => { networkLensCache = null })
-  return mod
-}
-
 ipcMain.handle('network:overview', async () => {
   const repoPath = getRepoPath()
   if (!repoPath) return null
-  const read = (rel: string): string | null => {
-    const full = resolveRepoPath(rel)
-    if (!full) return null
-    try { return fs.readFileSync(full, 'utf-8') } catch { return null }
-  }
   try {
-    const lens = await loadNetworkLens(repoPath)
+    // Code from the repo, data through the data root (readPersonal).
+    const lens = await importRepoModule<NetworkLensModule>(repoPath, 'scripts/lib/network-lens-core.mjs')
+    const [networkRaw, applicationsRaw, scoutingRaw, outreachRaw] = await Promise.all([
+      readPersonal('data/network.md'),
+      readPersonal('data/applications.md'),
+      readPersonal('data/scouting.md'),
+      readPersonal('data/outreach.md'),
+    ])
     return lens.buildNetworkOverview({
-      networkRaw: read('data/network.md'),
-      applicationsRaw: read('data/applications.md'),
-      scoutingRaw: read('data/scouting.md'),
-      outreachRaw: read('data/outreach.md'),
+      networkRaw, applicationsRaw, scoutingRaw, outreachRaw,
       today: new Date().toISOString().slice(0, 10),
     })
   } catch (e) {
@@ -861,27 +1077,34 @@ ipcMain.handle('network:overview', async () => {
 //
 // The conversational tab. Everything about it (single live generation, spawn +
 // stream loop, persisted runtime, `chat:*` handlers) lives in electron/chat.ts;
-// main only hands it the pieces it owns — userData, the configured repo path
-// (the spawn's cwd), the window to push envelopes at, and the PATH-augmented
-// env every other spawn here uses. Chat state persists as JSON under
-// {userData}/chat/, never in the SQLite cache — that cache stays fully
-// derivable from the repo's Markdown/TSV.
+// main only hands it the pieces it owns — the configured repo path (the
+// spawn's cwd), the window to push envelopes at, the spawn env, the resolved
+// system prompt, and the demo refusal. Chat state persists as JSON in the
+// folder applyDataRoot points it at (<data root>/chat for private/external,
+// {userData}/chat-demo for the demo, {userData}/chat before a private root
+// exists), never in the SQLite cache — that cache stays fully derivable from
+// the Markdown/TSV.
 registerChat({
-  userDataDir: app.getPath('userData'),
   getRepoPath,
   getWindow: () => mainWindow,
-  env: SHELL_ENV,
+  getEnv: () => spawnEnv(dataRoot),
   getModel: () => readConfig().models?.pipeline,
+  resolveSystemPrompt,
+  refuseSend: async () => demoSpawnRefusal((await getDataRoot()).kind),
 })
 
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  adoptDevCheckout()
+  // Resolve the data root before the window exists, so the first renderer
+  // call already sees the right folder (and chat has moved, if it had to).
+  try { await refreshDataRoot() } catch (e) { console.error('[data-root] init failed:', e) }
   createWindow()
   // Best-effort initial sync. Failures here shouldn't block the UI; the
   // first db:* call will retry. Guarded so onboarding (no repoPath yet)
   // doesn't crash.
-  try { ensureDbReady() } catch (e) { console.error('[db] init failed:', e) }
+  try { await ensureDbReady() } catch (e) { console.error('[db] init failed:', e) }
 })
 
 app.on('window-all-closed', () => {
