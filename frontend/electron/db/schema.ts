@@ -18,7 +18,10 @@ import type Database from 'better-sqlite3'
 // numeric column is a NULLABLE REAL (blocked rows carry no scores). scouting
 // swaps score/cfaf for want / ease / eligibility; applications swaps score_num
 // for want / ease / legacy_score parsed from the Score cell (§8.3).
-export const SCHEMA_VERSION = 8
+// v9: no shape change — the multi-city location parsing changed (one listing,
+// several places), so caches built before it hold stale `cities` cells under
+// current mtimes; force a rebuild.
+export const SCHEMA_VERSION = 9
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (

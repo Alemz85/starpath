@@ -21,6 +21,8 @@ import {
   locationFlag, primaryPlace,
 } from '@/lib/trendsAnalytics'
 import { themeColor } from '@/lib/themes'
+import { postedDateOf } from '@/lib/listingDates'
+import type { ScoreEntry } from '@/types'
 
 // The analytics lib labels dimensions in title case ("Skills Match"); the UI
 // is sentence case everywhere.
@@ -33,6 +35,7 @@ export function TrendsView() {
   const loaded = useDataStore(s => s.loaded)
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const applications = useDataStore(s => s.applications)
+  const listingDates = useDataStore(s => s.listingDates)
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
   // null = automatic: weeks when they can carry a Want line, months otherwise.
   const [granularityChoice, setGranularityChoice] = useState<PeriodGranularity | null>(null)
@@ -42,11 +45,17 @@ export function TrendsView() {
   // IPC call avoids an empty-chart flash on every tab switch.
   const filtered = useMemo(() => filterByDateWindow(scoreHistory, timeRange), [scoreHistory, timeRange])
 
-  const granularity = useMemo(
-    () => granularityChoice ?? pickGranularity(filtered),
-    [granularityChoice, filtered],
+  // The time chart places each listing by its posting date (scan-history),
+  // else by its first evaluation.
+  const periodOpts = useMemo(
+    () => ({ postedDate: (e: ScoreEntry) => postedDateOf(listingDates, e.company, e.role) }),
+    [listingDates],
   )
-  const byPeriod = useMemo(() => buildByPeriod(filtered, granularity), [filtered, granularity])
+  const granularity = useMemo(
+    () => granularityChoice ?? pickGranularity(filtered, periodOpts),
+    [granularityChoice, filtered, periodOpts],
+  )
+  const byPeriod = useMemo(() => buildByPeriod(filtered, granularity, periodOpts), [filtered, granularity, periodOpts])
 
   // Top lists, each ranked on one named axis (Want or Ease, never both folded).
   const topCompanies  = useMemo(() => buildTopBy(filtered, e => e.company, 'ease', TOP_LIMIT), [filtered])

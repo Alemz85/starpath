@@ -317,8 +317,13 @@ Ease, each against its own floor, and the actionable share). It asserts a direct
 
 ### 3.6 Listings per period — `frontend/src/lib/trendsAnalytics.ts` (`buildByPeriod`)
 
-The Trends time chart counts distinct listings per week or month and overlays
-the **mean Want** of the scored listings first evaluated in each period. The
+The Trends time chart counts distinct listings per week or month **by the
+period they were posted** (scan-history's `posted_date`, else the period they
+were first evaluated) and overlays the **mean Want** of the scored listings
+placed in each period. Each bar is split into the **wanted** listings (Want ≥
+`WANT_HIGH` and not blocked: the high-Want row of the verdict grid, i.e. Go,
+Stretch or Growth target) and the rest; that split is a tally, ungated, like
+the count. The
 count is a tally, not a score claim, and is ungated. The mean is a window mean,
 so it takes § 3.3's gate unchanged:
 
@@ -335,8 +340,9 @@ so it takes § 3.3's gate unchanged:
 - **The line is a level, not a verdict.** It carries no arrows, signs or
   directional verbs. Direction claims belong to § 3.5.
 - **What counts.** Blocked listings count in the bars and never in the mean. A
-  re-evaluated listing counts once, in the period it was first evaluated, at
-  its latest Want.
+  re-evaluated listing counts once, in the period it was posted (else first
+  evaluated), at its latest Want. The footnote says how many listings had a
+  posting date and how many fell back to their first evaluation.
 
 ## 4. Presentation rules
 

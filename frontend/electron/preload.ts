@@ -48,6 +48,10 @@ const electronAPI = {
   // run in main under the tracker lock) and the status log it keeps.
   trackerSetStatus:     (req: unknown) => ipcRenderer.invoke('tracker:set-status', req),
   trackerStatusHistory: (query?: unknown) => ipcRenderer.invoke('tracker:status-history', query ?? {}),
+  trackerAmendStatus:   (req: unknown) => ipcRenderer.invoke('tracker:amend-status', req),
+
+  // Deadline / posting / first-scan dates per listing (data/scan-history.tsv).
+  listingDates: (queries: unknown) => ipcRenderer.invoke('listings:dates', queries),
 
   // SQLite-backed query layer (markdown/TSV remain canonical; this is a
   // derived cache rebuilt via the watcher). No raw SQL crosses the boundary —

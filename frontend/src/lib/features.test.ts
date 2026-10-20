@@ -27,7 +27,7 @@ test('VIEW_FEATURE only maps real ViewIds to real FeatureIds', () => {
 // ─── isViewEnabled / resolveView ─────────────────────────────────────────────
 
 test('unmapped views are always enabled, whatever the flags say', () => {
-  const permanent: ViewId[] = ['scouting', 'applying', 'database', 'reports', 'trends', 'pipeline', 'scan', 'settings', 'profile', 'company']
+  const permanent: ViewId[] = ['scouting', 'applying', 'database', 'reports', 'trends', 'scan', 'settings', 'profile', 'company']
   for (const view of permanent) {
     assert.equal(isViewEnabled(view, allOff), true, `${view} must survive all-off`)
     assert.equal(resolveView(view, allOff), view)

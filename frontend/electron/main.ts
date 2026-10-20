@@ -33,8 +33,10 @@ import {
 } from '../src/lib/dataRootMain'
 import { DEMO_DATA_PATH, DEMO_READ_ONLY, DEMO_READ_ONLY_TOOLTIP } from '../src/lib/dataRoot'
 import type {
+  StatusAmendRequest, StatusAmendResult,
   StatusChangeRequest, StatusChangeResult, StatusHistoryQuery, StatusLogEntry,
 } from '../src/lib/statusLog'
+import type { ListingDates, ListingDatesMap } from '../src/lib/listingDates'
 
 const execAsync = promisify(exec)
 
@@ -804,6 +806,11 @@ interface StatusLedgerModule {
     to: string; date?: string; stage?: string; note?: string; source: string
   }) => Promise<{ changed: boolean; to: string; date: string; entries: StatusLogEntry[] }>
   readHistory: (q: { appsFile: string; num?: number | null; company?: string | null; role?: string | null }) => StatusLogEntry[]
+  amendStatusAsync: (req: {
+    appsFile: string; statesFile: string
+    num?: number | null; company?: string; role?: string
+    to: string; date?: string; stage?: string; source: string
+  }) => Promise<{ changed: boolean; entry: StatusLogEntry }>
 }
 
 async function writeTrackerFile(repoPath: string, abs: string, content: string): Promise<void> {
@@ -857,6 +864,43 @@ ipcMain.handle('tracker:set-status', async (_e, req: unknown): Promise<StatusCha
   }
 })
 
+// Correct a logged move (the date or stage of a rejection recorded late or
+// backfilled with an approximate date). Same lock as a status change;
+// applications.md is never touched, only the matching status-log row.
+ipcMain.handle('tracker:amend-status', async (_e, req: unknown): Promise<StatusAmendResult> => {
+  try {
+    if (!req || typeof req !== 'object') throw new Error('request must be an object')
+    const r = req as Partial<StatusAmendRequest>
+    const status = validateString(r.status, 'status')
+    const source = r.source === 'chat' ? 'chat' : 'app'
+    const hit = await resolveForRenderer('data/applications.md')
+    if (!hit || !hit.s.repoPath) return { ok: false, error: 'No repo path configured', code: 'ENOREPO' }
+    const refusal = demoWriteRefusal(hit.s.kind, hit.r, hit.s.isPersonal)
+    if (refusal) return { ok: false, error: refusal, code: 'EDEMO' }
+    const ledger = await importRepoModule<StatusLedgerModule>(hit.s.repoPath, 'scripts/lib/status-ledger.mjs')
+    if (typeof ledger.amendStatusAsync !== 'function') {
+      return { ok: false, error: 'This checkout\'s scripts cannot correct a logged status yet', code: 'ENOTSUP' }
+    }
+    // A stage of '' clears it, so it is passed through as given (not optString).
+    const stage = r.stage === undefined || r.stage === null ? undefined : String(r.stage).slice(0, 200)
+    const out = await ledger.amendStatusAsync({
+      appsFile: hit.r.abs,
+      statesFile: path.join(hit.s.repoPath, 'templates/states.yml'),
+      num: optNum(r.num) ?? null,
+      company: optString(r.company, 'company'),
+      role: optString(r.role, 'role'),
+      to: status,
+      date: optString(r.date, 'date', 10),
+      stage,
+      source,
+    })
+    return { ok: true, changed: out.changed, entry: out.entry }
+  } catch (e) {
+    const err = e as Error & { code?: string }
+    return { ok: false, error: err.message, code: err.code ?? null }
+  }
+})
+
 ipcMain.handle('tracker:status-history', async (_e, query: unknown): Promise<StatusLogEntry[]> => {
   const q = (query && typeof query === 'object' ? query : {}) as StatusHistoryQuery
   const hit = await resolveForRenderer('data/applications.md')
@@ -872,6 +916,52 @@ ipcMain.handle('tracker:status-history', async (_e, query: unknown): Promise<Sta
   } catch (e) {
     console.error('[tracker] status history failed:', e)
     return []
+  }
+})
+
+// ─── IPC: Listing dates ──────────────────────────────────────────────────────
+//
+// Deadline, posting date and first-scan date per listing, from
+// data/scan-history.tsv through the repo's own join (`indexListingDates` in
+// scripts/lib/merge-staging-core.mjs: canonical URL, then company + role).
+// The renderer sends one query per listing it shows and gets back a map keyed
+// by the query's `key`; unknown listings are absent. The index is rebuilt only
+// when the file changes. Any failure (older scripts, unreadable file) is an
+// empty map: the cards and the chart fall back to the dates they already have.
+
+interface MergeStagingModule {
+  indexListingDates: (text: string) => (q: { url?: string; company?: string; role?: string }) => ListingDates | null
+}
+
+let listingDatesIndex: { abs: string; mtimeMs: number; lookup: ReturnType<MergeStagingModule['indexListingDates']> } | null = null
+
+ipcMain.handle('listings:dates', async (_e, queries: unknown): Promise<ListingDatesMap> => {
+  if (!Array.isArray(queries)) return {}
+  const hit = await resolveForRenderer('data/scan-history.tsv')
+  if (!hit || !hit.s.repoPath) return {}
+  try {
+    const stat = fs.statSync(hit.r.abs)
+    if (!listingDatesIndex || listingDatesIndex.abs !== hit.r.abs || listingDatesIndex.mtimeMs !== stat.mtimeMs) {
+      const core = await importRepoModule<MergeStagingModule>(hit.s.repoPath, 'scripts/lib/merge-staging-core.mjs')
+      if (typeof core.indexListingDates !== 'function') return {}
+      listingDatesIndex = { abs: hit.r.abs, mtimeMs: stat.mtimeMs, lookup: core.indexListingDates(fs.readFileSync(hit.r.abs, 'utf-8')) }
+    }
+    const out: ListingDatesMap = {}
+    for (const q of queries.slice(0, 20_000)) {
+      if (!q || typeof q !== 'object') continue
+      const { key, url, company, role } = q as Record<string, unknown>
+      if (typeof key !== 'string' || !key) continue
+      const found = listingDatesIndex.lookup({
+        url: typeof url === 'string' ? url : undefined,
+        company: typeof company === 'string' ? company : undefined,
+        role: typeof role === 'string' ? role : undefined,
+      })
+      if (found) out[key] = { deadline: found.deadline ?? null, postedDate: found.postedDate ?? null, firstSeen: found.firstSeen ?? null }
+    }
+    return out
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') console.error('[listings] dates failed:', e)
+    return {}
   }
 })
 

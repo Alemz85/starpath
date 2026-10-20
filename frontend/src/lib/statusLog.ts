@@ -46,6 +46,23 @@ export type StatusChangeResult =
   | { ok: true; changed: boolean; to: AppStatus; date: string; entries: StatusLogEntry[] }
   | { ok: false; error: string; code: string | null }
 
+/** Correct the date and/or stage of an application's latest logged move to
+ *  `status` (scripts/lib/status-ledger.mjs `amendStatus*`). Fields left out
+ *  are kept; `stage: ''` clears it. applications.md is not touched. */
+export interface StatusAmendRequest {
+  num?: number
+  company?: string
+  role?: string
+  status: AppStatus
+  date?: string
+  stage?: string
+  source?: 'app' | 'chat'
+}
+
+export type StatusAmendResult =
+  | { ok: true; changed: boolean; entry: StatusLogEntry }
+  | { ok: false; error: string; code: string | null }
+
 /** Filter for a history read; empty reads the whole log. */
 export interface StatusHistoryQuery {
   num?: number

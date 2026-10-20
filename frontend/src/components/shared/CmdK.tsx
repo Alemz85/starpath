@@ -6,7 +6,7 @@ import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
 import {
   Search, Database, FileText,
-  TrendingUp, GitBranch, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User,
+  TrendingUp, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User,
 } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
 import { useProfilesStore } from '@/store/profiles'
@@ -106,7 +106,6 @@ export function CmdK() {
                 { view: 'database', label: 'Database', icon: Database   },
                 { view: 'reports',  label: 'Reports',  icon: FileText   },
                 { view: 'trends',   label: 'Trends',   icon: TrendingUp },
-                { view: 'pipeline', label: 'Pipeline', icon: GitBranch  },
                 { view: 'scan',     label: 'Activity', icon: Activity   },
                 { view: 'settings', label: 'Settings', icon: Settings   },
                 { view: 'profile',  label: 'Profile',  icon: User       },

@@ -4,29 +4,32 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
-import { useSpawnsStore, claudeArgs, type SpawnRecord } from '@/store/spawns'
 import { useWriteGate } from '@/store/dataRoot'
-import { ipc } from '@/lib/ipc'
 import {
-  Briefcase, AlertTriangle, Plus, FileText, Sparkles, GraduationCap, X, ArrowRight, ArrowUpRight, Bell, Loader2,
+  Briefcase, X, ArrowRight, CalendarClock, CalendarPlus, Radar, Pencil, ScrollText,
 } from 'lucide-react'
 import { RunningInScanFooter } from '@/components/command-center/CommandCenter'
 import { ClosedApplicationsPanel } from './ClosedApplicationsPanel'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
-import { Button, Chip, PageHeader, ScoreNumber, Stat, StatStrip, type ChipTone } from '@/components/ui'
-import { cn, deadlineLabel, deadlineUrgency, urgencyBadge } from '@/lib/utils'
+import { StatusDropdown } from '@/components/shared/ApplyAction'
+import { WantEase } from '@/components/shared/WantEase'
+import { ReportSlideOver } from '@/components/reports/ReportSlideOver'
+import { orphanScoreEntry } from '@/components/reports/ReportsView'
+import { Button, PageHeader, ScoreNumber, Stat, StatStrip } from '@/components/ui'
+import { cn } from '@/lib/utils'
+import { parseScoreCell } from '@/lib/scoreBands'
 import {
-  STATUS_GROUPS, getSpawnId, groupByStatus, countActNow,
-  cardAttention, stageProgress, nextStep,
-  type CardAttention, type FollowUpState, type NextStep,
+  BOARD_STAGES, STATUS_GROUPS, groupByStatus, inferredRejectionLabel, rejectionInfo,
+  rejectionStageOptions, type RejectionInfo,
 } from '@/lib/applyingBoard'
-import type { AppStatus, ApplicationEntry } from '@/types'
+import { dateCue, listingDateKey, type DateCue, type DateCueKind } from '@/lib/listingDates'
+import type { AppStatus, ApplicationEntry, ScoreEntry } from '@/types'
 
-// Status hue for the column-header dot and the funnel progress strip. Literal
-// classes so Tailwind's JIT sees them; mirrors STATUS_COLORS (lifecycle state).
+// Status hue for the column-header dot. Literal classes so Tailwind's JIT
+// sees them; mirrors STATUS_TONE in components/ui/chip (lifecycle state).
 const STATUS_FILL: Record<AppStatus, string> = {
-  Evaluated: 'bg-info',
+  Evaluated: 'bg-text-3',
   Applied:   'bg-accent',
   Responded: 'bg-accent',
   Interview: 'bg-warning',
@@ -36,153 +39,162 @@ const STATUS_FILL: Record<AppStatus, string> = {
   SKIP:      'bg-text-4',
 }
 
-// "7.79/10" → 7.79. Null when the cell holds no number.
-function scoreValue(raw: string): number | null {
-  const m = /(\d+(?:\.\d+)?)/.exec(raw ?? '')
-  return m ? Number(m[1]) : null
+// Which date a card's cue shows, by icon: closes, posted, first scanned.
+const CUE_ICON: Record<DateCueKind, typeof CalendarClock> = {
+  deadline: CalendarClock,
+  posted:   CalendarPlus,
+  scanned:  Radar,
+}
+
+const norm = (s: string) => s.trim().toLowerCase()
+
+/** Today as YYYY-MM-DD (local), the latest date a rejection may carry. */
+function todayIso(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** "14 Sep", with the year only when it isn't this year ("14 Sep 2025"). */
+function shortDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  return y === new Date().getFullYear() ? `${d} ${MONTHS[m - 1]}` : `${d} ${MONTHS[m - 1]} ${y}`
+}
+
+/** A rejection being recorded (move) or corrected (edit). */
+interface RejectionDraft {
+  app: ApplicationEntry
+  mode: 'move' | 'edit'
+  /** The status it was rejected from ('' when unknown). */
+  from: string
+  date: string
+  stage: string
 }
 
 export function ApplyingView() {
-  const repoPath = useAppStore(s => s.repoPath)
-  const models = useAppStore(s => s.models)
   const closedLaneEnabled = useAppStore(s => s.features.closedLane)
   const applications = useDataStore(s => s.applications)
+  const scoreHistory = useDataStore(s => s.scoreHistory)
+  const statusLog = useDataStore(s => s.statusLog)
+  const listingDates = useDataStore(s => s.listingDates)
   const loaded = useDataStore(s => s.loaded)
-  const refresh = useDataStore(s => s.refresh)
   const setApplicationStatus = useDataStore(s => s.setApplicationStatus)
-  const spawns = useSpawnsStore(s => s.spawns)
-  const start = useSpawnsStore(s => s.start)
-  const kill = useSpawnsStore(s => s.kill)
-  const clear = useSpawnsStore(s => s.clear)
+  const amendStatusEntry = useDataStore(s => s.amendStatusEntry)
   const navigate = useNavStore(s => s.navigate)
 
   // Track which card is currently being dragged so columns can highlight as
   // drop targets and so onDrop has the source info even if the dataTransfer
   // payload is missing (Electron's drag events occasionally drop the data).
   const [dragging, setDragging] = useState<{ company: string; role: string; from: AppStatus } | null>(null)
-  // Pending discard — the styled confirm modal reads from this and the
-  // user clicks confirm/cancel from the modal itself rather than getting
-  // an OS-level window.confirm() that doesn't match the app design.
+  // Pending discard — the styled confirm modal reads from this.
   const [pendingDiscard, setPendingDiscard] = useState<ApplicationEntry | null>(null)
+  // A rejection being recorded or corrected (the date + stage dialog).
+  const [rejection, setRejection] = useState<RejectionDraft | null>(null)
+  // The application whose report is open in the slide-over, in place.
+  const [reportFor, setReportFor] = useState<ApplicationEntry | null>(null)
 
-  // Refresh data store whenever a per-card spawn finishes — newly-generated
-  // CV files / status writebacks should propagate to FilesStrip and the
-  // Kanban without manual refresh.
-  const finishedSpawnIds = useMemo(() => {
-    return Object.entries(spawns)
-      .filter(([id, record]) => {
-        const isAppSpawn = id.startsWith('app-tailor-cv') || id.startsWith('app-draft') || id.startsWith('app-interview')
-        const isFinished = record.status === 'done' || record.status === 'error' || record.status === 'killed'
-        return isAppSpawn && isFinished
-      })
-      .map(([id]) => id)
-      .join(',')
-  }, [spawns])
-
-  useEffect(() => {
-    if (finishedSpawnIds) {
-      void refresh()
+  // Each rejected card's date and stage, read once per log change.
+  const rejections = useMemo(() => {
+    const out = new Map<ApplicationEntry, RejectionInfo>()
+    for (const a of applications) {
+      const info = rejectionInfo(statusLog, a)
+      if (info) out.set(a, info)
     }
-  }, [finishedSpawnIds, refresh])
+    return out
+  }, [applications, statusLog])
 
-  // Bucket into the five active stages, each column sorted by deadline
-  // urgency. Pure logic lives in lib/applyingBoard (groupByStatus).
-  const grouped = useMemo(() => groupByStatus(applications), [applications])
-
-  // Rejected + Discarded fall outside the five active kanban stages — collect
-  // them for the collapsed "Closed" strip below the board so they stay
-  // visible and reversible instead of silently disappearing.
-  const closedApps = useMemo(
-    () => applications.filter(a => a.status === 'Rejected' || a.status === 'Discarded'),
-    [applications],
+  // Bucket into the board columns: live stages sorted by deadline, Rejected
+  // newest first. Pure logic lives in lib/applyingBoard (groupByStatus).
+  const grouped = useMemo(
+    () => groupByStatus(applications, new Date(), a => rejections.get(a)?.date ?? null),
+    [applications, rejections],
   )
 
-  // Cards across all five active stages — drives the board's empty state.
-  // Note: SKIP / Rejected / Discarded rows are intentionally NOT here (SKIP
-  // never enters the board; the closed two live in the Closed strip), so a
-  // user whose only rows are SKIP correctly sees the get-started guidance.
-  const activeCount = STATUS_GROUPS.reduce((n, s) => n + (grouped[s]?.length ?? 0), 0)
+  // Discarded rows fall outside the board — collect them for the collapsed
+  // "Closed" strip below it so they stay visible and reversible.
+  const closedApps = useMemo(() => applications.filter(a => a.status === 'Discarded'), [applications])
 
-  const totalApplied      = applications.filter(a => a.status === 'Applied').length
-  const totalResponded    = applications.filter(a => a.status === 'Responded').length
-  const totalInterviewing = applications.filter(a => a.status === 'Interview').length
-  const totalOffers       = applications.filter(a => a.status === 'Offer').length
+  // Cards on the board, live stages only — drives the empty state and meta.
+  const activeCount = STATUS_GROUPS.reduce((n, s) => n + (s === 'Rejected' ? 0 : grouped[s]?.length ?? 0), 0)
+  const boardCount = activeCount + (grouped.Rejected?.length ?? 0)
 
-  // How many cards across the five active stages want action today — a fused
-  // count of urgent deadlines AND overdue follow-up nudges. This is the single
-  // number the user should read off the hero: "what do I touch right now?".
-  // Recomputed once per data change; `cardAttention` is cheap and pure.
-  const actNowCount = useMemo(
-    () => STATUS_GROUPS.reduce((n, s) => n + countActNow(grouped[s] ?? []), 0),
-    [grouped],
-  )
+  const totalApplied      = grouped.Applied.length
+  const totalResponded    = grouped.Responded.length
+  const totalInterviewing = grouped.Interview.length
+  const totalOffers       = grouped.Offer.length
+  const totalRejected     = grouped.Rejected.length
 
-  const launch = (id: string, label: string, app: ApplicationEntry, modeFile: string, model: 'sonnet' | 'opus' | 'haiku') => {
-    if (spawns[id]?.status === 'running') { kill(id); return }
-    if (spawns[id]) clear(id)
-    const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
-    const slash = `/career-ops ${mode} for ${app.company} — ${app.role}`
-    start(id, `${label}: ${app.company}`, 'claude', claudeArgs(slash, model))
+  // The report slide-over needs the listing's evaluation: the latest
+  // score-history row for the company + role, else a blank entry.
+  const reportEntry: ScoreEntry | null = useMemo(() => {
+    if (!reportFor) return null
+    const c = norm(reportFor.company)
+    const r = norm(reportFor.role)
+    const latest = scoreHistory
+      .filter(e => norm(e.company) === c && norm(e.role) === r)
+      .sort((a, b) => b.date.localeCompare(a.date))[0]
+    return latest ?? orphanScoreEntry({ path: '', company: reportFor.company, role: reportFor.role, tier: '', url: '' })
+  }, [reportFor, scoreHistory])
+
+  // Every status change from the board goes through here. Rejected opens the
+  // date + stage dialog first; anything else is written straight away.
+  const moveTo = (app: ApplicationEntry, to: AppStatus) => {
+    if (to === app.status) return
+    if (to === 'Rejected') {
+      setRejection({ app, mode: 'move', from: app.status, date: todayIso(), stage: '' })
+      return
+    }
+    void setApplicationStatus(app.company, app.role, to)
   }
 
-  const handleTailorCV = (a: ApplicationEntry) => launch(getSpawnId('app-tailor-cv', a), 'Tailor CV',         a, 'modes/pdf.md',            models.tailorCv)
-  const handleDraftApp = (a: ApplicationEntry) => launch(getSpawnId('app-draft', a),     'Draft Application', a, 'modes/apply.md',          models.draftApp)
-  const handlePrepInt  = (a: ApplicationEntry) => launch(getSpawnId('app-interview', a), 'Prep Application', a, 'modes/interview-prep.md', models.interviewPrep)
+  const editRejection = (app: ApplicationEntry) => {
+    const info = rejections.get(app)
+    setRejection({
+      app, mode: 'edit',
+      from: info?.from ?? '',
+      date: info?.date ?? todayIso(),
+      stage: info?.stage ?? '',
+    })
+  }
 
-  // Advance a card one stage up the funnel via the same status writeback the
-  // drag-to-column path uses — the one-click target of a 'next step' of kind
-  // 'advance'. No-ops on an unexpected null target.
-  const handleAdvance = (a: ApplicationEntry, to: AppStatus | null) => {
-    if (!to) return
-    void setApplicationStatus(a.company, a.role, to)
+  // Resolves to an error message, or null once saved.
+  const saveRejection = async (draft: RejectionDraft): Promise<string | null> => {
+    const { app } = draft
+    const result = draft.mode === 'move'
+      ? await setApplicationStatus(app.company, app.role, 'Rejected', { date: draft.date, stage: draft.stage || undefined })
+      : await amendStatusEntry(app.company, app.role, 'Rejected', { date: draft.date, stage: draft.stage })
+    if (!result) return 'Demo data is read-only'
+    return result.ok ? null : result.error
   }
 
   const handleDropOnColumn = (target: AppStatus) => {
     if (!dragging) return
-    if (dragging.from === target) { setDragging(null); return }
-    void setApplicationStatus(dragging.company, dragging.role, target)
+    const app = applications.find(a => a.company === dragging.company && a.role === dragging.role)
     setDragging(null)
+    if (app) moveTo(app, target)
   }
 
-  const handleRemove = (app: ApplicationEntry) => setPendingDiscard(app)
   const confirmDiscard = () => {
     if (!pendingDiscard) return
-    void setApplicationStatus(pendingDiscard.company, pendingDiscard.role, 'Discarded' as AppStatus)
+    void setApplicationStatus(pendingDiscard.company, pendingDiscard.role, 'Discarded')
     setPendingDiscard(null)
   }
 
   // Restore a closed-out row back onto the board. Evaluated is the board's
   // entry column, so the card reappears in the first lane.
   const handleRestore = (app: ApplicationEntry) =>
-    void setApplicationStatus(app.company, app.role, 'Evaluated' as AppStatus)
+    void setApplicationStatus(app.company, app.role, 'Evaluated')
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <PageHeader
-        title="Applying"
-        meta={loaded ? (
-          <>
-            {activeCount} active
-            {actNowCount > 0 ? (
-              <>
-                {' · '}
-                <span className="text-danger font-medium">
-                  {actNowCount} {actNowCount === 1 ? 'needs' : 'need'} action today
-                </span>
-              </>
-            ) : activeCount > 0 ? (
-              <>
-                {' · '}
-                <span className="text-success">All caught up</span>
-              </>
-            ) : null}
-          </>
-        ) : '…'}
-      />
+      <PageHeader title="Applying" meta={loaded ? `${activeCount} active` : '…'} />
 
       <div className="flex-1 flex flex-col min-h-0 p-5 gap-4 overflow-hidden">
-        {/* Funnel strip — Sent → Responded → Interviewing → Offers. The two
-            in-flight stages take their lifecycle hue + dot when non-zero. */}
+        {/* Where the applications stand: Sent → Responded → Interviewing →
+            Offers, with Rejected set apart. Counts only; nothing to act on. */}
         {loaded ? (
           <StatStrip className="shrink-0">
             <Stat value={totalApplied}   label="Sent" />
@@ -191,18 +203,21 @@ export function ApplyingView() {
               value={totalInterviewing}
               label="Interviewing"
               tone={totalInterviewing > 0 ? 'warning' : 'default'}
-              dot={totalInterviewing > 0}
             />
             <Stat
               value={totalOffers}
               label="Offers"
               tone={totalOffers > 0 ? 'success' : 'default'}
-              dot={totalOffers > 0}
+            />
+            <Stat
+              value={totalRejected}
+              label="Rejected"
+              tone={totalRejected > 0 ? 'danger' : 'default'}
             />
           </StatStrip>
         ) : (
           <div className="shrink-0 flex divide-x divide-border-default" aria-hidden="true">
-            {[0, 1, 2, 3].map(i => (
+            {[0, 1, 2, 3, 4].map(i => (
               <div key={i} className="space-y-2 px-5 first:pl-0">
                 <div className="h-[22px] w-10 shimmer rounded" />
                 <div className="h-3.5 w-20 shimmer rounded" />
@@ -211,52 +226,50 @@ export function ApplyingView() {
           </div>
         )}
 
-        {/* Inbox — pending URLs */}
-        <InboxPanel repoPath={repoPath} />
-
-        {/* Kanban — fills the remaining vertical space, columns scroll
-            internally. Wider/taller than before, this is now the main canvas
-            of the Applying tab. When there's nothing on the board yet, the
-            five empty columns read as "broken/loading" — swap in get-started
-            guidance instead. */}
+        {/* Kanban — fills the remaining space; columns share the width and
+            scroll internally, the board scrolls sideways only when narrow. */}
         <div className="flex-1 min-h-[260px] overflow-x-auto -mx-1 px-1">
-          {loaded && activeCount === 0 ? (
+          {loaded && boardCount === 0 ? (
             <EmptyBoard onBrowse={() => navigate('database')} />
           ) : (
-            <div className="flex gap-3 h-full" style={{ minWidth: STATUS_GROUPS.length * 240 }}>
+            <div className="flex gap-3 h-full" style={{ minWidth: STATUS_GROUPS.length * 232 - 12 }}>
               {STATUS_GROUPS.map(status => (
                 <KanbanColumn
                   key={status}
                   status={status}
                   items={grouped[status] ?? []}
-                  spawns={spawns}
                   dragging={dragging}
                   onDragStart={(app) => setDragging({ company: app.company, role: app.role, from: status })}
                   onDragEnd={() => setDragging(null)}
                   onDropOnColumn={() => handleDropOnColumn(status)}
-                  onTailorCV={handleTailorCV}
-                  onDraftApp={handleDraftApp}
-                  onPrepInt={handlePrepInt}
-                  onAdvance={handleAdvance}
-                  onRemove={handleRemove}
-                  onViewReport={app => navigate('reports', `${app.company}|${app.role}`)}
+                  renderCard={(app, isDragging) => (
+                    <ApplicationCard
+                      key={`${app.num}-${app.company}-${app.role}`}
+                      app={app}
+                      cue={status === 'Rejected' ? null : dateCue(app, listingDates[listingDateKey(app.company, app.role)])}
+                      rejection={rejections.get(app) ?? null}
+                      isDragging={isDragging}
+                      onDragStart={() => setDragging({ company: app.company, role: app.role, from: status })}
+                      onDragEnd={() => setDragging(null)}
+                      onMove={(to) => moveTo(app, to)}
+                      onEditRejection={() => editRejection(app)}
+                      onRemove={() => setPendingDiscard(app)}
+                      onViewReport={() => setReportFor(app)}
+                    />
+                  )}
                 />
               ))}
             </div>
           )}
         </div>
 
-        {/* Closed-out applications (Rejected / Discarded) — collapsed strip so
-            they stay auditable and reversible without cluttering the board.
-            Deactivatable (Settings › General › Features); closed rows remain
-            visible in Database and Pipeline either way. */}
+        {/* Discarded applications — a collapsed strip so they stay auditable
+            and reversible without cluttering the board. Deactivatable
+            (Settings › General › Features); they stay in the Database. */}
         {closedLaneEnabled && (
           <ClosedApplicationsPanel apps={closedApps} onRestore={handleRestore} />
         )}
 
-        {/* No inline activity panel — live logs live exclusively on the
-            Scan tab. The footer pings the user there when anything is
-            running. */}
         <RunningInScanFooter />
       </div>
 
@@ -267,6 +280,155 @@ export function ApplyingView() {
           onCancel={() => setPendingDiscard(null)}
         />
       )}
+
+      {rejection && (
+        <RejectionDialog
+          draft={rejection}
+          onSave={saveRejection}
+          onClose={() => setRejection(null)}
+        />
+      )}
+
+      {reportFor && reportEntry && (
+        <ReportSlideOver
+          company={reportFor.company}
+          role={reportFor.role}
+          scoreEntry={reportEntry}
+          onClose={() => setReportFor(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Rejection dialog ───────────────────────────────────────────────────────
+// Asks only for the date (today by default, past dates allowed). The stage is
+// inferred from the status it was rejected from and shown; one-click chips
+// refine it, stored as the log row's `stage`. In edit mode the same dialog
+// corrects an already-recorded rejection (only the status log changes).
+
+function RejectionDialog({ draft, onSave, onClose }: {
+  draft: RejectionDraft
+  onSave: (d: RejectionDraft) => Promise<string | null>
+  onClose: () => void
+}) {
+  const [date, setDate] = useState(draft.date)
+  const [stage, setStage] = useState(draft.stage)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const today = todayIso()
+  const options = useMemo(() => {
+    const list = rejectionStageOptions(draft.from)
+    // A stage set elsewhere (CLI, an older chip) stays pickable.
+    return draft.stage && !list.includes(draft.stage) ? [draft.stage, ...list] : list
+  }, [draft.from, draft.stage])
+  const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today
+  const unchanged = draft.mode === 'edit' && date === draft.date && stage === draft.stage
+
+  const save = async () => {
+    if (!dateOk || saving || unchanged) return
+    setSaving(true)
+    setError(null)
+    const err = await onSave({ ...draft, date, stage })
+    setSaving(false)
+    if (err) setError(err)
+    else onClose()
+  }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const inferred = draft.from
+    ? `${inferredRejectionLabel(draft.from)} (from ${draft.from})`
+    : inferredRejectionLabel('')
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/[0.32] backdrop-blur-[3px]"
+      onClick={onClose}
+      style={{ animation: 'chip-appear 160ms ease both' }}
+    >
+      <form
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rejection-title"
+        onClick={e => e.stopPropagation()}
+        onSubmit={e => { e.preventDefault(); void save() }}
+        className="w-[420px] rounded-xl bg-bg-base border border-border-default shadow-lift overflow-hidden"
+      >
+        <div className="px-5 pt-5 pb-4 space-y-4">
+          <div className="flex items-start gap-3">
+            <CompanyLogo company={draft.app.company} size={32} className="shrink-0" />
+            <div className="min-w-0 flex-1">
+              <h3 id="rejection-title" className="text-title text-text-1">
+                {draft.mode === 'move' ? 'Mark as rejected' : 'Edit rejection'}
+              </h3>
+              <p className="text-label text-text-3 mt-1 truncate">
+                <span className="font-medium text-text-2">{draft.app.company}</span> — {draft.app.role}
+              </p>
+            </div>
+          </div>
+
+          <label className="block">
+            <span className="label block">Date</span>
+            <input
+              type="date"
+              value={date}
+              max={today}
+              required
+              autoFocus
+              onChange={e => setDate(e.target.value)}
+              className="input mt-1 w-44"
+            />
+            {!dateOk && date !== '' && (
+              <span className="block text-label text-danger mt-1">The date can't be in the future.</span>
+            )}
+          </label>
+
+          <div>
+            <span className="label block">Stage</span>
+            <p className="text-body text-text-2 mt-1">{stage || inferred}</p>
+            <div className="flex flex-wrap gap-1.5 mt-2" role="group" aria-label="Refine the stage">
+              {options.map(o => (
+                <button
+                  key={o}
+                  type="button"
+                  aria-pressed={stage === o}
+                  onClick={() => setStage(s => (s === o ? '' : o))}
+                  className={cn(
+                    'chip chip-md transition-colors duration-150 hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40',
+                    stage === o && 'chip-accent',
+                  )}
+                >
+                  {o}
+                </button>
+              ))}
+            </div>
+            <p className="text-micro text-text-4 mt-2">
+              Optional. With none picked, the stage is the one it was rejected from.
+            </p>
+          </div>
+
+          {error && <p className="text-label text-danger">{error}</p>}
+        </div>
+        <div className="px-5 py-3 flex items-center justify-end gap-2 border-t border-border-default">
+          <Button tone="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            tone="primary"
+            size="sm"
+            type="submit"
+            loading={saving}
+            disabled={!dateOk || unchanged}
+          >
+            {draft.mode === 'move' ? 'Mark rejected' : 'Save'}
+          </Button>
+        </div>
+      </form>
     </div>
   )
 }
@@ -291,7 +453,7 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/[0.32] backdrop-blur-[3px]"
       onClick={onCancel}
       style={{ animation: 'chip-appear 160ms ease both' }}
     >
@@ -313,7 +475,7 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
             We'll mark this row Discarded in <code className="font-mono text-micro text-text-2 bg-bg-elevated px-1 py-0.5 rounded-sm">data/applications.md</code> and hide it from the kanban. The row stays in the file for audit — you can flip the status back any time.
           </p>
         </div>
-        <div className="px-5 py-3 flex items-center justify-end gap-2 bg-bg-elevated/60 border-t border-border-default">
+        <div className="px-5 py-3 flex items-center justify-end gap-2 border-t border-border-default">
           <Button tone="secondary" size="sm" onClick={onCancel}>
             Cancel
           </Button>
@@ -328,19 +490,18 @@ function DiscardConfirmModal({ app, onConfirm, onCancel }: {
 
 // ─── Empty board ─────────────────────────────────────────────────────────────
 
-// Shown when no application sits in any of the five active stages. Replaces
-// the row of empty columns (which reads as broken) with a short, accurate
-// account of how rows get here — the Apply action lives on Database rows and
-// report slide-overs — plus the inbox path for a brand-new lead.
+// Shown when no application sits on the board. Replaces the row of empty
+// columns (which reads as broken) with a short account of how rows get here:
+// the Apply action on Database rows and report slide-overs.
 function EmptyBoard({ onBrowse }: { onBrowse: () => void }) {
   return (
     <div className="h-full flex items-center justify-center">
       <div className="max-w-sm text-center px-6">
         <Briefcase size={40} strokeWidth={1.5} className="mx-auto mb-3 text-text-4" aria-hidden />
-        <h3 className="text-section text-text-1">No active applications yet</h3>
+        <h3 className="text-section text-text-1">No applications yet</h3>
         <p className="text-label text-text-3 mt-1.5">
-          When you Apply to a listing from the Database or a report, it lands here and moves
-          through the stages — Evaluated to Offer — as you work it.
+          When you Apply to a listing from the Database or a report, it lands here. Set its
+          stage on the card as it moves, from Evaluated to Offer or Rejected.
         </p>
         <Button
           tone="primary"
@@ -350,115 +511,7 @@ function EmptyBoard({ onBrowse }: { onBrowse: () => void }) {
         >
           Browse the Database
         </Button>
-        <p className="text-label text-text-4 mt-3">
-          or paste a job URL in the inbox above to start a new lead
-        </p>
       </div>
-    </div>
-  )
-}
-
-// ─── Inbox ──────────────────────────────────────────────────────────────────
-
-function InboxPanel({ repoPath }: { repoPath: string | null }) {
-  const pipeline = useDataStore(s => s.pipeline)
-  const refresh = useDataStore(s => s.refresh)
-  const [newUrl, setNewUrl] = useState('')
-  const [adding, setAdding] = useState(false)
-  const { canWrite, readOnlyTitle } = useWriteGate()
-
-  const addUrl = async () => {
-    if (!newUrl.trim() || !repoPath || !canWrite) return
-    setAdding(true)
-    try {
-      const path = 'data/pipeline.md'
-      const existing = await ipc.readFile(path) ?? ''
-      const updated = existing.trimEnd() + '\n- ' + newUrl.trim() + '\n'
-      await ipc.writeFile(path, updated)
-      setNewUrl('')
-      await refresh()
-    } finally {
-      setAdding(false)
-    }
-  }
-
-  return (
-    <div className="card shrink-0 overflow-hidden">
-      {/* Divider only shows when the list has content beneath. With an
-          empty inbox the bottom rule used to float below the header with
-          nothing under it — read as a stray line. */}
-      <div className={cn(
-        'flex items-center gap-3 px-3 h-10',
-        pipeline.length > 0 && 'border-b border-border-default',
-      )}>
-        <span className="flex items-baseline gap-1.5 shrink-0">
-          <span className="label">Inbox</span>
-          <span className="text-label text-text-4 tabular-nums">{pipeline.length}</span>
-        </span>
-        <div className="flex-1 min-w-0 flex items-center justify-end gap-1.5">
-          <input
-            value={newUrl}
-            onChange={e => setNewUrl(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addUrl()}
-            placeholder="Paste job URL…"
-            disabled={!canWrite}
-            title={readOnlyTitle}
-            className="input input-sm max-w-sm min-w-0"
-          />
-          <Button
-            tone="tinted"
-            size="sm"
-            onClick={addUrl}
-            disabled={!newUrl.trim() || adding || !canWrite}
-            title={readOnlyTitle}
-            icon={<Plus size={13} />}
-            className="shrink-0"
-          >
-            Add
-          </Button>
-        </div>
-      </div>
-      {pipeline.length > 0 && (
-        <InboxList items={pipeline} />
-      )}
-    </div>
-  )
-}
-
-// Show only the first few pending URLs inline. Anything beyond the cap stays
-// available behind a "show all" toggle — the full list is rarely worth the
-// vertical space, and the count in the header conveys the bigger picture.
-function InboxList({ items }: { items: import('@/types').PipelineUrl[] }) {
-  const PREVIEW = 5
-  const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? items : items.slice(0, PREVIEW)
-  const remaining = items.length - PREVIEW
-  return (
-    <div className="px-3 py-2">
-      <div className={cn('space-y-1', expanded && 'max-h-48 overflow-y-auto')}>
-        {visible.map((p, i) => (
-          <div
-            key={i}
-            className={cn(
-              'flex items-center gap-2 text-label',
-              p.isStale ? 'text-warning-text' : 'text-text-3',
-            )}
-          >
-            {p.isStale && <AlertTriangle size={12} className="shrink-0" />}
-            <span className="truncate font-mono">{p.url}</span>
-          </div>
-        ))}
-      </div>
-      {remaining > 0 && (
-        <Button
-          tone="ghost"
-          size="xs"
-          onClick={() => setExpanded(e => !e)}
-          className="mt-1 -ml-2"
-        >
-          {expanded ? 'Show fewer' : `+ ${remaining} more`}
-        </Button>
-      )}
     </div>
   )
 }
@@ -468,28 +521,17 @@ function InboxList({ items }: { items: import('@/types').PipelineUrl[] }) {
 interface ColumnProps {
   status: AppStatus
   items: ApplicationEntry[]
-  spawns: Record<string, SpawnRecord>
   dragging: { company: string; role: string; from: AppStatus } | null
   onDragStart: (a: ApplicationEntry) => void
   onDragEnd: () => void
   onDropOnColumn: () => void
-  onTailorCV: (a: ApplicationEntry) => void
-  onDraftApp: (a: ApplicationEntry) => void
-  onPrepInt:  (a: ApplicationEntry) => void
-  onAdvance:  (a: ApplicationEntry, to: AppStatus | null) => void
-  onRemove:   (a: ApplicationEntry) => void
-  onViewReport: (a: ApplicationEntry) => void
+  renderCard: (a: ApplicationEntry, isDragging: boolean) => ReactNode
 }
 
-function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd, onDropOnColumn, onTailorCV, onDraftApp, onPrepInt, onAdvance, onRemove, onViewReport }: ColumnProps) {
+function KanbanColumn({ status, items, dragging, onDropOnColumn, renderCard }: ColumnProps) {
   const [hover, setHover] = useState(false)
-  // How many cards in THIS column want action today — drives the header pip so
-  // a collapsed/scrolled column still signals "there's something pressing in
-  // here" without the user opening it.
-  const columnActNow = useMemo(() => countActNow(items), [items])
   // Drop is meaningful only when something's being dragged AND it isn't
-  // already in this column. Empty-column hover state stays even if the same
-  // card is dragged over its own column — we just won't act on it.
+  // already in this column.
   const isDropTarget = dragging != null && dragging.from !== status
   return (
     <div
@@ -505,26 +547,16 @@ function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd,
         setHover(false)
         onDropOnColumn()
       }}
+      aria-label={`${status}: ${items.length}`}
       className={cn(
-        'rounded-lg bg-bg-panel/50 border border-border-default/60 flex flex-col w-60 shrink-0 overflow-hidden h-full transition-colors duration-150',
+        'rounded-lg bg-bg-panel/50 border border-border-default/60 flex flex-col flex-1 min-w-[220px] overflow-hidden h-full transition-colors duration-150',
         isDropTarget && hover && 'border-accent/60 bg-accent/[0.04]',
       )}
     >
-      <div className="flex items-center gap-2 px-3 h-9 border-b border-border-default bg-bg-elevated/60 shrink-0">
+      <div className="flex items-center gap-2 px-3 h-9 border-b border-border-default/60 shrink-0">
         <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', STATUS_FILL[status])} aria-hidden />
         <span className="text-label font-medium text-text-2">{status}</span>
         <span className="text-label text-text-4 tabular-nums">{items.length}</span>
-        {columnActNow > 0 && (
-          <Chip
-            tone="danger"
-            size="sm"
-            icon={<Bell size={10} className="shrink-0" />}
-            className="ml-auto"
-            title={`${columnActNow} ${columnActNow === 1 ? 'card needs' : 'cards need'} action today`}
-          >
-            {columnActNow}
-          </Chip>
-        )}
       </div>
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
         {items.length === 0 ? (
@@ -535,90 +567,34 @@ function KanbanColumn({ status, items, spawns, dragging, onDragStart, onDragEnd,
             <p className="text-label text-text-4">{isDropTarget && hover ? 'Drop here' : 'Empty'}</p>
           </div>
         ) : (
-          items.map((app, i) => {
-            const isDragging = dragging?.company === app.company && dragging?.role === app.role
-            return (
-              <ApplicationCard
-                key={i}
-                app={app}
-                spawns={spawns}
-                isDragging={isDragging}
-                onDragStart={() => onDragStart(app)}
-                onDragEnd={onDragEnd}
-                onTailorCV={() => onTailorCV(app)}
-                onDraftApp={() => onDraftApp(app)}
-                onPrepInt={() => onPrepInt(app)}
-                onAdvance={(to) => onAdvance(app, to)}
-                onRemove={() => onRemove(app)}
-                onViewReport={() => onViewReport(app)}
-              />
-            )
-          })
+          items.map(app => renderCard(
+            app,
+            dragging?.company === app.company && dragging?.role === app.role,
+          ))
         )}
       </div>
     </div>
   )
 }
 
-function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTailorCV, onDraftApp, onPrepInt, onAdvance, onRemove, onViewReport }: {
+function ApplicationCard({
+  app, cue, rejection, isDragging, onDragStart, onDragEnd, onMove, onEditRejection, onRemove, onViewReport,
+}: {
   app: ApplicationEntry
-  spawns: Record<string, SpawnRecord>
+  cue: DateCue | null
+  rejection: RejectionInfo | null
   isDragging: boolean
   onDragStart: () => void
   onDragEnd: () => void
-  onTailorCV: () => void
-  onDraftApp: () => void
-  onPrepInt:  () => void
-  onAdvance:  (to: AppStatus | null) => void
-  onRemove:   () => void
+  onMove: (to: AppStatus) => void
+  onEditRejection: () => void
+  onRemove: () => void
   onViewReport: () => void
 }) {
-  const urgency = deadlineUrgency(app.deadline)
-  const badge = urgencyBadge(urgency)
-  // Demo mode: the card reads normally, but every action that writes or
-  // spawns (status moves, remove, tailor/draft/prep) is disabled.
+  // Demo mode: the card reads normally, but every action that writes (stage,
+  // drag, remove, edit rejection) is disabled.
   const { canWrite, readOnlyTitle } = useWriteGate()
-
-  // Fused attention verdict (deadline clock + follow-up cadence). Drives the
-  // card's border hue and the follow-up nudge chip. Memoised so the per-frame
-  // drag re-renders don't recompute the date math.
-  const attention = useMemo<CardAttention>(() => cardAttention(app), [app])
-  const followUp = attention.followUp
-
-  // The single recommended next move for this card, and how far it's travelled
-  // down the funnel. Both pure (lib/applyingBoard); memoised so drag re-renders
-  // don't re-derive. nextStep folds status + the two clocks into one concrete,
-  // one-click action; stageProgress drives the journey strip.
-  const step = useMemo<NextStep>(() => nextStep(app), [app])
-  const progress = useMemo(() => stageProgress(app.status), [app.status])
-
-  const tailorSpawnId = getSpawnId('app-tailor-cv', app)
-  const draftSpawnId = getSpawnId('app-draft', app)
-  const prepSpawnId = getSpawnId('app-interview', app)
-
-  const tailorRunning = spawns[tailorSpawnId]?.status === 'running'
-  const draftRunning  = spawns[draftSpawnId]?.status === 'running'
-  const prepRunning   = spawns[prepSpawnId]?.status === 'running'
-
-  // Whether the recommended step's underlying spawn is already in flight — so
-  // the primary button can reflect a running action rather than re-launch it.
-  const stepRunning =
-    step.kind === 'tailor-cv' ? tailorRunning :
-    step.kind === 'draft'     ? draftRunning  :
-    step.kind === 'prep'      ? prepRunning   : false
-
-  // Bind the recommended step to the affordance that performs it. 'advance'
-  // writes the status back (same path as drag-to-column); the spawn kinds reuse
-  // the existing per-card launchers; 'review' opens the report.
-  const runStep = () => {
-    switch (step.kind) {
-      case 'advance':   onAdvance(step.toStage); break
-      case 'tailor-cv': onTailorCV(); break
-      case 'draft':     onDraftApp(); break
-      case 'prep':      onPrepInt(); break
-      case 'review':    onViewReport(); break
-    }
-  }
+  const score = useMemo(() => parseScoreCell(app.score), [app.score])
 
   return (
     <div
@@ -633,17 +609,13 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
       }}
       onDragEnd={onDragEnd}
       className={cn(
-        'card group relative p-2.5 transition-colors duration-150 cursor-grab active:cursor-grabbing',
-        // The border carries the attention hue so a pressing card is legible
-        // at a glance down a dense column. Calm cards keep the hairline.
-        attention.level === 'act-now' ? 'border-danger/30 hover:border-danger/50'
-          : attention.level === 'soon' ? 'border-warning/30 hover:border-warning/50'
-          : 'hover:border-border-strong',
+        'card group relative p-2.5 transition-colors duration-150 hover:border-border-strong',
+        canWrite && 'cursor-grab active:cursor-grabbing',
         isDragging && 'opacity-40',
       )}
     >
-      {/* Remove button — top-right, fades in on hover. Confirms before
-          marking the row Discarded so the card can't disappear by accident. */}
+      {/* Remove — top-right, fades in on hover. Confirms before marking the
+          row Discarded so the card can't disappear by accident. */}
       <Button
         tone="ghost"
         size="xs"
@@ -651,160 +623,92 @@ function ApplicationCard({ app, spawns, isDragging, onDragStart, onDragEnd, onTa
         onClick={(e) => { e.stopPropagation(); onRemove() }}
         onPointerDown={(e) => e.stopPropagation()}
         disabled={!canWrite}
-        title={readOnlyTitle ?? 'Remove from applying batch'}
-        aria-label="Remove from applying batch"
+        title={readOnlyTitle ?? 'Remove from Applying'}
+        aria-label="Remove from Applying"
         icon={<X size={12} />}
         className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:text-danger"
       />
       <div className="flex items-start gap-2 pr-6">
         <CompanyLogo company={app.company} size={24} className="shrink-0 mt-0.5" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium text-text-1 truncate leading-tight">
+          <div className="text-body font-medium text-text-1 truncate leading-tight" title={app.company}>
             {app.company}
           </div>
-          <div className="text-label text-text-3 truncate mt-0.5">{app.role}</div>
-        </div>
-      </div>
-      <div className="flex items-center justify-between mt-2 gap-2">
-        <ScoreNumber value={scoreValue(app.score)} size="sm" />
-        <div className="flex items-center gap-1.5 min-w-0">
-          <FollowUpChip state={followUp} />
-          {badge && (
-            <Chip
-              tone={badge.color.replace('chip-', '') as ChipTone}
-              size="sm"
-              title={app.deadline}
-            >
-              {deadlineLabel(app.deadline) ?? badge.label}
-            </Chip>
-          )}
-          <FilesStrip company={app.company} role={app.role} size="sm" />
+          <div className="text-label text-text-3 truncate mt-0.5" title={app.role}>{app.role}</div>
         </div>
       </div>
 
-      {/* Funnel progress strip — five segments tracing Evaluated → Offer.
-          Cleared segments fill in the status hue; the rest stay hairline.
-          Gives the card's *journey* at a glance, the context the status word
-          alone can't ("Interview" tells you where, not how far it came). */}
-      <StageProgressStrip cleared={progress.cleared} total={progress.total} status={app.status} />
+      <div className="flex items-center justify-between mt-2 gap-2 min-h-5">
+        {score && 'want' in score
+          ? <WantEase want={score.want} ease={score.ease} size="sm" decimals={1} />
+          : <ScoreNumber value={score && 'legacy' in score ? score.legacy : null} size="sm" />}
+        {cue && <DateCueLabel cue={cue} emphasize={app.status === 'Evaluated'} />}
+      </div>
 
-      {/* Recommended next move — the single highest-value action for this card,
-          one click. Tone tracks the pressure (danger = urgent close/overdue,
-          tinted = the natural next step). The icon row below keeps every
-          action reachable. */}
-      <NextStepButton step={step} running={stepRunning} onClick={runStep} readOnlyTitle={step.kind === 'review' ? undefined : readOnlyTitle} />
+      {rejection && (
+        <div className="flex items-center gap-1 mt-1.5 min-w-0">
+          <p className="text-label text-text-3 truncate flex-1 min-w-0" title={rejection.date ? `Rejected on ${rejection.date}, ${rejection.label}` : `Rejected, date not recorded, ${rejection.label}`}>
+            {rejection.date ? shortDate(rejection.date) : 'No date'} · {rejection.label}
+          </p>
+          <Button
+            tone="ghost"
+            size="xs"
+            iconOnly
+            onClick={(e) => { e.stopPropagation(); onEditRejection() }}
+            onPointerDown={(e) => e.stopPropagation()}
+            disabled={!canWrite}
+            title={readOnlyTitle ?? 'Edit the rejection date or stage'}
+            aria-label="Edit the rejection date or stage"
+            icon={<Pencil size={12} />}
+            className="shrink-0"
+          />
+        </div>
+      )}
 
-      <div className="flex items-center gap-0.5 mt-1.5 -mb-0.5 h-6">
-        <CardAction label="Tailor CV" icon={<Sparkles size={12} />}      running={tailorRunning} onClick={onTailorCV} active={step.kind === 'tailor-cv'} readOnlyTitle={readOnlyTitle} />
-        <CardAction label="Draft application" icon={<FileText size={12} />}  running={draftRunning}  onClick={onDraftApp} active={step.kind === 'draft'} readOnlyTitle={readOnlyTitle} />
-        <CardAction label="Prep application"  icon={<GraduationCap size={12} />} running={prepRunning} onClick={onPrepInt}  active={step.kind === 'prep'} readOnlyTitle={readOnlyTitle} />
+      <div className="flex items-center gap-1 mt-2 -mb-0.5 -ml-2">
+        <StatusDropdown
+          current={app.status}
+          busy={false}
+          onChange={onMove}
+          size="xs"
+          quiet
+          statuses={BOARD_STAGES}
+          readOnlyTitle={readOnlyTitle}
+        />
+        <span className="flex-1" />
+        <FilesStrip company={app.company} role={app.role} size="sm" />
         <Button
           tone="ghost"
           size="xs"
+          iconOnly
           onClick={(e) => { e.stopPropagation(); onViewReport() }}
           onPointerDown={(e) => e.stopPropagation()}
-          className="ml-auto"
-        >
-          Report
-        </Button>
+          title="Open the report"
+          aria-label="Open the report"
+          icon={<ScrollText size={13} />}
+          className="-mr-1"
+        />
       </div>
     </div>
   )
 }
 
-// ─── Funnel progress strip ──────────────────────────────────────────────────
-// Five thin segments tracing the funnel (Evaluated → Applied → Responded →
-// Interview → Offer). The first `cleared` segments fill in the card's status
-// hue; the rest stay a faint hairline. Quiet by design — it reads as a progress
-// meter, not a control, so it never competes with the next-step button.
-function StageProgressStrip({ cleared, total, status }: { cleared: number; total: number; status: AppStatus }) {
-  // Offer (complete) fills success-green; every other live stage fills with the
-  // status' own hue so the strip agrees with the column header dot.
-  const fill = status === 'Offer' ? 'bg-success' : STATUS_FILL[status]
+// The card's one date: a small icon says which (closes / posted / first
+// scanned), the label says how far ("12d"), the tooltip says the rest. Only a
+// deadline within a week takes a colour, and only on a card not yet sent.
+function DateCueLabel({ cue, emphasize }: { cue: DateCue; emphasize: boolean }) {
+  const Icon = CUE_ICON[cue.kind]
   return (
-    <div
-      className="flex items-center gap-0.5 mt-2"
-      role="img"
-      aria-label={`Stage ${Math.max(cleared, 0)} of ${total}: ${status}`}
-      title={`${status} — stage ${Math.max(cleared, 0)} of ${total}`}
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 text-label tabular-nums shrink-0',
+        cue.soon && emphasize ? 'text-warning-text' : 'text-text-3',
+      )}
+      title={cue.title}
+      aria-label={cue.title}
     >
-      {Array.from({ length: total }, (_, i) => (
-        <span
-          key={i}
-          className={cn(
-            'h-[3px] flex-1 rounded-full transition-colors',
-            i < cleared ? fill : 'bg-border-default',
-          )}
-        />
-      ))}
-    </div>
-  )
-}
-
-// ─── Next-step button ───────────────────────────────────────────────────────
-// The card's recommended one-click action (see lib/applyingBoard.nextStep).
-// Full-width so the eye lands on it first; danger when the step is urgent,
-// tinted otherwise. An 'advance' step shows a ↗ to signal it bumps the stage;
-// a launch step that's already in flight shows the stop tone.
-function NextStepButton({ step, running, onClick, readOnlyTitle }: { step: NextStep; running: boolean; onClick: () => void; readOnlyTitle?: string }) {
-  const tone = running ? 'stop' : step.tone === 'urgent' ? 'danger' : 'tinted'
-  return (
-    <Button
-      tone={tone}
-      size="sm"
-      onClick={(e) => { e.stopPropagation(); onClick() }}
-      onPointerDown={(e) => e.stopPropagation()}
-      disabled={!!readOnlyTitle}
-      title={readOnlyTitle ?? (step.reason || step.label)}
-      aria-label={step.reason || step.label}
-      trailing={!running && step.kind === 'advance' ? <ArrowUpRight size={12} className="shrink-0" /> : undefined}
-      className="w-full mt-2"
-    >
-      {running ? 'Running…' : step.label}
-    </Button>
-  )
-}
-
-// Follow-up nudge chip — only shows when a card has an actionable cadence
-// (due-soon / overdue). A waiting or no-cadence card stays silent so the chip
-// reads as "act on this", not decoration. Amber when it comes due, red once
-// overdue — matching the card border's hue scale. The Bell + the
-// `state.reason` tooltip tell the user exactly what nudge is owed.
-function FollowUpChip({ state }: { state: FollowUpState }) {
-  if (state.kind !== 'overdue' && state.kind !== 'due-soon') return null
-  const overdue = state.kind === 'overdue'
-  const label = overdue
-    ? (state.dueInDays != null ? `${-state.dueInDays}d late` : 'Overdue')
-    : (state.dueInDays === 0 ? 'Today' : 'Soon')
-  return (
-    <Chip
-      tone={overdue ? 'danger' : 'warning'}
-      size="sm"
-      icon={<Bell size={10} className="shrink-0" />}
-      title={state.reason}
-    >
-      {label}
-    </Chip>
-  )
-}
-
-// Icon-only per-card action. Running → stop tone with a spinner (a click kills
-// the spawn). When this action is already the recommended next step (shown
-// above as the full-width button), the icon takes the accent text colour to
-// mark it as "that one" without competing for the eye.
-function CardAction({ label, icon, running, onClick, active = false, readOnlyTitle }: { label: string; icon: ReactNode; running: boolean; onClick: () => void; active?: boolean; readOnlyTitle?: string }) {
-  return (
-    <Button
-      tone={running ? 'stop' : 'ghost'}
-      size="xs"
-      iconOnly
-      onClick={(e) => { e.stopPropagation(); onClick() }}
-      onPointerDown={(e) => e.stopPropagation()}
-      disabled={!!readOnlyTitle}
-      title={readOnlyTitle ? `${label}: ${readOnlyTitle}` : running ? `Stop: ${label}` : label}
-      aria-label={running ? `Stop: ${label}` : label}
-      icon={running ? <Loader2 size={12} className="animate-spin" /> : icon}
-      className={cn(!running && active && 'text-accent-text')}
-    />
+      <Icon size={12} className="shrink-0" aria-hidden />
+      {cue.label}
+    </span>
   )
 }

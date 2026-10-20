@@ -571,20 +571,19 @@ export function filterPipelineLines(
 }
 
 /**
- * Find a listing's dates in scan-history text. Match order: canonical URL, then
- * the normalized (company, role) key. Returns null when the listing is unknown.
- *
- * Intended for consumers that only hold an application row (company, role,
- * report URL) and need "deadline, else posted date, else scan date".
+ * Index scan-history text once for many date lookups. Returns
+ * `lookup({ url, company, role })` with the same answer as
+ * `lookupListingDates(text, q)`: the first row whose canonical URL matches,
+ * else the first row with the normalized (company, role) key, else null.
+ * The app asks for every application and evaluated listing at once, so it
+ * parses the file one time instead of once per listing.
  *
  * @param {string} text scan-history.tsv content
- * @param {{url?:string, company?:string, role?:string}} q
  */
-export function lookupListingDates(text, { url, company, role } = {}) {
+export function indexListingDates(text) {
   const { columns, rows } = parseHistoryFile(text);
-  const wantUrl = url ? canonicalizeUrl(url) : '';
-  const wantKey = company && role ? companyRoleKey(company, role) : '';
-  let byKey = null;
+  const byUrl = new Map();
+  const byKey = new Map();
   for (const row of rows) {
     const rowUrl = getCell(row, columns, 'url');
     const hit = {
@@ -593,10 +592,31 @@ export function lookupListingDates(text, { url, company, role } = {}) {
       postedDate: getCell(row, columns, 'posted_date') || null,
       firstSeen: getCell(row, columns, 'first_seen') || null,
     };
-    if (wantUrl && canonicalizeUrl(rowUrl) === wantUrl) return { ...hit, display: pickDisplayDate(hit) };
-    if (!byKey && wantKey && companyRoleKey(getCell(row, columns, 'company'), getCell(row, columns, 'title')) === wantKey) {
-      byKey = { ...hit, display: pickDisplayDate(hit) };
-    }
+    const dated = { ...hit, display: pickDisplayDate(hit) };
+    const canon = rowUrl ? canonicalizeUrl(rowUrl) : '';
+    if (canon && !byUrl.has(canon)) byUrl.set(canon, dated);
+    const key = companyRoleKey(getCell(row, columns, 'company'), getCell(row, columns, 'title'));
+    if (key && !byKey.has(key)) byKey.set(key, dated);
   }
-  return byKey;
+  return ({ url, company, role } = {}) => {
+    const wantUrl = url ? canonicalizeUrl(url) : '';
+    if (wantUrl && byUrl.has(wantUrl)) return byUrl.get(wantUrl);
+    const wantKey = company && role ? companyRoleKey(company, role) : '';
+    return (wantKey && byKey.get(wantKey)) || null;
+  };
+}
+
+/**
+ * Find a listing's dates in scan-history text. Match order: canonical URL, then
+ * the normalized (company, role) key. Returns null when the listing is unknown.
+ *
+ * Intended for consumers that only hold an application row (company, role,
+ * report URL) and need "deadline, else posted date, else scan date". For many
+ * lookups against one file, use `indexListingDates`.
+ *
+ * @param {string} text scan-history.tsv content
+ * @param {{url?:string, company?:string, role?:string}} q
+ */
+export function lookupListingDates(text, q = {}) {
+  return indexListingDates(text)(q);
 }

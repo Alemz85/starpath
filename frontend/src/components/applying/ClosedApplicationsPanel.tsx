@@ -8,11 +8,10 @@ import { cn } from '@/lib/utils'
 import type { ApplicationEntry } from '@/types'
 import { useWriteGate } from '@/store/dataRoot'
 
-// Closed-out applications (Rejected + Discarded) live OUTSIDE the kanban's
-// five active stages. Without this strip they'd vanish from the board
-// entirely — no closure on a rejection, and no way to undo an accidental
-// discard. Collapsed by default so the active pipeline stays the focus;
-// Restore drops a row back to Evaluated and it re-enters the board.
+// Discarded applications live OUTSIDE the kanban (Rejected has its own
+// column). Without this strip they'd vanish from the board entirely, with no
+// way to undo an accidental discard. Collapsed by default so the board stays
+// the focus; Restore drops a row back to Evaluated and it re-enters the board.
 export function ClosedApplicationsPanel({
   apps, onRestore,
 }: {

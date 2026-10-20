@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import {
   filterByDateWindow,
   avg, median,
-  buildByPeriod, pickGranularity, listingKey, MIN_SCORED_PER_PERIOD_FOR_WANT,
+  buildByPeriod, pickGranularity, listingKey, isWanted, MIN_SCORED_PER_PERIOD_FOR_WANT,
   buildTopBy, latestPerListing, isNoiseLabel, primaryPlace,
   APPLY_WORTHY_VERDICTS, scoredOnly, isApplyWorthy,
   buildFunnel,
@@ -182,6 +182,35 @@ test('buildByPeriod months roll over the year and label with it', () => {
   assert.deepEqual(months.map(m => m.label), ['Dec 2025', 'Jan 2026'])
   assert.equal(months[1].title, 'January 2026')
   assert.deepEqual(buildByPeriod([], 'week'), [])
+})
+
+test('buildByPeriod places a listing in the period it was posted, else where it was first evaluated', () => {
+  const postedEarly = job({ date: '2026-07-03' })
+  const noPostDate = job({ date: '2026-07-04' })
+  const rows = [s(8.5, 6, postedEarly), s(7, 6, noPostDate)]
+  const posted: Record<string, string> = { [postedEarly.url]: '2026-05-20' }
+  const months = buildByPeriod(rows, 'month', { postedDate: e => posted[e.url] ?? null })
+  assert.deepEqual(months.map(m => [m.start, m.listings, m.posted]), [
+    ['2026-05-01', 1, 1], ['2026-06-01', 0, 0], ['2026-07-01', 1, 0],
+  ])
+  // Without posting dates the old rule stands: first evaluation.
+  assert.deepEqual(buildByPeriod(rows, 'month').map(m => [m.start, m.listings, m.posted]), [['2026-07-01', 2, 0]])
+})
+
+test('wanted = Want at or above the high band and not blocked; each bar splits on it', () => {
+  assert.equal(isWanted({ want: 8, eligibility: 'green' }), true)
+  assert.equal(isWanted({ want: 7.99, eligibility: 'green' }), false)
+  assert.equal(isWanted({ want: 9, eligibility: 'red' }), false)
+  assert.equal(isWanted({ want: null, eligibility: null }), false)
+  const rows = [
+    s(8.5, 4, job({ date: '2026-06-02' })),   // wanted even at low Ease (Growth target)
+    s(6, 9, job({ date: '2026-06-03' })),
+    makeBlockedEntry('x', job({ date: '2026-06-04' })),
+  ]
+  const [june] = buildByPeriod(rows, 'month')
+  assert.equal(june.listings, 3)
+  assert.equal(june.wanted, 1)
+  assert.equal(june.blocked, 1)
 })
 
 test('pickGranularity uses weeks only when two weeks can draw a Want point', () => {

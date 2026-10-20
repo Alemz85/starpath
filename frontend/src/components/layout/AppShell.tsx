@@ -16,7 +16,6 @@ import { OffersView } from '@/components/offers/OffersView'
 import { DatabaseView } from '@/components/database/DatabaseView'
 import { ReportsView } from '@/components/reports/ReportsView'
 import { TrendsView } from '@/components/trends/TrendsView'
-import { PipelineView } from '@/components/pipeline/PipelineView'
 import { ScanView } from '@/components/scan/ScanView'
 import { SettingsView } from '@/components/settings/SettingsView'
 import { ProfileView } from '@/components/profile/ProfileView'
@@ -95,7 +94,6 @@ export function AppShell() {
           {view === 'database' && <DatabaseView />}
           {view === 'reports'  && <ReportsView />}
           {view === 'trends'   && <TrendsView />}
-          {view === 'pipeline' && <PipelineView />}
           {view === 'scan'     && <ScanView />}
           {view === 'settings' && <SettingsView />}
           {view === 'profile'  && <ProfileView />}

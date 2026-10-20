@@ -17,7 +17,7 @@
 
 import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict } from '@/types'
 import { GATES, NOISE_FLOORS, describeSample, type ConfidenceTier } from '@/lib/scoringStats'
-import { isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
+import { WANT_HIGH, isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
 import { parseCities } from '@/lib/entityId'
 
 /** Rows a score analytic may use: Want and Ease present, not blocked. */
@@ -98,13 +98,19 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 
 // ─── Listings per period (week or month) ─────────────────────────────────────
 //
-// The time chart answers two questions on one axis: how many listings turned
-// up in each period (bars, so hiring cycles show as peaks and troughs), and how
-// much the user wanted what turned up (a mean-Want line on top).
+// The time chart answers two questions on one axis: when the listings were
+// posted (bars, so hiring cycles show as peaks and troughs, each split into
+// the ones the user wants and the rest), and how much the user wanted what was
+// posted (a mean-Want line on top).
 //
 // Counting rules:
-//   • a listing counts ONCE, in the period it was first evaluated — a
-//     re-evaluation is not a new listing (key: URL, else company|role);
+//   • a listing counts ONCE, in the period it was POSTED: its posting date
+//     from scan-history when the caller has one (`postedDate`), else the
+//     period it was first evaluated — a re-evaluation is not a new listing
+//     (key: URL, else company|role);
+//   • "wanted" = the high-Want row of the verdict grid (docs/scoring-v2.md
+//     §4): Want ≥ WANT_HIGH and not blocked, i.e. a Go, Stretch or Growth
+//     target verdict, on the listing's latest evaluation;
 //   • its Want is its LATEST evaluation, the current judgment of it;
 //   • blocked listings (eligibility red) count in the bars and in `blocked`,
 //     never in the Want mean — they have no Want (docs/scoring-v2.md §9). A
@@ -129,8 +135,14 @@ export interface PeriodBucket {
   label: string
   /** Tooltip heading: "Week of Sep 7, 2026" or "September 2026". */
   title: string
-  /** Distinct listings first evaluated in the period, blocked included. */
+  /** Distinct listings posted in the period (else first evaluated in it),
+   *  blocked included. */
   listings: number
+  /** Of those, how many were placed by their posting date (the rest by their
+   *  first evaluation, having no posting date on file). */
+  posted: number
+  /** Of those, wanted: Want ≥ WANT_HIGH and not blocked (`isWanted`). */
+  wanted: number
   /** Of those, blocked (eligibility red) on their latest evaluation. */
   blocked: number
   /** Of those, scored (Want and Ease present, not blocked). */
@@ -181,7 +193,19 @@ export function listingKey(e: Pick<ScoreEntry, 'url' | 'company' | 'role'>): str
   return url ? url : `${(e.company ?? '').trim().toLowerCase()}|${(e.role ?? '').trim().toLowerCase()}`
 }
 
-export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity): PeriodBucket[] {
+/** A listing the user wants: the high-Want row of the verdict grid (Go,
+ *  Stretch, Growth target): Want ≥ WANT_HIGH and not blocked. */
+export function isWanted(e: Pick<ScoreEntry, 'want' | 'eligibility'>): boolean {
+  return e.eligibility !== 'red' && e.want != null && Number.isFinite(e.want) && e.want >= WANT_HIGH
+}
+
+export interface ByPeriodOptions {
+  /** The listing's posting date (ISO day) when known; the listing is then
+   *  placed in the period it was posted rather than first evaluated. */
+  postedDate?: (e: ScoreEntry) => string | null | undefined
+}
+
+export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity, opts: ByPeriodOptions = {}): PeriodBucket[] {
   // One entry per listing: its first evaluation date and its latest row. On a
   // same-day tie the later row in the file wins (it was written last).
   const listings = new Map<string, { first: string; latest: ScoreEntry }>()
@@ -196,12 +220,15 @@ export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity
   }
   if (listings.size === 0) return []
 
-  const groups = new Map<string, ScoreEntry[]>()
+  const groups = new Map<string, Array<{ e: ScoreEntry; posted: boolean }>>()
   for (const { first, latest } of listings.values()) {
-    const start = isoDay(periodStart(parseDay(first)!, granularity))
+    const postedRaw = opts.postedDate?.(latest)
+    const postedOn = postedRaw ? parseDay(postedRaw) : null
+    const start = isoDay(periodStart(postedOn ?? parseDay(first)!, granularity))
+    const item = { e: latest, posted: postedOn != null }
     const list = groups.get(start)
-    if (list) list.push(latest)
-    else groups.set(start, [latest])
+    if (list) list.push(item)
+    else groups.set(start, [item])
   }
 
   const starts = [...groups.keys()].sort()
@@ -209,13 +236,16 @@ export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity
   const out: PeriodBucket[] = []
   for (let d = parseDay(starts[0])!; isoDay(d) <= last; d = nextPeriod(d, granularity)) {
     const start = isoDay(d)
-    const entries = groups.get(start) ?? []
+    const items = groups.get(start) ?? []
+    const entries = items.map(i => i.e)
     const scored = scoredOnly(entries)
     const sample = describeSample(scored.length, MIN_SCORED_PER_PERIOD_FOR_WANT)
     out.push({
       start,
       ...periodLabels(d, granularity),
       listings: entries.length,
+      posted: items.filter(i => i.posted).length,
+      wanted: entries.filter(isWanted).length,
       blocked: entries.filter(e => e.eligibility === 'red').length,
       scored: scored.length,
       avgWant: sample.sufficient ? avg(scored, 'want') : null,
@@ -228,8 +258,8 @@ export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity
 
 /** The finer granularity that can still draw a Want line: weeks when at least
  *  two weeks clear the gate, months otherwise. */
-export function pickGranularity(rows: ScoreEntry[]): PeriodGranularity {
-  const plotted = buildByPeriod(rows, 'week').filter(b => b.avgWant != null).length
+export function pickGranularity(rows: ScoreEntry[], opts: ByPeriodOptions = {}): PeriodGranularity {
+  const plotted = buildByPeriod(rows, 'week', opts).filter(b => b.avgWant != null).length
   return plotted >= 2 ? 'week' : 'month'
 }
 

@@ -78,15 +78,20 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
   )
 }
 
-function StatusDropdown({
-  current, busy, onChange, size, readOnlyTitle,
+/** The status picker. The Applying cards reuse it (quiet, board stages only). */
+export function StatusDropdown({
+  current, busy, onChange, size, readOnlyTitle, statuses = STATUSES, quiet = false,
 }: {
   current: AppStatus
   busy: boolean
   onChange: (s: AppStatus) => void
-  size: 'sm' | 'md'
+  size: 'xs' | 'sm' | 'md'
   /** Set in demo mode: the dropdown shows the status but can't change it. */
   readOnlyTitle?: string
+  /** The statuses offered (default: every canonical status). */
+  statuses?: readonly AppStatus[]
+  /** Ghost button instead of secondary, for dense cards. */
+  quiet?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -112,7 +117,12 @@ function StatusDropdown({
         onClick={() => setOpen(o => !o)}
         disabled={busy || !!readOnlyTitle}
         title={readOnlyTitle}
-        className={clsx('btn btn-secondary titlebar-no-drag', size === 'sm' && 'btn-sm')}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={clsx(
+          'btn titlebar-no-drag', quiet ? 'btn-ghost' : 'btn-secondary',
+          size === 'sm' && 'btn-sm', size === 'xs' && 'btn-xs',
+        )}
       >
         {busy
           ? <Loader2 size={12} className="animate-spin shrink-0" aria-hidden />
@@ -126,12 +136,17 @@ function StatusDropdown({
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border-default bg-bg-base shadow-menu p-1"
+          role="menu"
+          className={clsx(
+            'absolute top-full mt-1 z-50 min-w-[180px] rounded-lg border border-border-default bg-bg-base shadow-menu p-1',
+            quiet ? 'left-0' : 'right-0',
+          )}
         >
-          {STATUSES.map(s => (
+          {statuses.map(s => (
             <button
               key={s}
               type="button"
+              role="menuitem"
               onClick={() => { onChange(s); setOpen(false) }}
               className={clsx(
                 'w-full h-8 flex items-center gap-2 px-2 rounded text-body text-left transition-colors duration-150',
