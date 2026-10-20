@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { slug, canonicalRoleSlug, parseCities, entityId } from '@/lib/entityId'
+import { slug, canonicalRoleSlug, parseCities, entityId, formatLocation } from '@/lib/entityId'
 
 test('slug lowercases, strips diacritics, and collapses punctuation', () => {
   assert.equal(slug('Société Générale'), 'societe-generale')
@@ -32,10 +32,43 @@ test('parseCities: strips parentheticals and bare Remote', () => {
   assert.deepEqual(parseCities(undefined), { cities: [], isMulti: false, primary: null })
 })
 
-test('parseCities: multi-city picks the first RECOGNIZED city as primary', () => {
+test('parseCities: multi-city takes the first listed place as primary', () => {
   assert.deepEqual(parseCities('Berlin / Paris'), { cities: ['Berlin', 'Paris'], isMulti: true, primary: 'Berlin' })
-  // Neither recognized → falls back to the first token, still deterministic.
   assert.deepEqual(parseCities('Hong Kong / EU'), { cities: ['Hong Kong', 'EU'], isMulti: true, primary: 'Hong Kong' })
+  // The eval writes the scored city first; an unknown first city still wins.
+  assert.equal(parseCities('Lyon, France; Vienna, Austria; Prague, Czechia').primary, 'Lyon')
+  assert.equal(formatLocation('Lyon, France; Vienna, Austria; Prague, Czechia'), 'Lyon +2')
+})
+
+test('parseCities: every separator a multi-city posting uses splits into cities', () => {
+  const three = ['Leeds', 'York', 'Bath']
+  for (const raw of [
+    'Leeds, York, Bath, United Kingdom',
+    'Leeds; York; Bath',
+    'Leeds | York | Bath',
+    'Leeds · York · Bath',
+    'Leeds • York • Bath',
+    'Leeds, York and Bath',
+    'Leeds, York or Bath',
+    'Leeds, UK; York, UK; Bath, UK',
+    'Leeds, York, Bath - United Kingdom',
+    'Multiple locations: Leeds, York, Bath',
+    'United Kingdom (Leeds, York, Bath)',
+  ]) {
+    const parsed = parseCities(raw)
+    assert.deepEqual(parsed.cities, three, raw)
+    assert.equal(parsed.isMulti, true, raw)
+    assert.equal(formatLocation(raw), 'Leeds +2', raw)
+  }
+})
+
+test('parseCities: work-mode words are not cities', () => {
+  assert.deepEqual(parseCities('Lyon, France, hybrid, 3 office days').cities, ['Lyon'])
+  assert.deepEqual(parseCities('Lyon, France hybrid').cities, ['Lyon'])
+  assert.deepEqual(parseCities('Lyon, on-site').cities, ['Lyon'])
+  // An unspaced dash belongs to the name; a spaced one without a country too.
+  assert.deepEqual(parseCities('Saint-Étienne').cities, ['Saint-Étienne'])
+  assert.deepEqual(parseCities('Paris - La Défense').cities, ['Paris - La Défense'])
 })
 
 test('entityId: single-city embeds the city slug and scrubs it from the role', () => {

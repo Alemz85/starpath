@@ -297,11 +297,7 @@ export function AddListingModal() {
             </button>
           )
         }
-        return (
-          <span className="text-text-4">
-            Paste any Greenhouse, Lever, Ashby, Workday, WTTJ or company careers URL
-          </span>
-        )
+        return null
       case 'typing':
         return (
           <span className="text-warning-text flex items-center gap-1" role="alert" aria-atomic>
@@ -398,7 +394,7 @@ export function AddListingModal() {
                 Add a listing
               </h2>
               <p id={descId} className="text-label text-text-3 mt-1">
-                Paste a job posting URL, then score it into the Database or queue it for the next filter pass.
+                Score it now, or queue it for the next filter pass.
               </p>
             </div>
             <Button
@@ -417,7 +413,7 @@ export function AddListingModal() {
             {/* URL input */}
             <div>
               <label htmlFor="add-listing-url-input" className="label block mb-1.5">
-                Job posting URL
+                Link
               </label>
               <div className="relative">
                 <Link2
@@ -475,7 +471,7 @@ export function AddListingModal() {
                 id={statusId}
                 aria-live="polite"
                 aria-atomic="false"
-                className="mt-1.5 min-h-[18px] text-label flex items-center gap-1.5"
+                className="mt-1.5 empty:mt-0 text-label flex items-center gap-1.5"
               >
                 {hintContent}
               </div>
@@ -558,15 +554,6 @@ export function AddListingModal() {
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border-default bg-bg-elevated">
-            {/* Keyboard hint — visible for sighted users, hidden from AT */}
-            <span className="mr-auto text-label text-text-4 select-none hidden sm:flex items-center gap-1" aria-hidden>
-              <kbd className="kbd">↵</kbd>
-              {' '}evaluate
-              <span className="mx-1 text-border-strong">·</span>
-              <kbd className="kbd">Esc</kbd>
-              {' '}close
-            </span>
-
             <Button tone="ghost" onClick={handleClose}>
               Cancel
             </Button>
