@@ -128,7 +128,6 @@ export function companyLogoUrl(company: string): string {
     'Microsoft':  'microsoft.com',
     'Anthropic':  'anthropic.com',
     'OpenAI':     'openai.com',
-    'Celonis':    'celonis.com',
     'Glovo':      'glovoapp.com',
     'Stripe':     'stripe.com',
     'Revolut':    'revolut.com',

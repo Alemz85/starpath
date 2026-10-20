@@ -278,7 +278,7 @@ cd frontend && npm run package
 
 `lib/companyDomain.ts → guessDomain()` (pure + unit-tested; consumed by `shared/CompanyLogo.tsx`) does the company name → domain heuristic:
 
-1. Exact override against a ~60-entry `OVERRIDES` map (Amazon, Google, Klarna, Revolut, Celonis, …).
+1. Exact override against a ~60-entry `OVERRIDES` map (Amazon, Google, Klarna, N26, …).
 2. **Word-boundary** prefix match against the same map ("Google Cloud" → google.com). The boundary guard matters: a bare letter-prefix must NOT match, or short keys hijack unrelated names ("Xero" → x.com, "Amdocs" → amd.com); those fall through to step 3 instead.
 3. Fallback: strip Inc/LLC/Ltd/Corp/GmbH/AG, remove non-alphanumeric, append `.com`.
 

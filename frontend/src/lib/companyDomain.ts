@@ -36,7 +36,7 @@ export const OVERRIDES: Record<string, string> = {
   'klarna': 'klarna.com', 'revolut': 'revolut.com', 'n26': 'n26.com',
   'wise': 'wise.com', 'monzo': 'monzo.com',
   'delivery hero': 'deliveryhero.com', 'deliveroo': 'deliveroo.com', 'glovo': 'glovoapp.com',
-  'celonis': 'celonis.com', 'personio': 'personio.com', 'sumup': 'sumup.com',
+  'personio': 'personio.com', 'sumup': 'sumup.com',
   'zalando': 'zalando.com', 'otto': 'otto.de',
   'doctolib': 'doctolib.fr', 'contentsquare': 'contentsquare.com',
   'criteo': 'criteo.com', 'qonto': 'qonto.com', 'alan': 'alan.com',
