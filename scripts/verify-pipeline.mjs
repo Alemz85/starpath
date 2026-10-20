@@ -23,6 +23,9 @@
  * score-history.tsv checks (by header name): the v2 required columns exist,
  * eligibility/tier values are valid, blocked rows carry no scores.
  *
+ * JD archive: every T1-T3 report has a saved job description in jds/
+ * (warns with the backfill command when one is missing; check-jd-archive.mjs).
+ *
  * Set CAREER_OPS_ROOT to point the checks at another tree (used by the tests).
  *
  * Run: node career-ops/verify-pipeline.mjs
@@ -34,6 +37,8 @@ import { fileURLToPath } from 'url';
 import { companyKey, parseAppRow, validateScoreCell } from './lib/tracker-core.mjs';
 import { isV2ScoutingHeader, parseScoutingRow, validateScoutingRow } from './lib/scouting-core.mjs';
 import { checkScoreHistoryRows } from './lib/doctor-checks.mjs';
+import { loadAudit } from './lib/jd-archive-fs.mjs';
+import { describeMissing } from './check-jd-archive.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
@@ -365,6 +370,18 @@ if (existsSync(SCORE_HISTORY_FILE)) {
   }
 }
 if (portalUrls === 0) ok('No portal-homepage URLs (all join keys are listing-specific)');
+
+// --- JD archive: every T1–T3 report keeps its job description in jds/ ---
+{
+  const audit = loadAudit(CAREER_OPS);
+  const { counts } = audit;
+  if (counts.missing === 0) {
+    ok(`JD archive complete (${counts.archived}/${counts.total} reports${counts.unrecoverable ? `, ${counts.unrecoverable} gone` : ''})`);
+  } else {
+    warn(`${counts.missing} of ${counts.total} reports have no saved job description (jds/): run node scripts/archive-posting.mjs --missing (see scripts/check-jd-archive.mjs)`);
+    for (const line of describeMissing(audit).slice(0, 10)) console.log(`   ${line}`);
+  }
+}
 
 // --- Summary ---
 console.log('\n' + '='.repeat(50));

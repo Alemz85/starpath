@@ -39,6 +39,7 @@ import {
   GATES, classifyMovement, confidenceTier, formatWithinNoise, NOISE_FLOORS,
 } from '@/lib/scoringStats'
 import { Button, Chip, ScoreNumber, ScoreBar, SectionHeading } from '@/components/ui'
+import { loadJdArchive, reportNumberFor, type JdArchive } from '@/lib/jdArchive'
 
 // ─── The report dossier ──────────────────────────────────────────────────────
 //
@@ -53,7 +54,7 @@ import { Button, Chip, ScoreNumber, ScoreBar, SectionHeading } from '@/component
 // and reads everything else itself, so any view can mount it. Scoring v2:
 // docs/scoring-v2.md.
 
-type Tab = 'scouting' | 'application' | 'history'
+type Tab = 'scouting' | 'application' | 'listing' | 'history'
 
 interface SiblingInfo {
   company: string
@@ -89,6 +90,8 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   const repoPath = useAppStore(s => s.repoPath)
   const navigate = useNavStore(s => s.navigate)
   const scoreHistory = useDataStore(s => s.scoreHistory)
+  const scoutingRows = useDataStore(s => s.scouting)
+  const applicationRows = useDataStore(s => s.applications)
   const [scoutingContent, setScoutingContent] = useState<string | null>(null)
   const [applicationContent, setApplicationContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -98,6 +101,10 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   const [snapshot, setSnapshot] = useState<{ date: string; content: string } | null>(null)
   const [snapshotLoading, setSnapshotLoading] = useState(false)
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null)
+  // The saved job description (jds/): undefined while loading, null when the
+  // listing has none.
+  const [reportPath, setReportPath] = useState<string | null>(null)
+  const [jd, setJd] = useState<JdArchive | null | undefined>(undefined)
 
   // Re-evaluation history for this entity, newest first.
   const history: HistoryEntry[] = useMemo(() => {
@@ -165,6 +172,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     setError(null)
     setScoutingContent(null)
     setApplicationContent(null)
+    setReportPath(null)
     if (!repoPath) {
       setError('No repository configured.')
       setLoading(false)
@@ -190,6 +198,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       const text = await ipc.readFile(prepPath)
       if (text) setApplicationContent(text)
     }
+    setReportPath(scoutingPath)
     if (scoutingPath) setActiveTab('scouting')
     else if (prepExists) setActiveTab('application')
     else setError('No report or application prep exists for this listing yet.')
@@ -250,6 +259,20 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   // main by URL, then company + role): the posting date when the scan had
   // one, else when a scan first saw it; the deadline when the source stated one.
   const dates = useDataStore(s => s.listingDates[listingDateKey(company, role)])
+
+  // Saved posting text: found by the report's tracker number, else the listing
+  // URL, else company + role (lib/jdArchive.ts). Read through the same file
+  // IPC as the report, so it works wherever the panel is mounted.
+  useEffect(() => {
+    let cancelled = false
+    setJd(undefined)
+    if (loading) return
+    const num = reportNumberFor({ scouting: scoutingRows, applications: applicationRows, reportPath, company, role })
+    loadJdArchive({ num, company, role, url }, { list: () => ipc.listDir('jds'), read: ipc.readFile })
+      .then(found => { if (!cancelled) setJd(found) })
+      .catch(() => { if (!cancelled) setJd(null) })
+    return () => { cancelled = true }
+  }, [loading, reportPath, company, role, url, scoutingRows, applicationRows])
 
   const entryVerdict = verdictOf(scoreEntry)
   const entryBlocked = isBlocked(scoreEntry)
@@ -410,6 +433,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         <div role="tablist" aria-label="Report sections" className="flex items-center gap-7 border-b border-border-default shrink-0 px-8 mt-1">
           <TabButton label="Scouting report" active={activeTab === 'scouting'} disabled={!scoutingContent} onClick={() => setActiveTab('scouting')} />
           <TabButton label="Application prep" active={activeTab === 'application'} disabled={!applicationContent} onClick={() => setActiveTab('application')} hint="Not generated yet" />
+          <TabButton label="Job listing" active={activeTab === 'listing'} disabled={false} onClick={() => setActiveTab('listing')} />
           <TabButton label="History" count={historyAvailable ? history.length : undefined} active={activeTab === 'history'} disabled={!historyAvailable} onClick={() => setActiveTab('history')} hint="Only one evaluation so far" />
         </div>
 
@@ -436,6 +460,9 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               applicationContent
                 ? <ProseBody content={applicationContent} />
                 : <EmptyTab message="No application prep yet. Use Prep application from the Database row to research interview intel and map your stories." />
+            )}
+            {!loading && !error && activeTab === 'listing' && (
+              <JobListingTab jd={jd} url={url} />
             )}
             {!loading && !error && activeTab === 'history' && (
               snapshot ? (
@@ -892,6 +919,58 @@ function flattenChildrenText(node: ReactNode): string {
 
 function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'section'
+}
+
+// ─── Job listing ─────────────────────────────────────────────────────────────
+//
+// The posting text saved when the report was written (jds/, see
+// scripts/lib/jd-archive-core.mjs), kept because postings disappear. Read at a
+// comfortable measure; the fetched date and the live link sit above it.
+
+function jdSourceLabel(source: string): string {
+  if (source === 'worker') return 'Saved when evaluated'
+  if (source === 'page-html') return 'From the posting page'
+  if (source.endsWith('-api')) return 'From the job board'
+  return source
+}
+
+function JobListingTab({ jd, url }: { jd: JdArchive | null | undefined; url: string }) {
+  if (jd === undefined) {
+    return (
+      <div className="flex flex-col gap-3" aria-busy>
+        {[80, 60, 90, 50, 70].map((w, i) => (
+          <div key={i} className="shimmer h-3 rounded" style={{ width: `${w}%` }} />
+        ))}
+      </div>
+    )
+  }
+  if (jd === null) {
+    return (
+      <div className="flex flex-col items-center justify-center h-48 gap-3 text-center px-6">
+        <FileText size={22} className="text-text-4" aria-hidden />
+        <p className="text-label text-text-3 leading-relaxed max-w-[44ch]">
+          Not archived; the posting may be gone. If it is still online, this command saves it:
+        </p>
+        <code className="font-mono text-[12px] text-text-2 whitespace-nowrap select-text">node scripts/archive-posting.mjs --missing</code>
+      </div>
+    )
+  }
+  const live = jd.url || url
+  return (
+    <div className="max-w-[68ch]">
+      <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-label text-text-3 pb-4 mb-4 border-b border-border-default">
+        <span>{jd.fetched ? `Saved ${jd.fetched}` : 'Saved copy'}</span>
+        {jd.source && <><span className="text-text-4" aria-hidden>·</span><span>{jdSourceLabel(jd.source)}</span></>}
+        <div className="flex-1" />
+        {live && (
+          <Button tone="ghost" size="xs" icon={<ExternalLink size={12} />} onClick={() => ipc.openExternal(live)}>
+            Open live posting
+          </Button>
+        )}
+      </div>
+      <ProseBody content={jd.body} />
+    </div>
+  )
 }
 
 function EmptyTab({ message }: { message: string }) {
