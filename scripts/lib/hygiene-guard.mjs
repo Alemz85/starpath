@@ -337,11 +337,14 @@ export function parseCv(cv) {
     const toks = tokenize(s);
     return toks.length > 0 && !isGenericPhrase(toks) && toks.join('').length >= 3;
   };
-  const firstEntity = (heading, { skipDegrees = false } = {}) => {
+  // `### Entity — subtitle`; with `onlyFirst: false` a generic first part
+  // (a job title or degree: `### Analyst — Pinecrest Advisory`) defers to the next.
+  const firstEntity = (heading, { skipDegrees = false, onlyFirst = false } = {}) => {
     for (const part of splitParts(heading)) {
       if (looksLikeDate(part)) continue;
       if (skipDegrees && DEGREE_RE.test(part)) continue;
       if (keep(part)) return part;
+      if (onlyFirst) return null;
     }
     return null;
   };
@@ -374,7 +377,7 @@ export function parseCv(cv) {
         }
       } else if (kind === 'projects') {
         if (e.heading) {
-          const h = firstEntity(e.heading);
+          const h = firstEntity(e.heading, { onlyFirst: true });
           if (h) result.projects.push(h);
         }
         result.projects.push(...bold);
@@ -800,7 +803,7 @@ export function buildPatterns(pd) {
       const partial = digits.slice(-9);
       patterns.push({
         id: `phone_partial${sfx}`, category: 'identity',
-        regex: new RegExp(`(?<!\\d)${partial.split('').join('[\\s\\-().]*')}(?!\\d)`),
+        regex: new RegExp(partial.split('').join('[\\s\\-().]*')),
         description: `[identity] ${maskTerm(phone)}`, severity: 'error', scanner: true,
       });
     }
@@ -890,11 +893,22 @@ export function scanLine(text, ctx, { file = null } = {}) {
 
   if (ctx.matcher && ctx.matcher.size) {
     const found = ctx.matcher.find(text);
+    // A shorter variant inside a longer match of the same category
+    // ("Analyst" variants with/without "(Lyon)") is the same hit.
+    const subsumed = new Set();
+    if (found.size > 1) {
+      const all = [...found.values()];
+      for (const t of all) {
+        if (all.some((u) => u !== t && u.category === t.category && u.key.length > t.key.length
+          && ` ${u.key} `.includes(` ${t.key} `))) subsumed.add(t.key);
+      }
+    }
     const inPair = new Set();
     let pairHit = false;
     for (const key of found.keys()) {
+      if (subsumed.has(key)) continue;
       for (const p of ctx.matcher.pairsByCompany.get(key) || []) {
-        if (!found.has(p.roleKey)) continue;
+        if (!found.has(p.roleKey) || subsumed.has(p.roleKey)) continue;
         push({ category: 'company+role', severity: 'block', masked: p.masked, id: 'pair' });
         inPair.add(p.companyKey);
         inPair.add(p.roleKey);
@@ -902,7 +916,7 @@ export function scanLine(text, ctx, { file = null } = {}) {
       }
     }
     for (const t of found.values()) {
-      if (!t.standalone) continue;
+      if (!t.standalone || subsumed.has(t.key)) continue;
       if (inPair.has(t.key) && (t.category === 'company' || t.category === 'role')) continue;
       if (pairHit && t.category === 'report') continue;
       if (authorLine && t.category === 'identity') continue;

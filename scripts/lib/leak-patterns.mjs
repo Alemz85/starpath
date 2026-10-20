@@ -57,19 +57,24 @@ export function isPlaceholderEmail(address) {
   if (NOREPLY_LOCAL.test(local)) return true;
   if (local === 'git' && GIT_HOSTS.has(domain)) return true; // git@github.com:owner/repo
   if (PLACEHOLDER_EMAIL_DOMAINS.has(domain)) return true;
+  if (/\.example\.(?:com|org|net)$/.test(domain)) return true;
   if (domain.endsWith('.users.noreply.github.com')) return true;
   if (PLACEHOLDER_EMAIL_TLDS.has(tld)) return true;
   if (FILE_EXTENSIONS.has(tld)) return true;
-  if (labels.length === 2 && labels[0].length === 1) return true; // a@b.com
+  if (labels[0].length === 1) return true; // a@b.com, a@b.co.uk
   return false;
 }
 
 // ── phone ───────────────────────────────────────────────────────────────────
 
-/** +1 555… (fictional range), all-same digits, 123456789 runs, long zero runs. */
+/**
+ * Fictional ranges (+1 555…, UK +44 7700 900…), all-same digits,
+ * 123456789 runs, long zero runs.
+ */
 export function isPlaceholderPhone(match) {
   const digits = match.replace(/\D/g, '');
   if (/^\d{1,3}555/.test(digits)) return true;
+  if (/^447700900/.test(digits)) return true;
   if (/^(\d)\1+$/.test(digits)) return true;
   if (/0{6,}/.test(digits)) return true;
   if ('0123456789012345678901234567890'.includes(digits.slice(-8))) return true;
