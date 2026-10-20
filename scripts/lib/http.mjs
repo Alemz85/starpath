@@ -48,6 +48,19 @@ export const ATS_HOSTS = Object.freeze({
   smartrecruiters: ['api.smartrecruiters.com'],
 });
 
+/**
+ * Hosts a POSTING PAGE (the human-readable HTML a candidate opens) is served
+ * from, per ATS. Only the liveness ladder fetches these (`getText`); same
+ * matching rules as ATS_HOSTS.
+ */
+export const ATS_PAGE_HOSTS = Object.freeze({
+  greenhouse: ['boards.greenhouse.io', 'job-boards.greenhouse.io', 'job-boards.eu.greenhouse.io', 'boards.eu.greenhouse.io'],
+  ashby: ['jobs.ashbyhq.com'],
+  lever: ['jobs.lever.co', 'jobs.eu.lever.co'],
+  workday: ['*.myworkdayjobs.com'],
+  smartrecruiters: ['careers.smartrecruiters.com', 'jobs.smartrecruiters.com'],
+});
+
 export class HttpError extends Error {
   /** @param {string} message @param {{code?:string,status?:number,retryable?:boolean}} [info] */
   constructor(message, info = {}) {
@@ -353,6 +366,10 @@ export function createHttp({ request = nodeRequest, lookup = dns.lookup, sleep, 
       let retryHint = 0;
       try {
         const res = await request(url, { method, headers, body: payload, timeoutMs, maxBytes, lookup: guarded });
+        // `okStatus`: statuses the caller wants handed back instead of thrown (the
+        // liveness ladder reads a 404 page, or the Location of a redirect it will
+        // not follow). Redirects are still never followed.
+        if (opts.okStatus && opts.okStatus.includes(res.status)) return res;
         if (res.status >= 300 && res.status < 400) {
           throw new HttpError(`redirect (HTTP ${res.status}) refused`, { code: 'EREDIRECT', status: res.status });
         }
@@ -379,8 +396,28 @@ export function createHttp({ request = nodeRequest, lookup = dns.lookup, sleep, 
     }
   }
 
+  /**
+   * GET a posting page → `{status, headers, text}`. The URL must be on the
+   * page-host allowlist of `type` (ATS_PAGE_HOSTS). Statuses in `okStatus`
+   * (default 404/410 and 3xx) come back instead of throwing.
+   */
+  async function text(rawUrl, opts = {}) {
+    const hosts = ATS_PAGE_HOSTS[opts.type];
+    if (!hosts) throw new HttpError(`unknown ATS type "${opts.type}"`, { code: 'EBADURL' });
+    const res = await send(rawUrl, {
+      retries: 1,
+      maxBytes: 3 * 1024 * 1024,
+      okStatus: [301, 302, 303, 307, 308, 404, 410],
+      ...opts,
+      hosts,
+      headers: { accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5', ...(opts.headers || {}) },
+    });
+    return { status: res.status, headers: res.headers, text: res.body.toString('utf8') };
+  }
+
   return {
     send,
+    getText: text,
     /** GET → parsed JSON. */
     getJson: (url, opts) => json(url, { ...opts, method: 'GET' }),
     /** POST a JSON body → parsed JSON. */

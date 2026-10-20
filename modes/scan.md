@@ -137,13 +137,11 @@ Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y dedu
 
 7.5. **Verificar liveness de resultados de WebSearch (Nivel 3)** — ANTES de añadir a pipeline:
 
-   Los resultados de WebSearch pueden estar desactualizados (Google cachea resultados durante semanas o meses). Para evitar evaluar ofertas expiradas, verificar con Playwright cada URL nueva que provenga del Nivel 3. Los Niveles 1 y 2 son inherentemente en tiempo real y no requieren esta verificación.
+   Los resultados de WebSearch pueden estar desactualizados (Google cachea resultados durante semanas o meses). Para evitar evaluar ofertas expiradas, verificar cada URL nueva que provenga del Nivel 3. Los Niveles 1 y 2 son inherentemente en tiempo real y no requieren esta verificación.
 
-   **Sin navegador** (app / `claude -p`): verificar con `WebFetch`. Las páginas de Ashby, Lever y Greenhouse son SPAs que a `WebFetch` le llegan vacías; para esas URLs verificar contra la API pública del ATS en lugar de la página:
-   - Greenhouse `…/{board}/jobs/{id}` → `https://boards-api.greenhouse.io/v1/boards/{board}/jobs/{id}` (200 = activa, 404 = cerrada)
-   - Ashby `jobs.ashbyhq.com/{org}/{id}` → `https://api.ashbyhq.com/posting-api/job-board/{org}` y buscar `{id}` en `jobs[]`
-   - Lever `jobs.lever.co/{org}/{id}` → `https://api.lever.co/v0/postings/{org}/{id}`
-   Una URL que responde 403, 525 o timeout no es «expirada»: no registrarla en `scan-history.tsv`; listarla en el resumen bajo «No verificables» para que un scan con navegador la revise.
+   **Primero, el script (cero tokens, funciona también en app / `claude -p`):** `node scripts/check-liveness.mjs --no-browser <url>`. Pregunta a la API del propio ATS (Greenhouse, Lever, SmartRecruiters, Workday: endpoint por oferta; Ashby: listado del board) y, si no basta, lee la página exigiendo dos señales que coincidan. `active` o `expired` es definitivo (con `expired`, registrar `skipped_expired`). `unreachable` (403, 525, timeout, fallo de red) **no** es «expirada»: no registrarla en `scan-history.tsv`; listarla en el resumen bajo «No verificables» para que un scan con navegador la revise. `uncertain` (host sin soporte o página ambigua) pasa al siguiente paso.
+
+   **Después, solo si el script no decidió:** con navegador, Playwright (abajo); sin navegador (app / `claude -p`), `WebFetch` de la página, que para Ashby, Lever y Greenhouse llega vacía (SPAs), así que esas URLs no pueden confirmarse sin el script: tratarlas como «No verificables».
 
    Para cada URL nueva de Nivel 3 (secuencial — NUNCA Playwright en paralelo):
    a. `browser_navigate` a la URL

@@ -48,6 +48,7 @@ import {
   parseHistoryFile,
   pickDisplayDate,
 } from './scan-history.mjs';
+import { parseLocationsCell } from './listing-fields.mjs';
 
 // The ORIGINAL scan-history header (8 columns): what every scan-history.tsv
 // must at least carry, and what `npm run doctor` validates against. The files
@@ -297,14 +298,21 @@ export function appendScanDate(row, date) {
  * drop them outright instead). A canonical URL that matches a row already on
  * disk is a normal re-seen bump (`updatedScanDates`), not a twin.
  *
+ * `prefilter(job)` is the admission gate's blacklist → title → language →
+ * location verdict (lib/admission-gate.mjs, `{ok, stage}`); a staging row it
+ * rejects is dropped before any dedup work and counted under `gateDrops`.
+ * Its canonical URL goes in `rejectedUrls` so the pipeline pass can drop the
+ * matching line too.
+ *
  * @returns {{rows: string[], appended: number, updatedScanDates: number,
  *            droppedDuplicateRole: number, droppedDuplicateUrl: number,
- *            acceptedKeys: Set<string>, acceptedUrls: Set<string>}}
+ *            acceptedKeys: Set<string>, acceptedUrls: Set<string>,
+ *            gateDrops: Record<string, number>, rejectedUrls: Set<string>}}
  *
  * `acceptedUrls` holds CANONICAL urls (so the pipeline pass can compare against
  * the same canonical space).
  */
-export function mergeHistory(existingRows, stagingLines, today, { columns = HISTORY_COLUMNS, stagingColumns = columns } = {}) {
+export function mergeHistory(existingRows, stagingLines, today, { columns = HISTORY_COLUMNS, stagingColumns = columns, prefilter = null } = {}) {
   const rows = existingRows.slice();
   const { urlToIndex, companyRoleSeen, idToIndex } = indexHistory(rows, columns);
 
@@ -318,6 +326,8 @@ export function mergeHistory(existingRows, stagingLines, today, { columns = HIST
   // the same staging file is dropped rather than re-bumping the fresh row's
   // scan date (which would double-count it as "re-seen").
   const appendedUrls = new Set();
+  const gateDrops = {};
+  const rejectedUrls = new Set();
 
   // Fill the cells an older row lacks (dates, ids, locations) from a re-seen
   // staging row, never overwriting a value already there.
@@ -335,6 +345,23 @@ export function mergeHistory(existingRows, stagingLines, today, { columns = HIST
     const rawUrl = cols[COL_URL];
     if (!rawUrl) continue;
     const url = canonicalizeUrl(rawUrl);
+
+    // 0. The admission gate (same chain scan.mjs runs).
+    if (prefilter) {
+      const verdict = prefilter({
+        url: rawUrl,
+        title: cols[COL_TITLE],
+        company: cols[COL_COMPANY],
+        location: getCell(line, columns, 'location'),
+        locations: parseLocationsCell(getCell(line, columns, 'locations')),
+        source: getCell(line, columns, 'portal'),
+      });
+      if (!verdict.ok) {
+        gateDrops[verdict.stage] = (gateDrops[verdict.stage] || 0) + 1;
+        rejectedUrls.add(url);
+        continue;
+      }
+    }
 
     // 1a. Same canonical URL already appended earlier in this very batch
     //     (tracking-param twins) → drop without re-bumping.
@@ -392,6 +419,8 @@ export function mergeHistory(existingRows, stagingLines, today, { columns = HIST
     droppedDuplicateUrl,
     acceptedKeys,
     acceptedUrls,
+    gateDrops,
+    rejectedUrls,
   };
 }
 
@@ -472,14 +501,16 @@ export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [
  * URL→index map to decide whether a 'duplicate-url' is a known-history re-seen
  * (bump scan_dates) versus a pipeline/apps URL it shouldn't touch.
  *
- * @param {{url?:string, company?:string, title?:string, source?:string, postingId?:string}} offer
+ * @param {{url?:string, company?:string, title?:string, source?:string, externalId?:string, postingId?:string, dedupKey?:string}} offer
  * @param {{seenUrls:Set<string>, seenKeys:Set<string>, seenIds?:Set<string>}} seen
  * @returns {{decision:'new'|'duplicate-url'|'duplicate-id'|'duplicate-role', canonicalUrl:string, key:string, idKey:string}}
  */
 export function classifyScanOffer(offer, { seenUrls, seenKeys, seenIds = new Set() }) {
   const canonicalUrl = canonicalizeUrl(offer?.url || '');
   const key = companyRoleKey(offer?.company || '', offer?.title || '');
-  const idKey = postingIdKey(offer?.source, offer?.postingId);
+  // `dedupKey` is a provider's own identity key (scripts/providers); otherwise
+  // `<source>:<externalId>`. `postingId` is the wave-1 name for `externalId`.
+  const idKey = offer?.dedupKey || postingIdKey(offer?.source, offer?.externalId ?? offer?.postingId);
   if (canonicalUrl && seenUrls.has(canonicalUrl)) {
     return { decision: 'duplicate-url', canonicalUrl, key, idKey };
   }
@@ -522,11 +553,11 @@ export function parsePipelineLine(line) {
  * happens in one consistent space.
  *
  * @returns {{toAppend: string[], appended: number, droppedUrl: number,
- *            droppedDuplicateRole: number, droppedLowQuality: number}}
+ *            droppedDuplicateRole: number, droppedLowQuality: number, droppedByGate: number}}
  */
 export function filterPipelineLines(
   stagingLines,
-  { seenUrls = new Set(), seenKeys = new Set() } = {}
+  { seenUrls = new Set(), seenKeys = new Set(), prefilter = null, rejectedUrls = new Set() } = {}
 ) {
   const urlSeen = new Set([...seenUrls].map(canonicalizeUrl));
   const keySeen = new Set(seenKeys);
@@ -534,12 +565,21 @@ export function filterPipelineLines(
   let droppedUrl = 0;
   let droppedDuplicateRole = 0;
   let droppedLowQuality = 0;
+  let droppedByGate = 0;
 
   for (const line of stagingLines) {
     const parsed = parsePipelineLine(line);
     if (!parsed) continue;
     const { url, company, title } = parsed;
     const canon = canonicalizeUrl(url);
+
+    // The admission gate: a line whose history row it already rejected, or that
+    // fails the chain on the fields a pipeline line carries (no location).
+    if (rejectedUrls.has(canon) || (prefilter && !prefilter({ url, company, title }).ok)) {
+      droppedByGate++;
+      urlSeen.add(canon);
+      continue;
+    }
 
     if (urlSeen.has(canon)) {
       droppedUrl++;
@@ -567,6 +607,7 @@ export function filterPipelineLines(
     droppedUrl,
     droppedDuplicateRole,
     droppedLowQuality,
+    droppedByGate,
   };
 }
 

@@ -10,6 +10,18 @@
  *
  * Zero Claude API tokens — pure HTTP + JSON.
  *
+ * Providers: each ATS lives in scripts/providers/*.mjs (detect / fetch / optional
+ * enrich / optional dedupKey; contract in lib/provider-registry.mjs). Adding an
+ * ATS is adding a file there; a malformed provider is skipped, never fatal.
+ *
+ * Admission: every posting passes ONE gate (lib/admission-gate.mjs) — optional
+ * data/blacklist.md → title → language → location → seen-set — the same gate
+ * merge-scan-staging.mjs uses for JobSpy rows.
+ *
+ * Board health: data/portal-health.tsv remembers boards that fail; a board that
+ * answers a real 404 on 3 consecutive scans is skipped for 30 days
+ * (lib/portal-health.mjs). `--company` always probes.
+ *
  * Transport: every request goes through lib/http.mjs (https only, per-ATS host
  * allowlist for portals.yml URLs, no redirects, private-address guard, bounded
  * timeout/body, retry with jitter).
@@ -39,27 +51,17 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { pathToFileURL } from 'url';
 import yaml from 'js-yaml';
 import {
-  buildTitleFilter,
-  buildLangFilter,
-  buildLocationFilter,
   rankOffers,
   formatRelevanceNote,
   parsePostingDate,
-  DEFAULT_LOCATION_ALLOWLIST,
 } from './scan-core.mjs';
 import {
   canonicalizeUrl,
   seedScanSeen,
-  classifyScanOffer,
   postingIdKey,
 } from './lib/merge-staging-core.mjs';
 import { http as defaultHttp } from './lib/http.mjs';
-import {
-  resolveDeadline,
-  splitLocations,
-  anyLocationAllowed,
-  cleanId,
-} from './lib/listing-fields.mjs';
+import { splitLocations } from './lib/listing-fields.mjs';
 import {
   HISTORY_COLUMNS,
   parseHistoryFile,
@@ -68,6 +70,32 @@ import {
   getCell,
   setCells,
 } from './lib/scan-history.mjs';
+import { gateFromPortals } from './lib/admission-gate.mjs';
+import { normalizeJob } from './lib/job.mjs';
+import { parallelFetch } from './lib/parallel.mjs';
+import {
+  loadProviders,
+  detectProvider,
+  makeProviderCtx,
+  jobDedupKey,
+  DEFAULT_MAX_PAGES,
+} from './lib/provider-registry.mjs';
+import {
+  parseHealth,
+  serializeHealth,
+  boardKey,
+  shouldSkip,
+  recordOutcome,
+  longEmptyBoards,
+} from './lib/portal-health.mjs';
+
+// The per-ATS parsers moved with their providers; re-exported so existing
+// callers (and tests) keep importing them from here.
+export { parseGreenhouse } from './providers/greenhouse.mjs';
+export { parseAshby } from './providers/ashby.mjs';
+export { parseLever } from './providers/lever.mjs';
+export { parseSmartRecruiters } from './providers/smartrecruiters.mjs';
+export { parseWorkday, applyWorkdayDetail } from './providers/workday.mjs';
 const parseYaml = yaml.load;
 
 // ── Config ──────────────────────────────────────────────────────────
@@ -77,288 +105,15 @@ const SCAN_HISTORY_PATH = 'data/scan-history.tsv';
 const PIPELINE_PATH = 'data/pipeline.md';
 const APPLICATIONS_PATH = 'data/applications.md';
 const AUDIT_STATE_PATH = 'data/filter-audit-state.json';
+const BLACKLIST_PATH = 'data/blacklist.md';
+const HEALTH_PATH = 'data/portal-health.tsv';
 
 const AUDIT_REPORT_INTERVAL_DAYS = 30; // how often to print the full keyword health report
 
 const CONCURRENCY = 10;
-// Workday's list endpoint carries no absolute date, deadline or full location
-// list, so each NEW (post-filter, post-dedup) Workday offer gets one detail
-// request. Capped per scan; a failed detail fetch just leaves the fields empty.
-const WORKDAY_DETAIL_LIMIT = 60;
-const WORKDAY_DETAIL_CONCURRENCY = 5;
 
-// ── API detection ───────────────────────────────────────────────────
-
-function detectApi(company) {
-  // Explicit api field takes priority
-  if (company.api) {
-    if (company.api.includes('greenhouse')) {
-      return { type: 'greenhouse', url: company.api };
-    }
-    if (company.api.includes('smartrecruiters.com')) {
-      return { type: 'smartrecruiters', url: company.api, brandFilter: company.sr_brand || null };
-    }
-    if (company.api.includes('myworkdayjobs.com')) {
-      const baseMatch = company.api.match(/(https:\/\/[^/]+\.myworkdayjobs\.com)/);
-      return { type: 'workday', url: company.api, baseUrl: baseMatch ? baseMatch[1] : '' };
-    }
-  }
-
-  const url = company.careers_url || '';
-
-  // Workday: https://{tenant}.wd{shard}.myworkdayjobs.com/{site}
-  const workdayMatch = url.match(/(https:\/\/([^/]+)\.wd\d+\.myworkdayjobs\.com)\/([^/?#]+)/);
-  if (workdayMatch) {
-    const baseUrl = workdayMatch[1];
-    const tenant = workdayMatch[2];
-    const site = workdayMatch[3];
-    return {
-      type: 'workday',
-      url: `${baseUrl}/wday/cxs/${tenant}/${site}/jobs`,
-      baseUrl,
-    };
-  }
-
-  // Ashby
-  const ashbyMatch = url.match(/jobs\.ashbyhq\.com\/([^/?#]+)/);
-  if (ashbyMatch) {
-    return {
-      type: 'ashby',
-      url: `https://api.ashbyhq.com/posting-api/job-board/${ashbyMatch[1]}?includeCompensation=true`,
-    };
-  }
-
-  // Lever
-  const leverMatch = url.match(/jobs\.lever\.co\/([^/?#]+)/);
-  if (leverMatch) {
-    return {
-      type: 'lever',
-      url: `https://api.lever.co/v0/postings/${leverMatch[1]}`,
-    };
-  }
-
-  // Greenhouse EU boards
-  const ghEuMatch = url.match(/job-boards(?:\.eu)?\.greenhouse\.io\/([^/?#]+)/);
-  if (ghEuMatch && !company.api) {
-    return {
-      type: 'greenhouse',
-      url: `https://boards-api.greenhouse.io/v1/boards/${ghEuMatch[1]}/jobs`,
-    };
-  }
-
-  return null;
-}
-
-// ── API parsers ─────────────────────────────────────────────────────
-//
-// Each parser carries, per posting, everything the ATS payload gives us beyond
-// title/url/location:
-//   postedDate  the TRUE posting/update date (scan-core.parsePostingDate
-//               normalizes the varied shapes; missing/odd → null, fail-open to
-//               the scan date) — also what the relevance ranking's freshness
-//               uses;
-//   deadline    the application deadline, ONLY when the source states one as an
-//               ISO date (structured field, or an explicit "apply by
-//               YYYY-MM-DD" in the JD body) — anything else is null, never
-//               guessed (listing-fields.mjs › parseDeadline);
-//   postingId   the ATS-native posting id (identity, together with the source);
-//   reqId       the requisition id (a label — never an identity on its own);
-//   location + extraLocations   the primary location string and any further
-//               locations the payload lists; main() splits them into the
-//               separate `locations` list.
-
-/** Greenhouse custom `metadata` entries whose name says "deadline"/"closing". */
-function greenhouseMetaDeadline(meta) {
-  if (!Array.isArray(meta)) return [];
-  return meta
-    .filter(m => /deadline|closing|close date|apply by/i.test(String(m?.name || '')))
-    .map(m => m?.value);
-}
-
-export function parseGreenhouse(json, companyName) {
-  const jobs = json.jobs || [];
-  return jobs.map(j => ({
-    title: j.title || '',
-    url: j.absolute_url || '',
-    company: companyName,
-    location: j.location?.name || '',
-    postedDate: j.first_published || j.updated_at || null,
-    deadline: resolveDeadline([j.application_deadline, ...greenhouseMetaDeadline(j.metadata)], j.content),
-    postingId: cleanId(j.id),
-    reqId: cleanId(j.requisition_id),
-  }));
-}
-
-export function parseAshby(json, companyName) {
-  const jobs = json.jobs || [];
-  return jobs.map(j => ({
-    title: j.title || '',
-    url: j.jobUrl || '',
-    company: companyName,
-    location: j.location || '',
-    extraLocations: (j.secondaryLocations || []).map(l => l?.location).filter(Boolean),
-    postedDate: j.publishedAt || j.updatedAt || null,
-    deadline: resolveDeadline([], j.descriptionPlain || j.descriptionHtml),
-    postingId: cleanId(j.id),
-    reqId: cleanId(j.requisitionId),
-  }));
-}
-
-export function parseLever(json, companyName) {
-  if (!Array.isArray(json)) return [];
-  return json.map(j => ({
-    title: j.text || '',
-    url: j.hostedUrl || '',
-    company: companyName,
-    location: j.categories?.location || '',
-    extraLocations: Array.isArray(j.categories?.allLocations) ? j.categories.allLocations : [],
-    postedDate: j.createdAt ?? null, // epoch ms
-    deadline: resolveDeadline([], [j.descriptionPlain, j.additionalPlain].filter(Boolean).join('\n')),
-    postingId: cleanId(j.id),
-    reqId: '',
-  }));
-}
-
-export function parseSmartRecruiters(jobs, companyName, brandFilter) {
-  let filtered = jobs;
-  if (brandFilter) {
-    filtered = jobs.filter(j =>
-      j.customField?.some(f => f.fieldLabel === 'Brands' && f.valueLabel === brandFilter)
-    );
-  }
-  return filtered.map(j => ({
-    title: j.name || '',
-    url: `https://careers.smartrecruiters.com/${j.company?.identifier || companyName}/${j.id}`,
-    company: companyName,
-    location: j.location?.city || j.location?.fullLocation || '',
-    postedDate: j.releasedDate || j.createdOn || null,
-    // SmartRecruiters has no standard deadline field; some tenants add a custom
-    // one ("Application deadline", "Closing date") with an ISO value.
-    deadline: resolveDeadline(
-      (j.customField || [])
-        .filter(f => /deadline|closing|close date|apply by/i.test(String(f?.fieldLabel || '')))
-        .map(f => f?.valueLabel ?? f?.valueId),
-    ),
-    postingId: cleanId(j.id),
-    reqId: cleanId(j.refNumber),
-  }));
-}
-
-export function parseWorkday(json, companyName, baseUrl) {
-  const jobs = json.jobPostings || [];
-  return jobs.map(j => ({
-    title: j.title || '',
-    url: baseUrl && j.externalPath ? `${baseUrl}${j.externalPath}` : j.externalPath || '',
-    company: companyName,
-    location: j.locationsText || '',
-    // Workday's list endpoint exposes only a relative "Posted Today / 30+ Days
-    // Ago" string — too lossy to trust. The absolute date, deadline and full
-    // location list come from the per-posting detail call (enrichWorkday).
-    postedDate: null,
-    deadline: null,
-    postingId: '',
-    // bulletFields[0] is the requisition id ("R-1042"); the path's trailing
-    // `_R-1042` is the fallback.
-    reqId: cleanId(j.bulletFields?.[0]) || cleanId(/_([A-Za-z0-9-]+)$/.exec(j.externalPath || '')?.[1]),
-    _workdayPath: j.externalPath || '',
-  }));
-}
-
-/**
- * Merge a Workday per-posting detail payload into an offer. Pure; the caller
- * does the fetch. `startDate` is the absolute posting date, `endDate` (when a
- * tenant sets it) the application end date; the JD body may also state one.
- */
-export function applyWorkdayDetail(offer, detail) {
-  const info = detail?.jobPostingInfo;
-  if (!info) return offer;
-  return {
-    ...offer,
-    postedDate: info.startDate || offer.postedDate,
-    deadline: resolveDeadline([info.endDate], info.jobDescription) || offer.deadline,
-    postingId: cleanId(info.jobPostingId || info.id) || offer.postingId,
-    reqId: cleanId(info.jobReqId) || offer.reqId,
-    location: info.location || offer.location,
-    extraLocations: Array.isArray(info.additionalLocations) ? info.additionalLocations : offer.extraLocations,
-  };
-}
-
-const PARSERS = { greenhouse: parseGreenhouse, ashby: parseAshby, lever: parseLever };
-
-// ── Fetch (all through lib/http.mjs: https + ATS host allowlist, no redirects,
-// private-address guard, timeout, retry with jitter, bounded body) ─────────
-
-// ── Workday paginated fetch ────────────────────────────────────────
-
-// Workday reports `total` on the first page only; later pages carry
-// `total: 0`, so the count is remembered from the first page that states it.
-// Without one (a tenant that never says), paging continues until an empty
-// page, capped by WORKDAY_MAX_OFFSET.
-const WORKDAY_PAGE = 20;
-const WORKDAY_MAX_OFFSET = 3000;
-
-export async function fetchWorkdayJobs(client, apiUrl, companyName, baseUrl) {
-  const allJobs = [];
-  let offset = 0;
-  let total = null;
-  while (true) {
-    const json = await client.postJson(apiUrl, {
-      appliedFacets: {},
-      limit: WORKDAY_PAGE,
-      offset,
-      searchText: '',
-    }, { type: 'workday' });
-    const jobs = parseWorkday(json, companyName, baseUrl);
-    allJobs.push(...jobs);
-    if (total === null && Number(json.total) > 0) total = Number(json.total);
-    offset += WORKDAY_PAGE;
-    if (jobs.length === 0 || offset > WORKDAY_MAX_OFFSET) break;
-    if (total !== null && allJobs.length >= total) break;
-  }
-  return allJobs;
-}
-
-/**
- * One detail request per NEW Workday offer (capped), to learn the absolute
- * posting date, deadline, posting id and the full location list. Fail-open: a
- * failed request leaves that offer as the list endpoint described it.
- */
-async function enrichWorkday(client, offers, apiUrl) {
-  const listSuffix = /\/jobs$/;
-  if (!listSuffix.test(apiUrl)) return offers;
-  const base = apiUrl.replace(listSuffix, '');
-  const todo = offers.filter(o => o._workdayPath).slice(0, WORKDAY_DETAIL_LIMIT);
-  const byUrl = new Map();
-  await parallelFetch(todo.map(o => async () => {
-    try {
-      const detail = await client.getJson(`${base}${o._workdayPath}`, { type: 'workday', retries: 1 });
-      byUrl.set(o.url, applyWorkdayDetail(o, detail));
-    } catch { /* fail-open */ }
-  }), WORKDAY_DETAIL_CONCURRENCY);
-  return offers.map(o => byUrl.get(o.url) || o);
-}
-
-// ── SmartRecruiters paginated fetch ─────────────────────────────────
-
-async function fetchSmartRecruitersJobs(client, baseUrl, companyName, brandFilter) {
-  const allJobs = [];
-  let offset = 0;
-  const limit = 100;
-  while (true) {
-    const json = await client.getJson(`${baseUrl}?limit=${limit}&offset=${offset}`, { type: 'smartrecruiters' });
-    const page = json.content || [];
-    allJobs.push(...page);
-    if (page.length < limit || allJobs.length >= (json.totalFound || 0)) break;
-    offset += limit;
-    if (offset > 3000) break; // safety cap
-  }
-  return parseSmartRecruiters(allJobs, companyName, brandFilter);
-}
-
-// Title / language / location filters live in ./scan-core.mjs — pure,
-// word-boundary-aware, and unit-tested (see scan-core.test.mjs). The
-// trailing-space negative-keyword leak (e.g. "Lead " missing "Operations
-// Lead") is fixed there.
+// Title / language / location filters live in ./scan-core.mjs and are assembled,
+// together with the blacklist and the seen-set, by lib/admission-gate.mjs.
 // ── Dedup ───────────────────────────────────────────────────────────
 
 /**
@@ -404,8 +159,8 @@ function saveHistory(columns, rows) {
 /**
  * For listings already in scan-history, append today's date to their
  * scan_dates column and back-fill any date/id/location cell the old row lacks
- * from the freshly fetched posting (never overwriting a value already there).
- * Handles old rows that may not yet have the scan_dates column.
+ * from the freshly fetched posting (never overwriting a value already there);
+ * an `expired` row is revived. Handles old rows that may not yet have the scan_dates column.
  */
 function updateScanDates(rows, columns, reseen, date) {
   const scanIdx = columns.indexOf('scan_dates');
@@ -426,13 +181,18 @@ function updateScanDates(rows, columns, reseen, date) {
     const fill = {
       posted_date: parsePostingDate(job.postedDate) || '',
       deadline: job.deadline || '',
-      posting_id: job.postingId || '',
-      req_id: job.reqId || '',
+      posting_id: job.externalId || '',
+      req_id: job.requisitionId || '',
       locations: (job.locations || []).join('|'),
     };
     const patch = {};
     for (const [name, value] of Object.entries(fill)) {
       if (value && !getCell(row, columns, name)) patch[name] = value;
+    }
+    // The posting is on its board again: a row an earlier liveness check (or the
+    // unreachable policy) declared dead is live, so revive it.
+    if (getCell(row, columns, 'status') === 'expired') {
+      Object.assign(patch, { status: 'added', expired_reason: '', fetch_attempts: '', first_unreachable: '', last_error: '' });
     }
     rows[idx] = Object.keys(patch).length ? setCells(row, columns, patch) : row;
   }
@@ -534,7 +294,7 @@ function addToHistory(history, offers, date) {
   const columns = upgradeColumns(history.columns);
   for (const o of offers) {
     history.urlToIndex.set(canonicalizeUrl(o.url), history.rows.length);
-    const idKey = postingIdKey(o.source, o.postingId);
+    const idKey = o.dedupKey || postingIdKey(o.source, o.externalId);
     if (idKey) history.idToIndex.set(idKey, history.rows.length);
     history.rows.push(buildHistoryRow({
       ...o,
@@ -542,24 +302,6 @@ function addToHistory(history, offers, date) {
     }, date, columns));
   }
   history.columns = columns;
-}
-
-// ── Parallel fetch with concurrency limit ───────────────────────────
-
-async function parallelFetch(tasks, limit) {
-  const results = [];
-  let i = 0;
-
-  async function next() {
-    while (i < tasks.length) {
-      const task = tasks[i++];
-      results.push(await task());
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => next());
-  await Promise.all(workers);
-  return results;
 }
 
 // ── Main ────────────────────────────────────────────────────────────
@@ -572,9 +314,21 @@ async function parallelFetch(tasks, limit) {
  * @param {string[]} [opts.argv] CLI args (`--dry-run`, `--company <name>`)
  * @param {ReturnType<typeof import('./lib/http.mjs').createHttp>} [opts.http] transport
  * @param {(line:string)=>void} [opts.log] stdout sink (default console.log)
- * @returns {Promise<{rankedOffers: object[], errors: object[], dryRun: boolean}>}
+ * @param {string} [opts.providersDir] provider modules directory (default scripts/providers)
+ * @param {(ms:number)=>Promise<void>} [opts.sleep] injected into provider ctx
+ * @param {number} [opts.maxPages] page ceiling per board (default 150)
+ * @param {string} [opts.today] ISO date override (tests)
+ * @returns {Promise<{rankedOffers: object[], errors: object[], dryRun: boolean, skippedBoards: object[], blacklisted: number}>}
  */
-export async function runScan({ argv = process.argv.slice(2), http: client = defaultHttp, log = console.log } = {}) {
+export async function runScan({
+  argv = process.argv.slice(2),
+  http: client = defaultHttp,
+  log = console.log,
+  providersDir,
+  sleep,
+  maxPages = DEFAULT_MAX_PAGES,
+  today,
+} = {}) {
   const args = argv;
   const dryRun = args.includes('--dry-run');
   const companyFlag = args.indexOf('--company');
@@ -598,48 +352,76 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
   // Ensure required directories exist (fresh setup) — never on a dry run.
   if (!dryRun) mkdirSync('data', { recursive: true });
 
+  const date = today || new Date().toISOString().slice(0, 10);
   const config = parseYaml(readFileSync(PORTALS_PATH, 'utf-8'));
   const companies = config.tracked_companies || [];
-  const titleFilter = buildTitleFilter(config.title_filter, auditStats);
-  const langFilter = buildLangFilter(config);
-  // Optional user override; falls back to the generic EU/UK allowlist.
-  const locationFilter = buildLocationFilter(config.location_allowlist);
-  // Names the location splitter may treat as separate places in a bare
-  // "CityA, CityB" string: the effective allowlist (user's or the default).
-  const userAllowlist = Array.isArray(config.location_allowlist) ? config.location_allowlist.filter(Boolean) : [];
-  const knownPlaces = userAllowlist.length ? userAllowlist : DEFAULT_LOCATION_ALLOWLIST;
 
-  // 2. Filter to enabled companies with detectable APIs
-  const targets = companies
+  // 2. The providers, then the enabled companies each one claims.
+  const { providers } = await loadProviders({ dir: providersDir, log });
+  const detected = companies
     .filter(c => c.enabled !== false)
     .filter(c => !filterCompany || c.name.toLowerCase().includes(filterCompany))
-    .map(c => ({ ...c, _api: detectApi(c) }))
-    .filter(c => c._api !== null);
+    .map(c => ({ entry: c, hit: detectProvider(c, providers) }));
+  const claimed = detected.filter(d => d.hit);
+  const skippedCount = companies.filter(c => c.enabled !== false).length - claimed.length;
 
-  const skippedCount = companies.filter(c => c.enabled !== false).length - targets.length;
-
-  log(`Scanning ${targets.length} companies via API (${skippedCount} skipped — no API detected)`);
-  if (dryRun) log('(dry run — no files will be written)\n');
-
-  // 3. Load dedup sets — seeded through the SAME canonical primitives the
-  //    JobSpy merge path uses (canonicalizeUrl + companyRoleKey), so a re-seen
-  //    posting whose URL only differs by a tracking param, or a `(m/f/d)` /
-  //    trailing-location title variant of a role already in scan-history,
-  //    collapses onto the existing entry instead of re-entering the pipeline.
+  // 3. Dedup sets — seeded through the SAME canonical primitives the JobSpy
+  //    merge path uses, so a re-seen posting whose URL only differs by a
+  //    tracking param, or a `(m/f/d)` / trailing-location title variant of a
+  //    role already in scan-history, collapses onto the existing entry instead
+  //    of re-entering the pipeline.
   const history = loadHistory();
-  const { seenUrls, seenKeys, seenIds } = seedScanSeen({
+  const seen = seedScanSeen({
     urls: loadSeenUrls(),                       // pipeline.md + applications.md URLs
     historyRows: history.rows,                  // scan-history URLs + (company, role) keys + posting ids
     historyColumns: history.columns,
     companyRolePairs: loadSeenCompanyRoles(),   // applications.md (company, role) pairs
   });
+  // A provider that normalises its identity key does so for history rows too.
+  for (const { hit } of claimed) {
+    if (typeof hit.provider.dedupKey !== 'function') continue;
+    for (const row of history.rows) {
+      if (getCell(row, history.columns, 'portal') !== `${hit.provider.id}-api`) continue;
+      const id = getCell(row, history.columns, 'posting_id');
+      if (id) seen.seenIds.add(jobDedupKey(hit.provider, { externalId: id }, `${hit.provider.id}-api`));
+    }
+  }
 
-  // 4. Fetch all APIs
-  const date = new Date().toISOString().slice(0, 10);
+  // The ONE admission gate: blacklist → title → language → location → seen-set.
+  const blacklistText = existsSync(BLACKLIST_PATH) ? readFileSync(BLACKLIST_PATH, 'utf-8') : '';
+  const gate = gateFromPortals(config, { auditStats, blacklistText, seen });
+
+  // 4. Board health: skip boards that keep answering a real 404.
+  const health = existsSync(HEALTH_PATH) ? parseHealth(readFileSync(HEALTH_PATH, 'utf-8')) : new Map();
+  const healthBefore = serializeHealth(health);
+  const skippedBoards = [];
+  let blacklisted = 0;
+  const targets = [];
+  for (const d of claimed) {
+    if (gate.blocksCompany(d.entry.name)) {
+      blacklisted++;
+      log(`⊘ ${d.entry.name} · blacklisted (${BLACKLIST_PATH}) — not fetched`);
+      continue;
+    }
+    const key = boardKey(d.hit.provider.id, d.hit.api.url);
+    const skip = filterCompany ? { skip: false } : shouldSkip(health, key, date);
+    if (skip.skip) {
+      skippedBoards.push({ company: d.entry.name, until: skip.until, reason: skip.reason });
+      log(`⊘ ${d.entry.name} · dead board (${skip.reason}) — skipped until ${skip.until}`);
+      continue;
+    }
+    targets.push({ ...d, key });
+  }
+
+  log(`Scanning ${targets.length} companies via API (${skippedCount} skipped — no API detected)`);
+  if (dryRun) log('(dry run — no files will be written)\n');
+
+  // 5. Fetch all APIs
   let totalFound = 0;
   let totalFiltered = 0;
   let totalLangFiltered = 0;
   let totalLocationFiltered = 0;
+  let totalBlacklisted = 0;
   let totalDupes = 0;
   let totalReseen = 0;
   const newOffers = [];
@@ -647,57 +429,41 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
   const batchByKey = new Map(); // (company, role) key → offer kept this run (for location union)
   const errors = [];
 
-  /** A listing's separate locations: its primary string plus any extras the ATS listed. */
-  const withLocations = (job) => ({
-    ...job,
-    locations: splitLocations([job.location, ...(job.extraLocations || [])], { knownPlaces }),
-  });
-  /**
-   * Location gate: kept when ANY of the listing's locations is allowed, so a
-   * role open in several cities stays if one of them is a target. (A source
-   * string the splitter reduced to nothing falls back to the raw string.)
-   */
-  const locationOk = (job) =>
-    job.locations.length === 0 && job.location
-      ? locationFilter(job.location)
-      : anyLocationAllowed(job.locations, locationFilter);
-
-  const tasks = targets.map(company => async () => {
-    const { type, url, brandFilter, baseUrl } = company._api;
+  const tasks = targets.map(({ entry: company, hit, key: boardId }) => async () => {
+    const { provider, api } = hit;
     const startedAt = Date.now();
-    log(`→ ${company.name} (${type})`);
+    log(`→ ${company.name} (${provider.id})`);
     let kept = 0;
+    const ctx = makeProviderCtx(provider, { http: client, api, maxPages, sleep, log });
+    const source = `${provider.id}-api`;
+    /** Normalise a provider's posting and stamp its source and identity key. */
+    const prep = (raw) => {
+      const job = normalizeJob(raw, { company: company.name });
+      if (!job) return null;
+      const stamped = { ...job, source };
+      stamped.dedupKey = jobDedupKey(provider, stamped, source);
+      return gate.withLocations(stamped);
+    };
     try {
-      let jobs;
-      if (type === 'workday') {
-        jobs = await fetchWorkdayJobs(client, url, company.name, baseUrl);
-      } else if (type === 'smartrecruiters') {
-        jobs = await fetchSmartRecruitersJobs(client, url, company.name, brandFilter);
-      } else {
-        const json = await client.getJson(url, { type });
-        jobs = PARSERS[type](json, company.name);
-      }
+      const raw = await provider.fetch(company, ctx);
+      const jobs = (Array.isArray(raw) ? raw : []).map(prep).filter(Boolean);
       totalFound += jobs.length;
-      const source = `${type}-api`;
 
-      // Phase 1 — title / language, then READ-ONLY canonical dedup. Known
-      // postings are final here (re-seen → scan_dates bump + back-fill); the
-      // rest are candidates.
+      // Phase 1 — blacklist / title / language, then READ-ONLY canonical dedup.
+      // Known postings are final here (re-seen → scan_dates bump + back-fill);
+      // the rest are candidates.
       const candidates = [];
-      for (const raw of jobs) {
-        if (!titleFilter(raw.title)) {
-          totalFiltered++;
+      for (const job of jobs) {
+        const s = gate.screen(job);
+        if (!s.ok) {
+          if (s.stage === 'blacklist') totalBlacklisted++;
+          else if (s.stage === 'title') totalFiltered++;
+          else totalLangFiltered++;
           continue;
         }
-        if (!langFilter(raw.title)) {
-          totalLangFiltered++;
-          continue;
-        }
-        const job = withLocations({ ...raw, source });
         // Canonical dedup: exact (canonical) URL first, then the ATS posting id,
-        // then normalized (company, role). Mirrors mergeHistory's precedence so
-        // the live scanner and the merge path agree on "already seen".
-        const { decision, canonicalUrl, idKey } = classifyScanOffer(job, { seenUrls, seenKeys, seenIds });
+        // then normalized (company, role).
+        const { decision, canonicalUrl, idKey } = gate.classify(job);
         if (decision === 'duplicate-url' || decision === 'duplicate-id') {
           totalDupes++;
           // Bump scan_dates only when the posting is a known scan-history row
@@ -716,44 +482,50 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
         candidates.push(job);
       }
 
-      // Workday: the list gives neither date nor deadline nor the real location
-      // list, so enrich the survivors (capped) before the location gate.
-      const enriched = type === 'workday'
-        ? (await enrichWorkday(client, candidates, url)).map(withLocations)
+      // A provider may need a costly per-posting detail call for the real date /
+      // location / id (Workday); it only ever runs on the survivors above.
+      const enriched = typeof provider.enrich === 'function'
+        ? (await provider.enrich(candidates, ctx)).map(prep).filter(Boolean)
         : candidates;
 
       // Phase 2 — location gate, then claim the dedup keys (intra-scan dupes
       // among this company's candidates are caught here).
       for (const job of enriched) {
-        if (!locationOk(job)) {
+        if (!gate.locate(job).ok) {
           totalLocationFiltered++;
           continue;
         }
-        const { decision, canonicalUrl, key, idKey } = classifyScanOffer(job, { seenUrls, seenKeys, seenIds });
-        if (decision !== 'new') {
+        const c = gate.classify(job);
+        if (c.decision !== 'new') {
           totalDupes++;
           // The same role listed again for another city in this very run:
           // fold the extra cities into the offer we kept instead of dropping them.
-          if (decision === 'duplicate-role' && batchByKey.has(key)) {
-            const kept0 = batchByKey.get(key);
-            kept0.locations = splitLocations([...kept0.locations, ...job.locations], { knownPlaces });
+          if (c.decision === 'duplicate-role' && batchByKey.has(c.key)) {
+            const kept0 = batchByKey.get(c.key);
+            kept0.locations = splitLocations([...kept0.locations, ...job.locations], { knownPlaces: gate.knownPlaces });
           }
           continue;
         }
-        seenUrls.add(canonicalUrl);
-        if (idKey) seenIds.add(idKey);
-        if (key) seenKeys.add(key);
+        gate.claim(c);
         const { _workdayPath, ...offer } = job;
         newOffers.push(offer);
-        if (key) batchByKey.set(key, offer);
+        if (c.key) batchByKey.set(c.key, offer);
         kept++;
       }
+      recordOutcome(health, {
+        board: boardId, company: company.name, provider: provider.id, today: date,
+        outcome: jobs.length === 0 ? 'empty' : 'ok',
+      });
       const took = ((Date.now() - startedAt) / 1000).toFixed(1);
       log(`  ✓ ${company.name} · ${jobs.length} jobs · ${kept} kept (${took}s)`);
     } catch (err) {
       const took = ((Date.now() - startedAt) / 1000).toFixed(1);
       log(`  ✗ ${company.name} · ${err.message} (${took}s)`);
       errors.push({ company: company.name, error: err.message });
+      recordOutcome(health, {
+        board: boardId, company: company.name, provider: provider.id, today: date,
+        outcome: err.status === 404 ? '404' : 'error', error: err.message,
+      });
     }
   });
 
@@ -783,6 +555,9 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
     if (newOffers.length > 0 || reseen.size > 0) {
       saveHistory(history.columns, history.rows);
     }
+    if (serializeHealth(health) !== healthBefore) {
+      writeFileSync(HEALTH_PATH, serializeHealth(health), 'utf-8');
+    }
   }
 
   // 6. Print summary
@@ -791,11 +566,21 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
   log(`${'━'.repeat(45)}`);
   log(`Companies scanned:     ${targets.length}`);
   log(`Total jobs found:      ${totalFound}`);
+  if (blacklisted > 0 || totalBlacklisted > 0) {
+    log(`Blacklisted:           ${blacklisted} companies not fetched, ${totalBlacklisted} postings removed`);
+  }
   log(`Filtered by title:     ${totalFiltered} removed`);
   log(`Filtered by language:  ${totalLangFiltered} removed`);
   log(`Filtered by location:  ${totalLocationFiltered} removed`);
   log(`Duplicates:            ${totalDupes} skipped (${totalReseen} still open → scan_dates updated)`);
   log(`New offers added:      ${newOffers.length}`);
+
+  if (skippedBoards.length > 0) {
+    log(`Dead boards skipped:   ${skippedBoards.length} (${skippedBoards.map(b => `${b.company} until ${b.until}`).join(', ')})`);
+  }
+  for (const b of longEmptyBoards(health)) {
+    log(`⚠  ${b.company}: board returned no postings on ${b.consecutive_empty} scans in a row — has the careers page moved?`);
+  }
 
   if (errors.length > 0) {
     log(`\nErrors (${errors.length}):`);
@@ -821,7 +606,7 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
 
   // ── Silent filter health check (runs every scan, reports conditionally) ──────
 
-  const passCount = totalFound - totalFiltered - totalLangFiltered - totalLocationFiltered;
+  const passCount = totalFound - totalFiltered - totalLangFiltered - totalLocationFiltered - totalBlacklisted;
   const passRate = totalFound > 0 ? (passCount / totalFound * 100) : 100;
 
   const daysSinceLastReport = auditState.lastReportDate
@@ -869,7 +654,7 @@ export async function runScan({ argv = process.argv.slice(2), http: client = def
     }
   }
 
-  return { rankedOffers, errors, dryRun };
+  return { rankedOffers, errors, dryRun, skippedBoards, blacklisted };
 }
 
 // CLI entry (skipped when imported by tests).

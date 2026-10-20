@@ -77,13 +77,14 @@ To protect a term the gate can't infer (a contact's name, an address, a company 
 All under `scripts/`. `docs/SCRIPTS.md` has usage detail for the older maintenance scripts.
 
 **Scanning and inbox**
-- `scan.mjs` — zero-token portal scanner (Greenhouse/Ashby/Lever APIs).
+- `scan.mjs` — zero-token portal scanner (Greenhouse/Ashby/Lever/Workday/SmartRecruiters APIs, one provider module each in `scripts/providers/`).
 - `jobspy/scan.py` — zero-token aggregator scanner (Indeed/Google via [JobSpy](https://github.com/speedyapply/JobSpy)); writes to staging files; set up once via `scripts/jobspy/setup.sh`. See [Scanners](#scanners).
 - `merge-scan-staging.mjs` — merges JobSpy staging into canonical `scan-history.tsv` + `pipeline.md` after both scrapers exit.
 - `whats-new.mjs` — digest of listings new since last scan (`npm run whats-new`).
 - `triage-pipeline.mjs` — zero-token pre-eval triage: ranks `data/pipeline.md` Pending URLs by scan relevance + freshness + dream/affinity company + title level + dedup hits, recommends the top slice for deep evaluation, and with `--emit-batch` fills `batch/batch-input.tsv` (`npm run triage`).
 - `probe-ats.mjs` — ATS discovery: probes Greenhouse/Ashby/Lever/SmartRecruiters APIs for a list of companies and outputs TSV of which ATS each uses, so they can be added to `user/portals.yml` (no npm alias: `node scripts/probe-ats.mjs`).
-- `check-liveness.mjs` — posting liveness.
+- `check-liveness.mjs` — posting liveness: ATS API ladder first, Playwright last; `--record` writes `expired` back to `data/scan-history.tsv` (see [Scanners](#scanners) › Liveness).
+- `fetch-posting.mjs` — a posting's job description (and its liveness) straight from the ATS API: `node scripts/fetch-posting.mjs <url> [--json]`. Exit 0 JD printed · 2 posting closed · 3 the ATS could not answer.
 
 **Trackers and health**
 - `merge-tracker.mjs` / `merge-scouting.mjs` — TSV → markdown merge, under the tracker lock with atomic writes (see [Write safety](#write-safety-and-the-status-log)). merge-tracker also logs an origin row per new application in the status log.
@@ -137,8 +138,8 @@ All under `scripts/`. `docs/SCRIPTS.md` has usage detail for the older maintenan
 The aggregator scraper (`scripts/jobspy/`) runs in parallel with `scan.mjs` from both the Full Scan and API Only buttons. Indeed + Google only (LinkedIn excluded — account/IP/ToS risk). It mirrors `scan.mjs`'s 4-pass filter (title pos/neg, lang blocklist, EU location allowlist, URL dedup) plus a `MAX_NEW_ROWS_PER_RUN=100` ceiling.
 
 - **Matching is word-boundary aware and kept in lockstep with `scan-core.mjs`** (same allowlist, same `compileKeyword` boundary semantics), so a negative like `Lead` no longer drops `Leadership Analyst` and a positive like `Ops` no longer keeps `Synopsys`; both scanners give the same verdict for the same `portals.yml`. Keep `scripts/jobspy/scan.py`'s `keyword_matches` and `scan-core.mjs`'s `compileKeyword` in sync if you touch either; parity is pinned by `scripts/jobspy/test_filters.py` + `scripts/scan-core.test.mjs`.
-- **Workday paging.** A Workday tenant states `total` on the first page only (later pages say `total: 0`), so `fetchWorkdayJobs` remembers the first stated total and pages until it is reached, or until an empty page (`WORKDAY_MAX_OFFSET` cap). Big tenants take a minute (20 postings per request).
-- **Full scan levels.** The Claude-driven Full scan (`modes/scan.md`) runs `scan.mjs` first (API companies, seconds), then the WebSearch pass (board-wide `search_queries`, which discover companies not in `portals.yml`, plus each no-API company's `scan_query`) with liveness verification, in the foreground. Playwright only exists in interactive sessions; from the app (`claude -p`) the mode verifies with WebFetch, using the ATS JSON APIs for Greenhouse/Ashby/Lever URLs because those pages render empty without a browser.
+- **Workday paging.** A Workday tenant states `total` on the first page only (later pages say `total: 0`), so the Workday provider (`providers/workday.mjs`) remembers the first stated total and pages until it is reached, or until an empty page (the `maxPages` ceiling, default 150 pages). Big tenants take a minute (20 postings per request).
+- **Full scan levels.** The Claude-driven Full scan (`modes/scan.md`) runs `scan.mjs` first (API companies, seconds), then the WebSearch pass (board-wide `search_queries`, which discover companies not in `portals.yml`, plus each no-API company's `scan_query`) with liveness verification, in the foreground. Playwright only exists in interactive sessions; liveness of Level 3 URLs goes through `node scripts/check-liveness.mjs --no-browser <url>` (the ATS APIs, see Liveness below) in both the app and interactive runs, and only an undecided URL falls to Playwright or WebFetch.
 - **True posting dates.** Both scanners read each role's posting date from the ATS payload (`scan-core.mjs` › `parsePostingDate`, `scan.py` › `normalize_posting_date`), so relevance freshness reflects when a role was *posted*, not when the scanner first saw it. Genuinely new roles outrank long-open reposts (demoted via the `staleRepost` weight).
 - **Staging and merge.** JobSpy writes to `data/scan-history.jobspy.tsv` and `data/pipeline.jobspy.md`; `merge-scan-staging.mjs` appends those into the canonical files and archives the staging to `batch/jobspy-merged/`. The merge dedups in two layers — exact URL first, then normalized **(company, role)** (same key scheme as `scripts/lib/dedup-index.mjs`) — so the same posting surfaced under several URLs (Google redirect, Indeed `job_url`, employer `job_url_direct`) lands once. Merge math is pure and unit-tested in `scripts/lib/merge-staging-core.mjs`.
 - **Shared dedup in the live scanner.** `scan.mjs` uses the same canonical dedup via `seedScanSeen` + `classifyScanOffer` (also in `merge-staging-core.mjs`): it canonicalizes URLs (tracking params / redirect wrappers) and (company, role) titles (`(m/f/d)`, trailing location/req-id boilerplate) and seeds its seen-set from `scan-history.tsv` too, so a role already discovered under a slightly different URL or title variant doesn't re-enter the pipeline.
@@ -146,6 +147,46 @@ The aggregator scraper (`scripts/jobspy/`) runs in parallel with `scan.mjs` from
 - **Per-listing fields.** `scan-history.tsv` carries header-named `posted_date`, `deadline`, `posting_id`, `req_id`, `locations` after the original eight columns (`scripts/lib/scan-history.mjs`). Deadlines are ISO-only (`scripts/lib/listing-fields.mjs`); anything ambiguous is absent. Display date for a listing: deadline, else posted date, else first scan date.
 - **Multi-city.** A comma-joined multi-city string is split into `locations` (`splitLocations`); a listing passes the location gate when any location is allowed. `location` keeps the source string.
 - **Identity.** `normalizeCompany` (`scripts/lib/dedup-index.mjs`) is unchanged for plain ASCII names; Latin diacritics fold (`café` → `cafe`, legacy key stays as an alias row), non-Latin names get an NFKD slug + hash (`<letters>~<hash8>`). Every writer shares it: `companyKey` in `tracker-core.mjs`, `scouting-core.mjs` and `network-core.mjs` call it, so merge-tracker, merge-scouting, promote and the network matcher agree. The live scanner and the merge also dedup on `<portal>:<posting_id>` (so a renamed URL is a re-seen bump). `listingIdentity()` falls back id → (company, role) → URL hash.
+
+### Providers
+
+Each ATS is one module in `scripts/providers/` (`ashby`, `greenhouse`, `lever`, `smartrecruiters`, `workday`). Adding an ATS is adding a file; `scan.mjs` has no ATS-specific code. The contract (`scripts/lib/provider-registry.mjs`):
+
+```js
+export default {
+  id: 'greenhouse',            // also the transport type (host allowlist) and the portal `<id>-api`
+  detect(entry) {},            // portals.yml entry → { url, …, explicit? } | null
+  async fetch(entry, ctx) {},  // → Job[]
+  async enrich(jobs, ctx) {},  // optional: costly per-posting detail calls, survivors only (Workday)
+  dedupKey(job) {},            // optional identity key; default `<id>-api:<externalId>`
+};
+```
+
+- **Loading.** Alphabetical by file name, so priority is deterministic; a module that fails to import or has the wrong shape is skipped with a logged reason and never fails the scan. `explicit: true` (the entry's own `api:` field named the provider) beats a `careers_url` guess; ties go to registry order.
+- **No direct network.** `ctx` carries `getJson` / `postJson` (the guarded helpers from `lib/http.mjs`, already bound to the provider's own ATS type, so it can only reach its own hosts), `api` (the detect result), `maxPages` (default 150), `sleep`, `parallel`. A test greps the provider sources for a bare `fetch(` or any network import. Slugs taken from `portals.yml` go into an API URL only when they are plain segments (`lib/ats-url.mjs › isSafeSegment`).
+- **Job typedef** (`lib/job.mjs`, enforced by `normalizeJob`): `url` is the **per-posting identity**; `externalId` is the ATS posting id (`scan-history › posting_id`; identity is `<source>:<externalId>`); `requisitionId` is many-to-one (reposts, multi-location roles share one) — a label, **never an identity**, alone or in a key; `salary` appears only from real numeric figures plus a currency code (Ashby's `summaryComponents`), never from a summary string. `postedDate`, `deadline` (ISO only) and `extraLocations` behave exactly as in the per-listing-fields bullet above.
+
+### Admission gate
+
+`scripts/lib/admission-gate.mjs` assembles the filter chain once, from `user/portals.yml`: **blacklist → title → language → location → seen-set**. `scan.mjs` and `merge-scan-staging.mjs` (the JobSpy merge) both build it with `gateFromPortals`, so a filter or blacklist change reaches every writer at once; `scripts/jobspy/scan.py`'s copy is only a pre-filter. `gate.admit(job)` runs the whole chain; `scan.mjs` uses the same stage functions interleaved with `provider.enrich` (a Workday posting's real location only exists after its detail fetch, which is worth making only for postings that are not already known), `merge` uses `gate.prefilter` (everything but the seen-set) before `mergeHistory`'s own dedup, and the pipeline lines get the same verdict as their history rows. `admission-gate.test.mjs` pushes one fixture through both writers and requires the same admitted set.
+
+- **`data/blacklist.md`** (opt-in; hand-edited; **no script ever writes it**): list items only, `- company: Name`, `- domain: example.com`, or a bare value (host-looking → domain). A blacklisted company's board is not even requested; a blacklisted domain drops postings whose URL host is that domain or a subdomain.
+- **Board health** (`lib/portal-health.mjs`, `data/portal-health.tsv`): only unhealthy boards have a row, so an empty file means everything is healthy. A board answering a **real 404** (not a timeout, 429 or 5xx) on 3 consecutive scans is skipped for 30 days, then probed once; a healthy answer deletes its row. A board that returns zero postings on 3 scans in a row is flagged in the summary (never skipped). `scan.mjs --company <name>` always probes, and `--dry-run` writes nothing.
+
+### Liveness
+
+`check-liveness.mjs` climbs a ladder and only starts Playwright when every cheaper rung is ambiguous (`lib/liveness-ladder.mjs`, `lib/liveness-check.mjs`):
+
+1. **Per-job ATS API** (hard-coded API host, safe path segments only; `lib/ats-url.mjs`): 200 for that posting → active, 404/410 → expired (Greenhouse, Lever, SmartRecruiters, Workday).
+2. **Org board** lists the id → active (Greenhouse, Lever, Ashby). Absence is *not* proof of closure.
+3. **Posting HTML**, judged on signals of which two must agree and none may contradict: active = JobPosting JSON-LD · apply control · job-description-sized body; expired = 404/410 · redirect to `?error=true` · "no longer available" phrase · listing-page phrase · past `validThrough`.
+4. `null` → **Playwright**, polling every 250 ms until the verdict is decisive (an apply control, an HTTP status, an expired phrase) instead of a fixed 2 s wait.
+
+Text is normalised before matching (curly quotes, diacritics). Page hosts are allowlisted separately (`ATS_PAGE_HOSTS`, `http.getText`), redirects are still never followed.
+
+- **`unreachable` ≠ `expired`.** A check that could not get an answer records `fetch_attempts`, `first_unreachable` and a 200-character `last_error` in `scan-history.tsv`; the row becomes `expired` with `expired_reason: unreachable` only after **N attempts and H hours** (`user/profile.yml › scanner.liveness`, defaults 2 attempts over ≥ 240 h for the weekly scheduler; 3 over ≥ 48 h suits a daily scan; documented in `config/profile.example.yml`). Any later successful check, or the scanner seeing the posting on its board again, sets it back to `added` (`lib/liveness-state.mjs`).
+- **`--record`** writes the verdict into the matching `scan-history.tsv` row (`status`, `expired_reason`, …). `triage-pipeline.mjs` puts expired postings in a `closed` bucket that takes no deep-eval slot, and the app shows them as closed.
+- **JD body.** The per-job endpoints return the description with the verdict; `fetch-posting.mjs <url>` prints both, which is what a headless batch worker should run instead of WebFetch.
 
 ## Evaluation spawns
 

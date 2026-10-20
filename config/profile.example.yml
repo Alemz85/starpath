@@ -120,3 +120,17 @@ location:
 #   materials_index: materials/index.tsv         # header-named TSV of what you sent
 #                                 # (company, role, app_num, sent, materials, notes),
 #                                 # relative to your data root (private/)
+
+# ── Scanner liveness (optional — omit to use the defaults) ──────────────────
+# `node scripts/check-liveness.mjs --record` writes what it finds into
+# data/scan-history.tsv. A posting it can PROVE is gone is marked `expired`
+# right away. A posting it merely could not REACH (network error, timeout, 5xx)
+# is not evidence it is gone: each failed check is counted, and it is only marked
+# `expired` (expired_reason: unreachable) once BOTH limits below are met. Any
+# later successful check revives it.
+#   weekly scans (the scheduler's cadence) — the defaults:  2 attempts over >= 240 h (10 days)
+#   daily scans:                                            3 attempts over >=  48 h
+# scanner:
+#   liveness:
+#     unreachable_attempts: 2     # failed checks in a row before it can expire
+#     unreachable_hours: 240      # ...and at least this long since the first failure

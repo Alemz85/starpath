@@ -19,10 +19,11 @@ import {
   parseLever,
   parseSmartRecruiters,
   parseWorkday,
-  fetchWorkdayJobs,
   applyWorkdayDetail,
 } from './scan.mjs';
 import { createHttp } from './lib/http.mjs';
+import workday from './providers/workday.mjs';
+import { makeProviderCtx } from './lib/provider-registry.mjs';
 import { HISTORY_COLUMNS, getCell, parseHistoryFile } from './lib/scan-history.mjs';
 
 const PORTALS = `
@@ -116,6 +117,13 @@ const quiet = () => {};
 
 // ── Workday paging ─────────────────────────────────────────────────────────
 
+/** Run the Workday provider's fetch against a fake client, as scan.mjs would. */
+function fetchWorkdayJobs(client) {
+  const entry = { name: 'Contoso Demo', careers_url: 'https://contoso.wd3.myworkdayjobs.com/ext' };
+  const api = workday.detect(entry);
+  return workday.fetch(entry, makeProviderCtx(workday, { http: client, api }));
+}
+
 test('workday paging keeps the first page\'s total: later pages report total 0', async () => {
   // 45 postings, 20 per page; pages after the first say `total: 0`, which is
   // what the real tenants do. The old loop read that 0 as "done" after page 2.
@@ -128,7 +136,7 @@ test('workday paging keeps the first page\'s total: later pages report total 0',
       return { total: body.offset === 0 ? 45 : 0, jobPostings: page };
     },
   };
-  const jobs = await fetchWorkdayJobs(client, 'https://contoso.wd3.myworkdayjobs.com/wday/cxs/contoso/ext/jobs', 'Contoso Demo', 'https://contoso.wd3.myworkdayjobs.com');
+  const jobs = await fetchWorkdayJobs(client);
   assert.equal(jobs.length, 45);
   assert.deepEqual(bodies.map(b => b.offset), [0, 20, 40]);
 });
@@ -137,7 +145,7 @@ test('workday paging with no total anywhere stops at the first empty page', asyn
   const client = {
     postJson: async (_url, body) => ({ total: 0, jobPostings: body.offset < 20 ? [{ title: 'A', externalPath: '/job/x/A_R-1', bulletFields: ['R-1'] }] : [] }),
   };
-  const jobs = await fetchWorkdayJobs(client, 'https://contoso.wd3.myworkdayjobs.com/wday/cxs/contoso/ext/jobs', 'Contoso Demo', 'https://contoso.wd3.myworkdayjobs.com');
+  const jobs = await fetchWorkdayJobs(client);
   assert.equal(jobs.length, 1);
 });
 
@@ -145,8 +153,8 @@ test('workday paging with no total anywhere stops at the first empty page', asyn
 
 test('parsers carry posting id, req id, posted date and (only unambiguous) deadline', () => {
   const [g1, , , g4] = parseGreenhouse(GREENHOUSE, 'Nimbus Robotics');
-  assert.equal(g1.postingId, '4417');
-  assert.equal(g1.reqId, 'REQ-77');
+  assert.equal(g1.externalId, '4417');
+  assert.equal(g1.requisitionId, 'REQ-77');
   assert.equal(g1.deadline, '2026-11-30');
   assert.equal(g1.postedDate, '2026-10-01T09:00:00-04:00');
   assert.equal(g4.deadline, null, 'a slashed date is ambiguous -> absent');
@@ -158,7 +166,7 @@ test('parsers carry posting id, req id, posted date and (only unambiguous) deadl
   const [l] = parseLever(LEVER, 'Harbor Light');
   assert.equal(l.deadline, null, '31/12/2026 is not ISO -> absent');
   assert.deepEqual(l.extraLocations, ['Zenith Bay', 'Remote']);
-  assert.equal(l.postingId, 'lv-1');
+  assert.equal(l.externalId, 'lv-1');
 
   const [s] = parseSmartRecruiters([{
     id: 'sr-1', name: 'Buyer', refNumber: 'REF-5', company: { identifier: 'Orchard' }, releasedDate: '2026-10-01T00:00:00Z',
@@ -166,12 +174,12 @@ test('parsers carry posting id, req id, posted date and (only unambiguous) deadl
     customField: [{ fieldLabel: 'Application deadline', valueLabel: '2026-12-15' }, { fieldLabel: 'Brands', valueLabel: 'X' }],
   }], 'Orchard Demo');
   assert.equal(s.deadline, '2026-12-15');
-  assert.equal(s.reqId, 'REF-5');
-  assert.equal(s.postingId, 'sr-1');
+  assert.equal(s.requisitionId, 'REF-5');
+  assert.equal(s.externalId, 'sr-1');
 
   const [w] = parseWorkday(WORKDAY_LIST, 'Contoso Demo', 'https://contoso.wd3.myworkdayjobs.com');
   assert.equal(w.postedDate, null);
-  assert.equal(w.reqId, 'R-1042');
+  assert.equal(w.requisitionId, 'R-1042');
   assert.equal(applyWorkdayDetail(w, WORKDAY_DETAIL).deadline, '2026-11-20');
   assert.equal(applyWorkdayDetail(w, WORKDAY_DETAIL).postedDate, '2026-10-07');
   assert.equal(applyWorkdayDetail(w, { jobPostingInfo: { endDate: 'soon' } }).deadline, null);
@@ -320,5 +328,158 @@ tracked_companies:
     assert.equal(requests, 0, 'nothing was sent');
     assert.equal(errors.length, 3);
     assert.ok(errors.every((e) => /not an allowed|not allowed|only https/.test(e.error)), JSON.stringify(errors));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── providers, blacklist, board health, revival ────────────────────────────
+
+import { HttpError } from './lib/http.mjs';
+import { parseHealth } from './lib/portal-health.mjs';
+import { buildHistoryRow } from './lib/scan-history.mjs';
+
+const GH_ONLY = `
+title_filter:
+  positive: ["Analyst"]
+location_allowlist: ["aldervale"]
+tracked_companies:
+  - name: Nimbus Robotics
+    api: https://boards-api.greenhouse.io/v1/boards/nimbus-demo/jobs
+  - name: Lumen Freight
+    careers_url: https://jobs.ashbyhq.com/lumen-demo
+`;
+
+function sandboxWith(portals, files = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'scan-test-'));
+  mkdirSync(join(dir, 'user'), { recursive: true });
+  mkdirSync(join(dir, 'data'), { recursive: true });
+  writeFileSync(join(dir, 'user/portals.yml'), portals);
+  writeFileSync(join(dir, 'data/pipeline.md'), '# Pipeline\n\n## Pending\n\n## Processed\n');
+  for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text);
+  return dir;
+}
+
+const GH_BOARD = { jobs: [{ id: 1, title: 'Ops Analyst', absolute_url: 'https://boards.example.com/nimbus/1', location: { name: 'Aldervale' } }] };
+
+/** Client where the Greenhouse board answers with `gh` (value or Error) and Ashby with its fixture. */
+function boardClient({ gh, ashby = ASHBY }) {
+  const calls = [];
+  const answer = (v) => { if (v instanceof Error) throw v; return v; };
+  return {
+    calls,
+    getJson: async (url) => { calls.push(url); return answer(url.includes('greenhouse') ? gh : ashby); },
+    postJson: async () => ({}),
+  };
+}
+
+test('a malformed provider in the providers directory is skipped and the scan still finds listings', async () => {
+  const pdir = mkdtempSync(join(tmpdir(), 'providers-'));
+  const real = (name) => readFileSync(new URL(`./providers/${name}.mjs`, import.meta.url), 'utf8').replace(/from '\.\.\/lib\//g, `from '${new URL('./lib/', import.meta.url).href}`);
+  writeFileSync(join(pdir, 'greenhouse.mjs'), real('greenhouse'));
+  writeFileSync(join(pdir, 'a-broken.mjs'), 'export default { id: 42 };\n');
+  writeFileSync(join(pdir, 'b-syntax.mjs'), 'export default {{{');
+  const dir = sandboxWith(GH_ONLY);
+  const logs = [];
+  try {
+    const { rankedOffers, errors } = await inDir(dir, () => runScan({ argv: ['--dry-run'], http: boardClient({ gh: GH_BOARD }), log: (l) => logs.push(l), providersDir: pdir }));
+    assert.deepEqual(errors, []);
+    assert.deepEqual(rankedOffers.map((o) => o.title), ['Ops Analyst']);
+    assert.equal(logs.filter((l) => /provider .* skipped/.test(l)).length, 2);
+    assert.match(logs.join('\n'), /1 skipped — no API detected/, 'the Ashby entry has no provider here');
+  } finally { rmSync(dir, { recursive: true, force: true }); rmSync(pdir, { recursive: true, force: true }); }
+});
+
+test('data/blacklist.md: a blacklisted company is not fetched; a blacklisted domain is dropped', async () => {
+  const dir = sandboxWith(GH_ONLY, { 'data/blacklist.md': '- company: Lumen Freight\n- domain: spam-board.test\n' });
+  const board = { jobs: [
+    ...GH_BOARD.jobs,
+    { id: 2, title: 'Risk Analyst', absolute_url: 'https://jobs.spam-board.test/2', location: { name: 'Aldervale' } },
+  ] };
+  const client = boardClient({ gh: board });
+  const logs = [];
+  try {
+    const res = await inDir(dir, () => runScan({ argv: ['--dry-run'], http: client, log: (l) => logs.push(l) }));
+    assert.deepEqual(res.rankedOffers.map((o) => o.title), ['Ops Analyst']);
+    assert.ok(!client.calls.some((u) => u.includes('ashbyhq')), 'the blacklisted company is never requested');
+    assert.equal(res.blacklisted, 1);
+    assert.match(logs.join('\n'), /Blacklisted:\s+1 companies not fetched, 1 postings removed/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('dead-board memory: three real 404s on three scans skip the board; --company still probes it', async () => {
+  const dir = sandboxWith(GH_ONLY);
+  const dead = () => new HttpError('HTTP 404', { code: 'ESTATUS', status: 404 });
+  try {
+    for (const today of ['2026-10-01', '2026-10-08', '2026-10-15']) {
+      const client = boardClient({ gh: dead() });
+      const res = await inDir(dir, () => runScan({ argv: [], http: client, log: quiet, today }));
+      assert.equal(res.errors.length, 1, `${today}: the 404 is reported`);
+      assert.ok(client.calls.some((u) => u.includes('greenhouse')));
+    }
+    const health = parseHealth(readFileSync(join(dir, 'data/portal-health.tsv'), 'utf-8'));
+    const row = [...health.values()][0];
+    assert.equal(row.consecutive_404, 3);
+    assert.equal(row.skip_until, '2026-11-14');
+
+    const logs = [];
+    const skipping = boardClient({ gh: dead() });
+    const res = await inDir(dir, () => runScan({ argv: [], http: skipping, log: (l) => logs.push(l), today: '2026-10-22' }));
+    assert.ok(!skipping.calls.some((u) => u.includes('greenhouse')), 'skipped: not requested');
+    assert.equal(res.skippedBoards.length, 1);
+    assert.match(logs.join('\n'), /dead board .* skipped until 2026-11-14/);
+
+    const probe = boardClient({ gh: GH_BOARD });
+    await inDir(dir, () => runScan({ argv: ['--dry-run', '--company', 'nimbus'], http: probe, log: quiet, today: '2026-10-22' }));
+    assert.ok(probe.calls.some((u) => u.includes('greenhouse')), '--company always probes');
+
+    // after the window a healthy answer clears the memory
+    await inDir(dir, () => runScan({ argv: [], http: boardClient({ gh: GH_BOARD }), log: quiet, today: '2026-11-14' }));
+    assert.equal(parseHealth(readFileSync(join(dir, 'data/portal-health.tsv'), 'utf-8')).size, 0, 'a healthy board has no row');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('timeouts and 5xx never count toward the dead-board streak', async () => {
+  const dir = sandboxWith(GH_ONLY);
+  try {
+    for (const today of ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']) {
+      const client = boardClient({ gh: new HttpError('HTTP 503', { code: 'ESTATUS', status: 503, retryable: true }) });
+      await inDir(dir, () => runScan({ argv: [], http: client, log: quiet, today }));
+    }
+    const logs = [];
+    const client = boardClient({ gh: GH_BOARD });
+    await inDir(dir, () => runScan({ argv: ['--dry-run'], http: client, log: (l) => logs.push(l), today: '2026-10-05' }));
+    assert.ok(client.calls.some((u) => u.includes('greenhouse')), 'still scanned');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a row an earlier liveness check marked expired is revived when its posting is on the board again', async () => {
+  const row = buildHistoryRow({ url: 'https://boards.example.com/nimbus/1', source: 'greenhouse-api', title: 'Ops Analyst', company: 'Nimbus Robotics', location: 'Aldervale', externalId: '1' }, '2026-10-01');
+  const base = HISTORY_COLUMNS.join('\t') + '\n' + row + '\n';
+  const { columns, rows } = parseHistoryFile(base);
+  const expired = rows[0].split('\t');
+  expired[columns.indexOf('status')] = 'expired';
+  expired[columns.indexOf('expired_reason')] = 'unreachable';
+  expired[columns.indexOf('fetch_attempts')] = '3';
+  expired[columns.indexOf('first_unreachable')] = '2026-10-01T09:00:00.000Z';
+  expired[columns.indexOf('last_error')] = 'ETIMEDOUT';
+  const dir = sandboxWith(GH_ONLY, { 'data/scan-history.tsv': HISTORY_COLUMNS.join('\t') + '\n' + expired.join('\t') + '\n' });
+  try {
+    await inDir(dir, () => runScan({ argv: [], http: boardClient({ gh: GH_BOARD }), log: quiet, today: '2026-10-20' }));
+    const after = parseHistoryFile(readFileSync(join(dir, 'data/scan-history.tsv'), 'utf-8'));
+    const r = after.rows[0];
+    assert.equal(getCell(r, after.columns, 'status'), 'added');
+    for (const c of ['expired_reason', 'fetch_attempts', 'first_unreachable', 'last_error']) assert.equal(getCell(r, after.columns, c), '', c);
+    assert.match(getCell(r, after.columns, 'scan_dates'), /2026-10-20$/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('requisition ids are labels: two postings sharing one are both new', async () => {
+  const board = { jobs: [
+    { id: 11, requisition_id: 'REQ-1', title: 'Ops Analyst', absolute_url: 'https://boards.example.com/nimbus/11', location: { name: 'Aldervale' } },
+    { id: 12, requisition_id: 'REQ-1', title: 'Pricing Analyst', absolute_url: 'https://boards.example.com/nimbus/12', location: { name: 'Aldervale' } },
+  ] };
+  const dir = sandboxWith(GH_ONLY);
+  try {
+    const { rankedOffers } = await inDir(dir, () => runScan({ argv: ['--dry-run'], http: boardClient({ gh: board }), log: quiet }));
+    assert.deepEqual(rankedOffers.map((o) => o.title).sort(), ['Ops Analyst', 'Pricing Analyst']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

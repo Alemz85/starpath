@@ -1,116 +1,164 @@
 #!/usr/bin/env node
 
 /**
- * check-liveness.mjs — Playwright job link liveness checker
+ * check-liveness.mjs — is this job posting still open?
  *
- * Tests whether job posting URLs are still active or have expired.
- * Uses the same detection logic as scan.md step 7.5.
- * Zero Claude API tokens — pure Playwright.
+ * Cheapest evidence first (lib/liveness-ladder.mjs): the ATS's per-job API, the
+ * org board listing, then the posting page judged on two agreeing signals. Only
+ * when all of that is ambiguous does it start Playwright, and then it polls the
+ * page every 250 ms until the verdict is decisive instead of waiting a fixed 2 s.
+ * Zero Claude API tokens.
  *
  * Usage:
  *   node scripts/check-liveness.mjs <url1> [url2] ...
  *   node scripts/check-liveness.mjs --file urls.txt
+ *   node scripts/check-liveness.mjs --pipeline            # every Pending URL in data/pipeline.md
+ *   node scripts/check-liveness.mjs --no-browser <url>    # ladder only; ambiguous stays "uncertain"
+ *   node scripts/check-liveness.mjs --record <url>        # write the verdict to data/scan-history.tsv
  *
- * Exit code: 0 if all active, 1 if any expired or uncertain
+ * --record: `expired` rows get status `expired` (+ expired_reason) so a dead
+ * posting stops resurfacing in triage; an `unreachable` check only counts a
+ * failed attempt (fetch_attempts / first_unreachable / last_error) and becomes
+ * `expired` after N attempts over H hours (user/profile.yml › scanner.liveness,
+ * lib/liveness-state.mjs); an `active` check revives a row marked expired.
+ *
+ * Exit code: 0 if all active, 1 if any expired, uncertain or unreachable.
  */
 
-import { chromium } from 'playwright';
-import { readFile } from 'fs/promises';
-import { classifyLiveness } from './liveness-core.mjs';
+import { readFile, writeFile, rename } from 'fs/promises';
+import { existsSync, readFileSync } from 'fs';
+import { pathToFileURL } from 'url';
+import yaml from 'js-yaml';
+import { pollUntilDecisive } from './liveness-core.mjs';
+import { http } from './lib/http.mjs';
+import { checkPosting, toOutcome } from './lib/liveness-check.mjs';
+import { applyChecks, readLivenessPolicy } from './lib/liveness-state.mjs';
+import { parseHistoryFile, upgradeColumns } from './lib/scan-history.mjs';
 
-async function checkUrl(page, url) {
-  try {
+const HISTORY_PATH = 'data/scan-history.tsv';
+const PIPELINE_PATH = 'data/pipeline.md';
+const PROFILE_PATH = 'user/profile.yml';
+
+/** Everything the page shows that decides liveness: text plus visible apply-ish controls. */
+async function samplePage(page, status) {
+  const finalUrl = page.url();
+  const bodyText = await page.evaluate(() => document.body?.innerText ?? '');
+  const applyControls = await page.evaluate(() => {
+    const candidates = Array.from(
+      document.querySelectorAll('a, button, input[type="submit"], input[type="button"], [role="button"]')
+    );
+    return candidates
+      .filter((element) => {
+        if (element.closest('nav, header, footer')) return false;
+        if (element.closest('[aria-hidden="true"]')) return false;
+        const style = window.getComputedStyle(element);
+        if (style.display === 'none' || style.visibility === 'hidden') return false;
+        if (!element.getClientRects().length) return false;
+        return Array.from(element.getClientRects()).some((rect) => rect.width > 0 && rect.height > 0);
+      })
+      .map((element) => [element.innerText, element.value, element.getAttribute('aria-label'), element.getAttribute('title')]
+        .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+  });
+  return { status, finalUrl, bodyText, applyControls };
+}
+
+/** The Playwright rung. Lazily starts the browser; throws when the page cannot load. */
+function makeBrowserRung() {
+  let browser = null;
+  let page = null;
+  const rung = async (url) => {
+    if (!browser) {
+      const { chromium } = await import('playwright');
+      browser = await chromium.launch({ headless: true });
+      page = await browser.newPage();
+    }
     const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-
     const status = response?.status() ?? 0;
+    const verdict = await pollUntilDecisive({ sample: () => samplePage(page, status) });
+    return { result: verdict.result, reason: `${verdict.reason} (${verdict.polls} poll${verdict.polls === 1 ? '' : 's'})` };
+  };
+  rung.close = async () => { if (browser) await browser.close(); };
+  return rung;
+}
 
-    // Give SPAs (Ashby, Lever, Workday) time to hydrate
-    await page.waitForTimeout(2000);
-
-    const finalUrl = page.url();
-    const bodyText = await page.evaluate(() => document.body?.innerText ?? '');
-    const applyControls = await page.evaluate(() => {
-      const candidates = Array.from(
-        document.querySelectorAll('a, button, input[type="submit"], input[type="button"], [role="button"]')
-      );
-
-      return candidates
-        .filter((element) => {
-          if (element.closest('nav, header, footer')) return false;
-          if (element.closest('[aria-hidden="true"]')) return false;
-
-          const style = window.getComputedStyle(element);
-          if (style.display === 'none' || style.visibility === 'hidden') return false;
-          if (!element.getClientRects().length) return false;
-
-          return Array.from(element.getClientRects()).some((rect) => rect.width > 0 && rect.height > 0);
-        })
-        .map((element) => {
-          const label = [
-            element.innerText,
-            element.value,
-            element.getAttribute('aria-label'),
-            element.getAttribute('title'),
-          ]
-            .filter(Boolean)
-            .join(' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-
-          return label;
-        })
-        .filter(Boolean);
-    });
-
-    return classifyLiveness({ status, finalUrl, bodyText, applyControls });
-
-  } catch (err) {
-    return { result: 'expired', reason: `navigation error: ${err.message.split('\n')[0]}` };
+async function urlsFromArgs(args) {
+  if (args.includes('--pipeline')) {
+    if (!existsSync(PIPELINE_PATH)) return [];
+    const text = readFileSync(PIPELINE_PATH, 'utf-8');
+    const pending = text.split(/^## Processed/m)[0];
+    return [...pending.matchAll(/- \[ \] (https?:\/\/\S+)/g)].map((m) => m[1]);
   }
+  const fileIdx = args.indexOf('--file');
+  if (fileIdx !== -1) {
+    const text = await readFile(args[fileIdx + 1], 'utf-8');
+    return text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));
+  }
+  return args.filter((a) => !a.startsWith('--'));
+}
+
+async function recordChecks(checks) {
+  if (!existsSync(HISTORY_PATH)) {
+    console.log('\n--record: data/scan-history.tsv does not exist; nothing recorded.');
+    return;
+  }
+  let profile = null;
+  try { if (existsSync(PROFILE_PATH)) profile = yaml.load(readFileSync(PROFILE_PATH, 'utf-8')); } catch { /* defaults */ }
+  const policy = readLivenessPolicy(profile);
+  const { columns, rows } = parseHistoryFile(readFileSync(HISTORY_PATH, 'utf-8'));
+  const wide = upgradeColumns(columns);
+  const outcomes = checks.map((c) => ({ url: c.url, outcome: toOutcome(c) })).filter((c) => c.outcome);
+  const { rows: next, changes, unmatched } = applyChecks(rows, wide, outcomes, { now: new Date(), policy });
+  const content = wide.join('\t') + '\n' + next.join('\n') + (next.length ? '\n' : '');
+  const tmp = `${HISTORY_PATH}.tmp`;
+  await writeFile(tmp, content, 'utf-8');
+  await rename(tmp, HISTORY_PATH);
+  console.log(`\nscan-history: ${changes.length} row(s) updated` +
+    (unmatched.length ? `, ${unmatched.length} URL(s) not in scan-history` : '') +
+    ` (unreachable policy: ${policy.attempts} attempts over ≥ ${policy.hours} h).`);
+  for (const c of changes) console.log(`  ${c.before} → ${c.after}  ${c.reason}  ${c.url}`);
 }
 
 async function main() {
   const args = process.argv.slice(2);
+  const urls = await urlsFromArgs(args);
 
-  if (args.length === 0) {
-    console.error('Usage: node scripts/check-liveness.mjs <url1> [url2] ...');
-    console.error('       node scripts/check-liveness.mjs --file urls.txt');
+  if (urls.length === 0) {
+    console.error('Usage: node scripts/check-liveness.mjs [--no-browser] [--record] <url1> [url2] ...');
+    console.error('       node scripts/check-liveness.mjs --file urls.txt | --pipeline');
     process.exit(1);
   }
 
-  let urls;
-  if (args[0] === '--file') {
-    const text = await readFile(args[1], 'utf-8');
-    urls = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
-  } else {
-    urls = args;
-  }
-
+  const useBrowser = !args.includes('--no-browser');
+  const record = args.includes('--record');
   console.log(`Checking ${urls.length} URL(s)...\n`);
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-
-  let active = 0, expired = 0, uncertain = 0;
+  const rung = useBrowser ? makeBrowserRung() : null;
+  const checks = [];
+  const tally = { active: 0, expired: 0, uncertain: 0, unreachable: 0 };
+  const icons = { active: '✅', expired: '❌', uncertain: '⚠️', unreachable: '🔌' };
 
   // Sequential — project rule: never Playwright in parallel
   for (const url of urls) {
-    const { result, reason } = await checkUrl(page, url);
-    const icon = { active: '✅', expired: '❌', uncertain: '⚠️' }[result];
-    console.log(`${icon} ${result.padEnd(10)} ${url}`);
-    if (result !== 'active') console.log(`           ${reason}`);
-    if (result === 'active') active++;
-    else if (result === 'expired') expired++;
-    else uncertain++;
+    const check = await checkPosting(url, { http, browser: rung });
+    checks.push(check);
+    tally[check.kind]++;
+    console.log(`${icons[check.kind]} ${check.kind.padEnd(11)} ${url}`);
+    if (check.kind !== 'active') console.log(`            ${check.reason}${check.error ? ` — ${check.error}` : ''}`);
+    else console.log(`            via ${check.via}`);
   }
 
-  await browser.close();
+  if (rung) await rung.close();
+  if (record) await recordChecks(checks);
 
-  console.log(`\nResults: ${active} active  ${expired} expired  ${uncertain} uncertain`);
-  if (expired > 0 || uncertain > 0) process.exit(1);
+  console.log(`\nResults: ${tally.active} active  ${tally.expired} expired  ${tally.uncertain} uncertain  ${tally.unreachable} unreachable`);
+  if (tally.expired + tally.uncertain + tally.unreachable > 0) process.exit(1);
 }
 
-main().catch(err => {
-  console.error('Fatal:', err.message);
-  process.exit(1);
-});
+// CLI entry (skipped when imported by tests).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error('Fatal:', err.message);
+    process.exit(1);
+  });
+}

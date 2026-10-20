@@ -99,12 +99,13 @@ Run `/career-ops scouting` or check the JD to fill in missing deadlines.
 
 For entries in the MISSED bucket or entries whose deadline is uncertain but still
 worth applying to, the agent may call `node scripts/check-liveness.mjs <url>` to
-verify whether the posting is still active before recommending the user act.
+verify whether the posting is still active before recommending the user act. It
+asks the ATS's own API first and starts Playwright only when that is ambiguous.
 
-**IMPORTANT:** Claude-mode verification MUST use Playwright (see CLAUDE.md §
-"Offer Verification"). Do NOT use WebFetch/WebSearch to conclude a posting is
-closed — use `browser_navigate` + `browser_snapshot`. Batch-mode (`--json`) marks
-those entries as "unconfirmed liveness".
+**IMPORTANT:** Do NOT use WebFetch/WebSearch to conclude a posting is closed
+(see CLAUDE.md § "Offer Verification"): use the script, or `browser_navigate` +
+`browser_snapshot`. An `unreachable` result is not a closure. Batch-mode
+(`--json`) marks those entries as "unconfirmed liveness".
 
 ---
 

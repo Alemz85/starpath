@@ -19,7 +19,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyLiveness } from './liveness-core.mjs';
+import { classifyLiveness, normalizeForMatch, isDecisive, pollUntilDecisive, matchExpiredText } from './liveness-core.mjs';
 
 // A body long enough to clear the MIN_CONTENT_CHARS (300) floor, so tests that
 // target a *later* branch aren't short-circuited by the "insufficient content"
@@ -253,4 +253,68 @@ test('no arguments defaults to expired (conservative empty-body floor)', () => {
 test('empty object input defaults to expired', () => {
   const { result } = classifyLiveness({});
   assert.equal(result, 'expired');
+});
+
+// ── Text normalisation: curly quotes and diacritics ───────────────────────
+test('normalizeForMatch folds curly quotes, diacritics, nbsp and whitespace', () => {
+  assert.equal(normalizeForMatch('Cette offre n’est  plus\u00a0disponible'), "Cette offre n'est plus disponible");
+  assert.equal(normalizeForMatch('Offre expirée à Zürich'), 'Offre expiree a Zurich');
+  assert.equal(normalizeForMatch('“Closed”'), '"Closed"');
+  assert.equal(normalizeForMatch(null), '');
+});
+
+test('curly apostrophes and accents match the same patterns as plain ASCII', () => {
+  assert.ok(matchExpiredText('Cette offre n’est plus disponible'));
+  assert.ok(matchExpiredText('The page you are looking for doesn’t exist'));
+  assert.ok(matchExpiredText('OFFRE EXPIRÉE'));
+  assert.equal(matchExpiredText('Great role, apply today'), undefined);
+});
+
+test('apply labels are normalised too (accents on a label do not hide the control)', () => {
+  const { result } = classifyLiveness({ status: 200, bodyText: LONG_BODY, applyControls: ['Postuler à cette offre'] });
+  assert.equal(result, 'active');
+});
+
+// ── Polling: decisive verdicts end the wait ────────────────────────────────
+test('isDecisive: apply/hard-expired/status are final; hydration states are not', () => {
+  assert.equal(isDecisive({ result: 'active', reason: 'x' }), true);
+  assert.equal(isDecisive({ result: 'expired', reason: 'HTTP 404' }), true);
+  assert.equal(isDecisive({ result: 'expired', reason: 'pattern matched: x' }), true);
+  assert.equal(isDecisive({ result: 'expired', reason: 'insufficient content — likely nav/footer only' }), false);
+  assert.equal(isDecisive({ result: 'uncertain', reason: 'x' }), false);
+});
+
+test('pollUntilDecisive: stops on the first decisive sample instead of waiting a fixed 2 s', async () => {
+  const samples = [
+    { status: 200, bodyText: '' },                                         // still hydrating
+    { status: 200, bodyText: 'Loading…' },                                 // still hydrating
+    { status: 200, bodyText: LONG_BODY, applyControls: ['Apply now'] },    // rendered
+    { status: 200, bodyText: 'never reached' },
+  ];
+  let i = 0;
+  let slept = 0;
+  const v = await pollUntilDecisive({ sample: async () => samples[i++], sleep: async (ms) => { slept += ms; }, now: () => slept });
+  assert.equal(v.result, 'active');
+  assert.equal(v.polls, 3);
+  assert.equal(slept, 500, 'two 250 ms waits, not one fixed 2000 ms');
+});
+
+test('pollUntilDecisive: a page that never renders gets the full window, then the last verdict', async () => {
+  let slept = 0;
+  const v = await pollUntilDecisive({
+    sample: async () => ({ status: 200, bodyText: 'Loading…' }),
+    intervalMs: 250, timeoutMs: 1000, sleep: async (ms) => { slept += ms; }, now: () => slept,
+  });
+  assert.equal(v.result, 'expired');
+  assert.match(v.reason, /insufficient content/);
+  assert.equal(v.polls, 5, "samples at 0, 250, 500, 750 and 1000 ms");
+  assert.ok(slept <= 1000);
+});
+
+test('pollUntilDecisive: an HTTP 404 is decisive on the first sample', async () => {
+  let slept = 0;
+  const v = await pollUntilDecisive({ sample: async () => ({ status: 404, bodyText: '' }), sleep: async (ms) => { slept += ms; } });
+  assert.equal(v.result, 'expired');
+  assert.equal(v.polls, 1);
+  assert.equal(slept, 0);
 });

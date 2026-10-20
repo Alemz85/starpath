@@ -20,6 +20,16 @@
  *   posting_id     ATS-native posting id (identity together with `portal`)
  *   req_id         requisition id — a label, never an identity on its own
  *   locations      `|`-joined SEPARATE locations (the split of `location`)
+ *   expired_reason why `status` is `expired` (`ats-api`, `html`, `browser`,
+ *                  `unreachable`, …); '' otherwise
+ *   fetch_attempts consecutive failed liveness checks (a posting that could not
+ *                  be reached; '' / 0 = none). Cleared by any decisive check
+ *   first_unreachable ISO timestamp of the first failure in the current streak
+ *   last_error     the last fetch error, 200 characters at most
+ *
+ * `status` is `added` for a live posting and `expired` once a liveness check
+ * (or the unreachable policy, see liveness-state.mjs) has declared it dead; the
+ * scanner flips it back to `added` when the posting reappears on its board.
  *
  * Display date for a listing: deadline, else posted_date, else first_seen
  * (`pickDisplayDate`).
@@ -30,6 +40,7 @@ import { splitLocations } from './listing-fields.mjs';
 export const HISTORY_COLUMNS = Object.freeze([
   'url', 'first_seen', 'portal', 'title', 'company', 'location', 'status', 'scan_dates',
   'posted_date', 'deadline', 'posting_id', 'req_id', 'locations',
+  'expired_reason', 'fetch_attempts', 'first_unreachable', 'last_error',
 ]);
 export const HISTORY_HEADER_FULL = HISTORY_COLUMNS.join('\t');
 
@@ -95,8 +106,8 @@ export function alignRow(row, fromCols, toCols) {
 /**
  * Build one scan-history line from a scanned offer.
  * @param {{url:string, source:string, title:string, company:string, location?:string,
- *          postedDate?:string|null, deadline?:string|null, postingId?:string, reqId?:string,
- *          locations?:string[]}} o
+ *          postedDate?:string|null, deadline?:string|null, externalId?:string, requisitionId?:string,
+ *          locations?:string[]}} o  (`postingId` / `reqId` are accepted as the wave-1 names)
  * @param {string} date scan date (YYYY-MM-DD)
  * @param {string[]} [columns] target layout (default: canonical)
  */
@@ -112,8 +123,8 @@ export function buildHistoryRow(o, date, columns = HISTORY_COLUMNS) {
     scan_dates: date,
     posted_date: o.postedDate || '',
     deadline: o.deadline || '',
-    posting_id: o.postingId || '',
-    req_id: o.reqId || '',
+    posting_id: o.externalId || o.postingId || '',
+    req_id: o.requisitionId || o.reqId || '',
     locations: (o.locations || []).map(clean).filter(Boolean).join('|'),
   };
   return columns.map((c) => clean(values[c] ?? '')).join('\t');
