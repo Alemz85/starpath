@@ -11,7 +11,7 @@ import type { ChatProposalDecision } from '@/lib/chat/types'
 /** Why Confirm is unavailable, when it is. Null means the card is actionable. */
 export type ProposalLock = 'streaming' | 'unpersisted' | null
 
-const LOCK_HINT: Record<Exclude<ProposalLock, null>, string> = {
+export const LOCK_HINT: Record<Exclude<ProposalLock, null>, string> = {
   streaming: 'Available when the reply finishes.',
   // Covers both an in-flight turn not yet written to the session file and an
   // interrupted one that never will be — either way there is no saved message
@@ -127,7 +127,7 @@ function formatDecidedAt(at: string): string | null {
   return Number.isNaN(parsed.getTime()) ? null : TIME.format(parsed)
 }
 
-function ResolvedChip({ decision, appliedLabel }: {
+export function ResolvedChip({ decision, appliedLabel }: {
   decision: ChatProposalDecision
   appliedLabel: string
 }) {

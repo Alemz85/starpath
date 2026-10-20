@@ -2,21 +2,46 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CANONICAL_STATUSES,
-  MAX_PROPOSALS_PER_MESSAGE,
+  describeDecision,
   describeProposal,
   isCanonicalStatus,
-  parseProposalBlocks,
-  splitChatContent,
   tierForProposal,
   validateProposal,
 } from '@/lib/chat/proposals'
 import type { ApplyProposal, ChatProposal } from '@/lib/chat/proposals'
+import {
+  MAX_BLOCKS_PER_MESSAGE as MAX_PROPOSALS_PER_MESSAGE, isProposalBlock, parseChatBlocks,
+  splitChatContent as splitBlocks,
+} from '@/lib/chat/blocks'
 import {
   findApplicationRowIndex, updateApplicationFields, updateApplicationStatus, upsertApplicationRow,
 } from '@/lib/applicationsDoc'
 import { parseApplications } from '@/lib/parsers/markdown'
 
 const MSG = 'msg-1'
+
+// The proposal view of the block parser (`lib/chat/blocks`): proposal cards
+// as `{ kind: 'proposal', proposal }`, everything else as the parser gives it.
+// These tests predate reference cards; the adapter keeps them about proposals.
+type ProposalSegment =
+  | { kind: 'markdown'; text: string }
+  | { kind: 'pending'; id: string; index: number }
+  | { kind: 'proposal'; id: string; index: number; proposal: ChatProposal }
+
+function splitChatContent(text: string, messageId: string, streaming = false): ProposalSegment[] {
+  return splitBlocks(text, messageId, streaming).map((s): ProposalSegment => {
+    if (s.kind === 'block') {
+      if (!isProposalBlock(s.block)) throw new Error(`unexpected ${s.block.kind} card`)
+      return { kind: 'proposal', id: s.id, index: s.index, proposal: s.block.proposal }
+    }
+    return s.kind === 'pending' ? { kind: 'pending', id: s.id, index: s.index } : s
+  })
+}
+
+function parseProposalBlocks(text: string, messageId: string) {
+  return parseChatBlocks(text, messageId).map(b =>
+    b.status === 'valid' && isProposalBlock(b.block) ? { ...b, proposal: b.block.proposal } : b)
+}
 
 function fence(tag: string, body: string): string {
   return ['```' + tag, body, '```'].join('\n')
@@ -326,10 +351,11 @@ test('tildes work as fence delimiters', () => {
   assert.equal(proposalsIn(text).length, 1)
 })
 
-test('an unclosed proposal fence is dropped while streaming and shown when final', () => {
+test('an unclosed proposal fence is pending while streaming and shown when final', () => {
   const text = ['Tracking this:', '```starpath:apply', '{"company":"Acme"'].join('\n')
-  // Mid-stream: no card, no half-rendered JSON.
+  // Mid-stream: a skeleton, no card, no half-rendered JSON.
   assert.deepEqual(proposalsIn(text, true), [])
+  assert.deepEqual(splitChatContent(text, MSG, true).map(s => s.kind), ['markdown', 'pending'])
   assert.doesNotMatch(markdownIn(text, true), /starpath:apply/)
   assert.match(markdownIn(text, true), /Tracking this/)
   // Final: the reply really was cut off — show what arrived.

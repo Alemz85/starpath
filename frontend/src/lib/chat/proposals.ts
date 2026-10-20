@@ -1,6 +1,8 @@
-// Chat write-proposals — the parser + validator for the ```starpath:apply /
-// ```starpath:status fences the chat agent emits (contract in `modes/chat.md`
-// § Proposals).
+// Chat write-proposals — the validator for the ```starpath:apply /
+// ```starpath:status block bodies the chat agent emits (contract in
+// `modes/chat.md` § Proposals and § Cards). Finding the fences in a reply and
+// the streaming states live in `./blocks`, which calls `validateProposal` for
+// these two tags.
 //
 // Everything parsed here is MODEL OUTPUT, i.e. untrusted input, and its
 // destination is `data/applications.md` — a naive pipe-delimited markdown table
@@ -87,31 +89,11 @@ export interface StatusProposal {
 
 export type ChatProposal = ApplyProposal | StatusProposal
 
-/**
- * One `starpath:` fence, identified by `id` so a Confirm/Dismiss decision can
- * be persisted against it. `invalid` carries the human-readable reason and is
- * rendered as a plain code block, never as a card.
- */
-export type ChatProposalBlock =
-  | { status: 'valid'; id: string; index: number; source: string; proposal: ChatProposal }
-  | { status: 'invalid'; id: string; index: number; source: string; reason: string }
-
-/**
- * An assistant turn split for rendering: prose runs through the markdown
- * renderer, valid proposals render as cards. Invalid proposals are folded back
- * into the surrounding markdown verbatim, so a malformed fence looks exactly
- * like the code block it would have been before this feature existed.
- */
-export type ChatContentSegment =
-  | { kind: 'markdown'; text: string }
-  | { kind: 'proposal'; id: string; index: number; proposal: ChatProposal }
-
 // Caps. Generous enough for any real listing, tight enough that a runaway
 // generation can't push a megabyte into the user's tracker.
 export const MAX_FIELD_CHARS = 200
 export const MAX_NOTES_CHARS = 500
 export const MAX_URL_CHARS = 2000
-export const MAX_PROPOSALS_PER_MESSAGE = 20
 
 // v2 Score cell (docs/scoring-v2.md §8.3): `W8.3 E5.6` — Want then Ease,
 // one decimal optional. The v1 `X.X/10` form is NOT accepted for a write:
@@ -120,7 +102,7 @@ const SCORE_RE = /^W\s*(\d{1,2}(?:\.\d{1,2})?)\s+E\s*(\d{1,2}(?:\.\d{1,2})?)$/i
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const HTTP_URL_RE = /^https?:\/\/[^\s|]+$/i
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -137,9 +119,9 @@ function isSafeCell(value: string): boolean {
   return !/[|\r\n]/.test(value) && !/[\u0000-\u001F\u007F]/.test(value)
 }
 
-type FieldResult<T> = { ok: true; value: T } | { ok: false; reason: string }
+export type FieldResult<T> = { ok: true; value: T } | { ok: false; reason: string }
 
-function requiredText(raw: unknown, field: string): FieldResult<string> {
+export function requiredText(raw: unknown, field: string): FieldResult<string> {
   if (typeof raw !== 'string') return { ok: false, reason: `${field} must be a string` }
   const value = raw.trim().replace(/\s+/g, ' ')
   if (!value) return { ok: false, reason: `${field} cannot be empty` }
@@ -150,7 +132,7 @@ function requiredText(raw: unknown, field: string): FieldResult<string> {
   return { ok: true, value }
 }
 
-function optionalText(raw: unknown, field: string, max: number): FieldResult<string | undefined> {
+export function optionalText(raw: unknown, field: string, max: number): FieldResult<string | undefined> {
   if (raw === undefined || raw === null) return { ok: true, value: undefined }
   if (typeof raw !== 'string') return { ok: false, reason: `${field} must be a string` }
   const value = raw.trim().replace(/\s+/g, ' ')
@@ -282,181 +264,6 @@ export function validateProposal(
   return { ok: true, proposal }
 }
 
-// ─── Fence scanning ───────────────────────────────────────────────────────────
-
-type ScanPart =
-  | { kind: 'text'; text: string }
-  | { kind: 'fence'; tag: string; body: string; source: string; closed: boolean }
-
-const FENCE_OPEN_RE = /^(\s{0,3})(`{3,}|~{3,})\s*([^\s`]*)\s*$/
-
-function isProposalTag(tag: string): tag is ProposalFenceTag {
-  return (PROPOSAL_FENCE_TAGS as readonly string[]).includes(tag)
-}
-
-/**
- * Split markdown into text runs and TOP-LEVEL fenced blocks.
- *
- * Top-level matters: a fence nested inside another fence (an agent showing the
- * contract inside a ```markdown example, say) is part of that outer block's
- * body and must not be mistaken for a real proposal. Walking fences in order
- * and skipping an unrecognised block wholesale to its close is what makes that
- * true — a regex sweep for ```starpath: would happily match the example.
- */
-function scanFences(text: string): ScanPart[] {
-  const lines = text.split('\n')
-  const parts: ScanPart[] = []
-  let pending: string[] = []
-
-  const flushText = (): void => {
-    if (pending.length === 0) return
-    parts.push({ kind: 'text', text: pending.join('\n') })
-    pending = []
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const open = lines[i].match(FENCE_OPEN_RE)
-    if (!open) {
-      pending.push(lines[i])
-      continue
-    }
-
-    const [, , delimiter, tag] = open
-    const marker = delimiter[0]
-    const body: string[] = []
-    let closed = false
-    let j = i + 1
-    for (; j < lines.length; j++) {
-      const close = lines[j].match(/^\s{0,3}(`{3,}|~{3,})\s*$/)
-      // A closing fence uses the same character and is at least as long.
-      if (close && close[1][0] === marker && close[1].length >= delimiter.length) {
-        closed = true
-        break
-      }
-      body.push(lines[j])
-    }
-
-    const source = lines.slice(i, closed ? j + 1 : lines.length).join('\n')
-    flushText()
-    parts.push({ kind: 'fence', tag, body: body.join('\n'), source, closed })
-    i = closed ? j : lines.length
-  }
-
-  flushText()
-  return parts
-}
-
-function blockId(messageId: string, index: number): string {
-  return `${messageId}#p${index}`
-}
-
-/**
- * Every `starpath:` fence in an assistant turn, valid or not, in document
- * order. Exposed for inspection and tests; the renderer uses
- * `splitChatContent`, which shares this scan so the ids agree.
- */
-export function parseProposalBlocks(text: string, messageId: string): ChatProposalBlock[] {
-  const blocks: ChatProposalBlock[] = []
-  let index = 0
-  for (const part of scanFences(text)) {
-    if (part.kind !== 'fence' || !isProposalTag(part.tag)) continue
-    const id = blockId(messageId, index)
-    const current = index++
-    if (!part.closed) {
-      blocks.push({ status: 'invalid', id, index: current, source: part.source, reason: 'the block was cut off' })
-      continue
-    }
-    if (current >= MAX_PROPOSALS_PER_MESSAGE) {
-      blocks.push({
-        status: 'invalid', id, index: current, source: part.source,
-        reason: `more than ${MAX_PROPOSALS_PER_MESSAGE} proposals in one message`,
-      })
-      continue
-    }
-    let json: unknown
-    try {
-      json = JSON.parse(part.body)
-    } catch {
-      blocks.push({ status: 'invalid', id, index: current, source: part.source, reason: 'the body is not valid JSON' })
-      continue
-    }
-    const validated = validateProposal(part.tag, json)
-    blocks.push(validated.ok
-      ? { status: 'valid', id, index: current, source: part.source, proposal: validated.proposal }
-      : { status: 'invalid', id, index: current, source: part.source, reason: validated.reason })
-  }
-  return blocks
-}
-
-/**
- * Split an assistant turn into renderable segments.
- *
- * `streaming` says whether the turn is still being written. A proposal fence
- * that hasn't closed yet is mid-stream, not malformed, so while streaming it is
- * omitted entirely and the card appears when the fence closes — better than
- * flashing half a JSON body or a placeholder that says nothing. Once the turn
- * is final (completed, interrupted, failed) an unclosed fence is shown as the
- * raw text it is: the reply really was cut off there.
- */
-export function splitChatContent(
-  text: string,
-  messageId: string,
-  streaming = false,
-): ChatContentSegment[] {
-  const segments: ChatContentSegment[] = []
-  let index = 0
-  let pending: string[] = []
-
-  const flush = (): void => {
-    if (pending.length === 0) return
-    const joined = pending.join('\n')
-    pending = []
-    if (joined.trim()) segments.push({ kind: 'markdown', text: joined })
-  }
-
-  for (const part of scanFences(text)) {
-    if (part.kind === 'text') {
-      pending.push(part.text)
-      continue
-    }
-    if (!isProposalTag(part.tag)) {
-      pending.push(part.source)
-      continue
-    }
-
-    const id = blockId(messageId, index)
-    const current = index++
-
-    if (!part.closed) {
-      // Mid-stream: drop it. Final: it's genuinely truncated — show the text.
-      if (!streaming) pending.push(part.source)
-      continue
-    }
-
-    let proposal: ChatProposal | null = null
-    if (current < MAX_PROPOSALS_PER_MESSAGE) {
-      try {
-        const validated = validateProposal(part.tag, JSON.parse(part.body))
-        if (validated.ok) proposal = validated.proposal
-      } catch {
-        proposal = null
-      }
-    }
-
-    // Anything that didn't validate falls back to the fence verbatim, which the
-    // markdown renderer draws as an ordinary code block.
-    if (!proposal) {
-      pending.push(part.source)
-      continue
-    }
-    flush()
-    segments.push({ kind: 'proposal', id, index: current, proposal })
-  }
-
-  flush()
-  return segments
-}
-
 // ─── Presentation helpers ─────────────────────────────────────────────────────
 
 /** Storage tier from the Want × Ease verdict grid (docs/scoring-v2.md §4) —
@@ -507,4 +314,22 @@ export function describeProposal(proposal: ChatProposal): ProposalSummary {
     changes,
     appliedLabel: 'Added to applications',
   }
+}
+
+/**
+ * One line saying what the user did with a card, in the agent's terms. Stored
+ * as the decision's `detail` and replayed to the agent on the next turn
+ * (`./digest`), so it reads as a fact about the tracker, not as UI copy.
+ */
+export function describeDecision(proposal: ChatProposal, outcome: 'applied' | 'dismissed'): string {
+  const subject = `${proposal.company} — ${proposal.role}`
+  if (proposal.kind === 'status') {
+    const when = [proposal.date, proposal.stage].filter(Boolean).join(', ')
+    return outcome === 'applied'
+      ? `moved ${subject} to ${proposal.status}${when ? ` (${when})` : ''}`
+      : `dismissed moving ${subject} to ${proposal.status}`
+  }
+  return outcome === 'applied'
+    ? `added ${subject} to applications${proposal.status ? ` as ${proposal.status}` : ''}`
+    : `dismissed adding ${subject} to applications`
 }
