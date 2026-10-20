@@ -3,7 +3,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -11,7 +11,7 @@ import {
   LINKED_PATHS, linkTargetFor, resolveDataRoot, isPersonalPath, repoRootFrom,
 } from './data-root.mjs'
 import {
-  isOverridable, appendPathFor, resolveSystemFile, composeSystemFile, listOverrides,
+  isOverridable, appendPathFor, resolveSystemFile, composeSystemFile, listOverrides, materializeSystemFile,
 } from './overrides.mjs'
 
 const REPO = '/repo'
@@ -118,6 +118,12 @@ test('composeSystemFile + listOverrides against a temp data root', () => {
       ['modes/scouting.append.md', 'modes/scouting.md', 'append', true],
     ])
     assert.deepEqual(listOverrides({ dataRoot: join(tmp, 'missing'), repoRoot: repo }), [])
+
+    // materialize: plain files are returned as-is, composed ones are written to .cache/prompts
+    assert.equal(materializeSystemFile({ repoRoot: repo, dataRoot: data, rel: 'modes/pdf.md' }), join(data, 'overrides/modes/pdf.md'))
+    const m = materializeSystemFile({ repoRoot: repo, dataRoot: data, rel: 'modes/scouting.md' })
+    assert.equal(m, join(data, '.cache/prompts/modes/scouting.md'))
+    assert.equal(readFileSync(m, 'utf-8'), c.text)
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }

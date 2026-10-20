@@ -20,8 +20,8 @@
  * Pure functions take injectable fs probes; unit-tested in overrides.test.mjs.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 
 export const OVERRIDES_DIR = 'overrides'
 
@@ -85,6 +85,21 @@ export function composeSystemFile({ repoRoot, dataRoot, rel, exists = existsSync
     parts.push(r.appendPath)
   }
   return { text, parts, composed: parts.length > 1 }
+}
+
+/**
+ * A file path ready to hand to a tool (e.g. `claude --append-system-prompt-file`):
+ * the default or the replacement as-is, or — when an append file exists — the
+ * composed text written to <dataRoot>/.cache/prompts/<rel>.
+ */
+export function materializeSystemFile({ repoRoot, dataRoot, rel }) {
+  const r = resolveSystemFile({ repoRoot, dataRoot, rel })
+  if (!r.appendPath) return r.path
+  const { text } = composeSystemFile({ repoRoot, dataRoot, rel })
+  const out = join(dataRoot, '.cache', 'prompts', r.rel)
+  mkdirSync(dirname(out), { recursive: true })
+  writeFileSync(out, text, 'utf-8')
+  return out
 }
 
 /** Every file under <dataRoot>/overrides, as repo-relative override entries. */
