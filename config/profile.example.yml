@@ -113,3 +113,10 @@ location:
 #   extra_brand_bonuses:                        # Brand perception corrections only
 #     - { company: "Placeholder Co", bonus: 0.5, reason: "household name in the target market" }
 #   has_structured_onboarding: false            # true → +1 Growth
+
+# ── Outcomes (optional — read by scripts/outcomes.mjs) ──────────────────────
+# outcomes:
+#   no_response_days: 30          # still Applied this long after sending → "no response"
+#   materials_index: materials/index.tsv         # header-named TSV of what you sent
+#                                 # (company, role, app_num, sent, materials, notes),
+#                                 # relative to your data root (private/)

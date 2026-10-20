@@ -25,6 +25,8 @@ import { fileURLToPath } from 'url';
 import { parseScoreHistory, analyzeScouting } from './lib/targeting-core.mjs';
 import { VERDICT_ORDER, VERDICT_LABELS } from './lib/score-bands.mjs';
 import { parseTracker, enrichEntries, analyzeOutcomes, archetypeFromReportHeader, buildArchetypeLookup } from './lib/patterns-core.mjs';
+import { loadOutcomeInputs } from './lib/outcome-inputs.mjs';
+import { analyzeApplicationOutcomes, rejectionPatterns } from './lib/outcome-stats.mjs';
 
 const CAREER_OPS = dataRootFor(dirname(dirname(fileURLToPath(import.meta.url))));  // data root (STARPATH_DATA / private / this checkout)
 const APPS_FILE = existsSync(join(CAREER_OPS, 'data/applications.md'))
@@ -151,13 +153,36 @@ function analyze() {
   // Reports without an archetype fall back to score-history.tsv (same evaluation, same value).
   const scoreRows = existsSync(SCORE_HISTORY_FILE) ? parseScoreHistory(readFileSync(SCORE_HISTORY_FILE, 'utf-8')) : [];
   const enriched = enrichEntries(entries, loadReport, { archetypeFor: buildArchetypeLookup(scoreRows) });
-  return analyzeOutcomes(enriched, { minThreshold: MIN_THRESHOLD });
+  // Rejections read from the status log (dates, stages), gated per
+  // docs/scoring-statistical-design.md § 3.7; present even when the
+  // status-text analysis below its threshold returns an error.
+  const rejections = rejectionPatterns(analyzeApplicationOutcomes(loadOutcomeInputs(CAREER_OPS)));
+  return { ...analyzeOutcomes(enriched, { minThreshold: MIN_THRESHOLD }), rejections };
+}
+
+function printRejections(rj) {
+  if (!rj) return;
+  console.log('\nREJECTIONS (from the status log)');
+  console.log('-'.repeat(40));
+  if (!rj.rejections) {
+    console.log('  None logged yet.');
+    return;
+  }
+  console.log(`  ${rj.rejections} rejected${rj.afterProgress ? ` (${rj.afterProgress} after getting a reply or an interview)` : ''}`);
+  for (const s of rj.byStage) console.log(`  ${s.stage.padEnd(28)} ${String(s.n).padStart(3)}`);
+  const t = rj.timing;
+  console.log(`  timing: ${t.fast} fast (≤2d) · ${t.normal} normal · ${t.late} late${t.untimed ? ` · ${t.untimed} approximate dates` : ''}`);
+  console.log(t.sample.sufficient
+    ? `  median ${t.medianDays} days; fast ${t.fast} of ${t.sample.n} (${t.sample.confidence})`
+    : `  timing patterns withheld: ${t.sample.n} exactly dated rejections, ${t.sample.gate} needed`);
 }
 
 // --- Summary mode (human-readable) ---
 function printSummary(result) {
   if (result.error) {
-    console.log(`\n${result.error}\n`);
+    console.log(`\n${result.error}`);
+    printRejections(result.rejections);
+    console.log('');
     return;
   }
 
@@ -228,6 +253,8 @@ function printSummary(result) {
       console.log(`  ${a.archetype.slice(0, 32).padEnd(33)} ${String(a.total).padStart(3)} total, ${a.conversionRate}% positive${act}`);
     }
   }
+
+  printRejections(result.rejections);
 
   // Blockers
   if (blockerAnalysis.length > 0) {

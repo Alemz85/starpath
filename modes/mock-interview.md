@@ -21,6 +21,7 @@ They share the same assets so there's no second source of truth: the canonical *
 4. **Deep-research artifact** at `data/companies/{slug}.md` (if fresh) — its `## Interview Style` section sharpens the interview *shape* (case / take-home / coding / panel) so the predicted mix matches reality. Optional; the loop runs fine without it.
 5. **Evaluation report** in `reports/**/{Company} - {Role}.md` (if it exists) — read for the archetype this role was scored against and the matched/missing proof points, to flavour role-specific questions.
 6. **Existing prep doc** at `interview-prep/{Company} - {Role}.md` (if `interview-prep` already ran) — reuse its sourced questions instead of re-searching; feed them in as the "real, sourced" questions (see Step 3).
+7. **Past outcomes** (optional) — `node scripts/outcomes.mjs --chat`: the rejection stages and notes in its why table say which interview formats ended earlier applications. Give those formats an extra question or two, and say why ("your last final round ended there"). Individual cases, not a pattern, while the gates it prints are withheld.
 
 ## Step 0 — Predict the question set (always first)
 

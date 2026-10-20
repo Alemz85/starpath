@@ -23,8 +23,10 @@ const APPLICATIONS_PATH = 'data/applications.md'
 
 /** A status change from a confirm card, through the one status write path
  *  (`tracker:set-status`: validated, locked, logged with source `chat`). */
-async function setStatusFromChat(company: string, role: string, status: AppStatus): Promise<void> {
-  const result = await ipc.tracker.setStatus({ company, role, status, source: 'chat' })
+async function setStatusFromChat(
+  company: string, role: string, status: AppStatus, when: { date?: string; stage?: string } = {},
+): Promise<void> {
+  const result = await ipc.tracker.setStatus({ company, role, status, ...when, source: 'chat' })
   if (!result) throw new Error('Status changes are unavailable here.')
   if (!result.ok) {
     // A status move needs a row to move; say so rather than no-op'ing.
@@ -47,7 +49,7 @@ async function setStatusFromChat(company: string, role: string, status: AppStatu
  */
 async function applyProposalToTracker(proposal: ChatProposal): Promise<string> {
   if (proposal.kind === 'status') {
-    await setStatusFromChat(proposal.company, proposal.role, proposal.status)
+    await setStatusFromChat(proposal.company, proposal.role, proposal.status, { date: proposal.date, stage: proposal.stage })
     return describeProposal(proposal).appliedLabel
   }
 

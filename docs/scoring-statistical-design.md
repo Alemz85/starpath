@@ -4,7 +4,8 @@
 Priority; the v1 Overall floor and the CF / AF weights are retired.
 
 This document is the contract for every analytic derived from
-`data/score-history.tsv`. Those analytics — peer rank, score trend, calibration
+`data/score-history.tsv`, and for the application-outcome stats that join it
+with the status log (§ 3.7). Those analytics — peer rank, score trend, calibration
 advice — read a log of **LLM judgments recorded on a coarse ordinal rubric**.
 They can rank, bucket, and flag; they cannot measure. Nothing in this repo may
 present a score movement, a percentile, or a calibration recommendation as
@@ -334,6 +335,101 @@ volume a per-week mean would sit under § 3.3's gate almost every week.
   placed by posting date and how many by first evaluation; the tooltip states
   it and the footnote gives the totals, so a bar of fallbacks is not read as a
   hiring cycle.
+
+### 3.7 Application outcomes — `scripts/lib/outcome-stats.mjs`
+
+Outcome stats read what happened to the applications the user actually sent:
+the status log (`data/status-log.tsv`, every status change with its date and
+rejection stage), `data/applications.md`, the latest `data/score-history.tsv`
+row per application (Ease, verdict, archetype, location) and, when configured,
+the user's materials index (what was sent, and when). All of them are joined on
+one key, `applicationKey(company, role)` in `scripts/lib/application-key.mjs`.
+Consumers: `calibrate` (Ease against outcomes), `patterns` (rejection
+patterns) and the chat (an outcomes block plus a per-application "why" table).
+The scorer may cite an outcome stat in a report only when its gate clears.
+
+**What an application's outcome is.** An application counts once it reached
+the market: its history shows `Applied` or anything after it. Each one is
+classified on its whole history, not its current cell:
+
+| Outcome | Rule |
+|---|---|
+| `progressed` | Reached `Responded`, `Interview` or `Offer` at any point (a later rejection keeps it here; its stage records how far it got) |
+| `rejected` | Moved to `Rejected` without progressing |
+| `no-response` | Still `Applied`, sent `OUTCOME_RULES.noResponseDays` (30) or more days ago |
+| `pending` | Still `Applied`, sent less than 30 days ago |
+| `withdrawn` | `Discarded` after applying (the user stopped, or the posting closed) |
+
+`pending` and `withdrawn` are excluded from every rate: neither is an answer
+from the employer. The **resolved** set is `progressed + rejected +
+no-response`; rates are over it. *No response* is derived, never a status: a
+rejection that arrives months later is logged as `Rejected` with its real date
+and the application moves from `no-response` to `rejected` by itself.
+
+**Dates and their quality.** The sent date is the materials index's `sent`
+date, else the logged move to `Applied`, else the tracker row's date. A date
+from a `source=backfill` ledger row (unless the user has since corrected it)
+or from the tracker row is **approximate**, and so is a materials date for an
+application that predates the status log (no history, or a backfilled origin
+row): such rows were reconstructed after the fact. For those, an exact
+(corrected) logged move to `Applied` wins over the materials date. Days to rejection (or to first reply) are computed only when
+both ends are exact; an approximate pair is shown in the why-table with `~` and
+left out of every timing statistic. Timing classes, on exact dates only:
+**fast** rejection ≤ `OUTCOME_RULES.fastRejectionDays` (2) days after sending —
+consistent with an automated ATS filter, never stated as one —, **late**
+rejection > `OUTCOME_RULES.lateRejectionDays` (30) days, **normal** between.
+
+**Slices.** Rates are reported overall and sliced by Ease band, archetype, city
+and company size (when a report states it). The Ease band is the verdict
+grid's Ease column (`low` < 5.0 ≤ `mid` < 7.0 ≤ `high`, `EASE_MID` /
+`EASE_HIGH` in `score-bands.mjs`), never a new cut-off. An application with no
+score row lands in an `unscored` band and is never part of an Ease comparison.
+
+**Gates** (`OUTCOME_GATES` in `scripts/lib/scoring-stats.mjs`):
+
+| Claim | Sample counted | Gate | Why |
+|---|---|---|---|
+| A rate in a slice (reply, progress, interview rate) | resolved applications in that slice | **8** (`minResolved`) | Same shape as § 3.4's conversion gate: "0 of n progressed" is only remarkable when 0 is unlikely under a healthy rate; at a 20% rate `0.8^n` drops below ~1-in-6 at n = 8. At 8 one application is 12.5 points, so the rate is printed as a count ("2 of 9"), with the percentage only from `moderate` up. |
+| Timing (median days to rejection, share of fast rejections) | rejections with exact dates in that slice | **8** (`minTimedRejections`) | The headline timing claim is "most rejections are fast". Under a coin flip, 6 or more of 8 fast has probability ≈ 0.14 — the same ~1-in-6 bar. Below 8 a run of quick form rejections is not a pattern. |
+| Ease-band gap (the only outcome finding that may suggest a change) | resolved applications in each band compared | **8 per band** (`minResolved`), **4 per band in each half** (`minPerHalfBand`) | See below. |
+
+Every slice carries `{ n, gate, confidence, sufficient }` from
+`describeSample`, with tiers per § 3.1. Below the gate a rate or timing claim
+is **withheld**: the structured output keeps the raw counts (they are facts:
+"1 of 3 got a reply") and sets `sufficient: false`; renderers print the counts
+and "withheld (3 of 8)" and never a rate, a direction or an interpretation.
+
+**Agreement is not a correction.** Ease predicts how realistic getting in is.
+Outcomes that agree with it — low-Ease applications rejected, high-Ease ones
+progressing — confirm the score and are labelled `agrees`. Nothing about the
+rubric moves on them, at any sample size.
+
+**What counts as a gap.** Only two findings can produce a calibration
+suggestion, and only when every condition holds:
+
+1. **Inversion.** A higher Ease band progresses *less often* than a lower one.
+   Both bands clear `minResolved`; the inversion survives moving one
+   application in the adverse direction in each band (one more progressed in
+   the higher band, one fewer in the lower) — so a single application cannot
+   create it; and it holds, in the same direction, in both chronological
+   halves of the applications (split at the median sent date), each band
+   carrying at least `minPerHalfBand` resolved applications in each half.
+2. **High Ease never progresses.** The `high` Ease band has ≥ `minResolved`
+   resolved applications and none progressed — § 3.4's zero-conversion rule
+   applied to the band that claims to be easiest — with at least
+   `minPerHalfBand` in each half.
+
+Anything short of that is reported as `insufficient` (with the shortfall) or
+`no-gap`; a gap that holds overall but not in both halves is `not-persistent`.
+A confirmed gap becomes a **suggestion** with a stable id (so a later inbox or
+the user can track it): it names the bands, the counts, and the edit to
+consider (`scoring.ease_weights` in `user/profile.yml`, or the archetype's
+framing in `user/_profile.md`). It is never applied automatically.
+
+**Citing outcomes in a report.** An evaluation may cite an outcome stat for
+its archetype or Ease band only when that stat's `sufficient` is true, and
+states it with its n ("3 of 11 comparable applications got past screening").
+Below the gate a report says nothing about outcomes.
 
 ## 4. Presentation rules
 

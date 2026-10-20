@@ -35,6 +35,7 @@ keep getting rejected?", "are my comp targets realistic for this market?".
 | **Rubric signal health** | A dimension is pinned at the ceiling/floor with tiny spread → it can't discriminate; its weight is wasted (consider `scoring.want_weights` / `ease_weights`) | `user/profile.yml` / `user/_profile.md` |
 | **Comp-target reality** | `salary_adj_city` chronically low → comp targets above market; chronically maxed → comp floor never bites | `user/profile.yml` |
 | **Score → outcome mismatch** | An archetype scores high Want / Ease but never converts (over-credited), or scores low but converts well (under-credited) — stated on Want and Ease separately | `user/_profile.md` |
+| **Ease vs outcomes** (`scripts/outcomes.mjs`) | A higher Ease band progresses less often than a lower one, or the high band never gets past screening — only when the gap is past every gate, survives one application moving, and holds in both halves of the search | `user/profile.yml` (`scoring.ease_weights`) / `user/_profile.md` |
 
 The score→outcome check only runs once `applications.md` has applications that
 reached the market (Applied / Responded / Interview / Offer / Rejected /
@@ -46,6 +47,7 @@ Blocked rows (empty scores) are excluded from every score check.
 - `data/score-history.tsv` — per-evaluation score log (required)
 - `user/profile.yml` — `calibration:` block, optional `scoring:` weights + `target_roles.dream_companies` (calibration source)
 - `data/applications.md` — outcome funnel (optional; unlocks the score→outcome check)
+- `data/status-log.tsv` (+ optional materials index) — dated outcomes, read by `scripts/outcomes.mjs` (Step 1b)
 
 ## Step 1 — Run the advisor
 
@@ -72,6 +74,33 @@ The JSON shape:
 If the script returns `error` (no score history yet), display the message and
 exit gracefully — calibration feedback needs an accumulated history to mine.
 
+## Step 1b — Ease against outcomes
+
+```bash
+node scripts/outcomes.mjs --json     # structured
+node scripts/outcomes.mjs --chat     # the block + per-application why table
+```
+
+This joins the status log (dated status changes, rejection stages), the
+tracker, the latest score per application and, when
+`user/profile.yml` → `outcomes.materials_index` points at one, the materials
+index, on one application key. Rules and gates:
+`docs/scoring-statistical-design.md` § 3.7. Read `easeCheck.comparisons`:
+
+| `status` | Meaning | What you say |
+|----------|---------|--------------|
+| `insufficient` | a band has fewer resolved applications than the gate | the shortfall ("high band 2 resolved, 8 needed"), nothing else |
+| `agrees` | outcomes line up with Ease | that the Ease bands are holding up; **no suggestion** — agreement is not a correction |
+| `within-resolution` | inverted, but one application per band would undo it | not a finding |
+| `not-persistent` | inverted overall, not in both halves of the search | not a finding yet; say it is being watched |
+| `gap` | every condition holds | the matching entry in `suggestions` |
+
+Only `suggestions` (confirmed gaps, each with a stable `id`) are proposals.
+Present them like the advisor's, with the counts from `evidence`, and point
+the user at the applications in the why table that make up the gap. A rate
+from `overall` or `slices` is quoted only when its `sample.sufficient` is true,
+with its n.
+
 ## Step 2 — Present the suggestions
 
 Relay the `suggestions` to the user, highest-severity first. For each:
@@ -90,7 +119,10 @@ A calibration change silently alters every future score, so the user must own it
   `targeting-core.mjs`, and never change scoring behavior. They only *observe*.
 - **Suggest, don't write.** All output is a proposed edit to `user/*`. The user
   applies what they agree with.
-- **Respect minimums.** The advisor already gates each check on a minimum sample
-  (e.g. ≥2 evals before judging a company's bonus, ≥3 applications before
-  flagging an archetype's conversion) so single data points don't drive advice.
-  Don't override those thresholds without a reason.
+- **Respect the gates.** Diagnostics appear from small samples (2 evals for a
+  company's bonus, 3 applications for an archetype's conversion), but every
+  advisory is gated (`GATES` in `scripts/lib/scoring-stats.mjs`: 4 roles per
+  company, 8 applications per archetype; `OUTCOME_GATES` for the Ease check) and
+  anything below lands in `insufficientData`. Never present an
+  `insufficientData` entry or a withheld outcome comparison as a
+  recommendation, and don't override the gates.

@@ -11,7 +11,7 @@ import {
   WANT_DIM_STEP, EASE_DIM_STEP,
   WANT_NOISE_FLOOR, EASE_NOISE_FLOOR, PRIORITY_NOISE_FLOOR,
   NOISE_FLOORS, noiseFloorFor,
-  GATES,
+  GATES, OUTCOME_GATES, OUTCOME_RULES,
   CONFIDENCE_TIERS,
   MECHANICAL_DIMS, JUDGMENT_DIMS, dimensionClass,
   confidenceTier, describeSample,
@@ -216,6 +216,14 @@ test('the gate table matches the values documented in the contract', () => {
     calibrationMinApplied: 8,
     momentumMinPerHalf: 5,
   })
+})
+
+test('the outcome gates and rules match docs § 3.7', () => {
+  assert.deepEqual({ ...OUTCOME_GATES }, { minResolved: 8, minTimedRejections: 8, minPerHalfBand: 4 })
+  assert.deepEqual({ ...OUTCOME_RULES }, { noResponseDays: 30, fastRejectionDays: 2, lateRejectionDays: 30 })
+  assert.throws(() => { OUTCOME_GATES.minResolved = 1 }, TypeError)
+  // The rate gate is the same zero-conversion bar as the calibration gate.
+  assert.equal(OUTCOME_GATES.minResolved, GATES.calibrationMinApplied)
 })
 
 test('the gate table is frozen — no surface may mutate a shared gate', () => {
