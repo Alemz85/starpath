@@ -23,6 +23,7 @@ MAIN_PID="${BASHPID:-$$}"
 
 # Defaults
 CACHE_FLAG=""   # set by check_prerequisites when the CLI supports it (lever 4)
+WORKER_ARGS=()  # least-privilege flags, set by check_prerequisites (worker-capabilities.mjs)
 PARALLEL=1
 DRY_RUN=false
 RETRY_FAILED=false
@@ -176,6 +177,27 @@ check_prerequisites() {
   claude_help=$(claude --help 2>&1 || true)
   if [[ "$claude_help" == *"--exclude-dynamic-system-prompt-sections"* ]]; then
     CACHE_FLAG="--exclude-dynamic-system-prompt-sections"
+  fi
+
+  # Least-privilege workers: the flags come from the capability table
+  # (scripts/lib/worker-capabilities.mjs, kind `eval`), never from here. A
+  # CLI that can't express them gets no workers at all — there is no
+  # skip-permissions fallback.
+  local flag
+  for flag in '"dontAsk"' --strict-mcp-config --setting-sources --disallowedTools '--tools <tools'; do
+    if [[ "$claude_help" != *"$flag"* ]]; then
+      echo "ERROR: this claude CLI lacks $flag, needed to run workers least-privilege. Update the CLI (claude update)."
+      exit 1
+    fi
+  done
+  WORKER_ARGS=()
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && WORKER_ARGS+=("$line")
+  done < <(node "$PROJECT_DIR/scripts/lib/worker-capabilities.mjs" args eval)
+  if (( ${#WORKER_ARGS[@]} == 0 )); then
+    echo "ERROR: could not derive the worker permission flags (scripts/lib/worker-capabilities.mjs)."
+    exit 1
   fi
 }
 
@@ -391,11 +413,23 @@ process_offer() {
   report_num=$(reserve_report_num "$id" "$url" "$started_at" "$retries")
   local date
   date=$(date +%Y-%m-%d)
-  local jd_file="/tmp/batch-jd-${id}.txt"
-  # Nothing writes this file for the worker: a leftover from an earlier batch
-  # with the same id would be read as this listing's JD. Absent, the worker
-  # fetches the JD from the URL (batch-prompt.md § Unresolved placeholders).
-  rm -f "$jd_file"
+  # The posting check runs here, before the worker, so its verdict doesn't
+  # depend on the worker choosing to run it (scripts/posting-guard.mjs; never
+  # fails the run — an unreachable page is "unchecked"). It also returns the
+  # page's own posting date, and saves the readable posting (JSON-LD job text
+  # + visible text, hidden content removed) as the worker's JD file under
+  # batch/work/: client-rendered ATS pages give WebFetch little more than a title,
+  # and the worker never sees the page's hidden text. No file → the worker
+  # fetches the URL itself (batch-prompt.md § Unresolved placeholders).
+  local jd_rel="batch/work/${id}-posting.txt"
+  rm -f "$PROJECT_DIR/$jd_rel"
+  local posting_check posted_from_page jd_saved guard_out
+  guard_out=$(cd "$PROJECT_DIR" && node scripts/posting-guard.mjs --url "$url" --save-text "$jd_rel" 2>/dev/null \
+    | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const j=JSON.parse(d);process.stdout.write([j.line,j.posted?j.posted.date:"none",j.saved||"none"].join("\t"))}catch{process.stdout.write("unchecked — guard error\tnone\tnone")}})' \
+    || printf 'unchecked — guard error\tnone\tnone')
+  IFS=$'\t' read -r posting_check posted_from_page jd_saved <<< "$guard_out"
+  local jd_line="none (fetch the JD from the URL)"
+  [[ "$jd_saved" == "$jd_rel" && -s "$PROJECT_DIR/$jd_rel" ]] && jd_line="$jd_rel"
 
   echo "--- Processing offer #$id: $url (report $report_num, attempt $((retries + 1)))"
 
@@ -403,7 +437,9 @@ process_offer() {
   local prompt
   prompt="Process this job listing end-to-end per the system prompt: scouting evaluation (dimensional scoring via scripts/score-listing.mjs) + report .md + scouting TSV + score-history row + final JSON summary."
   prompt="$prompt URL: $url"
-  prompt="$prompt JD file: $jd_file"
+  prompt="$prompt JD file: $jd_line"
+  prompt="$prompt Posting check: $posting_check"
+  prompt="$prompt Posted (from page): ${posted_from_page:-none}"
   prompt="$prompt Report number: $report_num (reserved for this listing: use it as {num} in the scouting TSV and its report link)"
   prompt="$prompt Date: $date"
   prompt="$prompt Batch ID: $id"
@@ -423,7 +459,7 @@ process_offer() {
   # placeholders". $CACHE_FLAG is intentionally unquoted: empty on old CLIs.
   local exit_code=0
   claude -p \
-    --dangerously-skip-permissions \
+    "${WORKER_ARGS[@]}" \
     --output-format json \
     --model "$MODEL" \
     $CACHE_FLAG \
@@ -435,13 +471,23 @@ process_offer() {
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   # Parse the worker log once: status heuristic, score, token usage, verdict.
-  # Fields: status score input cache_creation cache_read output cost duration turns verdict
+  # Fields: status score input cache_creation cache_read output cost duration turns verdict denied
   # `score` is the worker's Priority (sqrt(want*ease)); a Blocked listing has no
   # Priority (score "-", verdict "blocked").
   local parsed
-  parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\t-\n')
-  local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict
-  IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict <<< "$parsed"
+  parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n')
+  local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied
+  IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied <<< "$parsed"
+
+  # The worker's scratch: score-listing inputs and the saved posting (batch/work/<id>-…).
+  rm -f "$PROJECT_DIR/batch/work/${id}-"*
+
+  # A worker that hit its permissions failed, whatever it exited with: the
+  # CLI refused a call and the run may have skipped work to carry on.
+  if [[ $exit_code -eq 0 && -n "$p_denied" && "$p_denied" != "-" ]]; then
+    exit_code=126
+    echo "    ⛔ Blocked by worker permissions: $p_denied"
+  fi
 
   # Append the accounting row (best-effort — never fails the batch).
   append_usage_row "$id" "$report_num" "$completed_at" \
@@ -479,7 +525,11 @@ process_offer() {
   else
     retries=$((retries + 1))
     local error_msg
-    error_msg=$(tail -5 "$log_file" 2>/dev/null | tr '\n' ' ' | cut -c1-200 || echo "Unknown error (exit code $exit_code)")
+    if [[ $exit_code -eq 126 ]]; then
+      error_msg=$(printf 'permission denied: %s' "$p_denied" | tr '\t\n' '  ' | cut -c1-200)
+    else
+      error_msg=$(tail -5 "$log_file" 2>/dev/null | tr '\n' ' ' | cut -c1-200 || echo "Unknown error (exit code $exit_code)")
+    fi
     update_state "$id" "$url" "failed" "$started_at" "$completed_at" "$report_num" "-" "$error_msg" "$retries"
     echo "    ❌ Failed (attempt $retries, exit code $exit_code)"
   fi

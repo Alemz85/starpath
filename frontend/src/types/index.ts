@@ -246,6 +246,8 @@ export interface ReportFile {
    *  role string drifted (filename sanitization, multi-city
    *  disambiguation). Empty string for legacy reports without the URL line. */
   url: string
+  /** File mtime from the cache row; keys the renderer's per-report caches. */
+  mtime?: number
 }
 
 // ─── Profile config (user/profile.yml) ─────────────────────────────────────

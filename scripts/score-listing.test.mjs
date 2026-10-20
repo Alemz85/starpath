@@ -54,3 +54,31 @@ test('scoreListing: salary block carries summary + markdown-safe math', async ()
   assert.ok(!/\[[^\]]*\]/.test(s.math), 'no bracket tokens in the math chain')
   assert.match(s.math, /\(estimated\)/)
 })
+
+// ─── --input (background workers write the JSON with the Write tool) ─────────
+
+test('--input reads the JSON from a file inside the checkout, and refuses one outside', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs')
+  const { join, dirname } = await import('node:path')
+  const { tmpdir } = await import('node:os')
+  const { fileURLToPath } = await import('node:url')
+  const root = dirname(dirname(fileURLToPath(import.meta.url)))
+  const script = join(root, 'scripts/score-listing.mjs')
+  const inside = mkdtempSync(join(root, 'batch', '.score-input-test-'))
+  const outside = mkdtempSync(join(tmpdir(), 'score-input-'))
+  try {
+    const facts = JSON.stringify({ eligibility_facts: { employment: 'internship', other: [{ status: 'amber', reason: 'enrolment', question: 'Can a graduate apply?', text: "Bachelor's or Master's student" }] } })
+    writeFileSync(join(inside, 'in.json'), facts)
+    const ok = spawnSync(process.execPath, [script, '--input', join(inside, 'in.json'), '--eligibility-only'], { encoding: 'utf8', cwd: root })
+    assert.equal(ok.status, 0, ok.stderr)
+    assert.equal(JSON.parse(ok.stdout).eligibility.status, 'amber')
+    writeFileSync(join(outside, 'in.json'), facts)
+    const refused = spawnSync(process.execPath, [script, '--input', join(outside, 'in.json'), '--eligibility-only'], { encoding: 'utf8', cwd: root })
+    assert.equal(refused.status, 2)
+    assert.match(refused.stderr, /inside the checkout/)
+  } finally {
+    rmSync(inside, { recursive: true, force: true })
+    rmSync(outside, { recursive: true, force: true })
+  }
+})

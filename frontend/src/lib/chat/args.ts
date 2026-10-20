@@ -2,8 +2,10 @@
 //
 // Same shape as the app's other spawns (`claudeArgs` in lib/spawnFormat.ts,
 // `claudeEvalArgs` in lib/evalSpawn.ts) — stream-json so the transcript can
-// render live, `--dangerously-skip-permissions` because a headless spawn has
-// no one to answer a tool prompt — plus the two flags chat specifically needs:
+// render live, and the flags of worker kind `chat` (attended: acceptEdits with
+// a deny list for destructive and outward actions; derived by
+// scripts/lib/worker-capabilities.mjs in main and passed in as
+// `permissionArgs`) — plus the two flags chat specifically needs:
 //
 //   --include-partial-messages   token-level `stream_event` deltas, so the
 //                                assistant's answer types out instead of
@@ -21,10 +23,8 @@
 // later turn so the agent keeps its own context instead of re-reading the
 // pipeline from scratch each message.
 //
-// Deliberately NOT ported from Alke: its inline `--settings` sandbox/permission
-// JSON. starpath's established spawn convention is skip-permissions with the
-// repo as cwd; introducing a second, divergent permission model for one tab
-// would leave two contradictory answers to "what may a spawn touch?".
+// Permissions are not built here: every spawn's flags come from the one
+// capability table, so "what may a spawn touch?" has one answer.
 
 import type { ModelAlias } from '@/types'
 // Relative, not '@/lib/spawnFormat': this file is compiled into the Electron
@@ -38,6 +38,8 @@ import { modelArg } from '../spawnFormat'
 export const CHAT_SYSTEM_PROMPT_FILE = 'modes/chat.md'
 
 export interface ChatClaudeArgsOptions {
+  /** The `chat` worker kind's permission flags (required: no chat without). */
+  permissionArgs: string[]
   /** CLI session id from a previous turn; omitted on the first message. */
   resumeId?: string | null
   /** Configured model alias; omitted lets the CLI default apply. */
@@ -48,10 +50,13 @@ export interface ChatClaudeArgsOptions {
 
 export function buildChatClaudeArgs(
   prompt: string,
-  options: ChatClaudeArgsOptions = {},
+  options: ChatClaudeArgsOptions,
 ): string[] {
+  if (!options.permissionArgs.includes('--permission-mode')) {
+    throw new Error('chat spawn needs its worker permission flags')
+  }
   const args = [
-    '--dangerously-skip-permissions',
+    ...options.permissionArgs,
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',

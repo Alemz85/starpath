@@ -289,7 +289,7 @@ export function ProfileEditPanel() {
         SAVE_SPAWN_ID,
         `Profile sync (${diff.length} change${diff.length > 1 ? 's' : ''})`,
         'claude',
-        claudeArgs(slash, 'sonnet'),
+        claudeArgs(slash, 'sonnet', 'profile-sync'),
       )
     }
 

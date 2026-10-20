@@ -271,7 +271,7 @@ function spawnPerListing(
       const mode = modeFile.replace(/^modes\//, '').replace(/\.md$/, '')
       const slash = `/career-ops ${mode} for ${entry.company} — ${entry.role}`
       const model = useAppStore.getState().models[category]
-      start(id, `${label}: ${entry.company}`, 'claude', claudeArgs(slash, model))
+      start(id, `${label}: ${entry.company}`, 'claude', claudeArgs(slash, model, 'apply-flow'))
     },
   )
 }
@@ -294,7 +294,7 @@ function spawnReport(entry: ScoreEntry) {
         ? `/career-ops scouting ${url} — write the per-listing report under reports/tier-N/{Company} - {Role}.md following the Tier-1 deep template in modes/scouting.md § "Full Report Format". ${reuseInstr}`
         : `/career-ops scouting for ${entry.company} — ${entry.role} — write the per-listing report under reports/tier-N/ following the Tier-1 deep template in modes/scouting.md. ${reuseInstr}`
       const model = useAppStore.getState().models.generateReport
-      start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash, model))
+      start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash, model, 'eval-app'))
     },
   )
 }

@@ -34,17 +34,37 @@ export function modelArg(model: ClaudeModel): string {
 export const NON_INTERACTIVE_SUFFIX =
   ' — run end-to-end without asking for confirmations; batch and parallelize where possible; if you would normally pause to confirm, proceed with the default and continue working.'
 
+// ─── Worker kinds ───────────────────────────────────────────────────────────
+//
+// Every claude spawn runs least-privilege. The capability table lives in
+// scripts/lib/worker-capabilities.mjs (shared with batch/batch-runner.sh);
+// the renderer only names the kind with `--starpath-worker <kind>` and the
+// main process (shell:spawn) replaces the marker with the derived
+// --permission-mode / --tools / --allowedTools / --disallowedTools flags.
+// main refuses a claude spawn without a known kind, and any argv that tries to
+// widen permissions itself. WORKER_KINDS must list the table's kinds exactly
+// (spawnFormat.test.ts compares them).
+
+export const WORKER_FLAG = '--starpath-worker'
+
+export const WORKER_KINDS = [
+  'eval', 'eval-app', 'scan', 'apply-flow', 'positioning',
+  'profile-sync', 'company-probe', 'cv-import', 'setup', 'chat',
+] as const
+
+export type WorkerKind = typeof WORKER_KINDS[number]
+
 /**
  * Build a prompt string + args for a non-interactive Claude spawn. Use this
  * for every `claude -p` invocation in the app EXCEPT per-listing scouting
  * evaluations — those go through `claudeEvalArgs` in lib/evalSpawn.ts, which
  * adds `--append-system-prompt-file batch/batch-prompt.md` so eval workers
  * load the compact rubric bundle instead of the /career-ops skill router
- * (token-cost lever 3). This one appends the batch suffix,
- * adds `--dangerously-skip-permissions` so tool-permission prompts can't
- * silently hang the run, and asks Claude to emit JSONL events as it works
- * (parsed downstream in appendOutput so the activity panel shows live
- * progress instead of buffering everything until exit).
+ * (token-cost lever 3). This one appends the batch suffix, names the worker
+ * `kind` (what the run may touch; see Worker kinds above), and asks Claude to
+ * emit JSONL events as it works (parsed downstream in appendOutput so the
+ * activity panel shows live progress instead of buffering everything until
+ * exit).
  *
  * `model` is explicit per call site — keeps the model decision close to the
  * action being fired. Convention:
@@ -59,9 +79,9 @@ export const NON_INTERACTIVE_SUFFIX =
  * The alias goes through modelArg() — the bare alias (CLI resolves it to the
  * latest model in that tier) unless MODEL_PINS freezes it.
  */
-export function claudeArgs(slashCommand: string, model?: ClaudeModel): string[] {
+export function claudeArgs(slashCommand: string, model: ClaudeModel | undefined, kind: WorkerKind): string[] {
   return [
-    '--dangerously-skip-permissions',
+    WORKER_FLAG, kind,
     '--output-format', 'stream-json',
     '--verbose',
     ...(model ? ['--model', modelArg(model)] : []),
@@ -95,9 +115,15 @@ export interface JsonlUsage {
   output_tokens?: number
 }
 
+export interface JsonlPermissionDenial {
+  tool_name?: string
+  tool_input?: Record<string, unknown>
+}
+
 export interface JsonlEvent {
   type?: string
   subtype?: string
+  permission_denials?: JsonlPermissionDenial[]
   message?: { content?: JsonlAssistantBlock[] }
   result?: string
   duration_ms?: number
@@ -142,6 +168,8 @@ export function humanizeJsonlLine(raw: string): string | null {
 
   if (evt.type === 'system') return null
   if (evt.type === 'result') {
+    const denied = permissionDenials(evt)
+    if (denied.length > 0) return `${PERMISSION_BLOCKED_PREFIX} ${denied.slice(0, 3).join('; ')}`
     const capstone = evt.subtype === 'success' ? '✓ Done' : `× ${evt.subtype ?? 'error'}`
     const stats = formatResultStats(evt)
     return stats ? `${capstone} — ${stats}` : capstone
@@ -160,6 +188,24 @@ export function humanizeJsonlLine(raw: string): string | null {
   }
   // user (tool_result echoes) and unknown types — skip.
   return null
+}
+
+// A worker that hit its permissions failed, whatever its exit code: the CLI
+// denies the call, the model may carry on without it, and the run would read
+// as a success that silently skipped work. The capstone line starts with this
+// prefix; the store marks the run failed when it sees it.
+export const PERMISSION_BLOCKED_PREFIX = '× Blocked by worker permissions —'
+
+/** `["Bash: rm x", "Write: /abs/file"]` from a result event; [] when none. */
+export function permissionDenials(evt: JsonlEvent): string[] {
+  const list = Array.isArray(evt.permission_denials) ? evt.permission_denials : []
+  return list.map(d => {
+    const input = (d?.tool_input ?? {}) as Record<string, unknown>
+    const what = [input.command, input.file_path, input.url, input.query, input.pattern]
+      .find((v): v is string => typeof v === 'string')
+    const name = String(d?.tool_name ?? 'tool')
+    return what ? `${name}: ${truncate(what, 120)}` : name
+  })
 }
 
 // Compact "how much did this spawn cost" tail for the result capstone, e.g.
@@ -265,6 +311,7 @@ export function isAuthFailureText(text: string): boolean {
 // when no signal stands out (the panel then falls back to the exit code).
 // Order matters: auth is the most specific + most common, then the rest.
 export function diagnoseFailureText(text: string): string | null {
+  if (text.includes(PERMISSION_BLOCKED_PREFIX)) return 'The run tried something outside its permissions and was stopped — see its last line.'
   if (AUTH_FAILURE_RE.test(text)) return 'Claude session expired — sign in again to retry.'
   if (/rate limit|\b429\b|overloaded|too many requests/i.test(text)) return 'Claude is rate-limited right now — wait a moment, then retry.'
   if (/\benoent\b|no such file|command not found|cannot find/i.test(text)) return 'A file or command was missing on this machine.'

@@ -23,6 +23,7 @@ import { ApplyAction } from '@/components/shared/ApplyAction'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { parseCities, entityId } from '@/lib/entityId'
 import { listingDateKey } from '@/lib/listingDates'
+import { parseReportPosted, pickPostedDate } from '@/lib/postedDate'
 import {
   extractMetadata, parseDimensionalScoring, splitPeerBlock, parseReportHeader,
   splitEligibility, splitSalaryMath,
@@ -227,7 +228,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   // Header metadata parsed from the report (archetype, verification, the
   // richer location line) — rendered once, in the header.
   const reportMeta = useMemo(() => {
-    if (!scoutingContent) return { archetype: '', location: '', unconfirmed: false, url: '', roleFields: {} as Record<string, string> }
+    if (!scoutingContent) return { archetype: '', location: '', unconfirmed: false, url: '', posted: null as string | null, roleFields: {} as Record<string, string> }
     const { meta } = extractMetadata(scoutingContent)
     const get = (k: string) => meta.find(m => m.key.toLowerCase() === k)?.value ?? ''
     const url = scoutingContent.match(/^\*\*URL:\*\*\s*(\S+)/im)?.[1] ?? ''
@@ -236,6 +237,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       location: get('location'),
       unconfirmed: /unconfirmed/i.test(get('verification')),
       url,
+      posted: parseReportPosted(scoutingContent),
       roleFields: roleSummaryFields(scoutingContent),
     }
   }, [scoutingContent])
@@ -283,8 +285,16 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     if (scoreEntry.salary_raw && scoreEntry.salary_raw !== '—') out.push({ label: 'Salary', value: scoreEntry.salary_raw })
     const archetype = reportMeta.archetype || scoreEntry.archetype
     if (archetype) out.push({ label: 'Archetype', value: archetype })
-    if (dates?.postedDate) {
-      out.push({ label: 'Posted', value: `${formatDay(dates.postedDate)} · ${formatRelative(dates.postedDate)}`, title: 'Posting date from the job board' })
+    // Scan-history's posting date, else the report's own `**Posted:**` line
+    // (a listing added by URL has only that). The evaluation date is never
+    // shown as a posting date: the Evaluated fact below already carries it.
+    const posted = pickPostedDate({ scanPosted: dates?.postedDate, reportPosted: reportMeta.posted })
+    if (posted) {
+      out.push({
+        label: 'Posted',
+        value: `${formatDay(posted.date)} · ${formatRelative(posted.date)}`,
+        title: posted.source === 'scan' ? 'Posting date from the job board' : 'Posting date stated in the evaluation report',
+      })
     } else if (dates?.firstSeen) {
       out.push({ label: 'First seen', value: `${formatDay(dates.firstSeen)} · ${formatRelative(dates.firstSeen)}`, title: 'First picked up by a scan (no posting date on file)' })
     }

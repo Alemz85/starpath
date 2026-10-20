@@ -6,6 +6,8 @@ import { CHAT_SYSTEM_PROMPT_FILE, buildChatClaudeArgs } from '@/lib/chat/args'
 import {
   chatToolLabel,
   extractClaudeCliFailure,
+  extractPermissionDenials,
+  permissionDenialMessage,
   interpretChatEvent,
   newChatStreamState,
   splitStreamChunk,
@@ -13,8 +15,12 @@ import {
 
 // ─── Arg builder ─────────────────────────────────────────────────────────────
 
+// Stand-in for the `chat` kind's flags (attended: acceptEdits + deny list; main derives the real ones from
+// scripts/lib/worker-capabilities.mjs; spawnFormat.test.ts covers that).
+const PERMS = ['--permission-mode', 'acceptEdits', '--tools', 'Read,Glob,Grep,Edit,Write,Bash,WebFetch,WebSearch']
+
 test('the chat spawn loads modes/chat.md as an appended system prompt', () => {
-  const args = buildChatClaudeArgs('what is urgent?')
+  const args = buildChatClaudeArgs('what is urgent?', { permissionArgs: PERMS })
   const i = args.indexOf('--append-system-prompt-file')
   assert.ok(i >= 0, 'has --append-system-prompt-file')
   assert.equal(args[i + 1], CHAT_SYSTEM_PROMPT_FILE)
@@ -23,15 +29,16 @@ test('the chat spawn loads modes/chat.md as an appended system prompt', () => {
 })
 
 test('a resolved system-prompt file (private override) replaces the repo default', () => {
-  const args = buildChatClaudeArgs('hi', { systemPromptFile: '/tmp/fixture-repo/private/.cache/prompts/modes/chat.md' })
+  const args = buildChatClaudeArgs('hi', { permissionArgs: PERMS, systemPromptFile: '/tmp/fixture-repo/private/.cache/prompts/modes/chat.md' })
   assert.equal(args[args.indexOf('--append-system-prompt-file') + 1], '/tmp/fixture-repo/private/.cache/prompts/modes/chat.md')
-  const fallback = buildChatClaudeArgs('hi', { systemPromptFile: null })
+  const fallback = buildChatClaudeArgs('hi', { permissionArgs: PERMS, systemPromptFile: null })
   assert.equal(fallback[fallback.indexOf('--append-system-prompt-file') + 1], CHAT_SYSTEM_PROMPT_FILE)
 })
 
 test('the chat spawn keeps the app-wide non-interactive stream flags', () => {
-  const args = buildChatClaudeArgs('hello')
-  assert.ok(args.includes('--dangerously-skip-permissions'))
+  const args = buildChatClaudeArgs('hello', { permissionArgs: PERMS })
+  assert.deepEqual(args.slice(0, PERMS.length), PERMS)
+  assert.ok(!args.some(a => a.includes('skip-permissions')))
   assert.ok(args.includes('--verbose'))
   assert.deepEqual(
     args.slice(args.indexOf('--output-format'), args.indexOf('--output-format') + 2),
@@ -44,31 +51,31 @@ test('the chat spawn keeps the app-wide non-interactive stream flags', () => {
 })
 
 test('--resume is present only once the session has a CLI session id', () => {
-  const first = buildChatClaudeArgs('hi')
+  const first = buildChatClaudeArgs('hi', { permissionArgs: PERMS })
   assert.ok(!first.includes('--resume'))
 
-  const later = buildChatClaudeArgs('and then?', { resumeId: 'abc-123' })
+  const later = buildChatClaudeArgs('and then?', { permissionArgs: PERMS, resumeId: 'abc-123' })
   const i = later.indexOf('--resume')
   assert.ok(i >= 0)
   assert.equal(later[i + 1], 'abc-123')
 
   // A null/empty id (fresh session row) must not produce a dangling flag.
-  assert.ok(!buildChatClaudeArgs('hi', { resumeId: null }).includes('--resume'))
-  assert.ok(!buildChatClaudeArgs('hi', { resumeId: '' }).includes('--resume'))
+  assert.ok(!buildChatClaudeArgs('hi', { permissionArgs: PERMS, resumeId: null }).includes('--resume'))
+  assert.ok(!buildChatClaudeArgs('hi', { permissionArgs: PERMS, resumeId: '' }).includes('--resume'))
 })
 
 test('--model carries the configured tier alias (auto-latest), and is omitted without one', () => {
-  const args = buildChatClaudeArgs('hi', { model: 'opus' })
+  const args = buildChatClaudeArgs('hi', { permissionArgs: PERMS, model: 'opus' })
   assert.deepEqual(
     args.slice(args.indexOf('--model'), args.indexOf('--model') + 2),
     ['--model', 'opus'],
   )
-  assert.ok(!buildChatClaudeArgs('hi').includes('--model'))
-  assert.ok(!buildChatClaudeArgs('hi', { model: null }).includes('--model'))
+  assert.ok(!buildChatClaudeArgs('hi', { permissionArgs: PERMS }).includes('--model'))
+  assert.ok(!buildChatClaudeArgs('hi', { permissionArgs: PERMS, model: null }).includes('--model'))
 })
 
 test('flags come before the prompt so a prompt starting with "-" is never read as one', () => {
-  const args = buildChatClaudeArgs('--not-a-flag', { resumeId: 'r', model: 'sonnet' })
+  const args = buildChatClaudeArgs('--not-a-flag', { permissionArgs: PERMS, resumeId: 'r', model: 'sonnet' })
   assert.equal(args.indexOf('-p'), args.length - 2)
 })
 
@@ -156,4 +163,19 @@ test('chunks split mid-line are stitched back together', () => {
 test('an unparseable trailing line (a killed CLI) is dropped, not thrown on', () => {
   const { events } = splitStreamChunk('', '{"type":"system"}\n{"type":"assis\n')
   assert.equal(events.length, 1)
+})
+
+test('the chat spawn refuses to build without its worker permission flags', () => {
+  assert.throws(() => buildChatClaudeArgs('hi', { permissionArgs: [] }), /permission flags/)
+})
+
+test('permission denials fail a chat turn with each refused call named', () => {
+  assert.equal(extractPermissionDenials({ type: 'assistant' }), null)
+  assert.deepEqual(extractPermissionDenials({ type: 'result', permission_denials: [] }), [])
+  const denied = extractPermissionDenials({
+    type: 'result',
+    permission_denials: [{ tool_name: 'Write', tool_input: { file_path: '/repo/data/applications.md' } }],
+  })
+  assert.deepEqual(denied, ['Write: /repo/data/applications.md'])
+  assert.match(permissionDenialMessage(denied ?? []), /not allowed.*Write: \/repo\/data\/applications\.md/)
 })

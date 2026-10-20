@@ -438,3 +438,18 @@ test('compact T3 report: the rest degrades to plain prose', () => {
   assert.equal(peer.found, false)
   assert.equal(peer.rest, after)
 })
+
+test('extractMetadata drops the Posted line (it is a job fact) and keeps Verification', () => {
+  const md = '# Nimbus Robotics - Data Analyst\n\n**Date:** 2026-10-20\n**Posted:** 2026-10-02\n**Verification:** unconfirmed (batch mode)\n\nBody text.\n'
+  const { meta, rest } = extractMetadata(md)
+  assert.deepEqual(meta.map(m => m.key), ['Date', 'Verification'])
+  assert.ok(!rest.includes('Posted'))
+  assert.ok(rest.includes('Body text.'))
+})
+
+test('extractMetadata keeps the Posting check line so a suspect posting stays visible', () => {
+  const md = '**Date:** 2026-10-20\n**Verification:** unconfirmed (batch mode)\n**Posting check:** suspect — hidden text, instruction-shaped lines\n\nBody.\n'
+  const { meta } = extractMetadata(md)
+  assert.deepEqual(meta.map(m => m.key), ['Date', 'Verification', 'Posting check'])
+  assert.equal(meta[2].value, 'suspect — hidden text, instruction-shaped lines')
+})

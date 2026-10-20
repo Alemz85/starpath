@@ -102,6 +102,22 @@ The report format depends on the **verdict** the script returns. **Always comput
 
 Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thin` → `T2` · `growth` → `T3` · `skip` / `blocked` → `T4`. Reports live under `reports/tier-{N}/`; T4 writes no file.
 
+**Save the job description.** Every report (T1–T3) keeps its posting text, because postings disappear. Right after writing the report, write the job description you fetched, verbatim, to `jds/{num}-{company-slug}-{role-slug}.md` with the Write tool. `{num}` is the report number (the scouting row's `{num}`, 3 digits), and each slug is the lowercase ASCII name with every run of other characters replaced by one `-`, at most 60 characters (`Nimbus Robotics` + `Data Analyst (Lyon)` → `jds/012-nimbus-robotics-data-analyst-lyon.md`). Write nothing for T4 (no report), when the fetch returned no posting text (never rebuild a posting from memory or search snippets), or when that file already exists (a re-evaluation keeps the first copy). Format, exactly:
+
+```markdown
+# {Company} — {Role}
+
+- **Company:** {Company}
+- **Role:** {Role}
+- **URL:** {the report's URL}
+- **Fetched:** {today, YYYY-MM-DD}
+- **Source:** worker
+
+---
+
+{the posting text exactly as fetched: every section (role, responsibilities, requirements, benefits, application notes); no summary, no translation, no edits, no commentary}
+```
+
 **Length targets (prose, excluding the tables):** T1 roughly **600–900 words**; T2 roughly **250–400**; T3 roughly **150–300**. Shorter is better when the listing is simple. Every section follows `_shared.md` § Report Voice.
 
 ### Universal header (every report writes this)
@@ -118,11 +134,17 @@ Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thi
 **TL;DR:** {one plain sentence: the deciding factor and the call}
 **Tier:** {T1|T2|T3}
 **URL:** {listing-specific url or "—"}
+**Posted:** {YYYY-MM-DD | n/d}
+**Posting check:** {clean | caution — … | suspect — … | unchecked — …}
 ```
 
 The Verdict line is `{verdict_label} — {action}` exactly as `_shared.md` § Standard report block format lists it (`Go — apply now`, `Stretch — apply with prep`, `Solid — apply`, `If pipeline thin — apply only if your pipeline is thin`, `Growth target — close the gap first`).
 
 **Header discipline.** Each value is a clean short key/value pair — no parentheticals, no run-context annotations. The Tier line is mandatory and must match the report's tier directory.
+
+**Posted date.** Find when the listing was first posted, from the source only, in this order: the posting check's `posted` field (or a `Posted (from page):` value in the task message); a publish/creation date in the ATS's own JSON for this job (`datePosted`, `first_published`, `publishedAt`, `postedOn`, Lever `createdAt`); schema.org `JobPosting` → `datePosted` in the page; a visible "Posted on …" line, or "posted N days/weeks ago" / "today" / "yesterday" converted against today's date. Write `**Posted:** YYYY-MM-DD`, or `**Posted:** n/d` when the source gives none. Never guess, and never use an `updated_at`, a deadline / `validThrough`, the scan date or today's date; "30+ days ago" is `n/d`. Listings found by the scanner already carry a posting date in `data/scan-history.tsv` (the app prefers it); the report's line is what a listing added by URL has.
+
+**Posting check.** `node scripts/posting-guard.mjs --url {url} --save-text batch/work/check-{company-slug}.txt` before reading the posting; copy its `line`, and read the saved file as the posting (`_shared.md` § Untrusted content).
 
 **URL discipline (NEVER write a generic portal URL).** The `**URL:**` field MUST be listing-specific — a job identifier (`/jobs/{id}`, a job-token slug, a UUID, `?gh_jid=...`). If the only URL you have is a portal homepage (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`) — write `—` instead (`n/d` in the `url` column of `data/score-history.tsv`). A portal URL collides across every listing at the company and the frontend cache would link the wrong report.
 

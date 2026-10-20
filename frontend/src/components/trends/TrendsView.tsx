@@ -21,7 +21,8 @@ import {
   locationFlag, primaryPlace,
 } from '@/lib/trendsAnalytics'
 import { themeColor } from '@/lib/themes'
-import { postedDateOf } from '@/lib/listingDates'
+import { listingDateKey, postedDateOf } from '@/lib/listingDates'
+import { pickPostedDate } from '@/lib/postedDate'
 import type { ScoreEntry } from '@/types'
 
 // The analytics lib labels dimensions in title case ("Skills Match"); the UI
@@ -36,6 +37,7 @@ export function TrendsView() {
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const applications = useDataStore(s => s.applications)
   const listingDates = useDataStore(s => s.listingDates)
+  const reportPosted = useDataStore(s => s.reportPosted)
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
   // null = automatic: weeks when they can carry a Want line, months otherwise.
   const [granularityChoice, setGranularityChoice] = useState<PeriodGranularity | null>(null)
@@ -45,11 +47,17 @@ export function TrendsView() {
   // IPC call avoids an empty-chart flash on every tab switch.
   const filtered = useMemo(() => filterByDateWindow(scoreHistory, timeRange), [scoreHistory, timeRange])
 
-  // The time chart places each listing by its posting date (scan-history),
-  // else by its first evaluation.
+  // The time chart places each listing by its posting date (scan-history,
+  // else the report's `**Posted:**` line), else by its first evaluation
+  // (buildByPeriod's own fallback, so the evaluation date isn't passed here).
   const periodOpts = useMemo(
-    () => ({ postedDate: (e: ScoreEntry) => postedDateOf(listingDates, e.company, e.role) }),
-    [listingDates],
+    () => ({
+      postedDate: (e: ScoreEntry) => pickPostedDate({
+        scanPosted: postedDateOf(listingDates, e.company, e.role),
+        reportPosted: reportPosted[listingDateKey(e.company, e.role)],
+      })?.date,
+    }),
+    [listingDates, reportPosted],
   )
   const granularity = useMemo(
     () => granularityChoice ?? pickGranularity(filtered, periodOpts),

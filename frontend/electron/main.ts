@@ -974,6 +974,8 @@ ipcMain.handle('listings:dates', async (_e, queries: unknown): Promise<ListingDa
 ipcMain.handle('shell:run', async (_e, cmd: unknown, args: unknown) => {
   const c = validateString(cmd, 'cmd')
   if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) throw new Error('args must be string[]')
+  // claude workers go through shell:spawn, where their permissions are derived.
+  if (c === 'claude') return { stdout: '', stderr: 'claude runs only as a streaming worker (shell:spawn)', code: 1 }
   const s = await getDataRoot()
   if (s.kind === 'demo' && !demoAllowsRun(c, args as string[])) {
     return { stdout: '', stderr: demoSpawnRefusal(s.kind) ?? '', code: 1 }
@@ -991,10 +993,38 @@ ipcMain.handle('shell:run', async (_e, cmd: unknown, args: unknown) => {
 
 const spawnedProcesses = new Map<string, ChildProcess>()
 
+// Every claude worker runs least-privilege. The renderer names the worker kind
+// with `--starpath-worker <kind>`; this swaps it for the flags derived from
+// scripts/lib/worker-capabilities.mjs (the same table batch-runner.sh uses).
+// A claude spawn with no kind, an unknown one, or its own permission flags is
+// refused: it runs least-privilege or not at all.
+interface WorkerCapabilitiesModule {
+  expandWorkerArgs: (args: string[], opts?: { tmpdirs?: string[]; cwds?: string[] }) => string[]
+  workerPermissionArgs: (kind: string, opts?: { tmpdirs?: string[]; cwds?: string[] }) => string[]
+  osTmpdirs: () => string[]
+  osCwds: (dir?: string) => string[]
+}
+
+function workerCapabilities(repoPath: string): Promise<WorkerCapabilitiesModule> {
+  return importRepoModule<WorkerCapabilitiesModule>(repoPath, 'scripts/lib/worker-capabilities.mjs')
+}
+
 ipcMain.handle('shell:spawn', async (_e, id: unknown, cmd: unknown, args: unknown) => {
   const sid = validateString(id, 'id')
   const c = validateString(cmd, 'cmd')
   if (!Array.isArray(args) || !args.every(a => typeof a === 'string')) throw new Error('args must be string[]')
+  let argv = args as string[]
+  if (c === 'claude') {
+    try {
+      const repo = getRepoPath() ?? ''
+      const caps = await workerCapabilities(repo)
+      argv = caps.expandWorkerArgs(argv, { tmpdirs: caps.osTmpdirs(), cwds: caps.osCwds(repo) })
+    } catch (e) {
+      mainWindow?.webContents.send('shell:output', sid, `❌ Refused: ${e instanceof Error ? e.message : String(e)}\n`)
+      mainWindow?.webContents.send('shell:done', sid, 1)
+      return
+    }
+  }
   const s = await getDataRoot()
   // Streaming spawns are work (scans, evaluations, tailoring): the demo
   // refuses them the same way a failed spawn reports, so the Activity panel
@@ -1008,7 +1038,7 @@ ipcMain.handle('shell:spawn', async (_e, id: unknown, cmd: unknown, args: unknow
   const repoPath = getRepoPath() ?? app.getPath('home')
   // stdio: ['ignore', 'pipe', 'pipe'] closes stdin entirely — without this,
   // `claude -p` waits 3s for stdin and emits a warning before proceeding.
-  const proc = spawn(c, args as string[], {
+  const proc = spawn(c, argv, {
     cwd: repoPath,
     shell: false,
     env: spawnEnv(s),
@@ -1304,6 +1334,11 @@ ipcMain.handle('network:overview', async () => {
 // the Markdown/TSV.
 registerChat({
   getRepoPath,
+  getPermissionArgs: async () => {
+    const repo = getRepoPath() ?? ''
+    const caps = await workerCapabilities(repo)
+    return caps.workerPermissionArgs('chat', { tmpdirs: caps.osTmpdirs(), cwds: caps.osCwds(repo) })
+  },
   getWindow: () => mainWindow,
   getEnv: () => spawnEnv(dataRoot),
   getModel: () => readConfig().models?.pipeline,

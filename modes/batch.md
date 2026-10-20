@@ -12,7 +12,7 @@ Dos modos de uso: **conductor --chrome** (navega portales en tiempo real) o **st
 ## Arquitectura
 
 ```
-Claude Conductor (claude --chrome --dangerously-skip-permissions)
+Claude Conductor (claude --chrome; el usuario aprueba los permisos)
   │
   │  Chrome: navega portales (sesiones logueadas)
   │  Lee DOM directo — el usuario ve todo en tiempo real
@@ -47,13 +47,14 @@ batch/
 3. **Extraer URLs**: Leer DOM de resultados → extraer lista de URLs → append a `batch-input.tsv`
 4. **Para cada URL pendiente**:
    a. Chrome: click en la oferta → leer JD text del DOM
-   b. Guardar JD a `/tmp/batch-jd-{id}.txt`
+   b. Guardar JD a `jds/batch-{id}.txt` (el worker no puede leer `/tmp`)
    c. Calcular siguiente REPORT_NUM secuencial
-   d. Ejecutar via Bash:
+   d. Ejecutar via Bash, con los permisos mínimos del worker `eval` (derivados de `scripts/lib/worker-capabilities.mjs`, nunca a mano):
       ```bash
-      claude -p --dangerously-skip-permissions \
+      args=(); while IFS= read -r l; do args+=("$l"); done < <(node scripts/lib/worker-capabilities.mjs args eval)
+      claude -p "${args[@]}" \
         --append-system-prompt-file batch/batch-prompt.md \
-        "Procesa esta oferta. URL: {url}. JD: /tmp/batch-jd-{id}.txt. Report: {num}. ID: {id}"
+        "Procesa esta oferta. URL: {url}. JD: jds/batch-{id}.txt. Report: {num}. ID: {id}"
       ```
    e. Actualizar `batch-state.tsv` (completed/failed + score (= Priority del JSON final; vacío si Blocked) + report_num)
    f. Log a `logs/{report_num}-{id}.log`

@@ -11,6 +11,8 @@
 // Pure functions only — the CLI wrapper (scripts/parse-batch-result.mjs)
 // does the file I/O.
 
+import { deniedTools } from './worker-capabilities.mjs'
+
 export const USAGE_TSV_HEADER = [
   'timestamp',
   'batch_id',
@@ -136,6 +138,7 @@ export function isBlocked(verdict, eligibility) {
  *   inputTokens: number|null, cacheCreationTokens: number|null,
  *   cacheReadTokens: number|null, outputTokens: number|null,
  *   costUsd: number|null, durationMs: number|null, numTurns: number|null,
+ *   denied: string[],
  * }}
  */
 export function parseWorkerLog(content) {
@@ -143,8 +146,10 @@ export function parseWorkerLog(content) {
   const usage = ev?.usage ?? {}
   const num = (v) => (Number.isFinite(v) ? v : null)
   const verdict = extractVerdict(content, ev)
+  // A refused tool call fails the worker (worker-capabilities.mjs).
+  const denied = deniedTools(ev)
   return {
-    status: ev ? (ev.is_error ? 'failed' : 'completed') : 'unknown',
+    status: ev ? (ev.is_error || denied.length > 0 ? 'failed' : 'completed') : 'unknown',
     score: extractScore(content, ev),
     verdict,
     blocked: isBlocked(verdict, extractEligibility(content, ev)),
@@ -155,6 +160,7 @@ export function parseWorkerLog(content) {
     costUsd: num(ev?.total_cost_usd),
     durationMs: num(ev?.duration_ms),
     numTurns: num(ev?.num_turns),
+    denied,
   }
 }
 

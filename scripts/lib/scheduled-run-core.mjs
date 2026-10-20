@@ -26,8 +26,9 @@ import {
 } from './schedule-core.mjs'
 
 /**
- * `evaluate` is off by default: the workers run `claude -p
- * --dangerously-skip-permissions` unattended, so the user opts in. `model` is
+ * `evaluate` is off by default: the workers run `claude -p` unattended (least
+ * privilege, scripts/lib/worker-capabilities.mjs kind `eval`), and they
+ * spend tokens, so the user opts in. `model` is
  * an optional override; empty means batch-runner.sh's own default (the latest
  * Opus), which stays the single source of truth, so scheduled and manual
  * evaluations are scored by the same model.

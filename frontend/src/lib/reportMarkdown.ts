@@ -30,10 +30,13 @@ export interface ParsedDimensions {
 
 // Header metadata: keep contextual fields (Date / Mode / Location /
 // Archetype / Verification) and drop the duplicated ones — URL has its own
-// pill, Want / Ease / Eligibility / Verdict / Tier are parsed by
+// pill, Posted is a job fact (parseReportPosted + pickPostedDate, shown by
+// ReportSlideOver), Want / Ease / Eligibility / Verdict / Tier are parsed by
 // parseReportHeader and rendered in the hero. Verification is kept because
-// batch-mode reports need a visible "unconfirmed" caveat — see ReportMeta.
-const META_KEEP = new Set(['date', 'mode', 'location', 'archetype', 'verification'])
+// batch-mode reports need a visible "unconfirmed" caveat — see ReportMeta —
+// and Posting check because a "suspect" posting (hidden or instruction-like
+// text, scripts/posting-guard.mjs) is something the reader must see.
+const META_KEEP = new Set(['date', 'mode', 'location', 'archetype', 'verification', 'posting check'])
 
 export function extractMetadata(text: string): {
   meta: Array<{ key: string; value: string }>

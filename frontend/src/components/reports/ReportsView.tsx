@@ -216,7 +216,7 @@ export function ReportsView() {
       POSITIONING_SPAWN_ID,
       'Analyze Career Trajectory',
       'claude',
-      claudeArgs('/career-ops positioning', generateReportModel)
+      claudeArgs('/career-ops positioning', generateReportModel, 'positioning')
     )
   }
 

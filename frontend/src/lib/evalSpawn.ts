@@ -32,7 +32,7 @@
 // evaluations, and still need their own mode files.
 
 import { ipc } from '@/lib/ipc'
-import { NON_INTERACTIVE_SUFFIX, modelArg, type ClaudeModel } from '@/lib/spawnFormat'
+import { NON_INTERACTIVE_SUFFIX, WORKER_FLAG, modelArg, type ClaudeModel } from '@/lib/spawnFormat'
 
 /** Repo-relative path to the compact scouting-eval bundle. */
 export const COMPACT_EVAL_BUNDLE = 'batch/batch-prompt.md'
@@ -44,7 +44,9 @@ export type { ClaudeModel }
  * Args for a non-interactive Claude eval spawn that loads the compact bundle
  * as its system prompt instead of routing through the `/career-ops` skill.
  * Same flag set as `claudeArgs` otherwise (stream-json for the activity
- * panel, skip-permissions so tool prompts can't hang a headless run).
+ * panel), as worker kind `eval-app`: main swaps the marker for the derived
+ * least-privilege flags (reports, scouting TSVs, score/cache rows and the
+ * pipeline inbox; no user/ or tracker writes).
  *
  * Prompt caching (token-cost lever 4): the bundle is passed verbatim — a
  * byte-identical system prompt across spawns is what lets the API prompt
@@ -60,7 +62,7 @@ export function claudeEvalArgs(
   promptFile: string = COMPACT_EVAL_BUNDLE,
 ): string[] {
   return [
-    '--dangerously-skip-permissions',
+    WORKER_FLAG, 'eval-app',
     '--output-format', 'stream-json',
     '--verbose',
     '--append-system-prompt-file', promptFile,
@@ -119,7 +121,7 @@ function preamble(batchId: string, today: string): string {
   return (
     'Run the scouting-evaluation pipeline defined in the system prompt (the compact eval bundle). ' +
     `Its placeholders are unresolved in this desktop path — use these values: Date: ${today}. Batch ID: ${batchId}. ` +
-    'No pre-fetched JD file exists; fetch each JD from its URL (Playwright if available, else WebFetch). ' +
+    'No pre-fetched JD file exists; fetch each JD from its URL with `node scripts/fetch-posting.mjs <url>` (exit 2 = closed, stop; exit 3 → read the posting check’s saved file, else WebFetch; § Untrusted content). ' +
     RESERVE_NUM
   )
 }

@@ -1461,7 +1461,7 @@ function PortalsTab() {
       id,
       `Add company: ${name}`,
       'claude',
-      claudeArgs(slash, 'sonnet'),
+      claudeArgs(slash, 'sonnet', 'company-probe'),
     )
   }
 
