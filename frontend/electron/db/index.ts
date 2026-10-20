@@ -193,7 +193,7 @@ export function queryScoreHistory(f: ScoreFilters = {}) {
   if (f.until)   { where.push('date <= @until');   params.until = f.until }
   if (f.company) { where.push('company = @company'); params.company = f.company }
   if (f.tier)    { where.push('tier = @tier');     params.tier = f.tier }
-  const sql = `SELECT * FROM score_history ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY date`
+  const sql = `SELECT * FROM score_history ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY date, id`
   return need().prepare(sql).all(params)
 }
 
@@ -216,18 +216,24 @@ export function queryReports(f: ReportFilters = {}) {
   // Join strategy:
   //  1. Primary: match on `url` — the listing URL is the only stable join
   //     key that survives filename sanitization and multi-city
-  //     disambiguation. The latest evaluation per URL wins (SQLite returns
-  //     the bare columns from the MAX(date) row).
+  //     disambiguation. The latest evaluation per URL wins: newest date,
+  //     then the later row (a same-day re-score is appended after the
+  //     earlier run, so `id` breaks the tie).
   //  2. Fallback: for reports without a URL header, fall back to
-  //     (company, role) matching — exact → prefix → "same company, highest
-  //     priority" so the badge isn't blank for orphan reports.
+  //     (company, role) matching — exact → prefix → same company, newest
+  //     first — so the badge isn't blank for orphan reports.
   // Most rows hit (1); (2) only fires when reports_index.url is empty.
   const sql = `
-    WITH score_by_url AS (
-      SELECT url, MAX(date) AS d, want, ease, priority, verdict, eligibility, eligibility_flags
+    WITH ranked_by_url AS (
+      SELECT url, want, ease, priority, verdict, eligibility, eligibility_flags,
+             ROW_NUMBER() OVER (PARTITION BY url ORDER BY date DESC, id DESC) AS rn
       FROM score_history
       WHERE url <> ''
-      GROUP BY url
+    ),
+    score_by_url AS (
+      SELECT url, want, ease, priority, verdict, eligibility, eligibility_flags
+      FROM ranked_by_url
+      WHERE rn = 1
     ),
     fallback AS (
       SELECT
@@ -247,8 +253,8 @@ export function queryReports(f: ReportFilters = {}) {
               WHEN LOWER(TRIM(r.role)) LIKE LOWER(TRIM(s.role)) || '%' THEN 1
               ELSE 2
             END,
-            s.priority DESC NULLS LAST,
-            s.date DESC
+            s.date DESC,
+            s.id DESC
         ) AS rn
       FROM reports_index r
       LEFT JOIN score_history s
@@ -281,6 +287,10 @@ export function queryReports(f: ReportFilters = {}) {
 // applications joined with their latest evaluation (from score_history).
 export function queryApplicationsWithScores() {
   return need().prepare(`
+    WITH latest AS (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY company, role ORDER BY date DESC, id DESC) AS rn
+      FROM score_history
+    )
     SELECT
       a.*,
       s.want        AS sh_want,
@@ -289,11 +299,10 @@ export function queryApplicationsWithScores() {
       s.verdict     AS verdict,
       s.eligibility AS eligibility,
       s.archetype   AS archetype,
-      MAX(s.date)   AS sh_date
+      s.date        AS sh_date
     FROM applications a
-    LEFT JOIN score_history s
-      ON s.company = a.company AND s.role = a.role
-    GROUP BY a.num
+    LEFT JOIN latest s
+      ON s.company = a.company AND s.role = a.role AND s.rn = 1
     ORDER BY a.num
   `).all()
 }

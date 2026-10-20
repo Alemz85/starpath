@@ -35,7 +35,7 @@ Do NOT proceed with stale dedup data.
 
 Compute the listing's entity_id (see `frontend/src/lib/entityId.ts`) and look it up in `data/dedup-index.tsv` (which stores `entity_id` plus the legacy `(company_normalized, role_normalized)` columns for fuzzy fallback). For the full set of states that a hit can land in (DUPE / REPOST / CROSS-PORTAL ALIAS / 6+ months STALE), see `modes/pipeline.md` § Step 2b — the same logic applies to single-listing scouting evaluations.
 
-In short: when an entity_id match hits with `last_seen_date < 6 months`, do not generate a duplicate report. The pipeline mode determines whether to refresh the URL (REPOST), record an alias, or skip silently. **6+ months old hits surface in `## Needs re-evaluation` and require explicit user opt-in** — auto-rescoring would burn tokens on entities the user may no longer care about.
+In short: when an entity_id match hits with `last_seen_date < 6 months`, do not generate a duplicate report. The pipeline mode determines whether to refresh the URL (REPOST), record an alias, or skip silently. **6+ months old hits surface in `## Needs re-evaluation` and require explicit user opt-in** An explicit re-evaluation request (from the user, or in a batch job's notes) bypasses the dedup skip at any age; the re-score then anchors on the previous scores (`modes/_shared.md` § Re-score anchoring). — auto-rescoring would burn tokens on entities the user may no longer care about.
 
 ## The Scoring Model
 
@@ -80,7 +80,7 @@ Follow the lookup flow defined in `modes/_shared.md` § Comp cache. On a cache m
 
 ### Calibration hooks
 
-- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` and pass the structured `calibration:` block from `user/profile.yml` to the script (brand-affinity bonuses, per-company `extra_brand_bonuses`, structured-onboarding signal) — the script applies them.
+- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` and pass the structured `calibration:` block from `user/profile.yml` to the script (dream-company Want floor, lower-tier dream Want preference, per-company `extra_brand_bonuses`, structured-onboarding signal) — the script applies them. Brand itself is scored as a CV signal, never raised for liking the company.
 - **Location policy:** The City hygiene factor reads from `_profile.md` → Your Location Policy. Top preferred city floors at 9; a non-preferred city inside the reachable region floors at 6; outside it drops to 2–3.
 - **Dream-company floor:** a company in `calibration.dream_companies` gets Brand Value 10 and a **Want floor of 8.0** from the script — the hygiene and Role-content vetoes still win over it.
 - **Referral:** if `data/network.md` shows a warm path (`npm run outreach-plan -- "Company" --summary`), pass `referral: "warm-direct"` or `"warm-intro"`; the script adds it to Competition.
@@ -140,9 +140,9 @@ Generate a **short summary report**. Universal header (`**Tier:** T2`, `reports/
 ```markdown
 ## Fit / gaps
 - **Strongest match:** {the one thing that makes this worth your time, and why — one sentence.}
-- **Biggest gap:** {the deciding factor, in plain words. Same one the Verdict names.}
+- **Biggest gap:** {the deciding factor, in plain words. Same one the Recommendation names.}
 
-## Verdict
+## Recommendation
 {One line, the plain call: "Stretch — apply, but first fix X" | "Solid — apply" | "Only if your pipeline is thin: …". Use "Track company only" only when a constraint the gate couldn't model (deadline passed, an application cap at this company) overrides the grid — and name it in the same line.}
 
 ## Path forward
@@ -234,6 +234,8 @@ When the pipeline feeds you **multi-city postings of the same role** (same JD co
 4. Write ONE scouting tracker TSV entry referencing the master report; in the Notes column, list the other cities (e.g., `"Multi-city: City A (primary), City B"`).
 5. Log ONE row to `data/score-history.tsv` for the master. If the user wants per-city trajectory later, positioning mode can parse the `## City variants` section.
 
+**One posting, several cities.** A single posting that lists several offices the candidate can choose between (a graduate programme "based in Lyon, Vienna, Prague or Brussels") is one listing, not variants. Score City and Salary for the city the candidate would pick (the best one for them by `_profile.md`'s location policy, and say so in the City cell), and write every city in the `location` column, the scored one first, separated by `; ` with nothing in parentheses: `Lyon, France; Vienna, Austria; Prague, Czechia; Brussels, Belgium`. The app splits on `;` and ignores parenthesised text, so `Lyon (also Vienna, Prague)` shows as Lyon only. If a city the candidate would also accept changes the verdict, add it as a one-line `## City variants` delta as above.
+
 **Edge case:** if the variants differ in more than location (a language requirement one has and the other doesn't, different work-rights wording, different responsibilities), treat them as separate roles and run the gate and scoring on each independently.
 
 ## Data Layer — Score History Logging
@@ -306,7 +308,7 @@ Report files use a human-readable `{Company} - {Role}.md` naming convention:
 reports/tier-{N}/{Company} - {Role}.md
 ```
 
-Where `{N}` is the tier (1, 2 or 3). T4 rows do NOT write a file — they only get a one-line entry in `data/scouting.md` with `—` in the report column.
+Where `{N}` is the tier (1, 2 or 3). In the filename only, drop `( ) [ ] : / \ ? * " < > |` and collapse spaces, so a role like "Data Analyst (Lyon, autumn start)" is saved as `Data Analyst Lyon, autumn start.md` and the markdown link never breaks; the tracker cells keep the exact title. The link text in the scouting row is that row's own `{num}`. T4 rows do NOT write a file — they only get a one-line entry in `data/scouting.md` with `—` in the report column.
 
 **Examples (fictional):**
 - `reports/tier-1/Acme Analytics - Intern Technology Consultant.md`

@@ -84,15 +84,15 @@ test('brandLists returns empty arrays for empty/absent calibration', () => {
 
 test('brandBonusDrift flags a misdirected bonus (mean Want in the bottom row)', () => {
   const rows = repeat(2, { company: 'Tailspin Toys', ...WANT_LOW })
-  const out = brandBonusDrift(rows, { brand_affinity_companies: ['Tailspin Toys'] })
+  const out = brandBonusDrift(rows, { lower_tier_dream_companies: ['Tailspin Toys'] })
   assert.equal(out.length, 1)
   assert.equal(out[0].verdict, 'misdirected')
   assert.equal(out[0].wantRow, 'low')
-  assert.equal(out[0].source, 'brand_affinity_companies')
+  assert.equal(out[0].source, 'lower_tier_dream_companies')
   assert.ok(out[0].avgWant < WANT_MID)
   assert.ok(Number.isFinite(out[0].avgEase))
-  // The affinity bonus (+0.6 Brand) is worth 0.15 Want at equal weights.
-  assert.equal(out[0].avgWantUnaided, Math.round((out[0].avgWant - 0.15) * 100) / 100)
+  // The unaided replay drops the +0.25 Want preference; it never exceeds the stored Want.
+  assert.ok(out[0].avgWantUnaided <= out[0].avgWant)
 })
 
 test('brandBonusDrift flags an inert dream floor (top row without the floor)', () => {
@@ -121,9 +121,9 @@ test('brandBonusDrift: a company added to dream_companies after it was scored is
   assert.equal(out.length, 0)
 })
 
-test('brandBonusDrift: an additive bonus that carries a company over 8.0 is not inert', () => {
-  // lower-tier dream (+1.0 Brand): stored Brand 8 → Want 8.0; unaided Brand 7 → 7.75.
-  const rows = repeat(3, { company: 'Fabrikam Labs', growth_mobility: 8, optionality_exit: 8, brand_value: 8, role_content: 8 })
+test('brandBonusDrift: a preference bonus that carries a company over 8.0 is not inert', () => {
+  // lower-tier dream (+0.25 Want): motivators 8/8/7/8 → 7.75 unaided, 8.0 with the preference.
+  const rows = repeat(3, { company: 'Fabrikam Labs', growth_mobility: 8, optionality_exit: 8, brand_value: 7, role_content: 8, want: 8.0 })
   const out = brandBonusDrift(rows, { lower_tier_dream_companies: ['Fabrikam Labs'] })
   assert.equal(out.length, 0)
 })
@@ -153,7 +153,7 @@ test('brandBonusDrift is case/space-insensitive on company name', () => {
     { company: '  tailspin toys ', ...WANT_LOW },
     { company: 'TAILSPIN TOYS', ...WANT_LOW },
   )
-  const out = brandBonusDrift(rows, { brand_affinity_companies: ['Tailspin Toys'] })
+  const out = brandBonusDrift(rows, { lower_tier_dream_companies: ['Tailspin Toys'] })
   assert.equal(out.length, 1)
   assert.equal(out[0].verdict, 'misdirected')
 })
@@ -161,11 +161,12 @@ test('brandBonusDrift is case/space-insensitive on company name', () => {
 test('brandBonusDrift folds a company on several lists into one entry', () => {
   const rows = repeat(2, { company: 'Tailspin Toys', ...WANT_LOW })
   const out = brandBonusDrift(rows, {
-    brand_affinity_companies: ['Tailspin Toys'],
+    brand_affinity_companies: ['Tailspin Toys'],          // no score effect: not audited
     lower_tier_dream_companies: ['Tailspin Toys'],
+    extra_brand_bonuses: [{ company: 'Tailspin Toys', bonus: 0.5 }],
   })
   assert.equal(out.length, 1)
-  assert.deepEqual(out[0].sources, ['lower_tier_dream_companies', 'brand_affinity_companies'])
+  assert.deepEqual(out[0].sources, ['lower_tier_dream_companies', 'extra_brand_bonuses'])
 })
 
 test('brandBonusDrift returns nothing when no calibration is configured', () => {
@@ -184,7 +185,7 @@ test('brandBonusCandidates surfaces an un-credited company in the top Want row',
 
 test('brandBonusCandidates excludes companies already credited', () => {
   const rows = repeat(3, { company: 'Litware Systems', ...WANT_TOP })
-  assert.equal(brandBonusCandidates(rows, { brand_affinity_companies: ['Litware Systems'] }).length, 0)
+  assert.equal(brandBonusCandidates(rows, { lower_tier_dream_companies: ['Litware Systems'] }).length, 0)
 })
 
 test('brandBonusCandidates needs minRoles and a top-row mean Want', () => {
@@ -475,7 +476,7 @@ test('analyzeCalibration produces a full report with metadata + suggestions', ()
     ...parse({ company: 'Tailspin Toys', eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship' }),
   ]
   const out = analyzeCalibration(rows, {
-    calibration: { dream_companies: ['Northwind Analytics'], brand_affinity_companies: ['Tailspin Toys'] },
+    calibration: { dream_companies: ['Northwind Analytics'], lower_tier_dream_companies: ['Tailspin Toys'] },
   })
   assert.equal(out.metadata.evaluated, 12)
   assert.equal(out.metadata.blocked, 1)

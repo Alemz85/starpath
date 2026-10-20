@@ -107,9 +107,9 @@ location:
 
 # ── Calibration (optional — applied by scripts/score-listing.mjs) ───────────
 # calibration:
-#   dream_companies: ["Example Corp"]           # Brand 10 + Want floor 8.0
-#   lower_tier_dream_companies: ["Sample Inc"]  # +1.0 Brand
-#   brand_affinity_companies: ["Demo Labs"]     # +0.6 Brand
-#   extra_brand_bonuses:
-#     - { company: "Placeholder Co", bonus: 0.5, reason: "alumni network" }
+#   dream_companies: ["Example Corp"]           # Want floor 8.0 (Brand untouched)
+#   lower_tier_dream_companies: ["Sample Inc"]  # +0.25 Want (preference)
+#   brand_affinity_companies: ["Demo Labs"]     # triage/brief boost only (e.g. CEMS partners)
+#   extra_brand_bonuses:                        # Brand perception corrections only
+#     - { company: "Placeholder Co", bonus: 0.5, reason: "household name in the target market" }
 #   has_structured_onboarding: false            # true → +1 Growth

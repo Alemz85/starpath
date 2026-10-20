@@ -483,3 +483,51 @@ export function validateScoreCell(cell) {
   }
   return null;
 }
+
+/* ───── Re-evaluation refresh (merge-scouting → applications.md) ───── */
+
+/**
+ * When a listing that is already in applications.md gets re-scored, its row
+ * should show the new Want/Ease and link the new report instead of keeping a
+ * stale score. Matching is deliberately strict — same company key AND
+ * (identical normalized role OR roleMatchStrict) — because a loose match would
+ * rewrite a different application at the same company (e.g. a student event
+ * next to a graduate role).
+ *
+ *   lines    applications.md split on '\n'
+ *   updates  [{ company, role, want, ease, report }]; want/ease numbers, or
+ *            null for a Blocked re-eval (the row is then left untouched —
+ *            blocked listings are never promoted, and its score stays as a
+ *            record of the earlier evaluation). report '—' keeps the old link.
+ *
+ * Returns { lines, changed: [{ num, company, role, from, to }], matched } —
+ * `matched` lists every application row an update matched (even when its
+ * cells were already current) as { num, update }, so the caller can mark the
+ * scouting row as promoted. Pure.
+ */
+export function refreshApplicationRows(lines, updates) {
+  const out = [...lines];
+  const changed = [];
+  const matched = [];
+  for (const u of updates) {
+    if (!Number.isFinite(u.want) || !Number.isFinite(u.ease)) continue;
+    const key = companyKey(u.company);
+    const roleKey = normalizeRoleForIndex(u.role);
+    for (let i = 0; i < out.length; i++) {
+      const row = parseAppRow(out[i]);
+      if (!row || companyKey(row.company) !== key) continue;
+      if (normalizeRoleForIndex(row.role) !== roleKey && !roleMatchStrict(row.role, u.role)) continue;
+      matched.push({ num: row.num, update: u });
+      const to = formatScoreCell(u.want, u.ease);
+      const from = row.score;
+      row.cells[row.cols.score] = to;
+      if (u.report && u.report !== '—') row.cells[row.cols.report] = u.report;
+      const line = serializeAppRow(row.cells);
+      if (line !== out[i]) {
+        out[i] = line;
+        changed.push({ num: row.num, company: row.company, role: row.role, from, to });
+      }
+    }
+  }
+  return { lines: out, changed, matched };
+}

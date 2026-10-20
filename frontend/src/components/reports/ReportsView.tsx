@@ -8,27 +8,25 @@ import { claudeEvalArgs, refreshCvSummary, top5ReportsPrompt } from '@/lib/evalS
 import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
   Search, FileText, X, ExternalLink, Sparkles, Square,
-  Copy, Check, ArrowUp, ArrowDown, ArrowUpRight,
+  Copy, Check, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ReportFile, ScoreEntry } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
-import { Button, Panel, PageHeader, TierChip } from '@/components/ui'
+import { Button, Panel, PageHeader } from '@/components/ui'
 import { ReportSlideOver } from './ReportSlideOver'
 import {
   getScoreBand, BAND_DETAILS, type ScoreBand,
   filterReportRows, sortReportRows,
   corpusBands as computeCorpusBands, bandCounts as computeBandCounts,
   buildScoreIndex, matchScore,
-  isNearMiss, reportEngineLever,
   type FixabilityRow,
 } from '@/lib/reportsList'
-import { leverSentence } from '@/lib/tierLevers'
 import {
-  normalizeEligibility, normalizeTier, normalizeVerdict, parseEligibilityFlags, verdictOf, VERDICT_LABELS,
+  normalizeEligibility, normalizeTier, parseEligibilityFlags,
 } from '@/lib/scoreBands'
 import { WantEase } from '@/components/shared/WantEase'
-import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
+import { EligibilityChip } from '@/components/shared/EligibilityChip'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -62,14 +60,11 @@ interface PositioningReportInfo {
 }
 
 // Sort keys for the toolbar's segmented control. `score` sorts by Priority
-// (√(Want × Ease)) — a sort key only, never shown as a number. `fixable` ranks
-// by "easiest near-miss to upgrade": the cheapest single change into a better
-// verdict cell first.
+// (√(Want × Ease)) — a sort key only, never shown as a number.
 const SORT_OPTIONS = [
   { field: 'score' as const,   label: 'Priority' },
   { field: 'date' as const,    label: 'Date' },
   { field: 'tier' as const,    label: 'Tier' },
-  { field: 'fixable' as const, label: 'Fixability' },
 ]
 
 export function ReportsView() {
@@ -102,12 +97,9 @@ export function ReportsView() {
   const [selectedPositioning, setSelectedPositioning] = useState<PositioningReportInfo | null>(null)
 
   // Sort State
-  const [sortBy, setSortBy] = useState<'score' | 'date' | 'tier' | 'fixable'>('score')
+  const [sortBy, setSortBy] = useState<'score' | 'date' | 'tier'>('score')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
 
-  // "Easiest near-miss to upgrade" filter — keeps only reports one change
-  // away from a better verdict cell.
-  const [nearMissOnly, setNearMissOnly] = useState(false)
 
   const loadPositioningReports = async () => {
     try {
@@ -248,20 +240,10 @@ export function ReportsView() {
 
   const filteredFiles = useMemo(
     () => sortReportRows(
-      filterReportRows(rowsWithFix, { query, bands: selectedBands, nearMissOnly }),
+      filterReportRows(rowsWithFix, { query, bands: selectedBands }),
       sortBy, sortOrder,
     ),
-    [rowsWithFix, query, selectedBands, nearMissOnly, sortBy, sortOrder],
-  )
-
-  // Count of near-miss reports for the toggle's badge — computed on the same
-  // fixability-decorated rows but before the toggle itself, so it shows how many
-  // the filter would surface regardless of whether it's currently on. Uses the
-  // SAME unified predicate (lib/reportsList § isNearMiss) the nearMissOnly
-  // filter uses, so the badge count can never disagree with the rows shown.
-  const nearMissCount = useMemo(
-    () => filterReportRows(rowsWithFix, { query, bands: selectedBands }).filter(isNearMiss).length,
-    [rowsWithFix, query, selectedBands],
+    [rowsWithFix, query, selectedBands, sortBy, sortOrder],
   )
 
   const toggleBand = (band: ScoreBand) => {
@@ -283,12 +265,11 @@ export function ReportsView() {
   // with every OTHER active filter applied, but not its own selection).
   const bandCounts = useMemo(() => computeBandCounts(reportRows, query), [reportRows, query])
 
-  const hasActiveFilters = query.trim() !== '' || selectedBands.size > 0 || nearMissOnly
+  const hasActiveFilters = query.trim() !== '' || selectedBands.size > 0
 
   const clearFilters = () => {
     setQuery('')
     setSelectedBands(new Set())
-    setNearMissOnly(false)
   }
 
   // `/` focuses the search box from anywhere in the view (matching the kbd
@@ -395,7 +376,7 @@ export function ReportsView() {
           </div>
         </Panel>
 
-        {/* Toolbar: search · sort · band and near-miss filters. */}
+        {/* Toolbar: search · sort · verdict filters. */}
         <div className="h-10 shrink-0 flex items-center gap-4">
           <div className="relative flex-1 max-w-xs">
             <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-text-4 pointer-events-none" aria-hidden />
@@ -445,11 +426,9 @@ export function ReportsView() {
                         setSortOrder('desc')
                       }
                     }}
-                    title={field === 'fixable'
-                      ? 'Rank by easiest near-miss to upgrade — cheapest change into a better verdict first'
-                      : field === 'score'
-                        ? 'Rank by √(Want × Ease); blocked and unscored reports last'
-                        : undefined}
+                    title={field === 'score'
+                      ? 'Rank by √(Want × Ease); blocked and unscored reports last'
+                      : undefined}
                     trailing={on
                       ? (sortOrder === 'asc' ? <ArrowUp size={12} aria-hidden /> : <ArrowDown size={12} aria-hidden />)
                       : undefined}
@@ -464,25 +443,6 @@ export function ReportsView() {
           <div className="flex-1" />
 
           <div className="flex items-center gap-1.5">
-            {/* Near-miss toggle: only reports one change (one dimension step,
-                or one amber check resolved) from a better verdict. Hidden when
-                nothing qualifies (and the toggle isn't already on) so it never
-                sits at 0. */}
-            {(nearMissCount > 0 || nearMissOnly) && (
-              <button
-                onClick={() => setNearMissOnly(v => !v)}
-                title="Show only reports one change away from a better verdict"
-                className={cn(
-                  'chip chip-md transition-colors duration-150',
-                  nearMissOnly ? 'chip-accent' : 'hover:border-border-strong hover:text-text-1',
-                )}
-              >
-                <ArrowUpRight size={13} className="shrink-0" aria-hidden />
-                Near-miss
-                <span className="text-text-4 tabular-nums">{nearMissCount}</span>
-              </button>
-            )}
-
             {/* Verdict filters: only verdicts that actually have reports. T3/T4
                 listings get a short report or none, so Skip / Blocked rarely
                 show. */}
@@ -662,23 +622,6 @@ function ReportRow({
   const flags = parseEligibilityFlags(report.eligibility_flags ?? scoreEntry?.eligibility_flags ?? '')
   const red = flags.find(f => f.status === 'red')
   const amberReasons = flags.filter(f => f.status === 'amber').map(f => f.reason).filter(Boolean).join('; ')
-  // The row's verdict: stored, else replayed from Want · Ease. An orphan
-  // report (no evaluation behind it) has none and falls back to its folder
-  // tier chip rather than a made-up verdict.
-  const verdict = verdictOf({
-    verdict: normalizeVerdict(report.verdict) ?? scoreEntry?.verdict ?? null,
-    want, ease, eligibility,
-  })
-  // A row earns the upgrade caption when it's a genuine near-miss — the
-  // engine's one-step rule (lib/reportsList § isNearMiss), identical to the
-  // Database "Near upgrade". `go`, blocked and unscored rows stay clean.
-  const row = { ...report, scoreEntry }
-  const nearMiss = isNearMiss(row)
-  const engineLever = nearMiss ? reportEngineLever(row) : null
-  // "One change from Stretch · Skills match 6 → 7 → Stretch".
-  const fixText = engineLever
-    ? `One change from ${VERDICT_LABELS[engineLever.toVerdict]} · ${leverSentence(engineLever)}`
-    : null
   return (
     <div className={cn(
       'flex items-center pr-3 transition-colors duration-150 ease-quart',
@@ -693,14 +636,6 @@ function ReportRow({
           <span className="text-body font-semibold text-text-1 leading-tight truncate">{report.company}</span>
           <span className="text-label text-text-3 truncate">{report.role}</span>
         </span>
-        {fixText && (
-          <span className="min-w-0 max-w-[40%] truncate text-label text-text-3 text-right" title={fixText}>
-            {fixText}
-          </span>
-        )}
-        {verdict
-          ? <VerdictChip verdict={verdict} className="shrink-0" />
-          : <TierChip tier={normalizeTier(report.tier) ?? report.tier} className="shrink-0" />}
         <span className="w-[150px] shrink-0 flex items-center justify-end gap-1.5 min-w-0">
           <EligibilityChip status={eligibility} reason={red?.reason ?? (amberReasons || null)} compact className="shrink-0" />
           <WantEase

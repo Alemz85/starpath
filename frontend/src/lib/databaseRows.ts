@@ -113,14 +113,16 @@ export function livenessOf(e: ScoreEntry, liveness: Record<string, Liveness>): L
 }
 
 // Dedupe score-history → one entity per (company, role, city); latest
-// evaluation wins (max date). The unit every downstream derivation counts and
-// renders, so options/counts/rows all agree on what "one listing" means.
+// evaluation wins (max date; on a same-day tie the later row in the history,
+// i.e. the newer re-score, wins — input arrives in file order). The unit every
+// downstream derivation counts and renders, so options/counts/rows all agree
+// on what "one listing" means.
 export function dedupeEntities(scoreHistory: ScoreEntry[]): ScoreEntry[] {
   const m = new Map<string, ScoreEntry>()
   for (const r of scoreHistory) {
     const id = entityId(r.company, r.role, parseCities(r.location))
     const prev = m.get(id)
-    if (!prev || r.date.localeCompare(prev.date) > 0) m.set(id, r)
+    if (!prev || r.date.localeCompare(prev.date) >= 0) m.set(id, r)
   }
   return [...m.values()]
 }

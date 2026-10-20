@@ -387,3 +387,49 @@ test('parseTsvAddition: returns null on malformed/empty input', () => {
   assert.equal(parseTsvAddition('only\tthree\tfields', 'x.tsv', silent), null);
   assert.equal(parseTsvAddition('NaN\t2026\tA\tR\tEvaluated\tW8 E8\t❌\t[#1](r.md)\tn', 'x.tsv', silent), null);
 });
+
+/* ───── refreshApplicationRows ───── */
+import { refreshApplicationRows } from './tracker-core.mjs'
+
+const APPS = [
+  '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
+  '|---|------|---------|------|-------|--------|-----|----------|--------|-------|',
+  '| 1 | 2026-10-01 | Lumen Freight | Supply Chain Analyst (Lyon, March 2028 start) | 7.79/10 | Applied | ❌ | 2028-01-15 | — | applied |',
+  '| 2 | 2026-09-01 | Lumen Freight | Open Day (Lyon student event) | N/A | Rejected | ❌ | n/d | — | event |',
+]
+
+test('refreshApplicationRows: re-scored listing updates Score + Report, leaves the sibling event alone', () => {
+  const { lines, changed } = refreshApplicationRows(APPS, [{
+    company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)',
+    want: 8.15, ease: 7.29, report: '[5](reports/tier-1/Lumen Freight - Supply Chain Analyst Lyon, March 2028 start.md)',
+  }])
+  assert.equal(changed.length, 1)
+  assert.deepEqual(changed[0], { num: 1, company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', from: '7.79/10', to: 'W8.15 E7.29' })
+  assert.match(lines[2], /\| W8\.15 E7\.29 \| Applied \|/)
+  assert.match(lines[2], /\[5\]\(reports\/tier-1\/Lumen Freight - Supply Chain Analyst Lyon, March 2028 start\.md\)/)
+  assert.equal(lines[3], APPS[3])
+})
+
+test('refreshApplicationRows: blocked re-eval (no scores) and unmatched companies change nothing', () => {
+  const { lines, changed } = refreshApplicationRows(APPS, [
+    { company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: null, ease: null, report: '—' },
+    { company: 'Othercorp', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: 8, ease: 7, report: '—' },
+  ])
+  assert.equal(changed.length, 0)
+  assert.deepEqual(lines, APPS)
+})
+
+test('refreshApplicationRows: report "—" keeps the existing link', () => {
+  const apps = [APPS[0], APPS[1], APPS[2].replace('| — | applied |', '| [9](reports/tier-2/old.md) | applied |')]
+  const { lines } = refreshApplicationRows(apps, [{ company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: 6.9, ease: 5.1, report: '—' }])
+  assert.match(lines[2], /W6\.9 E5\.1/)
+  assert.match(lines[2], /\[9\]\(reports\/tier-2\/old\.md\)/)
+})
+
+test('refreshApplicationRows: matched lists the row even when its cells are already current', () => {
+  const current = [APPS[0], APPS[1], APPS[2].replace('7.79/10', 'W8.15 E7.29')]
+  const { changed, matched } = refreshApplicationRows(current, [{ company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: 8.15, ease: 7.29, report: '—' }])
+  assert.equal(changed.length, 0)
+  assert.equal(matched.length, 1)
+  assert.equal(matched[0].num, 1)
+})

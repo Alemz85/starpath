@@ -87,9 +87,10 @@ Rules:
 | Chips, badges, counts, logos ≤ 20px | `rounded-pill` / `rounded-full` | none |
 | Containers: cards, panels, table wrappers | `rounded-lg` 14px | `shadow-subtle` (1px contact) |
 | Wells: kanban columns, inset lists | `rounded-lg` 14px, `bg-panel/50`, hairline `/60` | none |
-| Overlays: slide-over, modal, popover, command palette | `rounded-xl` 18px | `shadow-lift` / `shadow-menu` |
+| Overlays: modal, popover, command palette | `rounded-xl` 18px | `shadow-lift` / `shadow-menu` |
+| Edge sheet: the report dossier (any future side panel) | square against the window edge, `.sheet` | lit left edge + deep violet shadow, over a dimmed and blurred backdrop |
 
-Shadows are tinted toward the violet (`rgba(40, 32, 90, …)`) so depth reads as light from the page wash, never as a grey drop. `rounded-md` (10px) is for small image frames. Nothing has a coloured left border wider than 1px. Native checkboxes and selects are restyled globally (rounded accent checkbox, quiet chevron), so views never need a custom control for them.
+Shadows are tinted toward the violet (`rgba(40, 32, 90, …)`) so depth reads as light from the page wash, never as a grey drop. `.sheet` (globals.css) is the one surface with heavier depth: a violet hairline cut edge, a 1px white highlight just inside it, and a wide shadow falling onto the app, which the backdrop (`bg-[rgba(20,14,46,0.32)] backdrop-blur-[3px]`) pushes back. Use it for panels that cover the app, never for cards. `rounded-md` (10px) is for small image frames. Nothing has a coloured left border wider than 1px. Native checkboxes and selects are restyled globally (rounded accent checkbox, quiet chevron), so views never need a custom control for them.
 
 ## 5. Spacing and density
 
@@ -104,7 +105,15 @@ Every view is the same skeleton:
 3. Body: `flex-1 min-h-0` with `p-5` (or a split layout with its own scroll areas). Content fills the canvas; a page never leaves a large empty middle.
 4. Key figures, when a page has them, go in a `<StatStrip>` at the top of the body: a quiet card with the faint galaxy wash, figures at 26px with sentence-case labels, at most one figure in the accent or a semantic tone. It replaces the old hero card; the page title stays in the header only.
 
-The Scouting cockpit, Applying board, Today and Outreach lose their galaxy-wash hero cards; the number strip stays as a `StatStrip`.
+The Applying board and Outreach lead with a `StatStrip`. Scout has its own overview card instead (below).
+
+### View anatomies
+
+- **Scout** (`components/scout/ScoutView.tsx`, home; the former Scouting and Today tabs). Header meta carries last-scan and scans-this-month. Body: (1) the **"Where things stand"** card, a `card galaxy-bg shadow-cosmos` with a titled header row, split two ways by a hairline: left, "Applications" as a row of five icon tiles (Sent, Responded, Interviews, Offers, then Rejected set apart by a hairline), each a 36px round tile beside a `text-stat` figure, the tile coloured only when the count is non-zero (accent in motion, amber interviews, green offers, red rejected), with a one-line conversion read-out under the row; right, a **"Needs you"** list of 44px rows (icon tile, label, hint, figure) for listings to filter, deadlines, waiting for a reply, waiting for next round, with act-now figures in accent or danger plus a dot. No bars, no Evaluated tile (that count lives in the card's meta). (2) The action row: large pill buttons, scans grouped (Full scan primary, API only, Filtered scan with its selection count), a divider, Filter to Database, a divider, Add listing (tinted) and the model chip (ghost), with a one-line hover description under the row. (3) The daily brief when enabled, then a flush **Deadlines** panel with 56px rows filling the rest.
+- **Filtered scan picker**: a dialog (`rounded-xl shadow-lift`, 720px, opens from the Filtered scan pill) listing every tracked company as a `chip chip-md` toggle with its logo, dream companies first with a Star; footer: Clear and Reset to dreams as ghost, Cancel secondary, Run filtered scan primary. The selection lives in the scan-filter store and the pill shows its count.
+- **Applying**: `StatStrip` (Sent, Responded, Interviewing, Offers), the inbox as a one-row card, then the kanban: columns are soft wells (`bg-panel/50`, hairline `/60`) with a dot-plus-label header, cards are `card` with one next-step `Button` and a row of icon-only ghost actions.
+- **Database**: the table in a floating `card` beside the filter rail (§ 8).
+- **Report dossier** (`components/reports/ReportSlideOver.tsx`, a `.sheet` 1040px wide): header block with the company logo, name, role, a meta line (TierChip, score, verdict, archetype, location, evaluated), the action row (Apply, Open listing, files strip, View in Database), then underline tabs (Scouting report, Application prep, History). Body is a 168px section rail (scroll-spy over every `data-slug` element, one entry per slug) beside the content: the summary card (outline entry "Summary": the big score, the verdict, Current and Aspirational fit, and the why-this-score text), the scores as a statement-style table (group header with rollup, rows of number, label with a 56px bar, reasoning; long calculations clamp to three lines), the peer-context panel, then the markdown sections. Scoring v2 changes the figures shown here (Want · Ease, verdict), not the anatomy.
 
 ## 7. Components
 
@@ -145,6 +154,22 @@ Retired: the Meta-store hero cards, pill buttons, ring dials, the teal "stellar"
 2. Replace every uppercase/tracked label with `.label` or `<SectionHeading>`; replace icon-plus-caps headings with `<SectionHeading>`.
 3. Replace ad-hoc buttons with `<Button>` (one `primary` per view at most), ad-hoc tags with `<Chip>` / `<TierChip>` / `<StatusChip>`.
 4. Replace `font-mono` on numbers, dates and counts with plain text (`tabular-nums` is global); keep mono only on paths, logs and code.
-5. Replace `text-[Npx]` with the scale in § 3; replace radii with § 4; drop card shadows on work surfaces.
+5. Replace `text-[Npx]` with the scale in § 3; replace radii and shadows with § 4 (cards get the 1px contact shadow, nothing heavier except overlays and the sheet).
 6. Replace ring dials and gradient bars with `<ScoreNumber>` / `<ScoreBar>`; replace `scoreColor` call sites that expect teal.
 7. Check contrast (body ≥ 4.5:1), hover/focus/disabled on every control, truncation on long strings, and the view at 1280px wide.
+
+## 12. Changelog
+
+Newest first; every entry below landed on 2026-10-20. The audit that started this is `docs/design-audit-2026-10-20.md`.
+
+- **Dossier outline.** The dossier's first card is the "Summary" outline entry; the markdown "Recommendation" section keeps its own name, so the outline never lists Verdict twice.
+- **Report sheet.** Report panel becomes a 1040px `.sheet` with a lit edge, deep tinted shadow and a dimmed, blurred backdrop.
+- **Dossier spacing.** More room around the dossier: header padding, taller tabs, 168px section rail, deeper body inset.
+- **Scout stages.** Scout's application stages as icon tiles, Rejected set apart at the right, bars and the Evaluated tile removed.
+- **Scout home.** Today merged into Scout: "Where things stand" card, action row, daily brief, Deadlines panel; `today` view id aliases `scouting`.
+- **Database card.** Database table in a floating card with 52px rows; scan row as large pill buttons; Filtered scan is a picker dialog.
+- **Softening pass.** Softening pass after review: radii 8/10/14/18, pill chips, lighter hairlines, no grey chrome bands, violet-tinted shadows, restyled native checkboxes and selects.
+- **Design system v2.** IBM Plex, seven-step scale, sentence case, one violet ladder, primitives in `components/ui/`, every view migrated except onboarding, report dossier rebuilt, tier and city parsing fixes.
+- Scoring v2 (the "Scoring system rework" session) merged on top the same day: Want · Ease, Verdict, eligibility chips, `SCHEMA_VERSION` 8; § 7 documents its components.
+
+Open: a full visual pass once the scoring batch has refilled `data/score-history.tsv` (listings were archived for the re-score); a charts pass (Bklit radar in the dossier, heatmap, funnel) proposed as a separate session; onboarding screens untouched by request.

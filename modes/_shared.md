@@ -17,6 +17,7 @@
 | user/article-digest.md | `user/article-digest.md` (if exists) | ALWAYS (detailed proof points) |
 | profile.yml | `user/profile.yml` | ALWAYS (candidate identity and targets) |
 | _profile.md | `user/_profile.md` | ALWAYS (user archetypes, narrative, negotiation) |
+| applications sent | `data/applications-sent/{company-slug}-{role-slug}-{YYYY-MM}.md` | When one matches the listing (what was actually submitted: CV version, cover letter, transcripts) |
 
 **RULE: NEVER hardcode metrics from proof points.** Read them from cv.md + user/article-digest.md at evaluation time.
 **RULE: For article/project metrics, user/article-digest.md takes precedence over cv.md.**
@@ -44,6 +45,7 @@
 - bracketed tokens (*"[undisclosed]"*, *"[no gate stated]"*) and backticks — cells are plain prose with at most an occasional bold
 - rubric vocabulary: anchor, calibration, adjuster, rollup, hygiene term, binding constraint, lever, tier, band
 - score-fragility talk (*"a −1 here would drop this to T2"*)
+- point arithmetic (*"big pool (minus two), CEMS channel (plus two)"*, *"+1 for the cohort"*) — say what raises or lowers the odds in words; the number in the Score column is the result
 - *"the JD"* on repeat — say *"they"*, *"the posting"*, *"the role"*
 - **metawriting** — narrating the process instead of stating the finding: *"I checked the comp cache like you asked and here is the salary I found"*, *"as instructed, I looked up…"*, *"after reviewing your CV…"*, *"based on my research"*, *"note: this score was calculated using…"*. Nobody asked how the report was made; say what is true (*"Pay is about €2,000 a month gross, from Glassdoor reports"*). The same holds for the end-of-run summary a worker prints: results, not a diary of steps.
 
@@ -83,13 +85,13 @@ Fill one object per listing. `null` means **the JD doesn't say** — never guess
 | Field | How to fill it |
 |-------|----------------|
 | `employment` | `internship` · `graduate_programme` · `fixed_term` · `permanent`. A working-student contract is `fixed_term`. |
-| `start` | `{ earliest, latest, flexible, text }`. ISO dates. "Starting September 2028" → `earliest: "2028-09-01"`, `latest: "2028-09-30"`. "Start date flexible" / "rolling start" → `flexible: true`. `text` = the verbatim JD line, or `null`. |
+| `start` | `{ earliest, latest, flexible, text }`. ISO dates. "Starting September 2028" → `earliest: "2028-09-01"`, `latest: "2028-09-30"`. "Start date flexible" / "rolling start" → `flexible: true`. **Several intakes the candidate picks between** ("March or September 2028 intake") → extract the intake that fits the candidate's availability and name the choice in `text`; it is green, not amber. Only when no offered intake fits, or the employer assigns the intake, does the clash count. `text` = the verbatim JD line, or `null`. |
 | `duration_months` | Internship / fixed-term length as an integer. "6-month internship" → `6`. `null` if not stated. |
 | `graduation` | `{ from, to, soft, text }` (`YYYY-MM`). Set `soft: false` **only** when the JD words the window as mandatory ("must", "only", "required"). "Penultimate year", "graduating in 2028", "ideally", "preferably" → `soft: true` (amber, flagged, never an auto-reject). |
 | `languages[]` | `{ language, level, required, text }`. `level` = A1–C2 or `native` / `fluent` / `professional` / `business` / `conversational` / `basic`. `required: false` for "a plus", "nice to have", "is an advantage". |
 | `country` | ISO-3166 alpha-2 of the work location (`DE`, `GB`). Remote within the EU → `REMOTE-EU`. |
 | `work_auth` | `requires_existing_right` — the JD says "must already have the right to work in X". `sponsorship` — `offered` / `not_offered` / `unknown`. `below_sponsorship_salary_floor` — see § Filling `work_auth` below. |
-| `other[]` | Agent-judged requirements the five structured checks don't model: degree field ("STEM degree required"), enrolment status ("at least one term remaining after the internship"), citizenship-grade clearances. Each `{ status, reason, question, text }`. `status: red` **only** when the JD states the requirement as mandatory AND the CV clearly fails it; otherwise `amber`. Every amber needs a recruiter `question`. |
+| `other[]` | Agent-judged requirements the five structured checks don't model: degree field ("STEM degree required"), enrolment status ("at least one term remaining after the internship"), citizenship-grade clearances. Each `{ status, reason, question, text }`. `status: red` **only** when the JD states the requirement as mandatory AND the CV clearly fails it; otherwise `amber`. Every amber needs a recruiter `question`. **Only requirements the posting actually states**, quoted in `text`. A suspicion the posting doesn't voice ("they don't mention Danish, but the clients are Danish") is not an eligibility flag: it belongs in Competition and, if it matters, in the prose. |
 
 **Worked extraction** (fictional JD, fictional candidate):
 
@@ -170,7 +172,7 @@ Read the candidate's `work_authorisation` from `user/profile.yml` → `eligibili
 |-----------|------------------|------|-----|
 | **Growth / Mobility** | Does this role lead somewhere? | Documented multi-level track, mobility across functions, structured mentorship / LDP | Explicitly capped; no promotion, no mobility |
 | **Optionality / Exit** | How good a stepping stone is it? | Skills + brand transfer to top destinations immediately | Locks you into one company's processes |
-| **Brand Value** | Does the name carry weight on a CV? | Global top-tier brand, recognized everywhere | No recognition outside one local market |
+| **Brand Value** | Does the name carry weight on a CV — how does a recruiter at another company read it? (Not how much the candidate likes the company: that is Want preference.) | Global top-tier brand, recognized everywhere | No recognition outside one local market |
 | **Role content** | Is the day-to-day work the kind the candidate wants (per the archetypes in `user/_profile.md`)? Absorbs the old sales-pigeonholing signal. | Every day is the target work | None of the target work; the title is misleading |
 
 **Per-step anchors — Growth / Mobility:**
@@ -235,7 +237,8 @@ Read the candidate's `work_authorisation` from `user/profile.yml` → `eligibili
 
 #### Calibration (applied by the script — pass the `calibration:` block, don't hand-apply)
 
-- **Brand:** `dream_companies` → Brand 10; `brand_affinity_companies` → +0.6; `lower_tier_dream_companies` → +1.0; `extra_brand_bonuses` entries → their stated bonus.
+- **Brand is a CV signal, never preference.** Score it on the tier anchors from how recruiters elsewhere read the name, including in the candidate's target markets. The candidate's own wish lists never move it. Only `extra_brand_bonuses` adjusts it, for a genuine perception gap the tiers miss (a name that carries more weight in the target market than its global tier).
+- **Preference (Want):** `lower_tier_dream_companies` → +0.25 Want; `dream_companies` → the Want floor below. `brand_affinity_companies` (e.g. CEMS partners) have no score effect: their recruiting channel belongs in Competition.
 - **Growth:** structured onboarding / learning path → +1; sink-or-swim → −1.
 - **Dream floor:** `dream_companies` → Want ≥ 8.0 (the vetoes below still win).
 
@@ -246,7 +249,8 @@ M         = weighted mean of the 4 motivators (user/profile.yml → scoring.want
 penalty   = −0.30 per motivator scoring ≤ 2
 H         = h(City) + h(Salary Adj)* + h(WLB)      * salary term is 0 for interns
 h(x)      = +0.25 (x ≥ 8) · 0 (5–7) · −0.40 (4) · −0.80 (3) · −1.20 (< 3)
-Want      = clamp(M − penalty + H, 1, 10); dream floor 8.0
+P         = +0.25 for a lower-tier dream company (preference), else 0
+Want      = clamp(M − penalty + H + P, 1, 10); dream floor 8.0
 vetoes    : any hygiene factor < 3 (salary ignored for interns) → Want ≤ 5.0
             Role content ≤ 3                                     → Want ≤ 6.0
 ```
@@ -303,6 +307,8 @@ Globex	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 **Lookup flow (stop at the first hit):**
 
 1. **Exact match** within 60 days → use min/max as if disclosed.
+
+**A band always resolves to its midpoint** — `(min + max) / 2` — as the base, whether it came from the cache, the posting ("€40–50K") or a lookup. Never pick a band's low or high end by feel; that's what makes the same listing score differently on two runs. Bonus / equity are added on top as usual.
 2. **Cross-city same role** in a peer city within 60 days → adjust by the ratio of the two cities' baselines; note it as a cross-city estimate.
 3. **Same company, peer archetype** in the same city within 60 days → note it as a proxy from a similar role.
 4. **Miss or stale** → WebSearch **Levels.fyi → Glassdoor → LinkedIn Salary → Payscale → Blind**, aim for 2 sources, take the median of the entry / target-level band, say where the estimate came from in plain words in the Comp section (*"estimated from Glassdoor"*), and **append a row to the cache**.
@@ -329,6 +335,10 @@ Globex	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 - **3:** Weak overlap; most domain skills absent
 - **2:** Only generic skills match
 - **1:** Wrong stack entirely
+
+**Re-score anchoring.** A listing evaluated before starts from its previous scores: `node scripts/score-listing.mjs --prior-only` (input `company`, `role`, `url`) returns them, and every score-listing run returns `prior.changes`, the judged dimensions that moved by 1 or more. Each such move needs something new since the prior date (the posting changed or more of it became available, a new CV item, new insider or company knowledge in `user/_profile.md`), stated in the reasoning cell as a plain fact, never as a comparison with the old run. A different reading of the same evidence keeps the prior score. Judgment dimensions otherwise wobble by a point between runs with nothing behind it.
+
+**Duties are not requirements.** Tasks the posting says you "may" do ("your tasks may include building financial models") are not skills it requires. Count a skill gap only when the posting lists it as a qualification (required or preferred) or the selection process tests it.
 
 **Skills only, not experience.** Walk the JD's required + preferred skills line by line against `user/cv.md` (Skills, Education, Projects). "3+ years in X" or "prior consulting background" are not skills — they belong to **Experience bar**. Domain-specific skills (a named ads ecosystem, an LLM stack, a CRM-admin skill) ARE skills: strong analytical foundations without the domain skill the role runs on is a 7, not an 8. The split is the point: "Skills 9, Experience bar 3" tells the candidate "you have the skills, not the experience" — the actionable read.
 
@@ -578,7 +588,7 @@ date	archetype	skills_match	experience_bar	competition	ease	growth_mobility	opti
 - `mode`: always `scouting`.
 - `tier`: `T1` | `T2` | `T3` | `T4`.
 - `source`: `url` | `paste` | `scan` | `pipeline` | `batch` — where the listing entered the system, not its URL.
-- `location`: city as stated in the JD (`Remote-EU`, `Lyon (hybrid)`); `n/d` if not stated.
+- `location`: city as stated in the JD (`Remote-EU`, `Lyon (hybrid)`); `n/d` if not stated. **One posting open in several cities** → list every city, the one scored first, separated by `; ` and outside any parentheses (`Lyon, France; Vienna, Austria; Prague, Czechia; Brussels, Belgium`) — the app splits on `;` and drops parenthesised text, so `Lyon (also Vienna, Prague)` reads as Lyon only.
 - `employment_type`: `internship` | `full-time` | `working-student` | `graduate-program` | `contract` | `n/d`.
 - `duration`: free text (`6mo`, `12mo`, `permanent`, `n/d`).
 - `salary_raw`: the figure as stated (`€1,500/mo`, `€35–45K`, `competitive`); `n/d` if undisclosed.

@@ -20,8 +20,7 @@ import {
   flattenForExport,
 } from '@/lib/databaseRows'
 import { livenessKey } from '@/lib/scanHistory'
-import { filterNearUpgrades } from '@/lib/tierLevers'
-import { TrendingUp, EyeOff } from 'lucide-react'
+import { EyeOff } from 'lucide-react'
 import { Button, PageHeader } from '@/components/ui'
 import type { ScoreEntry } from '@/types'
 
@@ -38,12 +37,6 @@ export function DatabaseView() {
   // Local UI state (not persisted like the facet store) — it's a transient
   // "help me find what's left to chase" lens, reset on relaunch.
   const [untappedOnly, setUntappedOnly] = useState(false)
-
-  // "Near upgrade only" — keep just the rows one modest single-dimension bump
-  // from a better tier (lib/tierLevers § isNearUpgrade). A fast "what's cheap
-  // to upgrade?" lens layered on top of the facet filters. Local UI state like
-  // untappedOnly — transient, reset on relaunch.
-  const [nearUpgradeOnly, setNearUpgradeOnly] = useState(false)
 
   // Drop tombstoned rows up-front. The tombstone set is keyed by
   // livenessKey(company, role) — identical to the key used for the
@@ -112,13 +105,7 @@ export function DatabaseView() {
     [entities, filters, tokenFilters, freeText, showClosed, untappedOnly, actedKeys, liveness],
   )
 
-  // Apply the "Near upgrade only" lens on top of the grouped rows. Grouping
-  // already picked each row's primary (best active sibling), whose dims drive
-  // the lever — so filtering at the group level matches what the chip shows.
-  const visibleRows = useMemo(
-    () => filterNearUpgrades(filtered, nearUpgradeOnly),
-    [filtered, nearUpgradeOnly],
-  )
+  const visibleRows = filtered
 
   // Flatten grouped rows to one entity per line for export (every evaluated
   // city carries its own score, with livenessState resolved per sibling).
@@ -142,17 +129,6 @@ export function DatabaseView() {
                 aria-pressed={untappedOnly}
               >
                 Untapped
-              </Button>
-              {/* "Near upgrade" quick-filter — one nudge from a better tier. */}
-              <Button
-                tone={nearUpgradeOnly ? 'tinted' : 'ghost'}
-                size="sm"
-                icon={<TrendingUp size={13} aria-hidden />}
-                onClick={() => setNearUpgradeOnly(v => !v)}
-                title="Show only listings one modest single-dimension bump from a better tier"
-                aria-pressed={nearUpgradeOnly}
-              >
-                Near upgrade
               </Button>
               <ExportMenu rows={exportRows} />
               <span className="w-px h-4 bg-border-default" aria-hidden />

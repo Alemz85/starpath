@@ -22,6 +22,11 @@
  * "Re-eval (W a→b, E c→d)". An addition dated before the existing row is
  * skipped as stale. A PROMOTED-n hint is preserved.
  *
+ * Applications refresh: when a merged listing is already in
+ * data/applications.md (strict company + role match), that row's Score cell
+ * becomes the new `W.. E..` and its Report link the new report, so an applied
+ * role never keeps a stale score after a re-evaluation.
+ *
  * Parsing/normalization lives in lib/scouting-core.mjs (pure + unit-tested);
  * this script owns the file I/O and merge orchestration.
  *
@@ -46,15 +51,23 @@ import {
   reEvalNote,
 } from './lib/scouting-core.mjs';
 import { SCOUTING_SCAFFOLD } from './lib/profile-core.mjs';
+import { refreshApplicationRows } from './lib/tracker-core.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
+const APPLICATIONS_FILE = join(CAREER_OPS, 'data/applications.md');
 const DEDUP_INDEX_FILE = join(CAREER_OPS, 'data/dedup-index.tsv');
 const DEDUP_INDEX_HEADER = 'company_normalized\trole_normalized\tlast_seen_date';
 const ADDITIONS_DIR = join(CAREER_OPS, 'batch/scouting-additions');
 const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
 const DRY_RUN = process.argv.includes('--dry-run');
 const VERIFY = process.argv.includes('--verify');
+
+/** The link target of a `[n](reports/…md)` cell, or null. */
+function reportPath(cell) {
+  const m = /\]\(([^)]+)\)\s*$/.exec(String(cell ?? ''));
+  return m ? m[1].trim() : null;
+}
 
 function appendDedupIndex(company, role, date) {
   if (DRY_RUN) return;
@@ -126,24 +139,29 @@ let added = 0;
 let updated = 0;
 let skipped = 0;
 const newRows = [];
+const merged = []; // every addition that landed (added or updated), for the applications refresh
 
 for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
   const addition = parseScoutingTsv(content, file);
   if (!addition) { skipped++; continue; }
 
-  const reportNum = extractReportNum(addition.report);
-  let dup = null;
-
-  if (reportNum) {
-    dup = existing.find(e => extractReportNum(e.report) === reportNum);
-  }
+  // Match the listing, most specific first. Numbers come last and only within
+  // the same company: parallel workers can pick the same next number (two
+  // listings both arriving as #13), so a number alone must never decide which
+  // row a result overwrites.
+  const normCompany = companyKey(addition.company);
+  const sameCompany = (e) => companyKey(e.company) === normCompany;
+  const roleKey = normalizeRoleForIndex(addition.role);
+  const path = reportPath(addition.report);
+  let dup =
+    existing.find(e => sameCompany(e) && normalizeRoleForIndex(e.role) === roleKey) ||
+    (path && existing.find(e => reportPath(e.report) === path)) ||
+    existing.find(e => sameCompany(e) && roleFuzzyMatch(addition.role, e.role)) ||
+    null;
   if (!dup) {
-    dup = existing.find(e => e.num === addition.num);
-  }
-  if (!dup) {
-    const normCompany = companyKey(addition.company);
-    dup = existing.find(e => companyKey(e.company) === normCompany && roleFuzzyMatch(addition.role, e.role));
+    const reportNum = extractReportNum(addition.report);
+    dup = existing.find(e => sameCompany(e) && ((reportNum && extractReportNum(e.report) === reportNum) || e.num === addition.num)) || null;
   }
 
   if (dup) {
@@ -155,6 +173,7 @@ for (const file of tsvFiles) {
         fileLines[idx] = newLine;
         Object.assign(dup, parseScoutingRow(newLine)); // keep `existing` in sync for later additions in this batch
         updated++;
+        merged.push(addition);
         appendDedupIndex(addition.company, addition.role, addition.date);
       }
     } else {
@@ -164,8 +183,11 @@ for (const file of tsvFiles) {
   } else {
     const entryNum = addition.num > maxNum ? addition.num : ++maxNum;
     if (addition.num > maxNum) maxNum = addition.num;
-    newRows.push(formatScoutingRow({ ...addition, num: entryNum }));
+    // The report link's text is the row's own number, even when the row is renumbered.
+    const report = /^\[\d+\]/.test(addition.report) ? addition.report.replace(/^\[\d+\]/, `[${entryNum}]`) : addition.report;
+    newRows.push(formatScoutingRow({ ...addition, num: entryNum, report }));
     added++;
+    merged.push({ ...addition, report });
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (W ${addition.want} · E ${addition.ease}, ${addition.tier}, ${addition.eligibility.split(':')[0]})`);
     appendDedupIndex(addition.company, addition.role, addition.date);
   }
@@ -186,6 +208,32 @@ if (newRows.length > 0) {
   fileLines.splice(insertIdx, 0, ...newRows);
 }
 
+// Refresh any application row for a listing that was just re-scored.
+let refreshed = 0;
+if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) {
+  const appLines = readFileSync(APPLICATIONS_FILE, 'utf-8').split('\n');
+  const updates = merged.map(a => ({
+    company: a.company, role: a.role,
+    want: Number.parseFloat(a.want), ease: Number.parseFloat(a.ease),
+    report: a.report,
+  }));
+  const { lines, changed, matched } = refreshApplicationRows(appLines, updates);
+  for (const c of changed) console.log(`📝 applications.md #${c.num} ${c.company} — ${c.role}: ${c.from} → ${c.to}`);
+  refreshed = changed.length;
+  if (refreshed > 0 && !DRY_RUN) writeFileSync(APPLICATIONS_FILE, lines.join('\n'));
+
+  // A listing that is already an application is not a "READY to apply" scouting
+  // hit: point its scouting row at the application instead (PROMOTED-n).
+  for (const { num, update } of matched) {
+    for (let i = 0; i < fileLines.length; i++) {
+      const e = parseScoutingRow(fileLines[i]);
+      if (!e || companyKey(e.company) !== companyKey(update.company) || e.role !== update.role) continue;
+      const hint = `PROMOTED-${num}`;
+      if (e.hint !== hint) fileLines[i] = formatScoutingRow({ ...e, hint });
+    }
+  }
+}
+
 if (!DRY_RUN) {
   writeFileSync(SCOUTING_FILE, fileLines.join('\n'));
   if (!existsSync(MERGED_DIR)) mkdirSync(MERGED_DIR, { recursive: true });
@@ -195,7 +243,7 @@ if (!DRY_RUN) {
   console.log(`\n✅ Moved ${tsvFiles.length} TSVs to merged/`);
 }
 
-console.log(`\n📊 Summary: +${added} added, 🔄${updated} updated, ⏭️${skipped} skipped`);
+console.log(`\n📊 Summary: +${added} added, 🔄${updated} updated, ⏭️${skipped} skipped, 📝${refreshed} application row(s) refreshed`);
 if (DRY_RUN) console.log('(dry-run — no changes written)');
 
 if (VERIFY && !DRY_RUN) {

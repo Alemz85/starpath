@@ -368,7 +368,8 @@ export function buildReEvalRow(existing, addition) {
     ease: addition.ease,
     tier: addition.tier,
     eligibility: addition.eligibility,
-    report: addition.report,
+    // The link text stays the row's own number, whatever number the worker picked.
+    report: /^\[\d+\]/.test(String(addition.report)) ? addition.report.replace(/^\[\d+\]/, `[${existing.num}]`) : addition.report,
     deadline: coalesceDeadline(addition.deadline, existing.deadline),
     hint: promoted ? existing.hint : addition.hint,
     notes: `${reEvalNote(existing, addition)}. ${addition.notes}`.trim(),

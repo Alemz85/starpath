@@ -94,6 +94,7 @@ function replay(dims, status, amberCount, context) {
     weights: context?.weights?.want,
     is_intern: context?.is_intern === true,
     dream: context?.dream === true,
+    preference: context?.preference ?? 0,
   })
   const ease = rollupEase(dims, { weights: context?.weights?.ease, amber_count: amberCount })
   const { verdict } = assignVerdict({ want: want.score, ease: ease.score, eligibility: status })
@@ -428,7 +429,7 @@ export function sensitivity({ dims, eligibility, context, drop = 1 }) {
  *   dims         final dimension values (calibrated, competition incl. the
  *                referral bonus, salary_adj_city computed); null when blocked
  *   eligibility  evaluateEligibility() result
- *   context      { is_intern, dream, weights: { want, ease } }
+ *   context      { is_intern, dream, preference, weights: { want, ease } }
  *
  * Returns { verdict, bindingConstraints, drivers, levers, sensitivity,
  *           headline, holdingItBack, closestLever, whyThisScore }

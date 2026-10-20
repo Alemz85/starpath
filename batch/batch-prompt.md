@@ -22,6 +22,7 @@ This prompt is self-contained. Do not load CLAUDE.md, modes/, or skills.
 | `user/_profile.md` | The user's archetypes, narrative, location policy, red flags, score calibration |
 | `user/profile.yml` | Candidate identity, target_roles, comp targets, `calibration:`, `eligibility:` and `scoring:` blocks |
 | `user/article-digest.md` | Detailed proof points (optional; takes precedence over cv.md for project metrics) |
+| `data/applications-sent/` | What the candidate actually submitted to a company (CV version, cover letter, transcripts), one file per application, named `{company-slug}-{role-slug}-{YYYY-MM}.md`. If one matches this listing, read it: it is the evidence the employer is judging, and the grades in it bear on "strong academic record" asks |
 
 **Archetypes are user data.** Classify the listing against the archetypes defined in `user/_profile.md` (§ Target Role Matrix or equivalent) — primary plus secondary if hybrid. There is no system-wide archetype list.
 
@@ -44,7 +45,7 @@ This prompt is self-contained. Do not load CLAUDE.md, modes/, or skills.
 ### Step 1 — Get the JD
 
 1. Read `{{JD_FILE}}`. If empty/missing, WebFetch `{{URL}}`. If both fail → emit the failure JSON (Step 8) and stop.
-2. **Dedup check:** look up the listing in `data/dedup-index.tsv` (normalized company+role). If a match exists with `last_seen_date` < 6 months, do NOT rescore — emit the JSON summary with `"status": "skipped_duplicate"` and stop.
+2. **Dedup check:** look up the listing in `data/dedup-index.tsv` (normalized company+role). If a match exists with `last_seen_date` < 6 months, do NOT rescore — emit the JSON summary with `"status": "skipped_duplicate"` and stop. **Exception:** when this job's notes ask for a re-evaluation, score it anyway — Step 4 anchors it on the previous scores.
 3. Playwright is unavailable in batch mode — posting liveness is unverified. The report header must carry `**Verification:** unconfirmed (batch mode)`.
 
 ### Step 2 — Eligibility gate (run FIRST)
@@ -67,7 +68,8 @@ Extract `eligibility_facts` from the JD. `null` = the JD doesn't say — never g
 - `graduation.soft: false` only when the JD words the window as mandatory ("must", "only", "required"); "penultimate year", "graduating in 2028", "ideally" → `soft: true`.
 - `languages[].required: false` for "a plus" / "nice to have" — never blocks (it can raise Competition).
 - `work_auth`: "must already have the right to work in X" → `requires_existing_right: true`; "no sponsorship" → `not_offered`; UK Skilled Worker comp below **£38,700/year** (no new-entrant / graduate-route mention) → `below_sponsorship_salary_floor: true`; US/Canada entry-level → `not_offered` unless the JD opens the door; Swiss roles for an EU candidate are amber automatically.
-- `other[]`: degree-field, enrolment-status, citizenship / clearance requirements the five checks don't model. `red` only when the JD states it as mandatory AND the CV clearly fails it; otherwise `amber` with a recruiter `question`.
+- `other[]`: degree-field, enrolment-status, citizenship / clearance requirements the five checks don't model. `red` only when the JD states it as mandatory AND the CV clearly fails it; otherwise `amber` with a recruiter `question`. Only requirements the posting states, quoted in `text`; a suspicion it doesn't voice (unstated language, culture guesses) is not an eligibility flag. It goes into Competition or the prose.
+- `start` with several intakes the candidate picks between ("March or September 2028") → extract the intake that fits and name the choice in `text`. That is green; only a clash with every offered intake (or an employer-assigned intake) counts.
 
 Run `echo '{ "eligibility_facts": {...} }' | node scripts/score-listing.mjs --eligibility-only`. The script runs the six checks — `start_date`, `duration`, `graduation`, `language`, `work_auth`, `other` — against `user/profile.yml` → `eligibility:` and returns `{ eligibility }`. Unknown is not green: an internship with no stated start is amber. Language: red when a required language is missing, ≥2 CEFR steps below, or any gap at a C1+ requirement; amber at 1 step below a B2-or-lower requirement.
 
@@ -89,17 +91,21 @@ Note these signals in scratch before assigning any score (never paste the audit 
 
 ### Step 4 — Score the judgment dimensions (integers 1–10, no half-steps)
 
+**Re-score anchoring.** First run `echo '{ "company": "...", "role": "...", "url": "..." }' | node scripts/score-listing.mjs --prior-only`. If it returns a `prior`, start from its dimension scores. Move a dimension by 1 or more only for something **new since `prior.date`**: the posting changed or more of it is now available, a new item on the CV, new knowledge in `user/_profile.md` (insider notes, decisions, constraints). Say what is new in that dimension's reasoning cell, as a plain fact ("they now say the office averages under 50 hours"), never as a comparison with the old run. A different reading of the same evidence is not new: keep the prior score. After Step 5, `prior.changes` lists every dimension that moved by 1 or more; each must have its new reason, otherwise set it back and re-run.
+
+**Skills are what the posting asks for, not what the job involves.** Duties the posting says you "may" do ("your tasks may include building financial models") are not skill requirements. Count a skill gap only when the posting lists it as a qualification (required or preferred) or the selection process tests it.
+
 **Want — motivators** (averaged):
 
 **Growth / Mobility**: 10 documented multi-level track + mobility + mentorship/LDP · 9 clear ladder, strong mobility · 8 structured programme/mentor · 7 growth possible, less structured · 6 depends on performance, no formal path · 5 narrow scope · 4 capped function · 3 dead-end role type · 2 execution-only · 1 explicitly capped. Cite the structural signal (cohort size, rotation length, named promotion path).
 
 **Optionality / Exit**: 10 immediate top-destination transfer · 9 very transferable, global brand · 8 portable to multiple sectors · 7 portable with niche exposure · 6 known in one region/sector · 5 limited portability · 4 mostly company-specific · 3 very niche · 2 locks into one company's processes · 1 harms future options. Name 2 concrete next-move destinations.
 
-**Brand Value**: 10 global top-tier (Google/McKinsey/Goldman) · 9 near-global (Amazon, Meta, Stripe, BCG) · 8 strong European/global tech or Big-4 · 7 known tech/regional leader · 6 solid mid-market · 5 smaller/regional · 4 startup/early-stage · 3 unknown outside its market · 2 no recognition · 1 zero/negative. Reasoning = which named tier.
+**Brand Value**: 10 global top-tier (Google/McKinsey/Goldman) · 9 near-global (Amazon, Meta, Stripe, BCG) · 8 strong European/global tech or Big-4 · 7 known tech/regional leader · 6 solid mid-market · 5 smaller/regional · 4 startup/early-stage · 3 unknown outside its market · 2 no recognition · 1 zero/negative. Reasoning = which named tier. **Brand is a CV signal**: how a recruiter at another company reads the name, never how much the candidate likes it. Dream and favourite companies get no Brand bump; their preference is applied to Want by the script.
 
 **Role content** (is the day-to-day the work the user's archetypes describe): 10 pure target work · 9 ≤10% coordination · 8 ~20% PM/client · 7 ~30% operational · 6 half and half · 5 more operational than target · 4 mostly execution · 3 target work incidental · 2 cosmetic · 1 none. **Sales cap:** ≥50% quota-carrying or outbound sales → max 3 (BDR/SDR with analytical branding 2, pure quota 1), unless the user's own archetypes are sales roles. Say what the quota or outbound work is.
 
-**Want — hygiene:** City (against `user/_profile.md` location policy: top preferred city floors at 9, non-preferred city in the reachable region floors at 6, outside it 2–3) · Work-Life Balance (cite Glassdoor/Blind/known reputation) · Salary Adj for City (computed by the script — Step 5).
+**Want — hygiene:** City (against `user/_profile.md` location policy: top preferred city floors at 9, non-preferred city in the reachable region floors at 6, outside it 2–3). A posting open in several cities the candidate picks between → score City and Salary for the city they would pick, and write every city in the score-history `location` column, the scored one first, `; `-separated, no parentheses (`Lyon, France; Vienna, Austria; Brussels, Belgium`) · Work-Life Balance (cite Glassdoor/Blind/known reputation) · Salary Adj for City (computed by the script — Step 5).
 
 **Ease:**
 
@@ -117,21 +123,21 @@ Leave `referral` null — batch workers don't look up `data/network.md`.
 
 **Best-fit Early-career Roles** (context): 1-4 alternatives at this company, free text.
 
-**Calibration hooks:** apply Score Calibration rules from `user/_profile.md`, and pass the `calibration:` block from `user/profile.yml` into the script (dream-company Brand 10 + Want floor 8.0, brand-affinity bonuses, onboarding signal are applied there — don't hand-apply them).
+**Calibration hooks:** apply Score Calibration rules from `user/_profile.md`, and pass the `calibration:` block from `user/profile.yml` into the script (dream-company Want floor 8.0, lower-tier dream +0.25 Want, explicit `extra_brand_bonuses`, onboarding signal are applied there — don't hand-apply them; wish lists never raise Brand).
 
 **Reasoning cells — one hard rule: no score without a reason a person can check.** One or two plain sentences; quote the posting when the quote carries the point; mention a CV item only when it changes the score; when the posting is silent, say so in words. No backticks, no bracketed tokens, no rubric words (anchor, calibration, adjuster, rollup). "Competitive but reachable" is not a reason. Never copy one sibling listing's fingerprint onto another.
 
 ### Step 5 — Compute with score-listing.mjs (MANDATORY — never hand-roll)
 
 1. Build comp inputs from the JD: base, bonus % (estimate by industry when undisclosed: big tech ≈15%, top consulting ≈20%, banking ≈30%+, else 0-10%), 13th/14th months, monthly cash benefits, sign-on, annualized equity (Levels.fyi preferred; 50% haircut for private grants; zero when unresolvable, and say in Comp that the figure is base only).
-2. If comp is undisclosed, look up `(company, role_archetype, city)` in `data/comp-cache.tsv` (60-day TTL, cross-city and peer-archetype fallbacks allowed with a provenance tag). On a miss, WebSearch (Levels.fyi → Glassdoor → LinkedIn → Payscale → Blind), take the entry-band median, say in Comp where the estimate came from, and append the row to the cache. Only a genuinely-empty search scores a default 5 (say so plainly).
+2. If comp is undisclosed, look up `(company, role_archetype, city)` in `data/comp-cache.tsv` (60-day TTL, cross-city and peer-archetype fallbacks allowed with a provenance tag). On a miss, WebSearch (Levels.fyi → Glassdoor → LinkedIn → Payscale → Blind), take the entry-band median, say in Comp where the estimate came from, and append the row to the cache. Only a genuinely-empty search scores a default 5 (say so plainly). A pay band (cache, posting or lookup) always resolves to its **midpoint** `(min + max) / 2` as the base, never a low or high end picked by feel.
 3. Resolve tax (`data/tax-cache.tsv`, 90d) and city baseline (`data/col-cache.tsv`, 60d); on a miss WebSearch a calculator / Numbeo and pass `tax_override` / `col_override`, running with `--write-cache`.
 4. Pick the soft-benefits modifier (±1.0 max; when it moves the score, say why in plain words in Comp).
 5. Run:
 
 ```bash
 echo '{
-  "company": "...", "role_archetype": "...", "city": "...", "country": "..",
+  "company": "...", "role": "...", "url": "...", "role_archetype": "...", "city": "...", "country": "..",
   "comp": { "base": 0 },
   "is_intern": false,
   "comp_source": "disclosed|estimate",
@@ -147,7 +153,7 @@ echo '{
 }' | node scripts/score-listing.mjs
 ```
 
-The script returns `eligibility`, `want` and `ease` (use `.score`), `priority`, `verdict`, `verdict_label`, `tier`, `tier_reason`, `salary_adj_for_city.summary`, `salary_adj_for_city.math` and `explanation`. **The Salary Adj cell is `salary_adj_for_city.summary`; `salary_adj_for_city.math` goes only in the report's last line.** Use the returned verdict and tier — do not re-derive them. `explanation` (binding constraint + closest lever) is not rendered; it tells you what the report leads with.
+The script returns `eligibility`, `want` and `ease` (use `.score`), `priority`, `verdict`, `verdict_label`, `tier`, `tier_reason`, `salary_adj_for_city.summary`, `salary_adj_for_city.math` and `explanation`. **The Salary Adj cell is `salary_adj_for_city.summary`; `salary_adj_for_city.math` goes only in the report's last line.** Use the returned verdict and tier — do not re-derive them. `explanation` (binding constraint + closest lever) is not rendered; it tells you what the report leads with. `prior` is the previous evaluation (or null) and `prior.changes` the dimensions that moved by 1 or more — see Step 4.
 
 ### Step 6 — Write the report
 
@@ -155,9 +161,9 @@ Tier folders: `T1` → `reports/tier-1/` · `T2` → `reports/tier-2/` · `T3` �
 
 `go` → `T1` full report · `stretch` / `solid` / `thin` → `T2` short report · `growth` → `T3` Gap & Growth report · `skip` / `blocked` → `T4` (NO report file).
 
-Report file: `reports/tier-{N}/{Company} - {Role}.md` (human-readable naming; no sequence numbers in filenames).
+Report file: `reports/tier-{N}/{Company} - {Role}.md` (human-readable naming; no sequence numbers in filenames). In the filename only, drop the characters `( ) [ ] : / \ ? * " < > |` and collapse spaces (role "Data Analyst (Lyon, autumn start)" → `Data Analyst Lyon, autumn start`), so the markdown link never breaks. The company and role cells in the trackers keep the exact title. The link text in the scouting row is that row's own `{num}`.
 
-**Voice.** A sharp advisor talking to the candidate, second person. **Lead with what decides this listing** (usually `explanation.bindingConstraints[0]` / `levers[0]`, an eligibility amber, or a Step 3 live constraint) and leave out what doesn't move the decision — no paragraph on a 7 for work-life balance, no sweep of every dimension below 8. Opinion plus its reason in one sentence; objective, not flattering — name the weakest requirement and give honest odds. Quote the posting in plain prose when it helps ("they want advanced Excel, including macros"); say "they" or "the posting", not "the JD". Mention a CV item only when it changes the judgment. Numbers stay in the tables. **Banned:** file paths, § refs, bracketed tokens, backticks, rubric words (anchor, calibration, adjuster, rollup, binding constraint, lever, tier, band), score-fragility talk. No metawriting: never narrate the process ("I checked the comp cache like you asked", "as instructed, I looked up…", "after reviewing your CV…") — state the finding and, where it matters, its source in a few words ("about €2,000 a month gross, per Glassdoor").
+**Voice.** A sharp advisor talking to the candidate, second person. **Lead with what decides this listing** (usually `explanation.bindingConstraints[0]` / `levers[0]`, an eligibility amber, or a Step 3 live constraint) and leave out what doesn't move the decision — no paragraph on a 7 for work-life balance, no sweep of every dimension below 8. Opinion plus its reason in one sentence; objective, not flattering — name the weakest requirement and give honest odds. Quote the posting in plain prose when it helps ("they want advanced Excel, including macros"); say "they" or "the posting", not "the JD". Mention a CV item only when it changes the judgment. Numbers stay in the tables. **Banned:** file paths, § refs, bracketed tokens, backticks, rubric words (anchor, calibration, adjuster, rollup, binding constraint, lever, tier, band), score-fragility talk. No point arithmetic in cells ("big pool (minus two)") — say in words what raises or lowers the odds. No metawriting: never narrate the process ("I checked the comp cache like you asked", "as instructed, I looked up…", "after reviewing your CV…") — state the finding and, where it matters, its source in a few words ("about €2,000 a month gross, per Glassdoor").
 
 **Length targets (prose, excluding tables):** T1 roughly 600–900 words · T2 roughly 250–400 · T3 roughly 150–300.
 
@@ -183,7 +189,7 @@ Header:
 Body (all tiers that write a file): `## Eligibility` (table `Check | Status | Reason`, one row per check, then an "Ask the recruiter:" list of the amber questions — omit the list when nothing is amber), then `## Dimensional scoring` (exactly that heading — the frontend parser keys on it) holding one table in this row order with these exact tags: `Growth / Mobility (want)`, `Optionality / Exit (want)`, `Brand Value (want)`, `Role content (want)`, `City (hygiene)`, `Salary Adj for City (hygiene)`, `Work-Life Balance (hygiene)`, `**Want (rollup)**`, `Skills Match (ease)`, `Experience bar (ease)`, `Competition (ease)`, `**Ease (rollup)**`, `Best-fit Early-career Roles (context)`. Salary row = `salary_adj_for_city.summary`; rollup rows = the number plus a few plain words, never the formula. Then the tier's sections below. The report's **last line** is `Salary math: {salary_adj_for_city.math}`.
 
 - **T1 adds**, as separate short sections: `## A) Role summary` (small table: domain, function, seniority, remote, one-line TL;DR) · `## B) Gaps and opportunities` (only gaps that move the decision — often one, sometimes none, never padded; each = what they ask for, why it matters for you, the closing move and its effort shape; a structural wall is a constraint, said in one line) · `## C) Comp & demand` (one row: source + date in plain words, band, what it means for you after living costs — same gross as the Salary Adj score) · `## D) Recommendation` (2–4 sentences opening with the deciding factor and a plain call, e.g. "Message a recruiter about the start date first, then decide"; weigh live constraints such as an application cap at this company; consistent with the verdict grid) · `## E) Career path impact` (one or two real consequences for the user's actual targets in `user/profile.yml`, not a template).
-- **T2 adds:** `## Fit / gaps` (strongest match + biggest gap = the deciding factor) · `## Verdict` (one line, plain call consistent with the grid; `thin` carries "only if your pipeline is thin") · `## Path forward` (ONE sentence, no timelines).
+- **T2 adds:** `## Fit / gaps` (strongest match + biggest gap = the deciding factor) · `## Recommendation` (opens with the deciding factor, then one plain call consistent with the grid; `thin` carries "only if your pipeline is thin") · `## Path forward` (ONE sentence, no timelines).
 - **T3 (title `# Gap & Growth:`) adds:** `## Gaps and opportunities` (the one thing standing between the user and the role) · Revisit when (a capability trigger, never a calendar date).
 - **Never write** a `## Why this score` section, a per-dimension gap sweep, or a requirement tick list.
 

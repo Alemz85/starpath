@@ -5,9 +5,9 @@
 // applies it deterministically in scripts/lib/calibration.mjs and
 // scripts/lib/score-bands.mjs. But the user has no feedback loop telling them
 // whether that calibration still matches reality. They flagged some company as
-// a dream company (Brand → 10, Want floored at 8.0) once, months ago — is that
-// floor still doing anything? Is a brand-affinity bonus firing on companies
-// whose Want sits in the top verdict row without it (the bonus is inert), or on
+// a dream company (Want floored at 8.0) once, months ago — is that floor still
+// doing anything? Is a liked-company Want bonus or a Brand correction firing on
+// companies whose Want sits in the top verdict row without it (inert), or on
 // companies whose Want stays in the bottom row even with it, so every verdict
 // is Skip (the bonus is misdirected)? Is a rubric dimension pinned at the
 // ceiling on every eval (it carries no discriminating signal, so its weight is
@@ -50,7 +50,7 @@ import {
   rollupWant, rollupEase, assignVerdict, computePriority,
   WANT_HIGH, WANT_MID, DREAM_WANT_FLOOR, WANT_DIMS, VERDICT_LABELS,
 } from './score-bands.mjs'
-import { applyBrandCalibration } from './calibration.mjs'
+import { applyBrandCalibration, isDreamCompany, wantPreference } from './calibration.mjs'
 import { parseScoreCell } from './tracker-core.mjs'
 import { GATES, confidenceTier, describeSample } from './scoring-stats.mjs'
 
@@ -122,14 +122,17 @@ export function brandLists(calibration = {}) {
   }
 }
 
-/** Every company that currently carries SOME brand bonus, flattened with its
- *  source list — so we can check each one against the evidence. */
+/** Every company the calibration currently favours in the SCORE, flattened
+ *  with its source list — so we can check each one against the evidence.
+ *  Brand is a CV signal, so wish lists act on Want: dream companies through
+ *  the Want floor, lower-tier dream companies through the preference bonus.
+ *  `extra_brand_bonuses` are the only Brand corrections. The affinity list
+ *  (CEMS partners) has no score effect any more, so it is not audited here. */
 function configuredBonusCompanies(calibration = {}) {
-  const { affinity, dream, lowerDream, extra } = brandLists(calibration)
+  const { dream, lowerDream, extra } = brandLists(calibration)
   const out = []
   for (const c of dream) out.push({ company: c, source: 'dream_companies', kind: 'dream' })
   for (const c of lowerDream) out.push({ company: c, source: 'lower_tier_dream_companies', kind: 'lower_dream' })
-  for (const c of affinity) out.push({ company: c, source: 'brand_affinity_companies', kind: 'affinity' })
   for (const e of extra) {
     if (e?.company) out.push({ company: e.company, source: 'extra_brand_bonuses', kind: 'extra', bonus: e.bonus })
   }
@@ -137,36 +140,36 @@ function configuredBonusCompanies(calibration = {}) {
 }
 
 /**
- * What the calibration does to this company's Brand, asked of calibration.mjs
- * itself: { kind: 'dream' } (override to 10 + Want floor) or
- * { kind: 'additive', bonus } (sum of the +0.6 / +1.0 / extra bonuses), or null.
+ * What the calibration does for this company, asked of calibration.mjs
+ * itself: { kind: 'dream' } (Want floor) or
+ * { kind: 'additive', brandBonus, preference } (extra Brand bonuses and the
+ * lower-tier Want preference), or null.
  */
 function brandEffect(company, calibration) {
+  if (isDreamCompany(company, calibration)) return { kind: 'dream' }
   const { adjustments } = applyBrandCalibration(5, company, calibration)
-  if (!adjustments.length) return null
-  if (adjustments.some(a => a.type === 'override')) return { kind: 'dream' }
-  return { kind: 'additive', bonus: adjustments.reduce((a, b) => a + (Number(b.value) || 0), 0) }
+  const brandBonus = adjustments.reduce((a, b) => a + (Number(b.value) || 0), 0)
+  const preference = wantPreference(company, calibration).bonus
+  if (!brandBonus && !preference) return null
+  return { kind: 'additive', brandBonus, preference }
 }
 
 /**
- * The row's Want with the company's brand calibration taken out, by replaying
- * the engine on the row's stored dims WITHOUT the effect (current weights):
- *   dream:    rollupWant with dream: false — the Want floor removed. Brand stays
- *             as stored (the raw Brand isn't logged, so the 10 override can't be
- *             undone); the floor is what's tested. Exact whether or not the
- *             company was already a dream company when the row was scored.
- *   additive: Brand lowered by the bonus (clamped at 1). If the company was
- *             added to the list after the row was scored this over-subtracts by
- *             at most bonus × w_brand / Σw (≤ 0.25 Want at equal weights).
+ * The row's Want with the company's calibration taken out, by replaying the
+ * engine on the row's stored dims WITHOUT the effect (current weights):
+ *   dream:    rollupWant with dream: false — the Want floor removed. Exact.
+ *   additive: preference 0, and Brand lowered by any extra Brand bonus
+ *             (clamped at 1). If the company was added to a list after the
+ *             row was scored this can over-subtract slightly.
  * Falls back to the stored Want when a Want dimension is missing.
  */
 function unaidedWant(row, effect, weights) {
   const dims = {}
   for (const k of WANT_DIMS) dims[k] = row[k]
   if (!WANT_DIMS.every(k => Number.isFinite(dims[k]))) return row.want
-  const opts = { weights: wantWeightsOf(weights), is_intern: rowIsIntern(row) }
+  const opts = { weights: wantWeightsOf(weights), is_intern: rowIsIntern(row), preference: 0 }
   if (effect.kind === 'dream') return rollupWant(dims, { ...opts, dream: false }).score
-  return rollupWant({ ...dims, brand_value: Math.max(1, dims.brand_value - effect.bonus) }, opts).score
+  return rollupWant({ ...dims, brand_value: Math.max(1, dims.brand_value - (effect.brandBonus || 0)) }, opts).score
 }
 
 /* ───── 1. Brand-bonus drift (on Want) ────────────────────────────────────────
@@ -252,9 +255,9 @@ export function brandBonusDrift(rows, calibration = {}, { minRoles = 2, weights 
  *
  * The mirror of drift: companies the user is NOT giving any brand bonus, yet
  * whose scored roles' mean Want sits in the top verdict row (≥ WANT_HIGH) across
- * several evaluations. These are candidates to ADD to brand_affinity_companies /
- * lower_tier_dream_companies — the calibration is *under*-crediting a company
- * the landscape keeps rewarding.
+ * several evaluations. Their Brand already reflects how recruiters read them;
+ * these are only candidates for lower_tier_dream_companies if the candidate
+ * also wants to work there (a preference, +0.25 Want).
  */
 export function brandBonusCandidates(rows, calibration = {}, { minRoles = 3, minWant = WANT_HIGH } = {}) {
   const configured = new Set(configuredBonusCompanies(calibration).map(c => companyKey(c.company)))
@@ -556,7 +559,7 @@ export function partitionSuggestions(diag) {
       action: `Consider adding "${c.company}" to a brand-bonus list — ${c.roles} evals averaging Want ${fmtW(c.avgWant)} · Ease ${fmtW(c.avgEase)}`,
       reasoning: `"${c.company}" consistently produces roles in the top Want row (≥ ${WANT_HIGH.toFixed(1)}) for you but carries no brand bonus. Crediting it would correctly prioritize it in borderline scoring.`,
       severity: 'low',
-      edit: `Add "${c.company}" to brand_affinity_companies (+0.6 Brand) or lower_tier_dream_companies (+1.0 Brand) in user/profile.yml.`,
+      edit: `If you also want "${c.company}" as a company, add it to lower_tier_dream_companies (+0.25 Want) in user/profile.yml. Its Brand already reflects how recruiters read it.`,
     })
   }
 

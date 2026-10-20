@@ -57,6 +57,15 @@ test('livenessOf defaults unseen listings to active, else maps via livenessKey',
 
 // ─── dedupeEntities ──────────────────────────────────────────────────────────
 
+test('dedupeEntities: a same-day re-score (later row) wins over the earlier run', () => {
+  const out = dedupeEntities([
+    makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Lyon', date: '2026-10-20', want: 7.4, ease: 6.62 }),
+    makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Lyon', date: '2026-10-20', want: 7.4, ease: 6.05 }),
+  ])
+  assert.equal(out.length, 1)
+  assert.equal(out[0].ease, 6.05)
+})
+
 test('dedupeEntities keeps the latest evaluation per (company, role, city)', () => {
   const out = dedupeEntities([
     makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-01-01', want: 5, ease: 5 }),

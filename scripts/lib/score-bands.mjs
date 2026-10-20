@@ -122,6 +122,8 @@ export const HYGIENE_VETO_CAP          = 5.0   // …capping Want here
 export const ROLE_CONTENT_VETO_AT      = 3     // role_content ≤ this vetoes…
 export const ROLE_CONTENT_VETO_CAP     = 6.0   // …capping Want here
 export const DREAM_WANT_FLOOR          = 8.0
+/** Want bonus for a company the candidate likes (calibration.lower_tier_dream_companies). Preference lives in Want, never in Brand. */
+export const PREFERRED_COMPANY_WANT_BONUS = 0.25
 
 export const EXPERIENCE_WALL_AT        = 3     // experience_bar ≤ this…
 export const EXPERIENCE_WALL_CAP       = 4.5   // …caps Ease here
@@ -196,21 +198,23 @@ function resolveWeights(custom, defaults) {
  *         is_intern: the salary term is 0 and salary can't veto (stipends
  *                    are not salaries)
  *         dream:     company ∈ calibration.dream_companies → floor at 8.0
+ *         preference: Want bonus for a liked company (calibration.wantPreference,
+ *                    PREFERRED_COMPANY_WANT_BONUS); 0 by default
  *
- * Order matters: raw → dream floor → vetoes. The vetoes win over the floor,
+ * Order matters: raw (incl. preference) → dream floor → vetoes. The vetoes win over the floor,
  * so a dream company with a poverty-level city or a quota-carrying role
  * still can't reach 8.
  *
  * Returns { score, raw, uncapped, motivators_mean, motivator_penalty,
  *           hygiene: { best_cities, salary_adj_city, work_life_balance },
  *           hygiene_total, floor, vetoes, weights }
- *   raw      = clamp(M − penalty + H, 1, 10)
+ *   raw      = clamp(M − penalty + H + preference, 1, 10)
  *   uncapped = after the floor, before the vetoes (explain-score uses it to
  *              tell whether a veto is what holds the verdict down)
  *   vetoes   = every veto whose condition fired: { kind, dimension, value,
  *              cap, applied } — applied=false when Want was already ≤ cap.
  */
-export function rollupWant(dims, { weights, is_intern = false, dream = false } = {}) {
+export function rollupWant(dims, { weights, is_intern = false, dream = false, preference = 0 } = {}) {
   const w = resolveWeights(weights, DEFAULT_WANT_WEIGHTS)
   let num = 0, den = 0, bottom = 0
   for (const k of MOTIVATOR_DIMS) {
@@ -228,7 +232,8 @@ export function rollupWant(dims, { weights, is_intern = false, dream = false } =
   }
   const H = hygiene.best_cities + hygiene.salary_adj_city + hygiene.work_life_balance
 
-  const raw = clamp(M - penalty + H, 1, 10)
+  const pref = Number.isFinite(preference) ? preference : 0
+  const raw = clamp(M - penalty + H + pref, 1, 10)
   let want = raw
 
   let floor = null
@@ -259,6 +264,7 @@ export function rollupWant(dims, { weights, is_intern = false, dream = false } =
     motivator_penalty: round2(penalty),
     hygiene,
     hygiene_total: round2(H),
+    preference: round2(pref),
     floor,
     vetoes,
     weights: w,

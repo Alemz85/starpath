@@ -31,6 +31,15 @@ The system layer also leaks user data through *examples and defaults*. Before co
 
 So: no worked examples naming the user's real schools, projects, proof points or dates; no hardcoded default lists (default to `[]`, fail closed) or per-company `if` branches (express them as data in `user/profile.yml`); no specific city/country/nationality as the canonical case. When an example is needed, make it fictional. Full checklist, including what legitimately stays (universal reference tables, test fixtures): `docs/REPO-GUIDE.md` § System layer hygiene.
 
+### Public Repo — Personal Info Never Lands in Git
+
+The GitHub repo is **public**. Every tracked file and every commit message is world-readable, and once something is committed it stays in history even if a later commit removes it.
+
+- **Never commit personal information**: the user's contact details, the names of people they know, where they live, health, relationships or other private life, their schools, employers and projects, the companies and roles they applied to, scores, salaries or results from their own evaluations, and anything from their chats or memory. (The `package.json` author line is the user's own choice and the one exception.)
+- **Copying counts as leaking.** Taking a real value from the user layer (`user/*`, `data/*` including `career-memory.md` and `career-chat/`, `reports/*`, `interview-prep/*`) into a doc example, comment, test fixture, prompt, design audit or commit message is a leak even when paraphrased. A savings figure from a real report or the role string of a real application must become invented values (fictional companies like "Nimbus Robotics", neutral cities like "Lyon").
+- **Personal files live only in gitignored paths.** `data/*`, `user/*`, `interview-prep/*`, `reports/*` and `output/*` are ignored fail-closed. Put new personal files there, and never add a `!` re-include for one.
+- **Before every commit:** read `git diff --cached` for real names, companies, dates or numbers taken from the user's data; run `node scripts/lib/hygiene-guard.mjs`; and check that `git ls-files -ci --exclude-standard` prints nothing. If a leak is in a commit that hasn't been pushed, fix it before pushing. If it was already pushed, tell the user: rewriting public history is their call.
+
 ## Profiles
 
 When `profiles/` exists, several search profiles live under `profiles/<slug>/{user,data,reports}/` (gitignored) and exactly one is active (`profiles/active`). 18 canonical paths are symlinks into it: `user/profile.yml`, `user/portals.yml`, `user/_profile.md`, nine `data/` trackers and TSVs (`scouting.md`, `applications.md`, `pipeline.md`, `scan-history.tsv`, `score-history.tsv`, `dedup-index.tsv`, `discarded.tsv`, `report-summaries.tsv`, `filter-audit-state.json`), and the six `reports/` subdirs (`tier-1..4`, `positioning`, `briefs`). Everything else (`user/cv.md`, `data/network.md`, `data/outreach.md`, caches, `interview-prep/`, `batch/`) is shared.

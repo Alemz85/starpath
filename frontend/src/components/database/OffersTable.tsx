@@ -20,15 +20,13 @@ import { Button, Chip, ScoreBar, ScoreNumber, StatusChip, type ChipTone } from '
 import { formatLocation } from '@/lib/entityId'
 import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
-import { useAppStore } from '@/store/app'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { tierVerdict } from '@/lib/tier'
-import { rowLever, leverSentence, type LeverResult } from '@/lib/tierLevers'
-import { buildPeerRankIndex, type PeerRankSummary } from '@/lib/peerRank'
+import { rowLever } from '@/lib/tierLevers'
 import {
   blockedReason, eligibilityCheckLabel, isBlocked, parseEligibilityFlags, priorityOf,
-  DIM_LABELS, EASE_DIMS, HYGIENE_DIMS, MOTIVATOR_DIMS, VERDICT_RANK, type V2DimKey,
+  DIM_LABELS, EASE_DIMS, HYGIENE_DIMS, MOTIVATOR_DIMS, type V2DimKey,
 } from '@/lib/scoreBands'
 import { WantEase } from '@/components/shared/WantEase'
 import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
@@ -133,100 +131,6 @@ function relativeTime(dateStr: string): string {
   if (days < 30) return `${Math.floor(days / 7)}w`
   if (days < 365) return `${Math.floor(days / 30)}mo`
   return `${Math.floor(days / 365)}y`
-}
-
-// ─── Upgrade path ───────────────────────────────────────────────────────────
-//
-// Surfaces, per evaluated row, the CHEAPEST single change — one dimension
-// raised, or one amber eligibility check resolved — that moves the listing
-// into a strictly better verdict cell (lib/tierLevers, mirroring the spec §7
-// lever search).
-//
-// Three states, all plain text (a lever is a secondary fact, not a state):
-//   • near-miss lever (one step) → accent text, medium weight
-//   • larger lever               → quiet text-3 (still a real path up)
-//   • `go` / no lever            → "Go" / "—" in text-4 (Go has nowhere to climb)
-//
-// Decision-support while scanning: it tells the user *which* roles are cheap
-// upgrades worth chasing, without opening each report.
-function UpgradeCell({ lever }: { lever: LeverResult }) {
-  const best = lever.best
-  if (!best) {
-    // `go` rows are "maxed"; everything else with no single path reads as a
-    // neutral dash so the column stays scannable.
-    const maxed = lever.verdict === 'go'
-    return (
-      <span
-        className="text-label text-text-4 whitespace-nowrap"
-        title={maxed ? 'Go — nothing is holding it back' : lever.verdict === 'blocked' ? 'Blocked — no score change fixes eligibility' : 'No single change reaches a better verdict'}
-      >
-        {maxed ? 'Go' : '—'}
-      </span>
-    )
-  }
-  const tooltip = `${leverSentence(best)} (from ${best.fromVerdict}).`
-  return (
-    <span
-      title={tooltip}
-      className={clsx(
-        'inline-flex items-center gap-1 max-w-full min-w-0 text-label whitespace-nowrap',
-        lever.nearMiss ? 'text-accent-text font-medium' : 'text-text-3',
-      )}
-    >
-      <TrendingUp size={12} className="shrink-0" aria-hidden />
-      <span className="truncate">
-        {best.kind === 'amber' ? 'Resolve' : `${best.label.split(' ')[0]} +${best.lift}`}
-      </span>
-    </span>
-  )
-}
-
-// ─── Peer rank ──────────────────────────────────────────────────────────────
-//
-// Compact twin of the slide-over's "Peer context" panel (PeerContextCard):
-// where this row's Priority sits among ALL evaluated roles sharing its primary
-// archetype, computed live from score-history via the same lib/peerRank math —
-// the two surfaces render from one band vocabulary so they can never disagree.
-//
-// Below MIN_PEERS cohort members the cell renders NOTHING (the shared omit
-// rule — no "n/a" placeholder). Top-half rows read as quiet data ("Top 25% of
-// 12"); bottom-half rows read as a position ("#9 of 12"). No colour beyond
-// text-weight contrast: percentile is within-archetype context, not absolute
-// score quality, so it must not borrow the score or tier scales.
-//
-// STATISTICAL CONTRACT (docs/scoring-statistical-design.md § 3.2 + § 4 rule 1):
-// the cell always prints the cohort size beside the band, and a `low`-
-// confidence rank (5–9 peers, where one peer is ≥10 percentile points) never
-// gets the emphasis treatment — at that sample the band name is a bucket
-// label, not a quartile claim, and the tooltip says so in full.
-function peerText(rank: PeerRankSummary): string {
-  if (rank.band === 'bottom') return `#${rank.rankPosition} of ${rank.nPeers}`
-  const label = rank.compactLabel
-  return `${label.charAt(0).toUpperCase()}${label.slice(1)} of ${rank.nPeers}`
-}
-
-function PeerCell({ rank }: { rank: PeerRankSummary | null }) {
-  if (!rank) return null
-  const band = rank.band === 'top5' || rank.band === 'top10' || rank.band === 'quartile'
-  const emphasize = band && rank.confidence !== 'low'
-  return (
-    <span
-      title={
-        `#${rank.rankPosition} of ${rank.nPeers} evaluated ${rank.archetype} roles — ${rank.rankLabel}. ` +
-        `${rank.confidence} confidence (n=${rank.nPeers}, gate ${rank.minPeers}).` +
-        (rank.confidence === 'low'
-          ? ` At ${rank.nPeers} peers one role is ~${Math.round(100 / rank.nPeers)} percentile points — read the half, not the quartile.`
-          : '') +
-        ' Live cohort, same math as the Peer context panel in the report slide-over.'
-      }
-      className={clsx(
-        'block truncate text-label whitespace-nowrap',
-        emphasize ? 'text-text-2 font-semibold' : 'text-text-3',
-      )}
-    >
-      {peerText(rank)}
-    </span>
-  )
 }
 
 // ─── Inline row breakdown ───────────────────────────────────────────────────
@@ -419,7 +323,6 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   // store unsubscribed since nothing in this table needs it anymore.)
   const reports = useDataStore(s => s.reports)
   const applications = useDataStore(s => s.applications)
-  const scoreHistory = useDataStore(s => s.scoreHistory)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   // Batched peer-rank index — built ONCE per score-history change (dedupe +
@@ -427,8 +330,6 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
   // lookup. Cohorts come from the FULL raw score history — the same input the
   // slide-over's peerContext uses — not the filtered rows, so filtering the
   // table never changes a row's percentile.
-  const peerIndex = useMemo(() => buildPeerRankIndex(scoreHistory), [scoreHistory])
-  const peerEnabled = useAppStore(s => s.features.peerContext)
 
   // Refs that always mirror the latest state so the column-cell closures
   // can read fresh values without `expanded` / `toggleExpanded` being in
@@ -545,57 +446,6 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       enableSorting: true,
       cell: info => <ScoreCell entry={info.row.original} />,
     }),
-    col.display({
-      id: 'verdict',
-      header: 'Verdict',
-      size: 112,
-      // Better-cell order (VERDICT_RANK): descending puts Go first, Blocked
-      // last; unscored rows sit below Blocked.
-      sortingFn: (a, b) => {
-        const ra = rowLever(a.original).verdict
-        const rb = rowLever(b.original).verdict
-        return (ra ? VERDICT_RANK[ra] : -1) - (rb ? VERDICT_RANK[rb] : -1)
-      },
-      sortDescFirst: true,
-      enableSorting: true,
-      cell: info => (
-        <VerdictChip verdict={rowLever(info.row.original).verdict} className="max-w-full truncate" />
-      ),
-    }),
-    col.display({
-      id: 'peer',
-      header: 'Peers',
-      // Wide enough for the band and its cohort size ("Top 25% of 12") on one
-      // line — docs § 4 rule 1: a percentile without its n is not publishable
-      // output, so the n rides in the cell, not only the tooltip.
-      size: 88,
-      // Sort by percentile: descending puts the strongest within-cohort
-      // standouts first. Rows without a rank (cohort < MIN_PEERS or unscored)
-      // sit at -1 so a descending sort sends them to the bottom.
-      sortingFn: (a, b) => {
-        const pa = peerIndex.rankOf(a.original)?.percentile ?? -1
-        const pb = peerIndex.rankOf(b.original)?.percentile ?? -1
-        return pa - pb
-      },
-      sortDescFirst: true,
-      enableSorting: true,
-      cell: info => <PeerCell rank={peerIndex.rankOf(info.row.original)} />,
-    }),
-    col.display({
-      id: 'fixability',
-      header: 'Upgrade path',
-      size: 100,
-      // Sort by how cheap the upgrade is: near-misses (smallest lift) first,
-      // rows with no lever last. `sortingFn` reads the lever lift; a missing
-      // lever sorts to the bottom of an ascending sort (Infinity).
-      sortingFn: (a, b) => {
-        const la = rowLever(a.original).best?.lift ?? Infinity
-        const lb = rowLever(b.original).best?.lift ?? Infinity
-        return la - lb
-      },
-      enableSorting: true,
-      cell: info => <UpgradeCell lever={rowLever(info.row.original)} />,
-    }),
     col.accessor('location', {
       header: 'Location',
       size: 108,
@@ -683,12 +533,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         )
       },
     }),
-  ].filter(c =>
-    // The Peers column follows the peer-context feature switch (Settings ›
-    // General › Features) — deactivated means the column doesn't exist, not
-    // that it renders empty.
-    peerEnabled || c.id !== 'peer',
-  ), [reportSet, onOpenReport, statusByKey, peerIndex, peerEnabled])
+  ], [reportSet, onOpenReport, statusByKey])
 
   const table = useReactTable({
     data: rows,

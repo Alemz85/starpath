@@ -107,7 +107,7 @@ Eligibility runs **first**: `node scripts/score-listing.mjs --eligibility-only` 
 |---|---|---|
 | `growth_mobility` | Growth / Mobility | v1 anchors unchanged. Growth calibration (structured onboarding +1 / sink-or-swim −1) still applies. |
 | `optionality_exit` | Optionality / Exit | v1 anchors unchanged. |
-| `brand_value` | Brand Value | v1 anchors + Brand calibration (dream override 10, affinity +0.6, lower-tier dream +1.0, extra bonuses) unchanged. |
+| `brand_value` | Brand Value | A **CV signal**: how a recruiter at another company reads the name (v1 tier anchors). The candidate's wish lists never move it; only `extra_brand_bonuses` corrects a genuine perception gap. |
 | `role_content` | Role content | The old Strategic/Analytical Fit **plus the old Sales-Trap Risk**: is the day-to-day work the kind the candidate wants? A quota / pipeline / cold-outreach-heavy role, or an ops role with an analytical title, scores low here. Anchors: v1 Strategic Fit anchors; and cap the score at 3 when the JD is ≥50% quota-carrying or outbound sales. |
 
 **Hygiene factors** (they hurt when bad, add little when good):
@@ -131,7 +131,9 @@ h(x)         = +0.25  if x ≥ 8
                −0.40  if 4 ≤ x < 5
                −0.80  if 3 ≤ x < 4
                −1.20  if x < 3
-Want_raw     = clamp(M − M_penalty + H, 1, 10)
+P            = PREFERRED_COMPANY_WANT_BONUS (0.25) when company ∈ calibration.lower_tier_dream_companies, else 0
+               (the candidate's liking for a company is preference: it lives here, never in Brand)
+Want_raw     = clamp(M − M_penalty + H + P, 1, 10)
 dream floor  : company ∈ calibration.dream_companies → Want = max(Want_raw, 8.0)
 vetoes (applied after the floor; they win over it):
                any hygiene factor < 3 (salary ignored for interns) → Want = min(Want, 5.0)
@@ -139,7 +141,7 @@ vetoes (applied after the floor; they win over it):
 Want         = round to 2 decimals
 ```
 
-Constants live in `scripts/lib/score-bands.mjs` as `HYGIENE_STEPS`, `MOTIVATOR_BOTTOM_PENALTY = 0.30`, `HYGIENE_VETO_CAP = 5.0`, `ROLE_CONTENT_VETO_AT = 3`, `ROLE_CONTENT_VETO_CAP = 6.0`, `DREAM_WANT_FLOOR = 8.0`, `DEFAULT_WANT_WEIGHTS`.
+Constants live in `scripts/lib/score-bands.mjs` as `HYGIENE_STEPS`, `MOTIVATOR_BOTTOM_PENALTY = 0.30`, `HYGIENE_VETO_CAP = 5.0`, `ROLE_CONTENT_VETO_AT = 3`, `ROLE_CONTENT_VETO_CAP = 6.0`, `DREAM_WANT_FLOOR = 8.0`, `PREFERRED_COMPANY_WANT_BONUS = 0.25`, `DEFAULT_WANT_WEIGHTS`.
 
 Poverty-wage discard (salary score 1) stays a pre-scoring discard in `modes/pipeline.md` Step 2c.
 

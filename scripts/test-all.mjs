@@ -585,7 +585,7 @@ const FIXTURES = [
     },
   },
   {
-    name: 'Dream-company floor — Brand → 10 and Want floored to 8.0',
+    name: 'Dream-company floor — Brand stays a CV signal, Want floored to 8.0',
     input: fx({
       company: 'Northwind Analytics', role_archetype: 'Solutions Consultant',
       city: 'Lyon', country: 'FR',
@@ -599,9 +599,9 @@ const FIXTURES = [
       }),
     }),
     expect: {
-      'calibrated_dims.brand_value.final': 10,
-      // M = (6+6+10+6)/4 = 7.0; salary 6 → 0
-      'want.raw': 7,
+      'calibrated_dims.brand_value.final': 5,   // preference never moves Brand
+      // M = (6+6+5+6)/4 = 5.75; salary 6 → 0
+      'want.raw': 5.75,
       'want.floor.to': 8,
       'want.score': 8,
       'verdict': 'go',
@@ -626,7 +626,7 @@ const FIXTURES = [
     },
   },
   {
-    name: 'Brand calibration stack — affinity +0.6 + extra_brand_bonus +1.0',
+    name: 'Brand calibration — only extra_brand_bonuses move Brand (affinity list does not)',
     input: fx({
       company: 'Contoso Mobility', role_archetype: 'Account Strategist',
       city: 'Dublin', country: 'IE',
@@ -635,17 +635,17 @@ const FIXTURES = [
       col_override: { baseline_eur: 3000, source: 'fixture' },
       calibration: {
         brand_affinity_companies: ['Contoso Mobility', 'Fabrikam Consulting'],
-        extra_brand_bonuses: [{ company: 'Contoso Mobility', bonus: 1.0, reason: 'priority target' }],
+        extra_brand_bonuses: [{ company: 'Contoso Mobility', bonus: 1.0, reason: 'household name in the target market' }],
         dream_companies: [],
       },
       judgment_scores: JS({ brand_value: 8 }),
     }),
     expect: {
-      'calibrated_dims.brand_value.final': 9.6,
+      'calibrated_dims.brand_value.final': 9,
     },
   },
   {
-    name: 'Lower-tier dream — Brand +1.0, no override, no Want floor',
+    name: 'Lower-tier dream — +0.25 Want preference, Brand unchanged, no Want floor',
     input: fx({
       company: 'Litware Labs', role_archetype: 'Operations Analyst',
       city: 'Dublin', country: 'IE',
@@ -656,7 +656,8 @@ const FIXTURES = [
       judgment_scores: JS({ growth_mobility: 6, optionality_exit: 6, brand_value: 6, role_content: 6 }),
     }),
     expect: {
-      'calibrated_dims.brand_value.final': 7,
+      'calibrated_dims.brand_value.final': 6,
+      'want.preference': 0.25,
       'want.floor': null,
     },
   },

@@ -84,6 +84,49 @@ test('merge-scouting: adds v2 rows, blocked rows keep "—", hints derive from t
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('merge-scouting: a re-scored listing that is already an application refreshes that row and is marked PROMOTED', () => {
+  const root = makeRoot();
+  try {
+    writeFileSync(join(root, 'data/applications.md'), APPLICATIONS_SCAFFOLD.trimEnd() + '\n' +
+      '| 7 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | 7.4/10 | Applied | ❌ | n/d | — | applied |\n' +
+      '| 8 | 2026-05-01 | Nimbus Robotics | Open Day (student event) | N/A | Rejected | ❌ | n/d | — | event |\n');
+    addScouting(root, '004-nimbus.tsv', '4', '2026-06-20', 'Nimbus Robotics', 'Strategy Analyst', '8.5', '7.5', 'T1', 'green', '[4](reports/tier-1/Nimbus Robotics - Strategy Analyst.md)', 'n/d', '', 'applied already');
+    const { code, out } = run('merge-scouting.mjs', [], root);
+    assert.equal(code, 0, out);
+    const apps = appRows(root);
+    const applied = apps.find((r) => r.num === 7);
+    assert.equal(applied.score, 'W8.5 E7.5');
+    assert.equal(applied.report, '[4](reports/tier-1/Nimbus Robotics - Strategy Analyst.md)');
+    assert.equal(apps.find((r) => r.num === 8).score, 'N/A'); // sibling application untouched
+    const row = scoutingRows(root).find((r) => r.company === 'Nimbus Robotics');
+    assert.equal(row.hint, 'PROMOTED-7');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test('merge-scouting: parallel re-scores that share a number each update their own row', () => {
+  const root = makeRoot();
+  try {
+    addScouting(root, '001-a.tsv', '7', '2026-06-01', 'Nimbus Robotics', 'Intern Applied AI Consulting (Italy)', '8.5', '6.3', 'T2', 'amber: degree field', '[7](reports/tier-2/Nimbus Robotics - Intern Applied AI Consulting Italy.md)', 'n/d', '', 'ai v1');
+    addScouting(root, '002-b.tsv', '8', '2026-06-01', 'Nimbus Robotics', 'Associate Value Engineer', '8.25', '5.3', 'T2', 'amber: experience', '[8](reports/tier-2/Nimbus Robotics - Associate Value Engineer.md)', 'n/d', '', 've v1');
+    assert.equal(run('merge-scouting.mjs', [], root).code, 0);
+    // Two workers in parallel both picked #13.
+    addScouting(root, '003-a.tsv', '13', '2026-06-02', 'Nimbus Robotics', 'Intern Applied AI Consulting (Italy)', '8', '6.3', 'T2', 'amber: degree field', '[13](reports/tier-2/Nimbus Robotics - Intern Applied AI Consulting Italy.md)', 'n/d', '', 'ai v2');
+    addScouting(root, '004-b.tsv', '13', '2026-06-02', 'Nimbus Robotics', 'Associate Value Engineer', '8', '5.3', 'T2', 'amber: experience', '[13](reports/tier-2/Nimbus Robotics - Associate Value Engineer.md)', 'n/d', '', 've v2');
+    const { code, out } = run('merge-scouting.mjs', [], root);
+    assert.equal(code, 0, out);
+    const rows = scoutingRows(root);
+    assert.equal(rows.length, 2);
+    const ai = rows.find((r) => r.num === 7);
+    const ve = rows.find((r) => r.num === 8);
+    assert.equal(ai.role, 'Intern Applied AI Consulting (Italy)');
+    assert.equal(ai.want, '8');
+    assert.match(ai.report, /^\[7\]\(reports\/tier-2\/Nimbus Robotics - Intern Applied AI Consulting Italy\.md\)$/);
+    assert.equal(ve.role, 'Associate Value Engineer');
+    assert.equal(ve.want, '8');
+    assert.match(ve.report, /^\[8\]/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('merge-scouting: a newer evaluation replaces the row (even lower) and notes W/E movement; stale ones are skipped', () => {
   const root = makeRoot();
   try {

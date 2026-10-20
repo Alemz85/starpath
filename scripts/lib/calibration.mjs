@@ -9,68 +9,51 @@
 //
 // Calibration shape (all fields optional; missing = no effect):
 //   {
-//     "brand_affinity_companies":     ["Fabrikam", ...],          // +0.6 to Brand on match
-//     "dream_companies":              ["Northwind", ...],         // override Brand to 10 + Want floor 8.0
-//     "lower_tier_dream_companies":   ["Contoso", ...],           // +1.0 to Brand on match
-//     "extra_brand_bonuses": [                                    // company-specific top-up
-//       { "company": "Northwind", "bonus": 1.0, "reason": "priority target" }
+//     "dream_companies":              ["Northwind", ...],         // Want floor 8.0 (rollupWant)
+//     "lower_tier_dream_companies":   ["Contoso", ...],           // +0.25 Want (preference)
+//     "brand_affinity_companies":     ["Fabrikam", ...],          // no score effect here (see below)
+//     "extra_brand_bonuses": [                                    // Brand perception correction
+//       { "company": "Northwind", "bonus": 1.0, "reason": "household name in the target market" }
 //     ],
 //     "has_structured_onboarding":    true,                       // +1.0 to Growth
 //     "has_sink_or_swim_signal":      false                       // −1.0 to Growth
 //   }
 //
-// Backward-compat: `cems_adjacent_companies` is accepted as an alias
-// for `brand_affinity_companies` so existing user/_profile.md prose
-// referencing "CEMS-adjacent firms" continues to flow through the
-// agent without refactoring.
+// Brand Value is a CV signal: how a recruiter at another company reads the
+// name. It is NOT moved by the candidate's own liking for a company — that
+// is preference, and preference lives in Want (the dream floor, and the
+// small lower-tier bonus below), where it is counted once and labelled as
+// such. `extra_brand_bonuses` stays for genuine perception corrections the
+// tier table misses (a name that carries more weight in the candidate's
+// target market than its global tier suggests).
+//
+// `brand_affinity_companies` (e.g. CEMS corporate partners) no longer touch
+// Brand: a dedicated recruiting channel changes the odds, which Competition
+// already credits. The list still feeds pipeline triage and the daily brief.
+// `cems_adjacent_companies` remains accepted as its alias there.
 //
 // Adjustments applied:
-//   - Brand:  brand_affinity_companies match → +0.6
-//   - Brand:  upper-tier dream_companies match → override to 10
-//   - Brand:  lower_tier_dream_companies match → +1.0
 //   - Brand:  extra_brand_bonuses entry match → +entry.bonus
+//   - Want:   lower_tier_dream_companies match → +0.25 (wantPreference)
+//   - Want:   dream_companies match → floor 8.0 (in rollupWant, via isDreamCompany)
 //   - Growth: has_structured_onboarding → +1.0
 //   - Growth: has_sink_or_swim_signal → −1.0
 //   - Competition: referral "warm-direct" → +1.0, "warm-intro" → +0.5 (clamp 10)
 //
-// The dream-company Want floor (8.0) lives inside rollupWant
-// (score-bands.mjs) because it must run AFTER the raw rollup and BEFORE the
-// hygiene / role-content vetoes; this module only answers "is it a dream
-// company?" (isDreamCompany), still data-driven from dream_companies.
-//
 // All numbers ultimately clamped to [1, 10].
 
-import { REFERRAL_BONUS } from './score-bands.mjs'
+import { REFERRAL_BONUS, PREFERRED_COMPANY_WANT_BONUS } from './score-bands.mjs'
 
 /**
- * Apply Brand calibration to the agent's raw Brand score.
+ * Apply Brand calibration to the agent's raw Brand score: only the explicit
+ * perception corrections in `extra_brand_bonuses`. Dream / lower-tier dream /
+ * affinity lists do not move Brand (see the header).
  * Returns { value, adjustments } so the caller can show what fired.
  */
 export function applyBrandCalibration(rawBrand, company, calibration) {
-  const affinityList =
-    calibration?.brand_affinity_companies ??
-    calibration?.cems_adjacent_companies ??  // backward-compat alias
-    []
-  const dreamList = calibration?.dream_companies ?? []
-  const lowerTierDreamList = calibration?.lower_tier_dream_companies ?? []
   const extraBonuses = calibration?.extra_brand_bonuses ?? []
   const adjustments = []
-
-  // Upper-tier dream override wins — Brand floors at 10 regardless of other adjustments.
-  if (dreamList.some(c => sameCompany(c, company))) {
-    adjustments.push({ source: 'dream-company override', value: 10 - rawBrand, type: 'override' })
-    return { value: 10, adjustments }
-  }
-
   let value = rawBrand
-  if (affinityList.some(c => sameCompany(c, company))) {
-    value += 0.6
-    adjustments.push({ source: 'brand-affinity firm', value: +0.6 })
-  }
-  if (lowerTierDreamList.some(c => sameCompany(c, company))) {
-    value += 1.0
-    adjustments.push({ source: 'lower-tier dream company', value: +1.0 })
-  }
   for (const entry of extraBonuses) {
     if (entry?.company && sameCompany(entry.company, company) && Number.isFinite(entry.bonus)) {
       value += entry.bonus
@@ -81,6 +64,21 @@ export function applyBrandCalibration(rawBrand, company, calibration) {
     }
   }
   return { value: clamp(value), adjustments }
+}
+
+/**
+ * The candidate's own preference for a company, as a Want bonus: a
+ * lower-tier dream company adds PREFERRED_COMPANY_WANT_BONUS. Dream companies
+ * get the Want floor instead (rollupWant), not this bonus.
+ * Returns { bonus, source } (bonus 0 when nothing applies).
+ */
+export function wantPreference(company, calibration) {
+  if (isDreamCompany(company, calibration)) return { bonus: 0, source: null }
+  const lower = calibration?.lower_tier_dream_companies ?? []
+  if (lower.some(c => sameCompany(c, company))) {
+    return { bonus: PREFERRED_COMPANY_WANT_BONUS, source: 'lower-tier dream company' }
+  }
+  return { bonus: 0, source: null }
 }
 
 /**

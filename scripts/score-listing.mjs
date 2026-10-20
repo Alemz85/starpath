@@ -14,14 +14,20 @@
  *   2. Salary Adj for City: total comp → tax (cache or override) → net →
  *      minus the city baseline (cache or override; halved for interns) →
  *      monthly savings → 10-tier band → soft-benefits modifier.
- *   3. Calibration: Brand (dream override / affinity / lower-tier dream /
- *      extra bonuses), Growth (onboarding ±1), Competition (referral bonus).
+ *   3. Calibration: Brand (only explicit perception corrections —
+ *      extra_brand_bonuses; Brand is a CV signal, not preference), the
+ *      liked-company Want bonus (lower-tier dream companies), Growth
+ *      (onboarding ±1), Competition (referral bonus).
  *   4. Want (motivators mean − bottom penalty + hygiene terms, dream floor,
  *      vetoes) and Ease (weighted geometric mean, experience wall, amber
  *      penalty).
  *   5. Verdict grid → verdict, tier, promotion hint; Priority = √(Want·Ease).
  *   6. Explainability bundle (scripts/lib/explain-score.mjs), which replays
  *      the same engine.
+ *   7. Prior evaluation (scripts/lib/prior-score.mjs): the listing's latest
+ *      row in data/score-history.tsv (same URL, else company + role) and the
+ *      judged dimensions that moved by 1 or more since then. A re-score must
+ *      justify each such move with something new, or revert it.
  *
  * Caches are read-only here. Cache writes happen only with `--write-cache`
  * (and only for values passed as overrides), so the agent can verify a
@@ -32,6 +38,10 @@
  *   echo '{ ...inputs... }' | node scripts/score-listing.mjs
  *   echo '{ ...inputs... }' | node scripts/score-listing.mjs --write-cache
  *   echo '{ "eligibility_facts": {...} }' | node scripts/score-listing.mjs --eligibility-only
+ *   echo '{ "company": "...", "role": "...", "url": "..." }' | node scripts/score-listing.mjs --prior-only
+ *
+ * `--prior-only` returns { prior } — the previous evaluation's dimension
+ * scores (or null) — so a re-score can start from them before judging.
  *
  * Profile: `eligibility_profile` and `scoring_weights` in the input win (the
  * key's presence wins, even if empty). When absent, the script reads the
@@ -96,11 +106,13 @@ import {
 } from './lib/score-bands.mjs'
 
 import {
-  applyBrandCalibration, applyGrowthCalibration, applyReferralAdjustment,
+  applyBrandCalibration, applyGrowthCalibration, applyReferralAdjustment, wantPreference,
   isDreamCompany, isRevisitCompany,
 } from './lib/calibration.mjs'
 
 import { evaluateEligibility } from './lib/eligibility.mjs'
+import { parseScoreHistory } from './lib/targeting-core.mjs'
+import { findPrior, compareToPrior } from './lib/prior-score.mjs'
 import { explainScore, LEVER_DIMS } from './lib/explain-score.mjs'
 
 import * as taxCache from './lib/tax-cache.mjs'
@@ -108,6 +120,7 @@ import * as colCache from './lib/col-cache.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 export const DEFAULT_PROFILE_PATH = join(ROOT, 'user', 'profile.yml')
+export const DEFAULT_HISTORY_PATH = join(ROOT, 'data', 'score-history.tsv')
 
 async function readStdin() {
   const chunks = []
@@ -130,8 +143,23 @@ async function main() {
   const result = await scoreListing(input, {
     writeCache: process.argv.includes('--write-cache'),
     eligibilityOnly: process.argv.includes('--eligibility-only'),
+    priorOnly: process.argv.includes('--prior-only'),
   })
   process.stdout.write(JSON.stringify(result, null, 2) + '\n')
+}
+
+/**
+ * The listing's previous evaluation. `input.prior` wins when present (an
+ * object, or false to skip the lookup — tests); otherwise read the history
+ * file. A missing file means no prior.
+ */
+export async function loadPrior(input, historyPath = DEFAULT_HISTORY_PATH) {
+  if (input.prior === false) return null
+  if (input.prior && typeof input.prior === 'object') return input.prior
+  let text
+  try { text = await readFile(historyPath, 'utf8') }
+  catch (e) { if (e.code === 'ENOENT') return null; throw e }
+  return findPrior(parseScoreHistory(text), { company: input.company, role: input.role, url: input.url })
 }
 
 /**
@@ -166,10 +194,15 @@ function weightsFrom(block) {
  * Side effects: reads user/profile.yml (only when the input lacks the
  * profile keys) and the cache TSVs; writes caches only with writeCache.
  *
- *   opts { writeCache, eligibilityOnly, profilePath }
+ *   opts { writeCache, eligibilityOnly, priorOnly, profilePath, historyPath }
  */
 export async function scoreListing(input, opts = {}) {
-  const { writeCache = false, eligibilityOnly = false, profilePath } = opts
+  const { writeCache = false, eligibilityOnly = false, priorOnly = false, profilePath, historyPath } = opts
+
+  let prior = null
+  try { prior = await loadPrior(input, historyPath) }
+  catch (e) { return { error: 'history_unreadable', message: `Could not read data/score-history.tsv: ${e.message}` } }
+  if (priorOnly) return { prior }
 
   // 0. Profile blocks: input wins over file.
   const needFile = !('eligibility_profile' in input) || !('scoring_weights' in input)
@@ -208,6 +241,7 @@ export async function scoreListing(input, opts = {}) {
       promotion_hint: '',
       note: isRevisitCompany(input.company, calibration) ? `Revisit next cycle: ${reason}` : reason,
       explanation: explainScore({ dims: null, eligibility, context: {} }),
+      prior: prior ? { ...prior, changes: [] } : null,
     }
   }
 
@@ -302,9 +336,10 @@ export async function scoreListing(input, opts = {}) {
     competition:       compCal.value,
   }
   const dream = isDreamCompany(input.company, calibration)
+  const pref = wantPreference(input.company, calibration)
 
   // 4. Want and Ease.
-  const want = rollupWant(dims, { weights: weights.want, is_intern: isIntern, dream })
+  const want = rollupWant(dims, { weights: weights.want, is_intern: isIntern, dream, preference: pref.bonus })
   const ease = rollupEase(dims, { weights: weights.ease, amber_count: eligibility.amber_count })
 
   // 5. Verdict + Priority.
@@ -315,7 +350,7 @@ export async function scoreListing(input, opts = {}) {
   const explanation = explainScore({
     dims,
     eligibility,
-    context: { is_intern: isIntern, dream, weights },
+    context: { is_intern: isIntern, dream, preference: pref.bonus, weights },
   })
 
   // Salary text. `summary` is the one plain line for the report's Salary cell
@@ -369,6 +404,7 @@ export async function scoreListing(input, opts = {}) {
     tier_reason: verdict.reason,
     promotion_hint: promotionHint(verdict.verdict),
     explanation,
+    prior: prior ? { ...prior, changes: compareToPrior(prior, dims) } : null,
   }
 }
 

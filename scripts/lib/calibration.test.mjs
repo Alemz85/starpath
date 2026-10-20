@@ -1,10 +1,10 @@
 // Unit tests for the scoring calibration — scripts/lib/calibration.mjs applies
 // the user's data-driven Brand / Growth / Competition adjustments before
-// the rollups (dream-company override, affinity & lower-tier-dream bonuses,
-// onboarding ±1, referral bonus) and answers the dream / revisit lookups
+// the rollups (Brand perception corrections only, onboarding ±1, referral
+// bonus), the liked-company Want bonus, and answers the dream / revisit lookups
 // that drive the Want floor and the Blocked note. Company names are fictional. test-all.mjs pins a few of these end-to-end through
 // score-listing.mjs; this suite tests each function directly so the
-// precedence (override wins, stacking, clamps, the cems alias) can't drift.
+// rules (wish lists never move Brand, stacking, clamps) can't drift.
 //
 // Plain ESM, zero deps: picked up by `node --test "scripts/**/*.test.mjs"`.
 
@@ -16,7 +16,9 @@ import {
   applyReferralAdjustment,
   isDreamCompany,
   isRevisitCompany,
+  wantPreference,
 } from './calibration.mjs'
+import { PREFERRED_COMPANY_WANT_BONUS } from './score-bands.mjs'
 
 // ─── Brand calibration ────────────────────────────────────────────────────────
 
@@ -25,42 +27,40 @@ test('applyBrandCalibration is a no-op with no/empty calibration', () => {
   assert.deepEqual(applyBrandCalibration(6, 'Acme', undefined), { value: 6, adjustments: [] })
 })
 
-test('applyBrandCalibration: dream-company overrides Brand to 10 and wins over everything', () => {
-  const r = applyBrandCalibration(5, 'northwind', { dream_companies: ['Northwind'], brand_affinity_companies: ['Northwind'] })
-  assert.equal(r.value, 10)                          // case-insensitive match
-  assert.equal(r.adjustments.length, 1)              // override returns early — affinity never fires
-  assert.equal(r.adjustments[0].type, 'override')
-  assert.equal(r.adjustments[0].value, 5)            // 10 − rawBrand
-})
-
-test('applyBrandCalibration: affinity (+0.6) via either the canonical key or the cems alias', () => {
-  assert.equal(applyBrandCalibration(6, 'Fabrikam', { brand_affinity_companies: ['Fabrikam'] }).value, 6.6)
-  assert.equal(applyBrandCalibration(6, 'Fabrikam', { cems_adjacent_companies: ['Fabrikam'] }).value, 6.6)
-})
-
-test('applyBrandCalibration: lower-tier dream adds +1.0 (no override, no early return)', () => {
-  const r = applyBrandCalibration(7, 'Contoso', { lower_tier_dream_companies: ['Contoso'] })
-  assert.equal(r.value, 8)
-  assert.equal(r.adjustments[0].source, 'lower-tier dream company')
+test('applyBrandCalibration: dream, lower-tier dream and affinity lists never move Brand (it is a CV signal)', () => {
+  const cal = {
+    dream_companies: ['Northwind'],
+    lower_tier_dream_companies: ['Contoso'],
+    brand_affinity_companies: ['Fabrikam'],
+    cems_adjacent_companies: ['Fabrikam'],
+  }
+  for (const company of ['Northwind', 'Contoso', 'Fabrikam']) {
+    assert.deepEqual(applyBrandCalibration(6, company, cal), { value: 6, adjustments: [] }, company)
+  }
 })
 
 test('applyBrandCalibration: extra_brand_bonuses add by entry, labelled with the reason', () => {
-  const withReason = applyBrandCalibration(6, 'Northwind', { extra_brand_bonuses: [{ company: 'Northwind', bonus: 1.0, reason: 'priority target' }] })
+  const withReason = applyBrandCalibration(6, 'Northwind', { extra_brand_bonuses: [{ company: 'Northwind', bonus: 1.0, reason: 'household name in the target market' }] })
   assert.equal(withReason.value, 7)
-  assert.equal(withReason.adjustments[0].source, 'Northwind bonus (priority target)')
+  assert.equal(withReason.adjustments[0].source, 'Northwind bonus (household name in the target market)')
   // non-finite bonus is ignored, not NaN-propagated
   assert.equal(applyBrandCalibration(6, 'Northwind', { extra_brand_bonuses: [{ company: 'Northwind', bonus: 'oops' }] }).value, 6)
 })
 
-test('applyBrandCalibration: non-override bonuses stack and clamp at 10', () => {
-  const stacked = applyBrandCalibration(6, 'Contoso', {
-    brand_affinity_companies: ['Contoso'],
-    lower_tier_dream_companies: ['Contoso'],
-    extra_brand_bonuses: [{ company: 'Contoso', bonus: 0.5 }],
-  })
-  assert.equal(stacked.value, 8.1)                   // 6 + 0.6 + 1.0 + 0.5
-  assert.equal(stacked.adjustments.length, 3)
-  assert.equal(applyBrandCalibration(9.5, 'Contoso', { lower_tier_dream_companies: ['Contoso'] }).value, 10) // clamp
+test('applyBrandCalibration: extra bonuses stack and clamp at 10', () => {
+  const stacked = applyBrandCalibration(9, 'Contoso', { extra_brand_bonuses: [{ company: 'Contoso', bonus: 0.5 }, { company: 'contoso', bonus: 1 }] })
+  assert.equal(stacked.value, 10)
+  assert.equal(stacked.adjustments.length, 2)
+})
+
+// ─── Want preference ─────────────────────────────────────────────────────────
+
+test('wantPreference: lower-tier dream adds the preference bonus; dream companies get the floor instead', () => {
+  const cal = { dream_companies: ['Northwind'], lower_tier_dream_companies: ['Contoso', 'Northwind'], brand_affinity_companies: ['Fabrikam'] }
+  assert.deepEqual(wantPreference('contoso', cal), { bonus: PREFERRED_COMPANY_WANT_BONUS, source: 'lower-tier dream company' })
+  assert.deepEqual(wantPreference('Northwind', cal), { bonus: 0, source: null })
+  assert.deepEqual(wantPreference('Fabrikam', cal), { bonus: 0, source: null })
+  assert.deepEqual(wantPreference('Acme', undefined), { bonus: 0, source: null })
 })
 
 // ─── Growth calibration ───────────────────────────────────────────────────────

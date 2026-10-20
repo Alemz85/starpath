@@ -250,7 +250,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     <>
       <div
         className={cn(
-          'fixed inset-0 z-30 bg-black/30 transition-opacity duration-200',
+          'fixed inset-0 z-30 bg-[rgba(20,14,46,0.32)] backdrop-blur-[3px] backdrop-saturate-[0.9] transition-opacity duration-200',
           open ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}
@@ -261,9 +261,9 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         aria-modal="true"
         aria-label={`${company} · ${role}`}
         className={cn(
-          'fixed right-0 top-0 bottom-0 z-40 w-[920px] max-w-[calc(100vw-220px)] bg-bg-base border-l border-border-default flex flex-col shadow-lift',
-          'transition-[transform,opacity] duration-200 ease-quart',
-          open ? 'translate-x-0 opacity-100' : 'translate-x-4 opacity-0',
+          'fixed right-0 top-0 bottom-0 z-40 w-[1040px] max-w-[calc(100vw-200px)] bg-bg-base flex flex-col sheet',
+          'transition-[transform,opacity] duration-[260ms] ease-quart',
+          open ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0',
         )}
       >
         <div className="titlebar-drag h-10 shrink-0" />
@@ -287,6 +287,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
                 want={scoreEntry.want}
                 ease={scoreEntry.ease}
                 blockedReason={entryBlocked ? blockedReason(scoreEntry) : null}
+                decimals={2}
                 className="max-w-[320px]"
               />
             )}
@@ -435,7 +436,12 @@ function SectionIndex({ scrollEl, contentKey }: { scrollEl: HTMLDivElement | nul
     let nodes: HTMLElement[] = []
     const collect = () => {
       nodes = Array.from(scrollEl.querySelectorAll<HTMLElement>('[data-slug]'))
-      const next = nodes.map(n => ({ slug: n.dataset.slug ?? '', label: n.dataset.label ?? n.textContent?.trim() ?? '' })).filter(i => i.slug && i.label)
+      const seen = new Set<string>()
+      // One entry per slug: two sections that resolve to the same slug would
+      // otherwise list twice and highlight together.
+      const next = nodes
+        .map(n => ({ slug: n.dataset.slug ?? '', label: n.dataset.label ?? n.textContent?.trim() ?? '' }))
+        .filter(i => i.slug && i.label && !seen.has(i.slug) && (seen.add(i.slug), true))
       setItems(next)
     }
     // The active section is the last one whose top has passed a line 96px
@@ -591,7 +597,7 @@ function VerdictCard({ want, ease, verdict, eligibility, eligibilityReason, bloc
   const grid = reason ? null : assignVerdict({ want, ease, eligibility })
   const action = verdict ? VERDICT_ACTIONS[verdict] : ''
   return (
-    <section data-slug="verdict" data-label="Verdict" className="card p-5 flex gap-6 scroll-mt-4">
+    <section data-slug="summary" data-label="Summary" className="card p-5 flex gap-6 scroll-mt-4">
       <div className="shrink-0 w-[190px] flex flex-col gap-1">
         {reason
           ? <span className="text-label text-danger">{reason}</span>

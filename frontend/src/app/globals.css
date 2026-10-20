@@ -419,6 +419,19 @@ select:not([multiple]) {
   margin: 1.25rem 0;
 }
 
+/* Sheet — the report dossier and any future edge panel. Depth comes from
+   three layers: a hairline that reads as the sheet's cut edge, a thin lit
+   highlight just inside it (light from the page wash catching the edge),
+   and a deep violet-tinted shadow that falls onto the dimmed app behind. */
+.sheet {
+  border-left: 1px solid rgba(124, 92, 255, 0.18);
+  box-shadow:
+    inset 1px 0 0 rgba(255, 255, 255, 0.9),
+    -1px 0 0 rgba(40, 32, 90, 0.04),
+    -8px 0 24px -8px rgba(40, 32, 90, 0.18),
+    -32px 0 80px -24px rgba(40, 32, 90, 0.35);
+}
+
 /* Score bar */
 .score-bar-track {
   height: 3px;
