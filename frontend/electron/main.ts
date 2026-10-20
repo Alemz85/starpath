@@ -863,6 +863,9 @@ function fetchToBuffer(url: string): Promise<{ buf: Buffer; mime: string } | nul
 
 ipcMain.handle('logo:fetch', async (_e, domain: unknown) => {
   const d = validateString(domain, 'domain')
+  // The demo's companies are fictional; their guessed domains belong to real
+  // brands, so the demo shows initials and makes no logo requests at all.
+  if ((await getDataRoot()).kind === 'demo') return null
   const safeName = d.replace(/[^a-z0-9.-]/gi, '_')
 
   const cacheDir = path.join(app.getPath('userData'), 'logo-cache')
