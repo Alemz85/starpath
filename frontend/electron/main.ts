@@ -129,26 +129,33 @@ let dataRoot: DataRootState | null = null
 let dataRootPending: Promise<DataRootState> | null = null
 
 async function getDataRoot(): Promise<DataRootState> {
+  // Never answer mid-switch with the old root.
+  if (dataRootPending) await dataRootPending.catch(() => undefined)
   if (dataRoot && dataRoot.repoPath === getRepoPath()) return dataRoot
   return refreshDataRoot()
 }
 
-/** Recompute from config + env; applies the swap when the root moved. */
+/**
+ * Recompute from config + env; applies the swap when the root moved. Runs
+ * are serialised, and each one reads the config fresh — a refresh asked for
+ * while another is in flight (set-repo-path then set-data-path) waits for
+ * it and then sees the newer config, instead of sharing the stale result.
+ */
 function refreshDataRoot(): Promise<DataRootState> {
-  if (dataRootPending) return dataRootPending
-  dataRootPending = (async () => {
-    try {
-      const cfg = readConfig()
-      const next = await computeDataRoot(cfg.repoPath ?? null, cfg.dataPath ?? null, process.env)
-      const prev = dataRoot
-      dataRoot = next
-      if (dataRootMoved(prev, next)) applyDataRoot(prev, next)
-      return next
-    } finally {
-      dataRootPending = null
-    }
+  const prior = dataRootPending
+  const run = (async () => {
+    if (prior) await prior.catch(() => undefined)
+    const cfg = readConfig()
+    const next = await computeDataRoot(cfg.repoPath ?? null, cfg.dataPath ?? null, process.env)
+    const prev = dataRoot
+    dataRoot = next
+    if (dataRootMoved(prev, next)) applyDataRoot(prev, next)
+    return next
   })()
-  return dataRootPending
+  dataRootPending = run
+  const settle = () => { if (dataRootPending === run) dataRootPending = null }
+  run.then(settle, settle)
+  return run
 }
 
 /** The folder holding data/ and reports/ for the cache, watcher and CLIs. */
