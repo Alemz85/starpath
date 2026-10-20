@@ -62,6 +62,7 @@ export function deriveLiveness(
   const companyIdx = header.indexOf('company')
   const titleIdx   = header.indexOf('title')
   const datesIdx   = header.indexOf('scan_dates')
+  const statusIdx  = header.indexOf('status')
   if (companyIdx < 0 || titleIdx < 0 || datesIdx < 0) return {}
 
   const out: Record<string, Liveness> = {}
@@ -79,7 +80,11 @@ export function deriveLiveness(
     if (Number.isNaN(lastDate.getTime())) continue
     const daysAgo = (now.getTime() - lastDate.getTime()) / DAY_MS
 
+    // A liveness check (scripts/check-liveness.mjs --record) that found the
+    // posting gone writes status `expired`: closed now, whatever the scan dates say.
+    const expired = statusIdx >= 0 && (row[statusIdx] ?? '').trim() === 'expired'
     const liveness: Liveness =
+      expired                      ? 'closed' :
       daysAgo < ACTIVE_WITHIN_DAYS ? 'active' :
       daysAgo < STALE_WITHIN_DAYS  ? 'stale' : 'closed'
 

@@ -200,7 +200,8 @@ export function scorePendingEntry(entry, opts = {}) {
 }
 
 /**
- * Rank all pending entries and split them into deep-eval / hold buckets.
+ * Rank all pending entries and split them into deep-eval / hold buckets
+ * (plus `closed` for postings scan-history marks expired).
  * Deterministic: ties break by company then title so repeated runs agree.
  *
  * @returns {Array<entry & { triageScore, triageReasons, bucket }>}
@@ -215,7 +216,14 @@ export function triagePending(entries, opts = {}) {
     b.triageScore - a.triageScore ||
     a.company.localeCompare(b.company) ||
     a.title.localeCompare(b.title))
-  return scored.map((e, i) => ({ ...e, bucket: i < topN ? 'deep-eval' : 'hold' }))
+  // A posting a liveness check already declared expired (scan-history status)
+  // is never worth an evaluation: it gets its own bucket and does not use up a
+  // deep-eval slot.
+  let live = 0
+  return scored.map((e) => {
+    if (opts.scanIndex?.get(canonicalizeUrl(e.url))?.status === 'expired') return { ...e, bucket: 'closed' }
+    return { ...e, bucket: live++ < topN ? 'deep-eval' : 'hold' }
+  })
 }
 
 /* ───── Rendering / emission ─────────────────────────────────────── */
@@ -225,6 +233,7 @@ export function renderTriagePlan(ranked, { topN = 15 } = {}) {
   const lines = []
   const deep = ranked.filter(e => e.bucket === 'deep-eval')
   const hold = ranked.filter(e => e.bucket === 'hold')
+  const closed = ranked.filter(e => e.bucket === 'closed')
   lines.push(`# Pipeline triage — ${ranked.length} pending, top ${Math.min(topN, ranked.length)} recommended for deep eval`)
   lines.push('')
   if (ranked.length === 0) {
@@ -244,6 +253,14 @@ export function renderTriagePlan(ranked, { topN = 15 } = {}) {
     lines.push('')
     hold.forEach(e => {
       lines.push(`- ${e.triageScore.toFixed(1)} — ${e.company || '—'} | ${e.title || '—'} (${e.triageReasons.join('; ')})`)
+    })
+  }
+  if (closed.length > 0) {
+    lines.push('')
+    lines.push(`## Closed (${closed.length}) — a liveness check found these postings expired; skipped`)
+    lines.push('')
+    closed.forEach(e => {
+      lines.push(`- ${e.company || '—'} | ${e.title || '—'}`)
     })
   }
   return lines.join('\n')

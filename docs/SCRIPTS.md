@@ -116,17 +116,20 @@ npm run sync-check
 
 ## liveness
 
-Tests whether job posting URLs are still live using headless Chromium. Detects expired patterns (e.g. "job no longer available"), HTTP 404/410, ATS redirect patterns, and apply-button presence. Supports multi-language expired patterns (English, German, French).
+Tests whether job posting URLs are still live. It tries the cheap evidence first — the ATS's per-job API, the org board listing, the posting page judged on two agreeing signals — and starts headless Chromium only when all of that is ambiguous (then it polls every 250 ms until the verdict is decisive). Detects expired patterns (curly quotes and accents are normalised; English, German, French, Spanish phrases), HTTP 404/410, ATS error redirects and apply-button presence. See `docs/REPO-GUIDE.md` § Scanners › Liveness.
 
 ```bash
 npm run liveness -- https://example.com/job/123
 npm run liveness -- https://a.com/job/1 https://b.com/job/2
 npm run liveness -- --file urls.txt
+npm run liveness -- --pipeline --no-browser --record   # every Pending URL, ladder only, write verdicts to scan-history
 ```
 
-Each URL gets a verdict: `active`, `expired`, or `uncertain` with a reason.
+Each URL gets a verdict: `active`, `expired`, `unreachable` (nothing could be fetched; not proof the posting is gone) or `uncertain`, with a reason and the rung that decided. `--record` writes `expired` / the unreachable streak into `data/scan-history.tsv` (policy: `user/profile.yml › scanner.liveness`).
 
-**Exit codes:** `0` all URLs active, `1` any expired or uncertain.
+**Exit codes:** `0` all URLs active, `1` any expired, uncertain or unreachable.
+
+`node scripts/fetch-posting.mjs <url> [--json]` prints a posting's job description plus its verification line from the same ATS endpoints (exit `0` JD printed, `2` closed, `3` the ATS could not answer).
 
 ---
 

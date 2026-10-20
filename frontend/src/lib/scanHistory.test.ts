@@ -122,3 +122,25 @@ test('countScansThisMonth is 0 without a scan_dates column or data', () => {
   assert.equal(countScansThisMonth(null, NOW), 0)
   assert.equal(countScansThisMonth('', NOW), 0)
 })
+
+// ─── deriveLiveness: a liveness check's `expired` verdict ────────────────────
+
+test('deriveLiveness: status `expired` is closed even when the posting was scanned yesterday', () => {
+  const tsv = [
+    'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates',
+    'https://x.example/a\t2026-06-20\tgreenhouse-api\tOps Analyst\tNimbus Robotics\tAldervale\texpired\t2026-06-23',
+    'https://x.example/b\t2026-06-20\tgreenhouse-api\tPlanner\tLumen Freight\tAldervale\tadded\t2026-06-23',
+  ].join('\n')
+  const out = deriveLiveness(tsv, NOW)
+  assert.equal(out[livenessKey('Nimbus Robotics', 'Ops Analyst')], 'closed')
+  assert.equal(out[livenessKey('Lumen Freight', 'Planner')], 'active')
+})
+
+test('deriveLiveness: a live twin row of an expired posting keeps the (company, role) active', () => {
+  const tsv = [
+    'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates',
+    'https://x.example/old\t2026-05-01\tgreenhouse-api\tOps Analyst\tNimbus Robotics\tAldervale\texpired\t2026-05-01',
+    'https://x.example/new\t2026-06-20\tgreenhouse-api\tOps Analyst\tNimbus Robotics\tAldervale\tadded\t2026-06-23',
+  ].join('\n')
+  assert.equal(deriveLiveness(tsv, NOW)[livenessKey('Nimbus Robotics', 'Ops Analyst')], 'active')
+})

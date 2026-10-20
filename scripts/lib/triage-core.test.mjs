@@ -210,3 +210,20 @@ test('emitBatchInput is idempotent across re-runs', () => {
   assert.equal(second.added, 0)
   assert.equal(second.content, first.content)
 })
+
+// ─── expired postings ────────────────────────────────────────────────────────
+
+test('triagePending: a posting scan-history marks expired goes to `closed` and does not use up a deep-eval slot', () => {
+  const entries = parsePendingEntries(PIPELINE_MD)
+  const scanIndex = buildScanIndex(
+    'url\tfirst_seen\tportal\ttitle\tcompany\tlocation\tstatus\tscan_dates\n' +
+    'https://boards.greenhouse.io/acme/jobs/123\t2026-10-01\tgreenhouse-api\tStrategy Analyst\tAcme\tX\texpired\t2026-10-01\n',
+  )
+  const ranked = triagePending(entries, { topN: 2, scanIndex, today: '2026-10-05' })
+  const byUrl = Object.fromEntries(ranked.map(e => [e.url, e.bucket]))
+  assert.equal(byUrl['https://boards.greenhouse.io/acme/jobs/123'], 'closed')
+  assert.equal(ranked.filter(e => e.bucket === 'deep-eval').length, 2, 'the freed slot goes to a live posting')
+  const md = renderTriagePlan(ranked, { topN: 2 })
+  assert.match(md, /## Closed \(1\)/)
+  assert.doesNotMatch(emitBatchInput(ranked.filter(e => e.bucket === "deep-eval"), "").content, /acme\/jobs\/123/)
+})

@@ -23,8 +23,8 @@ const OLD = HISTORY_COLUMNS.slice(0, 8);
 
 test('the original 8 columns never move; new ones are appended', () => {
   assert.deepEqual(HISTORY_COLUMNS.slice(0, 8), ['url', 'first_seen', 'portal', 'title', 'company', 'location', 'status', 'scan_dates']);
-  assert.deepEqual(HISTORY_COLUMNS.slice(8), ['posted_date', 'deadline', 'posting_id', 'req_id', 'locations']);
-  assert.equal(HISTORY_HEADER_FULL.split('\t').length, 13);
+  assert.deepEqual(HISTORY_COLUMNS.slice(8), ['posted_date', 'deadline', 'posting_id', 'req_id', 'locations', 'expired_reason', 'fetch_attempts', 'first_unreachable', 'last_error']);
+  assert.equal(HISTORY_HEADER_FULL.split('\t').length, HISTORY_COLUMNS.length);
 });
 
 test('parseHistoryHeader: recognises a header, rejects data lines', () => {
@@ -44,7 +44,7 @@ test('parseHistoryFile: old file keeps its 8-column layout; headerless text fall
 
 test('upgradeColumns: appends the missing known columns, keeps order and unknown extras', () => {
   assert.deepEqual(upgradeColumns(OLD), HISTORY_COLUMNS);
-  assert.deepEqual(upgradeColumns([...OLD, 'custom', 'deadline']).slice(8), ['custom', 'deadline', 'posted_date', 'posting_id', 'req_id', 'locations']);
+  assert.deepEqual(upgradeColumns([...OLD, 'custom', 'deadline']).slice(8), ['custom', 'deadline', 'posted_date', 'posting_id', 'req_id', 'locations', 'expired_reason', 'fetch_attempts', 'first_unreachable', 'last_error']);
   assert.deepEqual(upgradeColumns(null), HISTORY_COLUMNS);
 });
 
@@ -61,7 +61,7 @@ test('getCell / setCells: by name, padding short rows, tab-safe', () => {
 test('alignRow: re-lays a row from one header to another by column name', () => {
   const row = 'u\td\tp\tT\tC\tL\tadded\t2026-01-01';
   const wideRow = alignRow(row, OLD, HISTORY_COLUMNS);
-  assert.equal(wideRow.split('\t').length, 13);
+  assert.equal(wideRow.split('\t').length, HISTORY_COLUMNS.length);
   assert.equal(getCell(wideRow, HISTORY_COLUMNS, 'company'), 'C');
   const reordered = alignRow('A\tB', ['company', 'url'], ['url', 'company']);
   assert.equal(reordered, 'B\tA');
