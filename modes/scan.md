@@ -11,15 +11,16 @@ Escanea portales de empleo configurados, filtra por relevancia de título, y añ
 
 ## Ejecución recomendada
 
-Ejecutar como subagente para no consumir contexto del main:
+Ejecutar como subagente para no consumir contexto del main, **en primer plano**: el proceso que lanza el scan espera su resultado antes de terminar.
 
 ```
 Agent(
     subagent_type="general-purpose",
-    prompt="[contenido de este archivo + datos específicos]",
-    run_in_background=True
+    prompt="[contenido de este archivo + datos específicos]"
 )
 ```
+
+Nunca `run_in_background=True`: cuando el scan se lanza desde la app (`claude -p`), el proceso termina en cuanto el hilo principal acaba y un subagente en segundo plano muere a medias sin escribir nada. El Nivel 2 (script) tarda segundos; el Nivel 3 (WebSearch + verificación) tarda 10–20 minutos y es la parte que cubre las empresas sin API.
 
 ## Configuración
 
@@ -30,7 +31,9 @@ Leer `user/portals.yml` que contiene:
 
 ## Estrategia de descubrimiento (3 niveles)
 
-### Nivel 1 — Playwright directo (PRINCIPAL)
+### Nivel 1 — Playwright directo (solo con navegador disponible)
+
+**Solo cuando las herramientas de navegador existen en la sesión** (`browser_navigate` / `browser_snapshot`). Lanzado desde la app o en modo `claude -p` no hay Playwright: saltar este nivel sin buscarlo; las empresas con API las cubre el Nivel 2 y las demás el Nivel 3.
 
 **Para cada empresa en `tracked_companies`:** Navegar a su `careers_url` con Playwright (`browser_navigate` + `browser_snapshot`), leer TODOS los job listings visibles, y extraer título + URL de cada uno. Este es el método más fiable porque:
 - Ve la página en tiempo real (no resultados cacheados de Google)
@@ -74,10 +77,10 @@ Después de ejecutar el script, **leer su output stdout para identificar qué em
 
 Los `search_queries` con `site:` filters cubren portales de forma transversal (todos los Ashby, todos los Greenhouse, etc.). Útil para descubrir empresas NUEVAS que aún no están en `tracked_companies`, pero los resultados pueden estar desfasados.
 
-**Prioridad de ejecución:**
-1. Nivel 1: Playwright → todas las `tracked_companies` con `careers_url`
-2. Nivel 2: API → todas las `tracked_companies` con `api:`
-3. Nivel 3: WebSearch → todos los `search_queries` con `enabled: true`
+**Orden de ejecución:**
+1. Nivel 2: `node scripts/scan.mjs` una vez (segundos, cero tokens) → todas las `tracked_companies` con API detectable
+2. Nivel 3: WebSearch → los `search_queries` con `enabled: true` (descubren empresas nuevas) y el `scan_query` de cada empresa sin API
+3. Nivel 1: Playwright → solo si hay navegador, para las empresas sin API y las que fallaron en el Nivel 2
 
 Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y deduplicar.
 
@@ -132,7 +135,11 @@ Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y dedu
 
 7.5. **Verificar liveness de resultados de WebSearch (Nivel 3)** — ANTES de añadir a pipeline:
 
-   Los resultados de WebSearch pueden estar desactualizados (Google cachea resultados durante semanas o meses). Para evitar evaluar ofertas expiradas, verificar con Playwright cada URL nueva que provenga del Nivel 3. Los Niveles 1 y 2 son inherentemente en tiempo real y no requieren esta verificación.
+   Los resultados de WebSearch pueden estar desactualizados (Google cachea resultados durante semanas o meses). Para evitar evaluar ofertas expiradas, verificar cada URL nueva que provenga del Nivel 3. Los Niveles 1 y 2 son inherentemente en tiempo real y no requieren esta verificación.
+
+   **Primero, el script (cero tokens, funciona también en app / `claude -p`):** `node scripts/check-liveness.mjs --no-browser <url>`. Pregunta a la API del propio ATS (Greenhouse, Lever, SmartRecruiters, Workday: endpoint por oferta; Ashby: listado del board) y, si no basta, lee la página exigiendo dos señales que coincidan. `active` o `expired` es definitivo (con `expired`, registrar `skipped_expired`). `unreachable` (403, 525, timeout, fallo de red) **no** es «expirada»: no registrarla en `scan-history.tsv`; listarla en el resumen bajo «No verificables» para que un scan con navegador la revise. `uncertain` (host sin soporte o página ambigua) pasa al siguiente paso.
+
+   **Después, solo si el script no decidió:** con navegador, Playwright (abajo); sin navegador (app / `claude -p`), `WebFetch` de la página, que para Ashby, Lever y Greenhouse llega vacía (SPAs), así que esas URLs no pueden confirmarse sin el script: tratarlas como «No verificables».
 
    Para cada URL nueva de Nivel 3 (secuencial — NUNCA Playwright en paralelo):
    a. `browser_navigate` a la URL
@@ -146,7 +153,7 @@ Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y dedu
    d. Si expirada: registrar en `scan-history.tsv` con status `skipped_expired` y descartar
    e. Si activa: continuar al paso 8
 
-   **No interrumpir el scan entero si una URL falla.** Si `browser_navigate` da error (timeout, 403, etc.), marcar como `skipped_expired` y continuar con la siguiente.
+   **No interrumpir el scan entero si una URL falla.** Si `browser_navigate` da error (timeout, 403, etc.), no registrarla (no es expirada, es no verificable), anotarla en el resumen y continuar con la siguiente.
 
 8. **Para cada oferta nueva verificada que pase filtros**:
    a. Add to the `pipeline.md` "Pending" section: `- [ ] {url} | {company} | {title}`
@@ -175,14 +182,14 @@ Si se encuentra una URL no accesible públicamente:
 
 ## Scan History
 
-`data/scan-history.tsv` trackea TODAS las URLs vistas:
+`data/scan-history.tsv` trackea TODAS las URLs vistas. **Las columnas son las de la cabecera del fichero** (`scripts/lib/scan-history.mjs` › `HISTORY_COLUMNS`: `url first_seen portal title company location status scan_dates posted_date deadline posting_id req_id locations`); al añadir una fila a mano, respetar ese orden y dejar vacías las celdas que no se conocen. Nunca escribir filas con menos columnas que la cabecera.
 
 ```
-url	first_seen	portal	title	company	status
-https://...	2026-02-10	Ashby — AI PM	PM AI	Acme	added
-https://...	2026-02-10	Greenhouse — SA	Junior Dev	BigCo	skipped_title
-https://...	2026-02-10	Ashby — AI PM	SA AI	OldCo	skipped_dup
-https://...	2026-02-10	WebSearch — AI PM	PM AI	ClosedCo	skipped_expired
+url	first_seen	portal	title	company	location	status	scan_dates	posted_date	deadline	posting_id	req_id	locations
+https://...	2026-02-10	Ashby — AI PM	PM AI	Acme	Lyon	added	2026-02-10					Lyon
+https://...	2026-02-10	Greenhouse — SA	Junior Dev	BigCo		skipped_title	2026-02-10
+https://...	2026-02-10	Ashby — AI PM	SA AI	OldCo		skipped_dup	2026-02-10
+https://...	2026-02-10	WebSearch — AI PM	PM AI	ClosedCo		skipped_expired	2026-02-10
 ```
 
 ## Resumen de salida
@@ -195,6 +202,7 @@ Ofertas encontradas: N total
 Filtradas por título: N relevantes
 Duplicadas: N (ya evaluadas o en pipeline)
 Expiradas descartadas: N (links muertos, Nivel 3)
+No verificables: N (403 / timeout — revisar con navegador)
 Nuevas añadidas a pipeline.md: N
 
   + {company} | {title} | {query_name}

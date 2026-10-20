@@ -68,13 +68,20 @@ export default {
   },
 
   async fetch(entry, ctx) {
+    // Workday states `total` on the FIRST page only; later pages say `total: 0`.
+    // Remember the first stated total and page until it is reached, or an empty
+    // page, or the page ceiling. (A tenant that never states one pages until an
+    // empty page.)
     const all = [];
+    let total = null;
     for (let page = 0; page < ctx.maxPages; page++) {
       const offset = page * PAGE_LIMIT;
       const json = await ctx.postJson(ctx.api.url, { appliedFacets: {}, limit: PAGE_LIMIT, offset, searchText: '' });
       const jobs = parseWorkday(json, entry.name, ctx.api.baseUrl);
       all.push(...jobs);
-      if (all.length >= (json.total || 0) || jobs.length === 0) break;
+      if (total === null && Number(json.total) > 0) total = Number(json.total);
+      if (jobs.length === 0) break;
+      if (total !== null && all.length >= total) break;
     }
     return all;
   },
