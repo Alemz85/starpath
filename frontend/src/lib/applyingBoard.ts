@@ -15,6 +15,12 @@ import type { AppStatus, ApplicationEntry } from '@/types'
 // Discarded falls to the "Closed" strip and SKIP never enters the board.
 export const STATUS_GROUPS: AppStatus[] = ['Evaluated', 'Applied', 'Responded', 'Interview', 'Offer', 'Rejected']
 
+// Board display label. "Evaluated" in the tracker means "promoted, not applied
+// yet", which on this board reads as "To apply". The stored status is unchanged.
+export function boardLabel(status: AppStatus): string {
+  return status === 'Evaluated' ? 'To apply' : status
+}
+
 // The stages a card can be set to from its dropdown (same as the columns).
 export const BOARD_STAGES: readonly AppStatus[] = STATUS_GROUPS
 

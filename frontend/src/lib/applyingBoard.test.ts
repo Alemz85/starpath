@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  boardLabel,
   STATUS_GROUPS,
   URGENCY_RANK,
   compareByDeadline,
@@ -203,4 +204,10 @@ test('a logged Evaluated → Rejected move reads as no rejection on record', () 
   const app = makeApplication({ num: 1, company: 'Nimbus Robotics', role: 'Strategy Analyst', status: 'Rejected' })
   const log = [entry({ to: 'Rejected', from: 'Evaluated', date: '2026-06-20' })]
   assert.deepEqual(rejectionInfo(log, app), { date: null, from: '', stage: '', label: 'stage unknown' })
+})
+
+test('boardLabel: Evaluated reads as "To apply" on the board, other statuses unchanged', () => {
+  assert.equal(boardLabel('Evaluated'), 'To apply')
+  assert.equal(boardLabel('Applied'), 'Applied')
+  assert.equal(boardLabel('Rejected'), 'Rejected')
 })
