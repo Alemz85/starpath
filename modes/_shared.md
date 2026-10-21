@@ -620,7 +620,7 @@ date	archetype	skills_match	experience_bar	competition	ease	growth_mobility	opti
 - `ease`, `match`, `priority`: the script's numbers (`ease.score`, `match.score`, `priority`), baked in at write time — readers never recompute.
 - **Blocked rows:** every dimension column plus `match`, `ease`, `priority` are **empty** (not 0). Readers treat empty as missing, never as 0.
 - `eligibility`: `green` | `amber` | `red`.
-- `eligibility_flags`: `;`-joined `check:status:reason` for every non-green check (empty when green). Keep `;`, `:` and tabs out of the reason text.
+- `eligibility_flags`: copy the `eligibility_flags` string from the score-listing.mjs output verbatim (`;`-joined `check:status:reason` for every non-green check, empty when green; the red that kept a listing unscored comes first). Keep `;`, `:` and tabs out of the reason text.
 - `verdict`: the verdict key (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`).
 - `best_fit_roles`: free text, multiple roles separated by `; `. Never a literal tab.
 - `mode`: always `scouting`.

@@ -443,13 +443,23 @@ export function evaluateEligibility(facts, profile, opts = {}) {
   const amber_count =
     checks.filter(c => c.check !== 'other' && c.status === 'amber').length +
     other.entries.filter(e => e.status === 'amber').length
-  const red = checks.find(c => c.status === 'red')
+  // With a score_through_red rule, mark each red check scorable or not, so
+  // the reason shown for an unscored listing is the wall that kept it
+  // unscored (a French requirement), not one the rule lets through (a start
+  // date) that merely comes first in CHECK_ORDER.
+  const hasRule = p.score_through_red && typeof p.score_through_red === 'object'
+  if (hasRule) {
+    for (const c of checks) if (c.status === 'red') c.scorable = redIsScored([c], f, p)
+  }
+  const scored = status !== 'red' || redIsScored(checks, f, p)
+  const red = (!scored && checks.find(c => c.status === 'red' && c.scorable === false))
+    || checks.find(c => c.status === 'red')
   return {
     status,
     amber_count,
     checks,
     blocking_reason: red ? `${red.check}: ${red.reason}` : null,
-    scored: status !== 'red' || redIsScored(checks, f, p),
+    scored,
   }
 }
 
@@ -487,8 +497,14 @@ export function redIsScored(checks, facts, profile) {
  * and tabs inside reasons are replaced so the cell stays splittable.
  */
 export function eligibilityFlags(eligibility) {
+  // Reds that kept the listing unscored lead (the app shows the first red as
+  // the reason); otherwise CHECK_ORDER.
+  const lead = (c) => (c.status === 'red' && c.scorable === false ? 0 : 1)
   return (eligibility?.checks ?? [])
     .filter(c => c.status !== 'green')
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => lead(a.c) - lead(b.c) || a.i - b.i)
+    .map(({ c }) => c)
     .map(c => `${c.check}:${c.status}:${String(c.reason).replace(/[;\t\n]+/g, ',')}`)
     .join(';')
 }

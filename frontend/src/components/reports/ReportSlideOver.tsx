@@ -478,7 +478,19 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
             {!loading && !error && activeTab === 'scouting' && (
               scoutingContent
                 ? <ReportBody content={scoutingContent} entry={scoreEntry} peer={peer} onOpenComparable={onSwitchEntity} />
-                : <EmptyTab message="No scouting report yet. Use Generate report from the Database row to write one." />
+                : (
+                  // No report (a Blocked listing never gets one): still show
+                  // every eligibility check, so a listing blocked by two walls
+                  // shows both, not just the first.
+                  <div className="flex flex-col gap-7">
+                    <EligibilitySection
+                      status={scoreEntry.eligibility ?? null}
+                      checks={parseEligibilityFlags(scoreEntry.eligibility_flags)}
+                      questions={[]}
+                    />
+                    <EmptyTab message="No scouting report yet. Use Generate report from the Database row to write one." />
+                  </div>
+                )
             )}
             {!loading && !error && activeTab === 'application' && (
               applicationContent
