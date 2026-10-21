@@ -85,6 +85,22 @@ test('merge-scouting: adds v2 rows, blocked rows keep "—", hints derive from t
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('merge-scouting: a red listing the profile scored through keeps its Want / Ease (still T4, no hint)', () => {
+  const root = makeRoot();
+  try {
+    addScouting(root, '004-scored.tsv', '4', '2026-06-20', 'Nimbus Robotics', 'Data Intern', '8.5', '7.8', 'T4', 'red: starts during the study term', '—', 'n/d', 'READY', 'scored through');
+    addScouting(root, '005-half.tsv', '5', '2026-06-20', 'Contoso Labs', 'Ops Intern', '8', '—', 'T4', 'red: x', '—', 'n/d', '', '');
+    const { code, out } = run('merge-scouting.mjs', [], root);
+    assert.equal(code, 0, out);
+    const rows = scoutingRows(root);
+    assert.equal(rows.length, 1, 'the half-scored row is skipped');
+    const r = rows[0];
+    assert.deepEqual([r.want, r.ease, r.tier, r.hint, r.eligibilityStatus], ['8.5', '7.8', 'T4', '', 'red']);
+    assert.match(out, /needs both Want and Ease/);
+    assert.equal(run('verify-pipeline.mjs', [], root).out.includes('must have both Want and Ease'), false);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('merge-scouting: one file may hold a whole run (one addition per line); a bad line is skipped alone', () => {
   const root = makeRoot();
   try {

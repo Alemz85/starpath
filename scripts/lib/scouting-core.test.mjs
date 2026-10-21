@@ -298,10 +298,12 @@ test('parseScoutingTsv: blocked listing is forced into the blocked shape', () =>
   assert.equal(a.tier, 'T4');
   assert.equal(a.hint, ''); // never READY on a blocked row
   assert.equal(a.report, '—');
-  // Even if a writer left numbers on a red row, the shape is forced.
-  const b = parseScoutingTsv('304\t2026-06-25\tContoso\tGrad Analyst\t9\t9\tT1\tred: x\t—\tn/d\t\t', 'x', silent);
-  assert.equal(b.want, '—');
-  assert.equal(b.tier, 'T4');
+  // Numbers on a red row are a score-through-red score (profile
+  // score_through_red): they are kept, but the row is still T4 with no hint.
+  const b = parseScoutingTsv('304\t2026-06-25\tContoso\tGrad Analyst\t9\t9\tT1\tred: x\t—\tn/d\tREADY\t', 'x', silent);
+  assert.deepEqual([b.want, b.ease, b.tier, b.hint], ['9', '9', 'T4', '']);
+  // Only both or neither.
+  assert.equal(parseScoutingTsv('305\t2026-06-25\tContoso\tGrad Analyst\t9\t—\tT4\tred: x\t—\tn/d\t\t', 'x', silent), null);
 });
 
 test('parseScoutingTsv: derives the tier from the grid when the cell is blank', () => {

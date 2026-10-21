@@ -297,7 +297,8 @@ export function formatScoutingRow(e) {
  *   num date company role want ease tier eligibility report deadline hint notes
  * Trailing empty hint/notes may be absent (≥10 fields accepted). Want/Ease are
  * a number in [1,10] or "—" (blocked); a red eligibility forces the blocked
- * shape (— / — / T4 / no hint). A v1-shaped TSV (e.g. "6.7/10" in the Want
+ * shape (T4, no hint) and keeps Want / Ease only when both are given (the
+ * profile's score_through_red). A v1-shaped TSV (e.g. "6.7/10" in the Want
  * slot) fails validation and is skipped with a warning. Returns null on
  * malformed input.
  */
@@ -328,13 +329,19 @@ export function parseScoutingTsv(content, filename = 'addition', warn = console.
   }
 
   const blockedShape = elig.status === 'red';
-  let wantNum = toNumber(parts[4]);
-  let easeNum = toNumber(parts[5]);
+  const wantNum = toNumber(parts[4]);
+  const easeNum = toNumber(parts[5]);
   if (!blockedShape && (wantNum === null || easeNum === null)) {
     warn(`⚠️  Skipping ${filename}: want/ease "—" is only valid for a red (blocked) listing`);
     return null;
   }
-  if (blockedShape) { wantNum = null; easeNum = null; }
+  // A blocked row keeps its Want / Ease when the profile's score_through_red
+  // scored it (both or neither, as verify-pipeline checks): blanking them here
+  // used to drop the scores the user asked for on the way into the Database.
+  if (blockedShape && (wantNum === null) !== (easeNum === null)) {
+    warn(`⚠️  Skipping ${filename}: a red (blocked) listing needs both Want and Ease, or "—" for both`);
+    return null;
+  }
 
   // Tier: trust a valid writer-supplied tier, else derive from the grid.
   const derived = verdictFromCells({ want: wantNum, ease: easeNum, eligibility: elig.status });
