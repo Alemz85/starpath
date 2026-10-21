@@ -151,6 +151,7 @@ test('the batch eval worker argv, exactly', () => {
     'Bash(npm run agent-log -- list:*)',
     'Bash(node scripts/outcomes.mjs --json)',
     'Bash(node scripts/messages.mjs post --source eval:*)',
+    'Bash(node scripts/browser-read.mjs park:*)',
     'Bash(cd .)',
     'WebFetch', 'WebSearch',
     '--disallowedTools',
@@ -314,7 +315,7 @@ test('the frontend lists exactly the table kinds', () => {
 // `node scripts/*.mjs` a kind's mode files tell it to run must be allowed.
 const KIND_INSTRUCTIONS = {
   eval: ['batch/batch-prompt.md'],
-  'eval-app': ['batch/batch-prompt.md', 'modes/scouting.md', 'modes/pipeline.md'],
+  'eval-app': ['batch/batch-prompt.md', 'modes/scouting.md', 'modes/pipeline.md', 'frontend/src/lib/evalSpawn.ts'],
   scan: ['modes/scan.md'],
   'apply-flow': ['modes/pdf.md', 'modes/apply.md', 'modes/interview-prep.md'],
   positioning: ['modes/positioning.md'],
@@ -351,5 +352,24 @@ test('every unattended worker can post to Messages, under its own source', () =>
   for (const kind of UNATTENDED) {
     const posts = allowedRules(kind).filter((r) => r.startsWith('Bash(node scripts/messages.mjs post --source '))
     assert.equal(posts.length, 1, `${kind} has no way to reach the user`)
+  }
+})
+
+// A posting only a browser can read is parked (scripts/browser-read.mjs). An
+// unattended evaluation may park it; only an attended chat or session puts it
+// back (requeue), after a person saved the posting.
+test('eval workers may park a listing for a browser read, never requeue it', () => {
+  for (const kind of ['eval', 'eval-app']) {
+    const bash = allowedRules(kind).filter((r) => r.includes('browser-read'))
+    assert.deepEqual(bash, ['Bash(node scripts/browser-read.mjs park:*)'], kind)
+  }
+  for (const kind of UNATTENDED.filter((k) => !['eval', 'eval-app'].includes(k))) {
+    assert.ok(!allowedRules(kind).some((r) => r.includes('browser-read')), kind)
+  }
+  const here = dirname(fileURLToPath(import.meta.url))
+  for (const f of [...KIND_INSTRUCTIONS.eval, ...KIND_INSTRUCTIONS['eval-app']]) {
+    const text = readFileSync(join(here, '..', '..', f), 'utf-8')
+    const subcommands = [...text.matchAll(/node scripts\/browser-read\.mjs (\w+)/g)].map((m) => m[1])
+    assert.deepEqual(subcommands.filter((s) => s !== 'park'), [], `${f} tells a worker to run a browser-read command it may not`)
   }
 })

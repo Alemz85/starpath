@@ -10,6 +10,7 @@ import {
   parseWorkerLog,
   extractReported,
   isClosedPostingReason,
+  isBrowserReadReason,
   reportedOutcome,
   usageTsvRow,
   USAGE_TSV_HEADER,
@@ -224,6 +225,15 @@ test('a failure whose reason is a closed posting is "closed" (skipped, not retri
   for (const reason of ['JD unreachable', 'permission denied: Bash(curl)', null, '']) {
     assert.equal(isClosedPostingReason(reason), false, String(reason))
   }
+})
+
+test('a posting parked for a browser read is "parked" (skipped until a person saves it)', () => {
+  const p = parseWorkerLog(JSON.stringify(withSummary({ status: 'failed', error: 'needs a browser read' })))
+  assert.equal(p.outcome, 'parked')
+  assert.equal(p.status, 'failed')
+  assert.equal(isBrowserReadReason('Needs a browser read: HTTP 403'), true)
+  assert.equal(isBrowserReadReason('JD unreachable'), false)
+  assert.equal(reportedOutcome({ status: 'failed', error: 'JD unreachable' }), 'failed')
 })
 
 test('skipped_duplicate is its own outcome; a normal completion and a log with no summary stay "completed"', () => {

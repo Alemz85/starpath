@@ -79,7 +79,11 @@ test('report headers carry Posted and Posting check; the posted date is never gu
 
 test('the batch runner checks the posting itself and launches workers least-privilege', () => {
   const sh = read('batch/batch-runner.sh')
-  assert.match(sh, /scripts\/posting-guard\.mjs"? --url "\$url" --save-text "\$jd_rel"/)
+  assert.match(sh, /guard_src=\(--url "\$url" --save-text "\$jd_rel"\)/)
+  assert.match(sh, /scripts\/posting-guard\.mjs"? "\$\{guard_src\[@\]\}"/)
+  // A posting a person saved from a browser (browser-read.mjs requeue) is
+  // checked from that file; its site refuses scripts.
+  assert.match(sh, /guard_src=\(--file "\$saved_jd"\)/)
   assert.match(sh, /JD file: \$jd_line/)
   assert.match(sh, /jd_rel="batch\/work\/\$\{id\}-posting\.txt"/, 'scratch, not the jds/ archive')
   assert.match(sh, /Posting check: \$posting_check/)

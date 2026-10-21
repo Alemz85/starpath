@@ -77,6 +77,7 @@ import {
 import { gateFromPortals } from './lib/admission-gate.mjs';
 import { buildLastScan, writeLastScan } from './lib/last-scan.mjs';
 import { normalizeJob } from './lib/job.mjs';
+import { parkedEntries } from './lib/browser-read-core.mjs';
 import { parallelFetch } from './lib/parallel.mjs';
 import {
   loadProviders,
@@ -217,6 +218,9 @@ function loadSeenUrls() {
     for (const match of text.matchAll(/- \[[ x]\] (https?:\/\/\S+)/g)) {
       seen.add(match[1]);
     }
+    // Listings parked for a browser read (scripts/browser-read.mjs) left
+    // Pending on purpose; finding them again must not re-queue them.
+    for (const p of parkedEntries(text)) seen.add(p.url);
   }
 
   // applications.md — extract URLs from report links and any inline URLs

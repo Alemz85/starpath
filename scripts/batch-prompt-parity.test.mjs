@@ -326,3 +326,27 @@ test('the report number is a reserved claim in both files, not "log filenames on
   }
   assert.match(prompt, /`\{\{REPORT_NUM\}\}` \| The report number reserved for this listing/)
 })
+
+// ─── Postings only a browser can read ───────────────────────────────────────
+// A site that refuses every script is parked for a person (scripts/browser-read.mjs),
+// never worked around and never left pending to be refetched by every run.
+
+const BROWSER_READ_RE = /<!-- browser-read:start[^>]*-->\n([\s\S]*?)<!-- browser-read:end -->/
+
+test('the browser-read block is identical in both files and says park, never bypass', () => {
+  const inShared = shared.match(BROWSER_READ_RE)?.[1]
+  const inPrompt = prompt.match(BROWSER_READ_RE)?.[1]
+  assert.ok(inShared && inPrompt, 'both files carry the browser-read block')
+  assert.equal(inPrompt, inShared)
+  assert.match(inShared, /Never try to get around that/)
+  assert.match(inShared, /node scripts\/browser-read\.mjs park --url '<listing URL>'/)
+  assert.match(inShared, /JD saved: <path>/)
+  assert.match(inShared, /node scripts\/posting-guard\.mjs --file <path>/)
+  assert.ok(!/\brequeue\b/.test(inShared), 'workers park; only an attended chat or session requeues')
+  assert.ok(!/NOT EVALUATED/.test(inShared), 'no more "leave it pending with a note"')
+})
+
+test('the batch worker parks an unreadable posting and reads a saved JD instead of fetching', () => {
+  assert.match(prompt, /"error": "needs a browser read"/)
+  assert.match(prompt, /says `JD saved: <path>`, read that file as the JD and skip the fetch/)
+})

@@ -153,7 +153,7 @@ For each URL that **survived Step 2c** (in priority order):
 
 a. Compute the next sequential entry number: read `data/scouting.md` + `data/applications.md`, take highest number + 1
 b. **Extract JD:** Playwright (`browser_navigate` + `browser_snapshot`) → WebFetch → WebSearch
-c. If not accessible → mark `- [!]` with a note and continue
+c. If not accessible: a login wall → mark `- [!]` with a note and continue. A site that refuses every script (HTTP 403 or a blocked page to fetch-posting, the posting check and WebFetch) and no browser here → `node scripts/browser-read.mjs park --url '<url>' --company "<Company>" --role "<Role>" --why "<what failed>"` (moves it to `## Needs a browser read` and posts one Messages alert; `modes/_shared.md` § Postings only a browser can read) and continue. A pending line whose note says `JD saved: <path>` is read from that file, never fetched.
 d. **Run evaluation** per `modes/scouting.md` — eligibility gate first, then score the listing, write the per-listing report under `reports/tier-N/{Company} - {Role}.md` (none for T4), append the row to `data/score-history.tsv` and the scouting tracker.
 e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | M{match} E{ease} | Tier | verdict` (Blocked: `- [x] #NNN | URL | Company | Role | BLOCKED | T4 | {reason}`)
 
@@ -287,6 +287,10 @@ in the Configuration tab.
 - [ ] https://boards.greenhouse.io/company/jobs/456 | Company Inc | Senior PM
 - [STALE] [ ] https://older.url/job | OldCo | Analyst  ← auto-flagged if >14 days old
 - [!] https://private.url/job — Error: login required
+- [ ] https://careers.example.com/job/77 | Lumen Freight | Analyst | JD saved: jds/lumen-freight-analyst.md (browser read 2026-10-21)
+
+## Needs a browser read
+- [!] BROWSER READ | https://careers.example.com/job/78 | Lumen Freight | Planner | 2026-10-21: HTTP 403 to every script
 
 ## Filtered Out
 - [!] FILTERED | https://example.com/job | DefenseCo | Analyst | excluded domain (defense)

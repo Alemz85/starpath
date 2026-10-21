@@ -609,3 +609,29 @@ test('verify-pipeline: two different non-Latin companies with the same role are 
     assert.ok(!/Possible duplicates/.test(out), out);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test('verify-pipeline: accepts listings parked for a browser read, warns on a broken one', () => {
+  const root = makeRoot();
+  try {
+    writeFileSync(join(root, 'data/pipeline.md'), [
+      '# Pipeline — Pending Evaluations', '', '## Pending',
+      '- [ ] https://jobs.example.com/contoso/ops-1 | Contoso | Ops Analyst | JD saved: jds/contoso-ops-analyst.md (browser read 2026-10-21)',
+      '', '## Needs a browser read',
+      '- [!] BROWSER READ | https://jobs.example.com/nimbus/strategy-2 | Nimbus Robotics | Strategy Analyst | 2026-10-21: HTTP 403 to every script',
+      '', '## Processed', '',
+    ].join('\n'));
+    mkdirSync(join(root, 'jds'));
+    writeFileSync(join(root, 'jds/contoso-ops-analyst.md'), 'posting\n');
+    const clean = run('verify-pipeline.mjs', [], root);
+    assert.equal(clean.code, 0, clean.out);
+    assert.match(clean.out, /1 listing parked for a browser read/);
+    assert.doesNotMatch(clean.out, /pipeline\.md:/);
+
+    rmSync(join(root, 'jds/contoso-ops-analyst.md'));
+    writeFileSync(join(root, 'data/pipeline.md'), read(root, 'data/pipeline.md').replace('## Processed', '- [!] BROWSER READ | missing fields\n\n## Processed'));
+    const warned = run('verify-pipeline.mjs', [], root);
+    assert.equal(warned.code, 0, 'warnings, not errors');
+    assert.match(warned.out, /parked line does not parse/);
+    assert.match(warned.out, /says "JD saved: jds\/contoso-ops-analyst\.md" but that file is missing/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

@@ -164,14 +164,27 @@ export function isClosedPostingReason(error) {
 }
 
 /**
+ * Did the worker park the listing for a browser read (scripts/browser-read.mjs;
+ * the bundle's "Postings only a browser can read")? Nothing to retry until a
+ * person saved the posting.
+ */
+export function isBrowserReadReason(error) {
+  return /needs a browser read/i.test(String(error ?? ''))
+}
+
+/**
  * How the batch runner should record a worker that exited 0:
  *   'failed'    the final summary says failed (JD unreachable, denied call, …): retryable
  *   'closed'    it failed because the posting is closed: skipped, not retried
+ *   'parked'    it parked a posting only a browser can read: skipped until its JD is saved
  *   'duplicate' it skipped the listing as already evaluated
  *   'completed' anything else (including a log with no summary: see evalNoResult)
  */
 export function reportedOutcome(reported) {
-  if (reported?.status === 'failed') return isClosedPostingReason(reported.error) ? 'closed' : 'failed'
+  if (reported?.status === 'failed') {
+    if (isClosedPostingReason(reported.error)) return 'closed'
+    return isBrowserReadReason(reported.error) ? 'parked' : 'failed'
+  }
   if (reported?.status === 'skipped_duplicate') return 'duplicate'
   return 'completed'
 }
@@ -183,7 +196,7 @@ export function reportedOutcome(reported) {
  * @param {string} content raw log content
  * @returns {{
  *   status: 'completed'|'failed'|'unknown',
- *   reported: string|null, reportedError: string|null, outcome: 'completed'|'failed'|'closed'|'duplicate',
+ *   reported: string|null, reportedError: string|null, outcome: 'completed'|'failed'|'closed'|'parked'|'duplicate',
  *   score: number|null, verdict: string|null, blocked: boolean,
  *   inputTokens: number|null, cacheCreationTokens: number|null,
  *   cacheReadTokens: number|null, outputTokens: number|null,
@@ -201,7 +214,7 @@ export function parseWorkerLog(content) {
   const reported = extractReported(content, ev)
   const outcome = reportedOutcome(reported)
   return {
-    status: ev ? (ev.is_error || denied.length > 0 || outcome === 'failed' || outcome === 'closed' ? 'failed' : 'completed') : 'unknown',
+    status: ev ? (ev.is_error || denied.length > 0 || outcome === 'failed' || outcome === 'closed' || outcome === 'parked' ? 'failed' : 'completed') : 'unknown',
     reported: reported.status,
     reportedError: reported.error,
     outcome,
