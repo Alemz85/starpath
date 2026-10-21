@@ -443,6 +443,9 @@ process_offer() {
   prompt="$prompt Report number: $report_num (reserved for this listing: use it as {num} in the scouting TSV and its report link)"
   prompt="$prompt Date: $date"
   prompt="$prompt Batch ID: $id"
+  # The input row's notes column (e.g. "Re-evaluation requested…", which
+  # batch-prompt.md Step 2 needs to see to score past the dedup check).
+  [[ -n "$notes" ]] && prompt="$prompt Notes: $notes"
 
   local log_file="$LOGS_DIR/${report_num}-${id}.log"
 
