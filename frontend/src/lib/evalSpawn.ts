@@ -173,7 +173,8 @@ const UNREADABLE =
 const MANY_LISTINGS =
   'Write the score rows of all scored listings into ONE array file (`batch/work/<batch id>-rows.json`, one ' +
   '`{score_history, report_summary}` object per listing) and add them with a single ' +
-  '`node scripts/append-score-rows.mjs --input` call. '
+  '`node scripts/append-score-rows.mjs --input` call, and their scouting lines into ONE ' +
+  '`batch/scouting-additions/<batch id>.tsv` (one 12-column line per listing). '
 
 const NO_REPORT_DEVIATION =
   'DEVIATION — score only: skip the bundle’s Step 5 entirely (write NO report file under reports/); ' +

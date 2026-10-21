@@ -85,6 +85,19 @@ test('merge-scouting: adds v2 rows, blocked rows keep "—", hints derive from t
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('merge-scouting: one file may hold a whole run (one addition per line); a bad line is skipped alone', () => {
+  const root = makeRoot();
+  try {
+    writeFileSync(join(root, 'batch/scouting-additions', 'run-a.tsv'), [tsv(...GO), tsv(...BLOCKED), 'not a row', tsv(...STRETCH), ''].join('\n'));
+    const { code, out } = run('merge-scouting.mjs', [], root);
+    assert.equal(code, 0, out);
+    const rows = scoutingRows(root);
+    assert.deepEqual(rows.map((r) => r.company).sort(), ['Contoso Labs', 'Fabrikam Energy', 'Nimbus Robotics']);
+    assert.equal(rows.find((r) => r.company === 'Nimbus Robotics').notes, 'strong fit', 'no row glued into another one');
+    assert.match(out, /run-a\.tsv line 3/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('merge-scouting: a re-scored listing that is already an application refreshes that row and is marked PROMOTED', () => {
   const root = makeRoot();
   try {

@@ -166,9 +166,15 @@ const merged = []; // every addition that landed (added or updated), for the app
 // role the previous one just wrote, chaining sibling listings into one row.
 const touched = new Set();
 
-for (const file of tsvFiles) {
-  const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
-  const addition = parseScoutingTsv(content, file);
+// A file holds one addition per line: one per listing from a batch worker, or
+// a whole run's rows from an app run that scored many listings at once.
+const additionLines = tsvFiles.flatMap((file) => {
+  const lines = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').split(/\r?\n/).filter((l) => l.trim());
+  return lines.map((line, n) => ({ line, label: lines.length > 1 ? `${file} line ${n + 1}` : file }));
+});
+
+for (const { line, label } of additionLines) {
+  const addition = parseScoutingTsv(line, label);
   if (!addition) { skipped++; continue; }
   mergedNums.push(addition.num);
 
