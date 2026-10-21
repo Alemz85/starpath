@@ -80,25 +80,43 @@ export interface ShortcutGroup {
   rows: ShortcutRow[]
 }
 
-/** Navigate rows for the cheatsheet, derived straight from NAV_CHORDS.
- *  Labels come from the single source in store/nav.ts (VIEW_LABELS). */
+/** ⌘1 … ⌘9 in the native View menu, in the sidebar's order. The menu
+ *  template in electron/main.ts (buildMenu) is the other copy; keep both the
+ *  same. Settings has ⌘, in the app menu instead. */
+export const NAV_NUMBERS: ReadonlyArray<ViewId> = [
+  'chat', 'scouting', 'applying', 'database', 'reports', 'trends', 'scan', 'messages', 'profile',
+]
+
+/** Navigate rows for the cheatsheet: the ⌘-number of every destination, with
+ *  the g-chord beside it where one exists. Labels come from the single
+ *  source in store/nav.ts (VIEW_LABELS). */
 export function navShortcutRows(): ShortcutRow[] {
-  return Object.entries(NAV_CHORDS).map(([key, view]) => ({
-    keys: ['G', key.toUpperCase()],
-    label: VIEW_LABELS[view],
-    combo: 'then' as const,
-  }))
+  const chordFor = new Map(Object.entries(NAV_CHORDS).map(([key, view]) => [view, key]))
+  return NAV_NUMBERS.map((view, i) => {
+    const chord = chordFor.get(view)
+    return {
+      keys: ['⌘', String(i + 1)],
+      label: chord ? `${VIEW_LABELS[view]} (also G then ${chord.toUpperCase()})` : VIEW_LABELS[view],
+      combo: 'plus' as const,
+    }
+  })
 }
 
-/** The full grouped cheatsheet shown in the ShortcutsOverlay. */
+/** The full grouped cheatsheet shown in the ShortcutsOverlay. Every row here
+ *  is also an item in the menu bar, so nothing lives only as a shortcut. */
 export function shortcutGroups(): ShortcutGroup[] {
   return [
-    { heading: 'Navigate', rows: navShortcutRows() },
+    { heading: 'Go to', rows: navShortcutRows() },
     {
       heading: 'General',
       rows: [
         { keys: ['⌘', 'K'], label: 'Command palette — search & jump anywhere', combo: 'plus' },
-        { keys: ['?'],      label: 'Keyboard shortcuts (this panel)' },
+        { keys: ['⌘', 'N'], label: 'Add a listing', combo: 'plus' },
+        { keys: ['⌘', 'F'], label: 'Find in the Database', combo: 'plus' },
+        { keys: ['⇧', '⌘', 'E'], label: 'Export the Database', combo: 'plus' },
+        { keys: ['⌃', '⌘', 'S'], label: 'Hide or show the sidebar', combo: 'plus' },
+        { keys: ['⌘', ','], label: 'Settings', combo: 'plus' },
+        { keys: ['⌘', '/'], label: 'Keyboard shortcuts (this panel; ? works too)', combo: 'plus' },
         { keys: ['Esc'],    label: 'Close palette or panel' },
       ],
     },

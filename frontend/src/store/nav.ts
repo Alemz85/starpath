@@ -60,6 +60,12 @@ interface NavState {
   pendingDatabaseFilter: string
   pendingCompanySlug: string
   pendingViewTab: string
+  /** Whether the sidebar shows its labels (true) or folds to an icon rail.
+   *  Lives here rather than in the Sidebar so View › Hide Sidebar in the
+   *  native menu bar can drive it too. */
+  sidebarExpanded: boolean
+  setSidebarExpanded: (expanded: boolean) => void
+  toggleSidebar: () => void
   navigate: (view: ViewId, databaseFilter?: string, companySlug?: string, viewTab?: string) => void
   /** Called by the modal's "Save" / "Discard" handlers after the dirty
    *  state has been resolved — performs the actual view swap. */
@@ -95,6 +101,9 @@ export const useNavStore = create<NavState>((set, get) => ({
   pendingDatabaseFilter: '',
   pendingCompanySlug: '',
   pendingViewTab: '',
+  sidebarExpanded: true,
+  setSidebarExpanded: (expanded) => set({ sidebarExpanded: expanded }),
+  toggleSidebar: () => set(s => ({ sidebarExpanded: !s.sidebarExpanded })),
   navigate: (view, databaseFilter = '', companySlug = '', viewTab = '') => {
     // Today merged into Scout; the id stays valid for old deep links.
     if (view === 'today') view = 'scouting'

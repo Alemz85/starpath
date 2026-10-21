@@ -10,7 +10,7 @@ export function StatStrip({ children, className, flat }: { children: ReactNode; 
     <div
       className={cn(
         'flex items-stretch divide-x divide-border-default',
-        !flat && 'card galaxy-bg px-6 py-4 shadow-cosmos',
+        !flat && 'card galaxy-bg px-6 py-4',
         className,
       )}
     >

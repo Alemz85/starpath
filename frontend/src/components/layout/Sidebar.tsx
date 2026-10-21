@@ -83,7 +83,8 @@ const BOTTOM_ITEMS: NavItem[] = [
 ]
 
 export function Sidebar() {
-  const [expanded, setExpanded] = useState(true)
+  const expanded = useNavStore(s => s.sidebarExpanded)
+  const setExpanded = useNavStore(s => s.setSidebarExpanded)
   const currentView = useNavStore(s => s.view)
   const navigate = useNavStore(s => s.navigate)
   // Deactivated feature tabs (Settings › General › Features) drop off the
@@ -261,7 +262,7 @@ export function Sidebar() {
         )}
         <button
           className="titlebar-no-drag p-1 rounded-md text-nav-muted hover:text-nav-strong hover:bg-nav-hover-bg transition-colors"
-          onClick={() => setExpanded(e => !e)}
+          onClick={() => setExpanded(!expanded)}
           aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'}
         >
           {expanded ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}

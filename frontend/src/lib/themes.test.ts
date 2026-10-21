@@ -84,16 +84,18 @@ const lum = ([r, g, b]: RGB) => {
 }
 const ratio = (a: RGB, b: RGB) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05) }
 
-// [foreground, background, minimum]. Body text 4.5; large or tertiary text 3.
-// T3 and T4 are deliberately faded ladder steps and are not held to 4.5.
+// [foreground, background, minimum]. Every colour that carries words or a
+// figure holds 4.5:1 on the surfaces it sits on, Apple's floor for text under
+// 18pt (accessibility.md › Vision). The ladder steps fade by chroma, never
+// below the floor: a Match of 3.2 is still a number someone reads.
 const PAIRS: Array<[string, string, number]> = [
   ['text-1', 'bg-base', 4.5], ['text-2', 'bg-base', 4.5], ['text-3', 'bg-base', 4.5], ['text-3', 'bg-cosmos', 4.5],
-  ['text-3', 'bg-elevated', 4.5], ['text-4', 'bg-base', 2.9],
+  ['text-3', 'bg-elevated', 4.5], ['text-4', 'bg-base', 4.5], ['text-4', 'bg-cosmos', 4.5],
   ['accent-text', 'bg-base', 4.5], ['action-text', 'action', 4.5], ['action-text', 'action-hover', 4.5],
-  ['tier-1', 'bg-base', 4.5], ['tier-2', 'bg-base', 3], ['score-mid', 'bg-base', 4.5],
-  ['tier-1', 'tier-1-bg', 4.5], ['tier-2', 'tier-2-bg', 3], ['tier-3', 'tier-3-bg', 3],
+  ['tier-1', 'bg-base', 4.5], ['tier-2', 'bg-base', 3], ['tier-3', 'bg-cosmos', 4.5], ['tier-4', 'bg-cosmos', 4.5], ['score-mid', 'bg-base', 4.5],
+  ['tier-1', 'tier-1-bg', 4.5], ['tier-2', 'tier-2-bg', 3], ['tier-3', 'tier-3-bg', 3], ['tier-4', 'tier-4-bg', 4.5],
   ['success', 'bg-base', 4.5], ['warning-text', 'bg-base', 4.5], ['danger', 'bg-base', 4.5],
-  ['nav-text', 'nav-bg', 4.5], ['nav-strong', 'nav-bg', 4.5], ['nav-muted', 'nav-bg', 4.5], ['nav-faint', 'nav-bg', 2.5],
+  ['nav-text', 'nav-bg', 4.5], ['nav-strong', 'nav-bg', 4.5], ['nav-muted', 'nav-bg', 4.5], ['nav-faint', 'nav-bg', 4.5],
   ['nav-accent', 'nav-bg', 3],
   ['term-text', 'night', 4.5], ['term-tool', 'night', 4.5], ['term-ok', 'night', 4.5], ['term-err', 'night', 4.5], ['term-warn', 'night', 4.5],
 ]

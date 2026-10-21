@@ -1,24 +1,39 @@
 'use client'
 
 import { useMemo, type ReactNode } from 'react'
-import { CalendarClock, CalendarPlus, Pencil, Radar, ScrollText, X } from 'lucide-react'
+import { CalendarClock, CalendarPlus, ExternalLink, Pencil, Radar, ScrollText, X } from 'lucide-react'
 import { useWriteGate } from '@/store/dataRoot'
+import { useDataStore } from '@/store/data'
+import { ipc } from '@/lib/ipc'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { StatusDropdown } from '@/components/shared/ApplyAction'
 import { MatchEase } from '@/components/shared/MatchEase'
-import { Button, ScoreNumber, StatusChip } from '@/components/ui'
+import { Button, ScoreNumber, StatusChip, openOnControlClick, useContextMenu, type ContextMenuItemInput } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { parseScoreCell } from '@/lib/scoreBands'
 import { boardLabel, stagesFor, type RejectionInfo } from '@/lib/applyingBoard'
 import type { DateCue, DateCueKind } from '@/lib/listingDates'
-import type { AppStatus, ApplicationEntry } from '@/types'
+import type { AppStatus, ApplicationEntry, ScoreEntry } from '@/types'
 
 // Which date a card's cue shows, by icon: closes, posted, first scanned.
 const CUE_ICON: Record<DateCueKind, typeof CalendarClock> = {
   deadline: CalendarClock,
   posted:   CalendarPlus,
   scanned:  Radar,
+}
+
+const norm = (s: string) => s.trim().toLowerCase()
+
+/** The listing's posting URL: the latest score-history row for the company
+ *  and role (an application row carries no URL of its own). */
+function listingUrl(scoreHistory: ScoreEntry[], company: string, role: string): string | null {
+  const c = norm(company)
+  const r = norm(role)
+  const latest = scoreHistory
+    .filter(e => norm(e.company) === c && norm(e.role) === r && !!e.url)
+    .sort((a, b) => b.date.localeCompare(a.date))[0]
+  return latest?.url && /^https?:\/\//i.test(latest.url) ? latest.url : null
 }
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -62,6 +77,30 @@ export function ApplicationCard({
   const { canWrite, readOnlyTitle } = useWriteGate()
   const score = useMemo(() => parseScoreCell(app.score), [app.score])
   const draggable = canWrite && !!onDragStart
+  const url = useDataStore(s => listingUrl(s.scoreHistory, app.company, app.role))
+
+  // Secondary click: the card's own actions as a menu. Open actions first,
+  // then the stage moves the dropdown offers (Rejected goes through the same
+  // date dialog), then Remove last. Actions the card wasn't given (a chat
+  // card has no board handlers) are left out; the demo's read-only gate
+  // disables the writes and says why.
+  const menu = useContextMenu()
+  const menuItems = (): ContextMenuItemInput[] => {
+    const writeTitle = canWrite ? undefined : readOnlyTitle ?? undefined
+    const moves = onMove ? stagesFor(app.status).filter(s => s !== app.status && s !== 'Rejected') : []
+    return [
+      !!onViewReport && { label: 'Open report', icon: ScrollText, onSelect: onViewReport },
+      url != null && { label: 'Open listing', icon: ExternalLink, onSelect: () => ipc.openExternal(url) },
+      'separator',
+      ...moves.map(s => ({ label: `Move to ${boardLabel(s)}`, onSelect: () => onMove?.(s), disabled: !canWrite, title: writeTitle })),
+      'separator',
+      !!onEditRejection && !!rejection && { label: 'Edit rejection', icon: Pencil, onSelect: onEditRejection, disabled: !canWrite, title: writeTitle },
+      !!onMove && app.status !== 'Evaluated' && app.status !== 'Rejected' && {
+        label: 'Mark rejected', icon: X, onSelect: () => onMove('Rejected'), disabled: !canWrite, title: writeTitle,
+      },
+      !!onRemove && { label: 'Remove from Applying', icon: X, tone: 'danger' as const, onSelect: onRemove, disabled: !canWrite, title: writeTitle },
+    ]
+  }
 
   return (
     <div
@@ -75,6 +114,8 @@ export function ApplicationCard({
         onDragStart()
       })}
       onDragEnd={onDragEnd}
+      onContextMenu={(e) => menu.open(e, menuItems())}
+      onClick={(e) => { openOnControlClick(e, menu.open, menuItems()) }}
       className={cn(
         'card group relative p-2.5 transition-colors duration-150 hover:border-border-strong',
         draggable && 'cursor-grab active:cursor-grabbing',
@@ -170,6 +211,7 @@ export function ApplicationCard({
       </div>
 
       {footer}
+      {menu.element}
     </div>
   )
 }

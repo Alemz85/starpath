@@ -62,6 +62,7 @@ export function ChatComposer({ value, disabled, readOnlyTitle, onChange, onSend 
         </div>
         <p className="mt-1.5 text-label text-text-4">
           Enter to send · Shift+Enter for a new line. Chat never sends anything on your behalf.
+          Answers can be wrong; check the report before you act on one.
         </p>
       </div>
     </div>

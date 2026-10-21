@@ -18,6 +18,15 @@ const electronAPI = {
   revealFile: (filePath: string) => ipcRenderer.invoke('app:reveal-file', filePath),
   openFile: (filePath: string) => ipcRenderer.invoke('app:open-file', filePath),
 
+  // Application menu → renderer: one command id per item (main.ts buildMenu).
+  onMenuCommand: (cb: (id: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, id: string) => cb(id)
+    ipcRenderer.on('menu:command', listener)
+    return () => ipcRenderer.removeListener('menu:command', listener)
+  },
+  // Renderer → main: the sidebar's state, so View › Hide/Show Sidebar reads right.
+  setSidebarVisible: (visible: boolean) => ipcRenderer.invoke('app:set-sidebar-visible', visible),
+
   // Data root — where personal files are served from (private/, the demo,
   // an external folder). Main resolves it with scripts/lib/data-root.mjs;
   // data-root:changed fires after a switch, once cache + watcher + chat moved.

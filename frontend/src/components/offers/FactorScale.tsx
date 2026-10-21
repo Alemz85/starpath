@@ -78,7 +78,6 @@ export function FactorScale({ value, onChange, ariaLabel, disabled }: FactorScal
                 : below
                   ? 'bg-accent-soft text-accent-text hover:bg-accent/20'
                   : 'bg-bg-elevated text-text-4 hover:bg-bg-panel hover:text-text-2',
-              !disabled && 'cursor-pointer',
             )}
           >
             {cell}

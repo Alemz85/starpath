@@ -6,6 +6,7 @@ import { clsx } from 'clsx'
 import { Button } from '@/components/ui'
 import type { ScoreEntry } from '@/types'
 import { serializeRows, downloadText, exportFilename } from '@/lib/export'
+import { onAppCommand } from '@/lib/appCommands'
 
 // Title-bar export control for the Database lens. Opens a small dropdown
 // (mirrors the RowActionPopover styling) with two outputs: copy a TSV blob
@@ -17,6 +18,9 @@ export function ExportMenu({ rows }: { rows: ScoreEntry[] }) {
   const [copied, setCopied] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const disabled = rows.length === 0
+
+  // File › Export Database… (⇧⌘E) in the menu bar.
+  useEffect(() => onAppCommand('export', () => { if (!disabled) setOpen(true) }), [disabled])
 
   useEffect(() => {
     if (!open) return

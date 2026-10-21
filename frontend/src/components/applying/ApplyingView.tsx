@@ -338,7 +338,7 @@ function RejectionDialog({ draft, onSave, onClose }: {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/[0.32] backdrop-blur-[3px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/[0.32]"
       onClick={onClose}
       style={{ animation: 'chip-appear 160ms ease both' }}
     >
@@ -444,7 +444,7 @@ function DiscardConfirmModal({ app, notSent, onConfirm, onCancel }: {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/[0.32] backdrop-blur-[3px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-scrim/[0.32]"
       onClick={onCancel}
       style={{ animation: 'chip-appear 160ms ease both' }}
     >

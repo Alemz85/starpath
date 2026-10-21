@@ -262,7 +262,7 @@ function ItemDisabled({
   )
 }
 
-function spawnPerListing(
+export function spawnPerListing(
   label: string,
   modeFile: string,
   entry: ScoreEntry,

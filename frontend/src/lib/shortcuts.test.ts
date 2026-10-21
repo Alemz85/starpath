@@ -6,6 +6,7 @@ import {
   IDLE_CHORD,
   reduceChord,
   navShortcutRows,
+  NAV_NUMBERS,
   shortcutGroups,
 } from '@/lib/shortcuts'
 
@@ -71,29 +72,35 @@ test('once the leader expires, the second key is treated as a fresh press', () =
 
 // ─── cheatsheet content stays in sync with the chord map ─────────────────────
 
-test('navShortcutRows mirrors NAV_CHORDS exactly', () => {
+test('navShortcutRows lists every ⌘-number destination and names its chord', () => {
   const rows = navShortcutRows()
-  assert.equal(rows.length, Object.keys(NAV_CHORDS).length)
-  for (const row of rows) {
-    assert.equal(row.keys[0], 'G')
-    assert.equal(row.keys.length, 2)
-    assert.equal(row.combo, 'then')
-    // The second chip's letter must be a real chord key.
-    assert.ok(NAV_CHORDS[row.keys[1].toLowerCase()], `${row.keys[1]} should be a chord`)
+  assert.equal(rows.length, NAV_NUMBERS.length)
+  rows.forEach((row, i) => {
+    assert.deepEqual(row.keys, ['⌘', String(i + 1)])
+    assert.equal(row.combo, 'plus')
     assert.ok(row.label.length > 0)
+  })
+  // Every chord in NAV_CHORDS is mentioned on its destination's row, so the
+  // cheatsheet and the runtime matcher cannot drift apart.
+  for (const [key, view] of Object.entries(NAV_CHORDS)) {
+    const row = rows[NAV_NUMBERS.indexOf(view)]
+    assert.ok(row, `${view} should have a ⌘-number`)
+    assert.ok(row.label.includes(`G then ${key.toUpperCase()}`), `${view} row should name its chord`)
   }
 })
 
-test('shortcutGroups exposes Navigate + General with a ⌘K combo row', () => {
+test('shortcutGroups exposes Go to + General with a ⌘K combo row', () => {
   const groups = shortcutGroups()
   const headings = groups.map(g => g.heading)
-  assert.deepEqual(headings, ['Navigate', 'General'])
+  assert.deepEqual(headings, ['Go to', 'General'])
 
   const cmdk = groups[1].rows.find(r => r.label.startsWith('Command palette'))
   assert.ok(cmdk)
   assert.deepEqual(cmdk!.keys, ['⌘', 'K'])
   assert.equal(cmdk!.combo, 'plus')
 
-  // The help key documents itself.
-  assert.ok(groups[1].rows.some(r => r.keys.length === 1 && r.keys[0] === '?'))
+  // The help shortcut documents itself, and still names the old `?` key.
+  const help = groups[1].rows.find(r => r.keys.join('') === '⌘/')
+  assert.ok(help)
+  assert.ok(help!.label.includes('?'))
 })

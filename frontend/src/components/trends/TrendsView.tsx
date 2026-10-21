@@ -380,7 +380,11 @@ function ArchetypeFocusCard({ mix }: { mix: ArchetypeMix }) {
         {rows.map(r => (
           <div key={r.label} className="flex items-center gap-3">
             <span className="w-14 shrink-0 text-label text-text-3">{r.label}</span>
-            <div className="flex-1 flex h-4 rounded overflow-hidden bg-bg-elevated">
+            <div
+              className="flex-1 flex h-4 rounded overflow-hidden bg-bg-elevated"
+              role="img"
+              aria-label={`${r.label}: ${r.n} scored evaluation${r.n === 1 ? '' : 's'}; ${r.parts.map(p => `${p.key} ${Math.round(p.pct)} percent`).join(', ')}`}
+            >
               {r.parts.map(p => (
                 <div
                   key={p.key}
@@ -477,7 +481,11 @@ function ConversionFunnelCard({ funnel }: { funnel: Funnel }) {
           return (
             <div key={s.label} className="flex items-center gap-3">
               <span className="w-[72px] shrink-0 text-label text-text-2">{s.label}</span>
-              <div className="flex-1 h-4 rounded bg-bg-elevated overflow-hidden">
+              <div
+                className="flex-1 h-4 rounded bg-bg-elevated overflow-hidden"
+                role="img"
+                aria-label={`${s.label}: ${s.count} of ${sent}, ${pct(s.count)} percent`}
+              >
                 <div
                   className="h-full rounded transition-[width] duration-200 ease-quart"
                   style={{ width: `${barPct}%`, background: s.color }}

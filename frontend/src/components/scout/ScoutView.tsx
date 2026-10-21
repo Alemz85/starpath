@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import { clsx } from 'clsx'
-import { CalendarCheck2, CalendarClock, Inbox, MailQuestion, MessagesSquare, Send, Reply, Mic, Trophy, XCircle } from 'lucide-react'
+import { CalendarCheck2 } from 'lucide-react'
 import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
@@ -82,23 +82,24 @@ export function ScoutView() {
 
 interface FunnelCounts { sent: number; responded: number; interview: number; offer: number; rejected: number }
 
-// The application lifecycle, left to right, each stage with its own glyph
-// and (where the lifecycle has one) its semantic colour: amber interviewing,
-// green offers, red rejections. Evaluated roles are counted in the card's
-// meta line, not here: this row is about applications.
-const STAGES: Array<{ key: keyof FunnelCounts; label: string; icon: React.ElementType; tone: 'accent' | 'warning' | 'success' | 'danger' }> = [
-  { key: 'sent',      label: 'Sent',         icon: Send,    tone: 'accent' },
-  { key: 'responded', label: 'Responded',    icon: Reply,   tone: 'accent' },
-  { key: 'interview', label: 'Interviews',   icon: Mic,     tone: 'warning' },
-  { key: 'offer',     label: 'Offers',       icon: Trophy,  tone: 'success' },
-  { key: 'rejected',  label: 'Rejected',     icon: XCircle, tone: 'danger' },
+// The application lifecycle, left to right. Each stage is a figure over its
+// label, type only: the figure takes the lifecycle colour (accent in motion,
+// amber interviewing, green offers, red rejections) only once the count is
+// non-zero, and sits in text-1 otherwise. Evaluated roles are counted in the
+// card's meta line, not here: this row is about applications.
+const STAGES: Array<{ key: keyof FunnelCounts; label: string; tone: 'accent' | 'warning' | 'success' | 'danger' }> = [
+  { key: 'sent',      label: 'Sent',       tone: 'accent' },
+  { key: 'responded', label: 'Responded',  tone: 'accent' },
+  { key: 'interview', label: 'Interviews', tone: 'warning' },
+  { key: 'offer',     label: 'Offers',     tone: 'success' },
+  { key: 'rejected',  label: 'Rejected',   tone: 'danger' },
 ]
 
-const STAGE_ICON_CLASS: Record<(typeof STAGES)[number]['tone'], { on: string; off: string }> = {
-  accent:  { on: 'bg-accent-soft text-accent-text',  off: 'bg-bg-panel text-text-4' },
-  warning: { on: 'bg-warning/15 text-warning-text', off: 'bg-bg-panel text-text-4' },
-  success: { on: 'bg-success/10 text-success',       off: 'bg-bg-panel text-text-4' },
-  danger:  { on: 'bg-danger/10 text-danger',         off: 'bg-bg-panel text-text-4' },
+const STAGE_FIGURE_CLASS: Record<(typeof STAGES)[number]['tone'], string> = {
+  accent:  'text-accent-text',
+  warning: 'text-warning-text',
+  success: 'text-success',
+  danger:  'text-danger',
 }
 
 function OverviewCard({ loaded, evaluated, companies, pending, funnel, summary }: {
@@ -139,7 +140,7 @@ function OverviewCard({ loaded, evaluated, companies, pending, funnel, summary }
             {[0, 1, 2, 3, 4].map(i => <div key={i} className="h-10 w-28 shimmer rounded" />)}
           </div>
           <div className="px-6 py-4 flex flex-col gap-2">
-            {[0, 1, 2, 3].map(i => <div key={i} className="h-9 shimmer rounded" />)}
+            {[0, 1, 2, 3].map(i => <div key={i} className="h-8 shimmer rounded" />)}
           </div>
         </div>
       ) : (
@@ -149,33 +150,17 @@ function OverviewCard({ loaded, evaluated, companies, pending, funnel, summary }
             <ol className="flex items-start gap-6 mt-8" aria-label="Application stages">
               {STAGES.map((stage, i) => {
                 const value = funnel[stage.key] ?? 0
-                const Icon = stage.icon
-                const active = value > 0
-                const numberClass =
-                  !active ? 'text-text-4' :
-                  stage.tone === 'warning' ? 'text-warning-text' :
-                  stage.tone === 'success' ? 'text-success' :
-                  stage.tone === 'danger' ? 'text-danger' :
-                  'text-text-1'
                 return (
                   <li
                     key={stage.key}
                     className={clsx(
-                      'flex items-center gap-3 min-w-0 flex-1',
+                      'min-w-0 flex-1',
                       // Rejected is set apart from the path by a hairline.
                       i === STAGES.length - 1 && 'pl-6 border-l border-border-default/60',
                     )}
                   >
-                    <span
-                      className={clsx('w-9 h-9 rounded-full flex items-center justify-center shrink-0', (active ? STAGE_ICON_CLASS[stage.tone].on : STAGE_ICON_CLASS[stage.tone].off))}
-                      aria-hidden
-                    >
-                      <Icon size={16} strokeWidth={1.75} />
-                    </span>
-                    <div className="min-w-0">
-                      <div className={clsx('text-stat tabular-nums', numberClass)}>{value}</div>
-                      <div className="text-label text-text-3 mt-0.5 truncate">{stage.label}</div>
-                    </div>
+                    <div className={clsx('text-stat tabular-nums', value > 0 ? STAGE_FIGURE_CLASS[stage.tone] : 'text-text-1')}>{value}</div>
+                    <div className="text-label text-text-3 mt-0.5 truncate">{stage.label}</div>
                   </li>
                 )
               })}
@@ -196,7 +181,6 @@ function OverviewCard({ loaded, evaluated, companies, pending, funnel, summary }
             <div className="label mt-1 mb-1">Needs you</div>
             <ul className="divide-y divide-border-default/50">
               <AttentionRow
-                icon={Inbox}
                 label="Listings to filter"
                 hint={pending > 0 ? 'Waiting since the last scan' : 'Inbox is clear'}
                 value={pending}
@@ -204,7 +188,6 @@ function OverviewCard({ loaded, evaluated, companies, pending, funnel, summary }
                 dot={pending > 0}
               />
               <AttentionRow
-                icon={CalendarClock}
                 label="Deadlines"
                 hint={nextLabel}
                 value={summary.deadlines.length}
@@ -212,13 +195,11 @@ function OverviewCard({ loaded, evaluated, companies, pending, funnel, summary }
                 dot={summary.urgent > 0}
               />
               <AttentionRow
-                icon={MailQuestion}
                 label="Waiting for a reply"
                 hint="Applications sent"
                 value={summary.awaitingResponse}
               />
               <AttentionRow
-                icon={MessagesSquare}
                 label="Waiting for next round"
                 hint="Interviews in progress"
                 value={summary.awaitingNextRound}
@@ -237,8 +218,7 @@ const ATTENTION_TONE = {
   danger:  'text-danger',
 } as const
 
-function AttentionRow({ icon: Icon, label, hint, value, tone = 'default', dot }: {
-  icon: React.ElementType
+function AttentionRow({ label, hint, value, tone = 'default', dot }: {
   label: string
   hint: string
   value: number
@@ -246,10 +226,7 @@ function AttentionRow({ icon: Icon, label, hint, value, tone = 'default', dot }:
   dot?: boolean
 }) {
   return (
-    <li className="flex items-center gap-3 h-11">
-      <span className="w-7 h-7 rounded-md bg-bg-base border border-border-default/70 flex items-center justify-center shrink-0 text-text-3" aria-hidden>
-        <Icon size={14} />
-      </span>
+    <li className="flex items-center gap-3 h-10">
       <div className="min-w-0 flex-1">
         <div className="text-body font-medium text-text-1 truncate">{label}</div>
         <div className="text-label text-text-4 truncate">{hint}</div>

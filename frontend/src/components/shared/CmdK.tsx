@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Command } from 'cmdk'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
+import { onAppCommand } from '@/lib/appCommands'
 import {
   Search, Database, FileText,
   TrendingUp, Activity, Settings, Map, Briefcase, Plus, Building2, Sun, Users, Scale, Waypoints, ArrowRightLeft, User, Mail,
@@ -27,6 +28,10 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
 
 export function CmdK() {
   const [open, setOpen] = useState(false)
+
+  // View › Command Palette… (⌘K) in the menu bar; the menu's accelerator
+  // takes the keystroke before the page sees it.
+  useEffect(() => onAppCommand('palette', () => setOpen(true)), [])
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const scouting = useDataStore(s => s.scouting)
   const navigate = useNavStore(s => s.navigate)
