@@ -14,6 +14,7 @@ import {
   eligibilityFlags,
   checkStartDate,
   checkDuration,
+  durationRangeFor,
   checkGraduation,
   checkLanguage,
   checkWorkAuth,
@@ -180,6 +181,63 @@ test('duration: inside / outside range, internship unknown, not applicable', () 
   assert.equal(checkDuration({ employment: 'fixed_term', duration_months: null }, PROFILE).status, 'green')
   assert.equal(checkDuration({ employment: 'permanent', duration_months: 36 }, PROFILE).status, 'green')
   assert.equal(checkDuration({ employment: 'internship', duration_months: 24 }, {}).status, 'green')     // no range
+})
+
+test('duration: a range per employment type, falling back to default for the rest', () => {
+  const p = { duration_months: {
+    default: { min: 3, max: 12 },
+    graduate_programme: { min: 12, max: 24 },
+  } }
+  const grad = checkDuration({ employment: 'graduate_programme', duration_months: 18 }, p)
+  assert.equal(grad.status, 'green')
+  assert.match(grad.reason, /for a graduate programme \(12–24 months\)/)
+  const long = checkDuration({ employment: 'graduate_programme', duration_months: 30 }, p)
+  assert.equal(long.status, 'amber')
+  assert.match(long.reason, /graduate programme/)
+  assert.match(long.question, /You can do 12–24 months/)
+  // Types without their own range use the default.
+  assert.equal(checkDuration({ employment: 'internship', duration_months: 18 }, p).status, 'amber')
+  assert.equal(checkDuration({ employment: 'fixed_term', duration_months: 6 }, p).status, 'green')
+  assert.equal(checkDuration({ employment: 'working_student', duration_months: 18 }, p).status, 'amber')
+  assert.equal(checkDuration({ employment: null, duration_months: 18 }, p).status, 'amber')
+  assert.equal(checkDuration({ employment: 'permanent', duration_months: 36 }, p).status, 'green')
+})
+
+test('duration: top-level min/max is the fallback beside per-type ranges', () => {
+  const p = { duration_months: { min: 2, max: 12, graduate_programme: { max: 24 } } }
+  assert.equal(checkDuration({ employment: 'graduate_programme', duration_months: 24 }, p).status, 'green')
+  assert.equal(checkDuration({ employment: 'graduate_programme', duration_months: 1 }, p).status, 'green') // no min for this type
+  assert.equal(checkDuration({ employment: 'internship', duration_months: 18 }, p).status, 'amber')
+  const r = checkDuration({ employment: 'internship', duration_months: 6 }, p)
+  assert.equal(r.reason, '6 months is inside your accepted range (2–12 months)')
+})
+
+test('duration: per-type ranges only, no fallback → other types are not checked', () => {
+  const p = { duration_months: { internship: { min: 3, max: 6 } } }
+  assert.equal(checkDuration({ employment: 'internship', duration_months: 9 }, p).status, 'amber')
+  const ft = checkDuration({ employment: 'fixed_term', duration_months: 36 }, p)
+  assert.equal(ft.status, 'green')
+  assert.match(ft.reason, /Not checked/)
+})
+
+test('durationRangeFor names the range it used', () => {
+  const p = { duration_months: { default: { min: 3, max: 12 }, internship: { min: 2, max: 6 } } }
+  assert.deepEqual(durationRangeFor(p, 'internship'), { min: 2, max: 6, type: 'internship' })
+  assert.deepEqual(durationRangeFor(p, 'graduate_programme'), { min: 3, max: 12, type: 'default' })
+  assert.deepEqual(durationRangeFor({ duration_months: { min: 3, max: 12 } }, 'internship'), { min: 3, max: 12, type: 'default' })
+  assert.deepEqual(durationRangeFor({}, 'internship'), { min: null, max: null, type: null })
+})
+
+test('evaluateEligibility: an 18-month graduate programme is amber on one range, green with its own', () => {
+  const facts = { ...GREEN_FACTS, employment: 'graduate_programme', duration_months: 18 }
+  const single = evaluateEligibility(facts, { ...PROFILE, duration_months: { min: 3, max: 12 } }, { today: TODAY })
+  assert.equal(single.checks.find(c => c.check === 'duration').status, 'amber')
+  const perType = evaluateEligibility(facts, {
+    ...PROFILE,
+    duration_months: { min: 3, max: 12, graduate_programme: { min: 12, max: 24 } },
+  }, { today: TODAY })
+  assert.equal(perType.checks.find(c => c.check === 'duration').status, 'green')
+  assert.equal(perType.amber_count, single.amber_count - 1)
 })
 
 // ─── graduation ───────────────────────────────────────────────────────────────

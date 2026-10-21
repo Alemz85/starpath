@@ -94,7 +94,9 @@ location:
 #     - { language: "English", level: "native" }
 #     - { language: "Spanish", level: "B2" }
 #   work_authorisation: ["US"]               # ISO codes; "EU" = EU-27 + EEA
-#   duration_months: { min: 3, max: 12 }     # acceptable internship / fixed-term length
+#   duration_months:                         # acceptable length; one range ({ min: 3, max: 12 })
+#     default: { min: 3, max: 12 }           # or one per type: internship, graduate_programme,
+#     graduate_programme: { min: 12, max: 24 }   # fixed_term, working_student (rest → default)
 #   permanent_start_ok_before_block: false   # false = a permanent role that would run
 #                                            # through a blocked window is Blocked
 #   score_through_red:                       # Blocked listings that still get Want / Ease,

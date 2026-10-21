@@ -136,11 +136,13 @@ The script runs `start_date`, `duration`, `graduation`, `language`, `work_auth` 
 | Check | Red | Amber | Green |
 |-------|-----|-------|-------|
 | `start_date` | The role's period overlaps a `blocked_windows` entry and `start.flexible` is false (permanent roles run open-ended unless `permanent_start_ok_before_block`); or `start.latest` is before `available_from`. | Start not stated for an internship / fixed-term / graduate programme; an overlap exists but the start is flexible; or the earliest start is before `available_from` but the latest isn't. Permanent role, no stated start → amber only if a blocked window lies in the next 9 months. | Known start, no overlap, on/after `available_from`. |
-| `duration` | — | `duration_months` outside the candidate's `[min, max]`, or null for an internship. | In range, or not applicable. |
+| `duration` | — | `duration_months` outside the candidate's `[min, max]` for that `employment` type, or null for an internship. | In range, or not applicable. |
 | `graduation` | Hard window (`soft: false`) and no candidate graduation date inside it. | Same, but `soft: true`. | No requirement, or a candidate date falls inside. |
 | `language` | A required language the candidate lacks; ≥2 CEFR steps below; or **any** gap when the required level is C1+ (fluent / C2 / native — a fluency bar is tested in interviews). | 1 step below a required level of B2 or lower. | All required languages met. `required: false` never blocks. |
 | `work_auth` | Country not covered by `work_authorisation` AND (`requires_existing_right` OR `sponsorship: not_offered` OR `below_sponsorship_salary_floor`). | Country not covered and sponsorship `offered` / `unknown`; or CH for an "EU" candidate. | Country covered (or `REMOTE-EU` with EU authorisation). |
 | `other` | Any `other` entry with `status: red`. | Any `other` entry with `status: amber`. | No entries. |
+
+The duration range depends on the listing's `employment` type (the profile can set one per type, e.g. a longer one for graduate programmes), so set `employment` from what the posting says the role is.
 
 CEFR ladder: A1=1 · A2/`basic`=2 · B1/`conversational`=3 · B2/`professional`/`business`=4 · C1/`fluent`=5 · C2=6 · `native`=7. A candidate's `native` meets anything.
 

@@ -218,18 +218,50 @@ export function checkStartDate(facts, profile, { today } = {}) {
   return result('start_date', 'green', `Starts ${iso(effStart)}, clear of blocked windows`)
 }
 
-/** duration — fixed-term / internship length vs. the acceptable range. */
+// Employment types that can carry their own length range (a permanent role
+// has no length).
+export const DURATION_TYPES = Object.freeze(['internship', 'graduate_programme', 'fixed_term', 'working_student'])
+
+const bounds = (r) => ({
+  min: Number.isFinite(r?.min) ? r.min : null,
+  max: Number.isFinite(r?.max) ? r.max : null,
+})
+const isRange = (r) => r != null && typeof r === 'object' && !Array.isArray(r)
+
+/**
+ * The accepted length range for one employment type. `duration_months` is
+ * either one range for every type (`{ min, max }`, the original form) or a
+ * range per type, with `default` (else a top-level min / max) for the types
+ * it doesn't list:
+ *
+ *   duration_months:
+ *     default:            { min: 3, max: 12 }
+ *     graduate_programme: { min: 12, max: 24 }
+ *
+ * The type is the JD's `employment` fact, the same field the other checks
+ * read. Returns { min, max, type }: `type` is the key whose range applies
+ * (`default` for the fallback, null when the profile sets no range).
+ */
+export function durationRangeFor(profile, employment) {
+  const dm = profile?.duration_months
+  if (!isRange(dm)) return { min: null, max: null, type: null }
+  if (DURATION_TYPES.includes(employment) && isRange(dm[employment])) {
+    return { ...bounds(dm[employment]), type: employment }
+  }
+  return { ...bounds(isRange(dm.default) ? dm.default : dm), type: 'default' }
+}
+
+/** duration — fixed-term / internship / programme length vs. the acceptable range for its type. */
 export function checkDuration(facts, profile) {
-  const range = profile?.duration_months ?? {}
-  const min = Number.isFinite(range.min) ? range.min : null
-  const max = Number.isFinite(range.max) ? range.max : null
+  const employment = facts?.employment ?? null
+  const { min, max, type } = durationRangeFor(profile, employment)
   if (min == null && max == null) {
     return result('duration', 'green', 'Not checked: no duration range in profile')
   }
-  const employment = facts?.employment ?? null
   if (employment === 'permanent') return result('duration', 'green', 'Not applicable (permanent role)')
   const d = Number.isFinite(facts?.duration_months) ? facts.duration_months : null
   const rangeLabel = `${min ?? '…'}–${max ?? '…'} months`
+  const forType = type !== 'default' ? ` for a ${EMPLOYMENT_NOUN[type]}` : ''
   if (d == null) {
     if (employment === 'internship') {
       return result('duration', 'amber', 'Internship length not stated',
@@ -238,10 +270,10 @@ export function checkDuration(facts, profile) {
     return result('duration', 'green', 'Length not stated (not required for this employment type)')
   }
   if ((min != null && d < min) || (max != null && d > max)) {
-    return result('duration', 'amber', `${d} months is outside your accepted range (${rangeLabel})`,
+    return result('duration', 'amber', `${d} months is outside your accepted range${forType} (${rangeLabel})`,
       `Is the ${d}-month length negotiable? You can do ${rangeLabel}.`)
   }
-  return result('duration', 'green', `${d} months is inside your accepted range (${rangeLabel})`)
+  return result('duration', 'green', `${d} months is inside your accepted range${forType} (${rangeLabel})`)
 }
 
 /** graduation — "must have graduated / be graduating between from..to". */
