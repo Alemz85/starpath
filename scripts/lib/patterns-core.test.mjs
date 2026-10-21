@@ -121,6 +121,16 @@ test('parseTracker: 10-column report link stays resolvable for enrichEntries', (
   assert.equal(enriched[0].report.path, 'reports/tier-2/northwind.md');
 });
 
+test('enrichEntries: resolves literal-parenthesis and percent-encoded report links', () => {
+  const entries = [
+    { report: '[1](reports/tier-2/Nimbus - Analyst (Lyon).md)', status: 'Applied', notes: '' },
+    { report: '[2](reports/tier-2/Nimbus%20-%20Analyst%20%28Lyon%29.md)', status: 'Applied', notes: '' },
+  ];
+  const enriched = enrichEntries(entries, (p) => ({ path: p }));
+  assert.equal(enriched[0].report.path, 'reports/tier-2/Nimbus - Analyst (Lyon).md');
+  assert.equal(enriched[1].report.path, 'reports/tier-2/Nimbus - Analyst (Lyon).md');
+});
+
 // Geo-restriction classification must still fire when the restriction lives in
 // the Notes cell of a current 10-column row (Notes fallback in enrichEntries).
 test('parseTracker + enrichEntries: geo-restriction from Notes on a 10-col row', () => {

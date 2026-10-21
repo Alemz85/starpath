@@ -19,6 +19,7 @@ This folder has the same layout as a private data root (`private/`), so the app 
 | `data/score-history.tsv` | one row per evaluation (25) |
 | `data/scan-history.tsv` | 54 postings across 13 scanner runs |
 | `data/network.md`, `outreach.md`, `follow-ups.md` | 6 contacts, 6 outreach touches, 3 follow-ups |
+| `data/agent-messages.jsonl` | one open sample message for the app's Messages view |
 | `data/*-cache.tsv` | demo tax, cost-of-living and salary-band values |
 | `reports/tier-1..3/` | 12 evaluation reports (Go, Stretch / Solid / If pipeline thin, Growth target); Skip and Blocked write no file |
 | `reports/briefs/` | one daily brief |

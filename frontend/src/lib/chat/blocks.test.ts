@@ -27,11 +27,11 @@ function invalid(tag: string, body: unknown): string {
 
 // ─── The catalogue ────────────────────────────────────────────────────────────
 
-test('the catalogue: two proposal tags and six reference tags', () => {
+test('the catalogue: two proposal tags and seven reference tags', () => {
   assert.deepEqual([...CHAT_BLOCK_TAGS], [
     'starpath:apply', 'starpath:status',
     'starpath:application', 'starpath:listing', 'starpath:report', 'starpath:company',
-    'starpath:deadlines', 'starpath:top',
+    'starpath:deadlines', 'starpath:top', 'starpath:message',
   ])
   assert.equal(isChatBlockTag('starpath:application'), true)
   assert.equal(isChatBlockTag('starpath:delete'), false)
@@ -48,6 +48,7 @@ test('every block kind parses from a minimal valid body', () => {
     company:     ok('starpath:company', { company: 'Acme' }),
     deadlines:   ok('starpath:deadlines', {}),
     top:         ok('starpath:top', { list: 'companies' }),
+    message:     ok('starpath:message', { id: 'm-20261021-1a2b3c4d' }),
   }
   for (const [kind, block] of Object.entries(kinds)) assert.equal(block.kind, kind)
   assert.equal(isProposalBlock(kinds.apply), true)
@@ -98,6 +99,17 @@ test('top: list is an enum; limit defaults and clamps', () => {
   assert.match(invalid('starpath:top', { list: 'salaries' }), /list must be one of/)
   assert.match(invalid('starpath:top', {}), /list must be one of/)
   assert.match(invalid('starpath:top', { list: 'companies', limit: 'five' }), /whole number/)
+})
+
+test('message carries a Messages id and an optional label', () => {
+  assert.deepEqual(ok('starpath:message', { id: ' m-20261021-1a2b3c4d ', label: 'Needs you' }), {
+    kind: 'message', id: 'm-20261021-1a2b3c4d', label: 'Needs you',
+  })
+  assert.match(invalid('starpath:message', {}), /id must be a string/)
+  assert.match(invalid('starpath:message', { id: '' }), /cannot be empty/)
+  assert.match(invalid('starpath:message', { id: 'm 2026 x' }), /Messages id/)
+  assert.match(invalid('starpath:message', { id: 'm-' + 'a'.repeat(80) }), /Messages id/)
+  assert.match(invalid('starpath:message', { id: 'm-20261021-1a2b3c4d', label: 'x'.repeat(MAX_LABEL_CHARS + 1) }), /label/)
 })
 
 // ─── Proposal blocks through the block parser ─────────────────────────────────

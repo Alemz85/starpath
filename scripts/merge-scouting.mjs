@@ -64,6 +64,7 @@ import { refreshApplicationRows } from './lib/tracker-core.mjs';
 import { acquireLockSync, lockPathFor, withLockSync } from './lib/dir-lock.mjs';
 import { writeFileAtomic } from './lib/write-file-atomic.mjs';
 import { isReserved, pickEntryNum, releaseNum } from './lib/report-nums.mjs';
+import { reportLinkTarget } from './lib/report-link.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
@@ -77,8 +78,7 @@ const VERIFY = process.argv.includes('--verify');
 
 /** The link target of a `[n](reports/…md)` cell, or null. */
 function reportPath(cell) {
-  const m = /\]\(([^)]+)\)\s*$/.exec(String(cell ?? ''));
-  return m ? m[1].trim() : null;
+  return reportLinkTarget(cell);
 }
 
 function appendDedupIndex(company, role, date) {

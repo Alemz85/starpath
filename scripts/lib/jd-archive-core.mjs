@@ -29,6 +29,8 @@
 // disk. The app mirrors the resolution in frontend/src/lib/jdArchive.ts —
 // change them together.
 
+import { markdownLinks, normalizeReportPath } from './report-link.mjs';
+
 /** Tiers whose evaluations write a report file (and so get an archive). */
 export const ARCHIVED_TIERS = [1, 2, 3];
 
@@ -118,13 +120,13 @@ export function parseReport(text, relPath = '') {
  */
 export function trackerNumbers(trackerTexts) {
   const map = new Map();
-  const re = /\[#?(\d+)\]\(\s*<?([^)>]+?\.md)>?\s*\)/g;
   for (const text of trackerTexts) {
-    for (const m of String(text ?? '').matchAll(re)) {
-      let p = m[2].trim().replace(/\\/g, '/');
-      try { p = decodeURI(p); } catch { /* keep as written */ }
+    for (const { label, target } of markdownLinks(text)) {
+      const num = /^#?(\d+)$/.exec(label.trim());
+      if (!num || !/\.md$/i.test(target)) continue;
+      const p = normalizeReportPath(target);
       if (!/^reports\//.test(p)) continue;
-      if (!map.has(p)) map.set(p, Number(m[1]));
+      if (!map.has(p)) map.set(p, Number(num[1]));
     }
   }
   return map;

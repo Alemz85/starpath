@@ -215,6 +215,13 @@ test('resolveReportPath: null when predicate false or no link', () => {
   assert.equal(resolveReportPath('n/d', () => true), null);
 });
 
+test('resolveReportPath: literal parentheses and percent-encoded links', () => {
+  const seen = [];
+  const exists = (p) => { seen.push(p); return true };
+  assert.equal(resolveReportPath('[#2](reports/tier-1/Nimbus - Analyst (Lyon).md)', exists), 'reports/tier-1/Nimbus - Analyst (Lyon).md');
+  assert.equal(resolveReportPath('[#2](reports/tier-1/Nimbus%20-%20Analyst%20%28Lyon%29.md)', exists), 'reports/tier-1/Nimbus - Analyst (Lyon).md');
+});
+
 /* ───── computeUrgency ───────────────────────────────────────────────────────*/
 
 test('computeUrgency applied: 0 sent past first window → overdue', () => {

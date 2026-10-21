@@ -7,6 +7,7 @@
  * June" relative to the as-of date. All content is fictional (see seed.mjs).
  */
 
+import { buildPost, makeId, serializeRecord } from '../lib/messages-core.mjs'
 import { persona, preferredCities, archetypes, calibration, network, outreach, followUps, stories, titleFilter } from './seed.mjs'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -545,6 +546,31 @@ ${rows.join('\n')}
 `
 }
 
+// ── data/agent-messages.jsonl ────────────────────────────────────────────────
+
+/** One open sample message, so the Messages view and the chat's message card have something to show. */
+export function renderMessages(ctx) {
+  const rec = ctx.recById.get('tailspin-pa')
+  const app = ctx.appsById.get('tailspin-pa')
+  const now = new Date(`${ctx.asOf}T07:30:00.000Z`)
+  const post = buildPost({
+    source: 'eval',
+    kind: 'suggestion',
+    title: `${rec.company} closes in ${rec.L.deadline} days and isn’t sent yet`,
+    body: [
+      `The ${rec.role} listing in ${rec.L.city} is your closest match so far, and its deadline is ${longDate(ctx.day(rec.L.deadline))}. Before it closes:`,
+      '',
+      '- tailor your CV and draft the application answers',
+      '- decide whether to apply, or discard it with a reason',
+      '',
+      'Nothing was sent. Resolve this once you have decided.',
+    ].join('\n'),
+    links: [rec.reportPath, `app:${app.num}`],
+    key: 'demo-deadline-tailspin',
+  }, { id: makeId(now, 'de000001'), now })
+  return serializeRecord(post)
+}
+
 // ── interview-prep/{Company} - {Role}.md ─────────────────────────────────────
 
 export function renderNorthwindPrep(ctx) {
@@ -723,6 +749,7 @@ This folder has the same layout as a private data root (\`private/\`), so the ap
 | \`data/score-history.tsv\` | one row per evaluation (${c.scouting}) |
 | \`data/scan-history.tsv\` | ${c.scan} postings across ${c.runs} scanner runs |
 | \`data/network.md\`, \`outreach.md\`, \`follow-ups.md\` | ${c.network} contacts, ${c.outreach} outreach touches, ${c.followUps} follow-ups |
+| \`data/agent-messages.jsonl\` | one open sample message for the app's Messages view |
 | \`data/*-cache.tsv\` | demo tax, cost-of-living and salary-band values |
 | \`reports/tier-1..3/\` | ${c.reports} evaluation reports (Go, Stretch / Solid / If pipeline thin, Growth target); Skip and Blocked write no file |
 | \`reports/briefs/\` | one daily brief |

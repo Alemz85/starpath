@@ -54,9 +54,7 @@ const WEB_TOOLS = /\b(WebFetch|WebSearch|Playwright|browser_navigate|browser_sna
 const UNTRUSTED_MARKER = /Untrusted content/
 
 /** file → why it has no marker yet. Empty it as the rule lands. */
-const PENDING_RULE = {
-  '.claude/skills/career-ops/SKILL.md': 'the router names Playwright for offer verification',
-}
+const PENDING_RULE = {}
 
 test('every prompt that sends an agent to the web carries the untrusted-content marker', () => {
   const missing = []

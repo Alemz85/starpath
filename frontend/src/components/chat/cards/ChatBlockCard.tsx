@@ -7,7 +7,7 @@ import { ChatProposalCard, type ProposalLock } from '../ChatProposalCard'
 import { StatusMoveCard } from './StatusMoveCard'
 import {
   ApplicationBlockCard, CardSkeleton, CompanyBlockCard, DeadlinesBlockCard, ListingBlockCard,
-  ReportBlockCard, TopBlockCard,
+  MessageBlockCard, ReportBlockCard, TopBlockCard,
 } from './ReferenceCards'
 
 /** How a proposal card reaches its decision state and its two buttons. */
@@ -40,6 +40,8 @@ export function ChatBlockCard({ block, state }: { block: ChatBlock; state: Propo
       return <DeadlinesBlockCard days={block.days} label={block.label} />
     case 'top':
       return <TopBlockCard list={block.list} limit={block.limit} label={block.label} />
+    case 'message':
+      return <MessageBlockCard id={block.id} label={block.label} />
     default: {
       const exhaustive: never = block
       return exhaustive

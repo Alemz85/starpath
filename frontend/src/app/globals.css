@@ -389,6 +389,16 @@ select:not([multiple]) {
 }
 .prose-report p { margin-bottom: 0.75rem; }
 .prose-report ul, .prose-report ol { padding-left: 1.25rem; margin-bottom: 0.75rem; }
+/* Preflight strips list markers; the report prose puts them back, muted so
+   they guide the eye without competing with the text. */
+.prose-report ul { list-style-type: disc; }
+.prose-report ol { list-style-type: decimal; }
+.prose-report ul ul { list-style-type: circle; }
+.prose-report ul ul ul { list-style-type: square; }
+.prose-report li::marker { color: rgb(var(--c-text-3)); }
+.prose-report ul ul, .prose-report ol ol, .prose-report ul ol, .prose-report ol ul { margin-top: 0.3rem; margin-bottom: 0; }
+/* GFM task lists draw their own checkbox. */
+.prose-report .contains-task-list { list-style: none; padding-left: 0; }
 .prose-report li { margin-bottom: 0.3rem; }
 .prose-report li > p { margin-bottom: 0.3rem; }
 .prose-report strong { color: rgb(var(--c-text-1)); font-weight: 600; }
