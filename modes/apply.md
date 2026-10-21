@@ -199,3 +199,7 @@ Si el formulario tiene más preguntas que las visibles:
 - Pedir al candidato que haga scroll y comparta otro screenshot
 - O que pegue las preguntas restantes
 - Procesar en iteraciones hasta cubrir todo el formulario
+
+## When something blocks you
+
+**If something blocks you, tell the user in Messages.** When this runs from the app, nobody reads your final output, so a question or "what I need from you" there goes unanswered. If a tool call is denied, a step fails in a way only the user can fix, or you need their decision, post ONE message and keep going with whatever you can still do: `node scripts/messages.mjs post --source apply --kind alert --title "…" --body "…" --key apply:<company-slug>`. The body says what you finished, what is left undone (the listing and step) and what you need from them. Never work around a denial (for example by writing a file another way); the message is the way out.

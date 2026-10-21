@@ -6,7 +6,7 @@
 // important issue, or needs the user's OK before a change. The view lists the
 // open ones newest first; resolving or dismissing appends to the file in main.
 
-export type MessageSource = 'calibrate' | 'scheduler' | 'eval' | 'chat' | 'session'
+export type MessageSource = 'calibrate' | 'scheduler' | 'eval' | 'scan' | 'apply' | 'worker' | 'chat' | 'session'
 export type MessageKind = 'approval' | 'alert' | 'suggestion' | 'fyi'
 export type MessageStatus = 'open' | 'resolved' | 'dismissed'
 export type MessageLinkKind = 'report' | 'application' | 'url' | 'file'
@@ -56,6 +56,9 @@ export const SOURCE_LABEL: Record<MessageSource, string> = {
   calibrate: 'Calibrate',
   scheduler: 'Weekly run',
   eval:      'Evaluation',
+  scan:      'Scan',
+  apply:     'CV & application',
+  worker:    'Background task',
   chat:      'Chat',
   session:   'Claude session',
 }

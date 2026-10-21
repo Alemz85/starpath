@@ -207,8 +207,9 @@ test('cd is allowed only to the working directory itself, as exact rules', () =>
   const rules = allowedRules('eval', { cwds: ['/repo', '/private/repo', 'rel'] })
   assert.deepEqual(rules.filter((r) => r.startsWith('Bash(cd')), ['Bash(cd .)', 'Bash(cd /repo)', 'Bash(cd /private/repo)'])
   assert.ok(!rules.some((r) => /^Bash\(cd[ :]?\*?\)$/.test(r) || r.startsWith('Bash(cd:')))
-  // A kind without Bash gets no cd either.
-  assert.deepEqual(allowedRules('cv-import', { cwds: ['/repo'] }).filter((r) => r.startsWith('Bash(')), [])
+  // A kind whose only command is the Messages post gets that and the cd rules, nothing else.
+  assert.deepEqual(allowedRules('cv-import', { cwds: ['/repo'] }).filter((r) => r.startsWith('Bash(')),
+    ['Bash(node scripts/messages.mjs post --source worker:*)', 'Bash(cd .)', 'Bash(cd /repo)'])
 })
 
 test('linked paths get the resolved private/ spelling; private/ paths and plain ones do not', () => {
@@ -302,4 +303,37 @@ test('the frontend lists exactly the table kinds', () => {
   const kinds = [...m[1].matchAll(/'([a-z-]+)'/g)].map((x) => x[1])
   assert.deepEqual([...kinds].sort(), [...WORKER_KINDS].sort())
   assert.ok(src.includes(`export const WORKER_FLAG = '${WORKER_FLAG}'`))
+})
+
+// ─── Instructions vs permissions ────────────────────────────────────────────
+// A worker whose instructions name a script it may not run gets denied
+// mid-run (a Full scan once lost its whole web-search pass that way). Every
+// `node scripts/*.mjs` a kind's mode files tell it to run must be allowed.
+const KIND_INSTRUCTIONS = {
+  eval: ['batch/batch-prompt.md'],
+  'eval-app': ['batch/batch-prompt.md', 'modes/scouting.md', 'modes/pipeline.md'],
+  scan: ['modes/scan.md'],
+  'apply-flow': ['modes/pdf.md', 'modes/apply.md', 'modes/interview-prep.md'],
+  positioning: ['modes/positioning.md'],
+}
+
+test("every script a worker's instructions name is one it may run", () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const root = join(here, '..', '..')
+  for (const [kind, files] of Object.entries(KIND_INSTRUCTIONS)) {
+    const rules = allowedRules(kind).filter((r) => r.startsWith('Bash('))
+    const named = new Set()
+    for (const f of files) {
+      for (const m of readFileSync(join(root, f), 'utf-8').matchAll(/node (scripts\/[\w/-]+\.mjs)/g)) named.add(`node ${m[1]}`)
+    }
+    const missing = [...named].filter((c) => !rules.some((r) => r.startsWith(`Bash(${c}`)))
+    assert.deepEqual(missing, [], `${kind}: its instructions run ${missing.join(', ')} but its permissions don't allow it`)
+  }
+})
+
+test('every unattended worker can post to Messages, under its own source', () => {
+  for (const kind of UNATTENDED) {
+    const posts = allowedRules(kind).filter((r) => r.startsWith('Bash(node scripts/messages.mjs post --source '))
+    assert.equal(posts.length, 1, `${kind} has no way to reach the user`)
+  }
 })

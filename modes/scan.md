@@ -194,6 +194,10 @@ https://...	2026-02-10	Ashby — AI PM	SA AI	OldCo		skipped_dup	2026-02-10
 https://...	2026-02-10	WebSearch — AI PM	PM AI	ClosedCo		skipped_expired	2026-02-10
 ```
 
+## When something blocks you
+
+**If something blocks you, tell the user in Messages.** When this runs from the app, nobody reads your final output, so a question or "what I need from you" there goes unanswered. If a tool call is denied, a step fails in a way only the user can fix, or you need their decision, post ONE message and keep going with whatever you can still do: `node scripts/messages.mjs post --source scan --kind alert --title "…" --body "…" --key scan:<YYYY-MM-DD>:<topic>`. The body says what you finished, what is left undone (list the companies or candidates not processed) and what you need from them. Never work around a denial (for example by writing a file another way); the message is the way out.
+
 ## Resumen de salida
 
 ```

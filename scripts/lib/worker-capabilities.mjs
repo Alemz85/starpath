@@ -122,6 +122,12 @@ const EVAL_WRITES = [
   'data/col-cache.tsv',
 ]
 
+// Every unattended worker may leave the user ONE kind of note: a post to the
+// Messages inbox (scripts/messages.mjs). The prefix pins the source, so a
+// worker can't post as another one. Workers have no other way to reach the
+// user: their final output lands in Activity, which nobody reads unprompted.
+const postMessage = (source) => `node scripts/messages.mjs post --source ${source}`
+
 const EVAL_COMMANDS = [
   'node scripts/posting-guard.mjs',
   'node scripts/fetch-posting.mjs',
@@ -132,7 +138,7 @@ const EVAL_COMMANDS = [
   // Read-only outcome stats (docs/scoring-statistical-design.md § 3.7).
   { exact: 'node scripts/outcomes.mjs --json' },
   // One optional message to the user when only they can unblock a listing.
-  'node scripts/messages.mjs post --source eval',
+  postMessage('eval'),
 ]
 
 // Chat: attended, so broad. What it may never do, even when asked: change
@@ -207,6 +213,12 @@ export const WORKER_CAPABILITIES = {
       'node scripts/outreach-plan.mjs',
       'npm run outreach-plan',
       'node scripts/cv-sync-check.mjs',
+      'node scripts/check-liveness.mjs',
+      'node scripts/triage-pipeline.mjs',
+      'node scripts/rebuild-dedup-index.mjs',
+      // Promotes a `go` hit through the locked, logged tracker path
+      // (CLAUDE.md § Pipeline Integrity 2); the worker never edits the file.
+      'node scripts/promote-to-applications.mjs',
     ],
     web: 'fetch+search',
     deny: ['Edit(./user/**)', ...TRACKERS.map((p) => `Edit(./${p})`)],
@@ -218,7 +230,14 @@ export const WORKER_CAPABILITIES = {
     summary: 'Portal scan (Full scan, Filtered scan)',
     writes: ['data/pipeline.md', 'data/scan-history.tsv', 'user/portals.yml', 'jds/**'],
     tmp: [],
-    commands: ['node scripts/scan.mjs', 'node scripts/whats-new.mjs', 'node scripts/agent-log.mjs log'],
+    commands: [
+      'node scripts/scan.mjs',
+      'node scripts/whats-new.mjs',
+      'node scripts/check-liveness.mjs',
+      'node scripts/fetch-posting.mjs',
+      'node scripts/agent-log.mjs log',
+      postMessage('scan'),
+    ],
     web: 'fetch+search',
     deny: ['Edit(./user/cv.md)', 'Edit(./user/profile.yml)', 'Edit(./user/_profile.md)', ...TRACKERS.map((p) => `Edit(./${p})`)],
   },
@@ -241,6 +260,8 @@ export const WORKER_CAPABILITIES = {
       'node scripts/company-research.mjs check',
       'node scripts/check-story-bank.mjs',
       'node scripts/agent-log.mjs log',
+      { exact: 'node scripts/outcomes.mjs --json' },
+      postMessage('apply'),
       { pattern: 'cp private/CV/applications/*.pdf output/*.pdf' },
     ],
     web: 'fetch+search',
@@ -251,7 +272,7 @@ export const WORKER_CAPABILITIES = {
     summary: 'Positioning review',
     writes: ['reports/positioning/**'],
     tmp: [],
-    commands: ['node scripts/positioning-intel.mjs', 'node scripts/score-trend.mjs', 'node scripts/agent-log.mjs log'],
+    commands: ['node scripts/positioning-intel.mjs', 'node scripts/score-trend.mjs', 'node scripts/agent-log.mjs log', postMessage('worker')],
     web: 'none',
     deny: ['Edit(./user/**)'],
   },
@@ -260,7 +281,7 @@ export const WORKER_CAPABILITIES = {
     summary: 'Profile sync after a Settings edit',
     writes: ['user/_profile.md', 'user/portals.yml'],
     tmp: [],
-    commands: [],
+    commands: [postMessage('worker')],
     web: 'none',
     deny: ['Edit(./user/cv.md)'],
   },
@@ -269,7 +290,7 @@ export const WORKER_CAPABILITIES = {
     summary: 'Add-company ATS probe',
     writes: ['user/portals.yml'],
     tmp: [],
-    commands: [],
+    commands: [postMessage('worker')],
     web: 'fetch',
     deny: [],
   },
@@ -278,7 +299,7 @@ export const WORKER_CAPABILITIES = {
     summary: 'Onboarding CV import',
     writes: ['user/cv.md'],
     tmp: [],
-    commands: [],
+    commands: [postMessage('worker')],
     web: 'none',
     deny: [],
   },
@@ -287,7 +308,7 @@ export const WORKER_CAPABILITIES = {
     summary: 'Onboarding workspace tailoring',
     writes: ['user/portals.yml', 'user/profile.yml', 'user/_profile.md'],
     tmp: [],
-    commands: [],
+    commands: [postMessage('worker')],
     web: 'none',
     deny: ['Edit(./user/cv.md)'],
   },

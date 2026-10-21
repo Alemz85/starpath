@@ -22,6 +22,7 @@ import {
 } from '@/lib/spawnFormat'
 import { spawnSource, type SpawnUsage } from '@/lib/usage'
 import { recordAppUsage } from '@/lib/usageLog'
+import { blockedRunNotice } from '@/lib/blockedRunNotice'
 
 // Re-exported for API stability — call sites across the app import these from
 // '@/store/spawns'. The implementations now live in lib/spawnFormat.ts so the
@@ -173,6 +174,12 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
         source: spawnSource(finished.args),
         usage: finished.usage,
       })
+    }
+    // A worker stopped by its permissions tells the user through Messages; if
+    // the agent didn't manage to, post the alert for it (lib/blockedRunNotice).
+    if (finished && finished.tool === 'claude' && finished.status !== 'killed' && canWriteNow()) {
+      const notice = blockedRunNotice(finished)
+      if (notice) void ipc.run('node', notice).catch(() => {})
     }
     set(state => {
       const rec = state.spawns[id]

@@ -24,7 +24,7 @@
  * does the locked I/O. Unit-tested in messages-core.test.mjs.
  */
 
-export const SOURCES = ['calibrate', 'scheduler', 'eval', 'chat', 'session']
+export const SOURCES = ['calibrate', 'scheduler', 'eval', 'scan', 'apply', 'worker', 'chat', 'session']
 export const KINDS = ['approval', 'alert', 'suggestion', 'fyi']
 export const STATUSES = ['open', 'resolved', 'dismissed']
 export const LINK_KINDS = ['report', 'application', 'url', 'file']

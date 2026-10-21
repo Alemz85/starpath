@@ -353,3 +353,7 @@ Full report: reports/positioning/positioning-{YY-MM}.md
 - **Do not rerun `scripts/scan.mjs` or `scripts/analyze-patterns.mjs`** — those are separate modes. Positioning reads; it does not scan or re-process. (`analyze-patterns.mjs --scouting` overlaps with `positioning-intel.mjs` but reasons at corpus level only; positioning-intel adds the per-archetype lever layer this mode needs.)
 - **Respect the Data Contract.** This mode reads a lot of files but writes ONLY to `reports/positioning/positioning-*.md`.
 - **One positioning report per month max.** If `reports/positioning/positioning-{YY-MM}.md` already exists, ask the user whether to overwrite or skip. Usually skip — a month's gap allows enough new data to accumulate.
+
+## When something blocks you
+
+**If something blocks you, tell the user in Messages.** When this runs from the app, nobody reads your final output, so a question or "what I need from you" there goes unanswered. If a tool call is denied, a step fails in a way only the user can fix, or you need their decision, post ONE message and keep going with whatever you can still do: `node scripts/messages.mjs post --source worker --kind alert --title "…" --body "…" --key positioning:<YYYY-MM-DD>`. The body says what you finished, what is left undone (which sections) and what you need from them. Never work around a denial (for example by writing a file another way); the message is the way out.
