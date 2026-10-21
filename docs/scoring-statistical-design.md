@@ -286,11 +286,23 @@ CLI summary, not in JSON consumed by a mode, not in a UI.
 | Brand-bonus candidate (company to add) | evaluated roles at that company | **4** | Same claim shape, same boundary, same gate. |
 | Dimension pinned at ceiling / floor | evaluations scoring that dimension | **20** | The claim is a share claim ("≥ 70% of evaluations sit at ≥ 9") plus a dispersion claim. A share estimated from 5 observations has a confidence interval wide enough to contain 50%, i.e. no pinning at all; 20 observations narrow it to roughly ±20 points, which keeps the estimate on the claimed side. Dispersion estimates from fewer than 20 points are unstable in the same way. |
 | Comp targets above / below market | scored evaluations with a `salary_adj_city` score | **20** | Identical share-plus-mean claim over one dimension; identical gate. |
-| Archetype scores high (Priority / verdict) but never converts / scores low but converts | applications that reached the market in that archetype | **8** | "0 of n converted" is only remarkable if 0 is unlikely under a healthy rate. At a 20% true conversion rate, seeing zero successes has probability `0.8^n`; that only drops below ~1-in-6 at `n = 8`. Below 8, a zero-conversion archetype is an ordinary run of bad luck and must not be presented as a rubric defect. |
+| Archetype scores high (Priority / verdict) but never converts / scores low but converts | resolved applications in that archetype (progressed + rejected + no-response, classified by § 3.7 from the status log; pending and withdrawn are not answers) with a score-history Want and Ease | **8** | "0 of n converted" is only remarkable if 0 is unlikely under a healthy rate. At a 20% true conversion rate, seeing zero successes has probability `0.8^n`; that only drops below ~1-in-6 at `n = 8`. Below 8, a zero-conversion archetype is an ordinary run of bad luck and must not be presented as a rubric defect. |
 
 Sub-gate advisories appear in `insufficientData` with the same `action` text,
 their `sampleSize`, their gate, and the reason — so the user can see what the
 advisor *would* say once the evidence arrives, without being asked to act on it.
+
+**One outcome path.** The advisor never reads the tracker's status text. Both
+of its outcome checks (the archetype row above and the Ease-vs-outcome check)
+take the § 3.7 analysis (`analyzeApplicationOutcomes`), so `calibrate` and
+`scripts/outcomes.mjs` cannot disagree; a confirmed § 3.7 gap is listed among
+the advisor's suggestions under its own id and gate.
+
+**Messages.** Each advisory that clears its gate carries a stable `id` (its
+kind and subject, never its counts) and is posted to the user's Messages under
+that key, so a re-run never repeats one that is open or dismissed.
+`insufficientData` entries are never posted. Posting is the advisor's only
+write: it never edits `user/*`.
 
 ### 3.5 Targeting momentum — `frontend/src/lib/trendsAnalytics.ts`
 
@@ -344,8 +356,9 @@ rejection stage), `data/applications.md`, the latest `data/score-history.tsv`
 row per application (Ease, verdict, archetype, location) and, when configured,
 the user's materials index (what was sent, and when). All of them are joined on
 one key, `applicationKey(company, role)` in `scripts/lib/application-key.mjs`.
-Consumers: `calibrate` (Ease against outcomes), `patterns` (rejection
-patterns) and the chat (an outcomes block plus a per-application "why" table).
+Consumers: `calibrate` (the archetype conversion check and Ease against
+outcomes, both from this one analysis), `patterns` (rejection patterns) and the
+chat (an outcomes block plus a per-application "why" table).
 The scorer may cite an outcome stat in a report only when its gate clears.
 
 **What an application's outcome is.** An application counts once it reached
