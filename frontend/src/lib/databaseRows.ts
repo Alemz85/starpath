@@ -15,7 +15,7 @@
 import type { ScoreEntry, ApplicationEntry } from '@/types'
 import { ENGAGED_STATUSES } from '@/types'
 import { canonicalizeArchetype } from './archetype'
-import { parseCities, entityId, locationFacetValues } from './entityId'
+import { parseCities, entityId, locationFacetValues, variantGroupKey } from './entityId'
 import { matchesTokenQuery, type TokenFilters } from './databaseQuery'
 import { livenessKey, type Liveness } from './scanHistory'
 import { isBlocked, isScored, priorityOf, verdictOf } from './scoreBands'
@@ -187,12 +187,13 @@ export function filterAndGroupEntities(entities: ScoreEntry[], ctx: DbFilterCont
   // predicate can't drift.
   rows = rows.filter(r => matchesTokenQuery(r, tokenFilters, freeText))
 
-  // Group surviving entities by roleKey (entity_id minus the `::city` suffix)
-  // so the same role across multiple cities falls into one bucket.
+  // Group surviving entities into variant groups: the same role at one
+  // company, differing only by location or language/market ("– Lyon, France"
+  // vs "– Nantes, France", "– French Market" vs "– Polish Market"). Each
+  // variant keeps its own entity; the group is one row with the rest nested.
   const groups = new Map<string, ScoreEntry[]>()
   for (const e of rows) {
-    const id = entityId(e.company, e.role, parseCities(e.location))
-    const roleKey = id.split('::').slice(0, 2).join('::')
+    const roleKey = variantGroupKey(e.company, e.role, e.location)
     if (!groups.has(roleKey)) groups.set(roleKey, [])
     groups.get(roleKey)!.push(e)
   }
