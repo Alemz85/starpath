@@ -49,6 +49,15 @@ export const ATS_HOSTS = Object.freeze({
 });
 
 /**
+ * Company career sites (not ATSs) with a public, no-auth JSON endpoint. Kept
+ * apart from ATS_HOSTS, which is exactly the set of types the scanner detects;
+ * the liveness ladder passes these as `hosts`.
+ */
+export const SITE_API_HOSTS = Object.freeze({
+  amazon: ['www.amazon.jobs'],
+});
+
+/**
  * Hosts a POSTING PAGE (the human-readable HTML a candidate opens) is served
  * from, per ATS. Only the liveness ladder fetches these (`getText`); same
  * matching rules as ATS_HOSTS.
@@ -59,6 +68,10 @@ export const ATS_PAGE_HOSTS = Object.freeze({
   lever: ['jobs.lever.co', 'jobs.eu.lever.co'],
   workday: ['*.myworkdayjobs.com'],
   smartrecruiters: ['careers.smartrecruiters.com', 'jobs.smartrecruiters.com'],
+  // Company career sites that ship `JobPosting` JSON-LD (or a server-rendered JD).
+  amazon: ['amazon.jobs', 'www.amazon.jobs'],
+  picnic: ['jobs.picnic.app'],
+  factorial: ['careers.factorial.com'],
 });
 
 export class HttpError extends Error {

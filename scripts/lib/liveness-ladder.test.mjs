@@ -44,7 +44,7 @@ test('posting URLs map to hard-coded API hosts, safe segments only', () => {
   assert.deepEqual([gh.ats, gh.org, gh.id], ['greenhouse', 'nimbus-demo', '4417']);
   assert.equal(postingApiUrls(gh, 'x').perJob, 'https://boards-api.greenhouse.io/v1/boards/nimbus-demo/jobs/4417');
   const eu = parsePostingUrl('https://job-boards.eu.greenhouse.io/nimbus-demo/jobs/9');
-  assert.equal(postingApiUrls(eu, 'x').board, 'https://boards-api.eu.greenhouse.io/v1/boards/nimbus-demo/jobs');
+  assert.equal(postingApiUrls(eu, 'x').board, 'https://boards-api.greenhouse.io/v1/boards/nimbus-demo/jobs', 'EU pages use the global API host: boards-api.eu.greenhouse.io does not resolve');
 
   const lv = parsePostingUrl('https://jobs.lever.co/harbor-demo/0a1b2c3d-1111-2222-3333-444455556666/apply');
   assert.equal(postingApiUrls(lv, 'x').perJob, 'https://api.lever.co/v0/postings/harbor-demo/0a1b2c3d-1111-2222-3333-444455556666');

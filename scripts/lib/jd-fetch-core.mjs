@@ -19,8 +19,9 @@
 const GREENHOUSE_HOSTS = {
   'boards.greenhouse.io': 'boards-api.greenhouse.io',
   'job-boards.greenhouse.io': 'boards-api.greenhouse.io',
-  'boards.eu.greenhouse.io': 'boards-api.eu.greenhouse.io',
-  'job-boards.eu.greenhouse.io': 'boards-api.eu.greenhouse.io',
+  // EU-hosted boards are served by the global API host (boards-api.eu.greenhouse.io has no DNS record).
+  'boards.eu.greenhouse.io': 'boards-api.greenhouse.io',
+  'job-boards.eu.greenhouse.io': 'boards-api.greenhouse.io',
 };
 const LEVER_HOSTS = { 'jobs.lever.co': 'api.lever.co', 'jobs.eu.lever.co': 'api.eu.lever.co' };
 

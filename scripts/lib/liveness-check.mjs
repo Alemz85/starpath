@@ -24,11 +24,12 @@ import { climbLadder, allRungsFailed } from './liveness-ladder.mjs';
  *        the Playwright rung; null/absent = ladder only. It throws when the
  *        page cannot be loaded at all (that becomes `unreachable`).
  * @param {Date} [deps.now]
+ * @param {Record<string,string[]>} [deps.workdaySites] {host → sites} to resolve siteless Workday URLs
  * @returns {Promise<{url:string, kind:'active'|'expired'|'unreachable'|'uncertain', reason:string,
  *                    via:string, error?:string, jd?:object, attempted:string[]}>}
  */
-export async function checkPosting(url, { http, browser = null, now = new Date() }) {
-  const ladder = await climbLadder(url, { http, now });
+export async function checkPosting(url, { http, browser = null, now = new Date(), workdaySites = {} }) {
+  const ladder = await climbLadder(url, { http, now, workdaySites });
   const base = { url, attempted: ladder.attempted };
 
   if (ladder.verdict) {
@@ -50,7 +51,7 @@ export async function checkPosting(url, { http, browser = null, now = new Date()
     const last = ladder.errors[ladder.errors.length - 1];
     return { ...base, kind: 'unreachable', reason: 'every rung failed to get an answer', via: 'ladder', error: `${last.rung}: ${last.message}` };
   }
-  return { ...base, kind: 'uncertain', reason: 'no rung could decide', via: 'ladder' };
+  return { ...base, kind: 'uncertain', reason: ladder.hint || 'no rung could decide', via: 'ladder' };
 }
 
 /** Map a checkPosting result to the state machine's outcome (null = leave the row alone). */

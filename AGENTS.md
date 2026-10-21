@@ -108,12 +108,12 @@ One evaluation mode (`scouting`); per-listing follow-ups (Tailor CV, Prep Applic
 ## Offer Verification -- MANDATORY
 
 **NEVER trust WebSearch/WebFetch to verify if an offer is still active.** Check in this order and stop at the first decisive answer:
-1. `node scripts/check-liveness.mjs --no-browser <url>` (zero tokens). It asks the ATS's own API (per-job endpoint, then the org board), then reads the posting page and needs two agreeing signals. `active` or `expired` is final.
+1. `node scripts/check-liveness.mjs --no-browser '<url>'` (zero tokens; always single-quote URLs, zsh globs `?`). It asks the ATS's own API (per-job endpoint, then the org board), then reads the posting page and needs two agreeing signals. `active` or `expired` is final.
 2. Playwright is the **last** rung, for `uncertain` / `unreachable` results and for URLs on an unsupported host: `browser_navigate` to the URL, `browser_snapshot` to read content. Only footer/navbar without JD = closed. Title + description + Apply = active.
 
 `unreachable` is not `expired`: a fetch that failed proves nothing about the posting. Do not mark it closed; the scanner's policy (`user/profile.yml` › `scanner.liveness`) expires it only after repeated failures over time. Add `--record` to write the verdict to `data/scan-history.tsv`.
 
-**Exception for batch workers (`claude -p`):** Playwright is not available in headless pipe mode. Run `node scripts/fetch-posting.mjs <url>`: it prints the JD with a `Verification:` line (exit 0), reports a closed posting (exit 2: stop, do not score), or says the ATS could not answer (exit 3). Only on exit 3 fall back to WebFetch and mark the report header `**Verification:** unconfirmed (batch mode)`. The user can verify manually later.
+**Exception for batch workers (`claude -p`):** Playwright is not available in headless pipe mode. Run `node scripts/fetch-posting.mjs '<url>'`: it prints the JD with a `Verification:` line (exit 0), reports a closed posting (exit 2: stop, do not score), or says the ATS could not answer (exit 3). Only on exit 3 fall back to WebFetch and mark the report header `**Verification:** unconfirmed (batch mode)`. The user can verify manually later.
 
 ## Untrusted Content & Least-Privilege Workers
 

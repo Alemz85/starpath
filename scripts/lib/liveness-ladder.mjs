@@ -27,11 +27,20 @@
  * Rungs 1 and 2 also return the posting's JD, which is what
  * scripts/fetch-posting.mjs hands to batch workers instead of a WebFetch.
  *
+ * Company career sites with no ATS behind them (lib/site-posting.mjs) use the
+ * same rungs: amazon.jobs answers rung 1 through its public search JSON; for
+ * jobs.picnic.app and careers.factorial.com rung 3 judges the page by the site's
+ * own rules (a real 404 is decisive; `JobPosting` JSON-LD is the JD source).
+ * A Workday URL without a site segment (how the scanner stores them) is
+ * resolved through `deps.workdaySites` ({host → [site]}, lib/workday-sites.mjs).
+ *
  * All IO is the injected `http` (lib/http.mjs `createHttp()`), so the whole
  * ladder is tested with a fake.
  */
 
-import { parsePostingUrl, postingApiUrls } from './ats-url.mjs';
+import { parsePostingUrl, postingApiUrls, workdayPerJobUrl } from './ats-url.mjs';
+import { SITE_API_HOSTS } from './http.mjs';
+import { amazonHit, amazonJdFields, judgeSitePage } from './site-posting.mjs';
 import { resolveDeadline, cleanId } from './listing-fields.mjs';
 import { matchExpiredText, matchListingText, hasApplyControl } from '../liveness-core.mjs';
 import { parsePostingDate } from '../scan-core.mjs';
@@ -181,9 +190,19 @@ export function extractJd(ats, json) {
     case 'ashby':
       title = o.title; location = o.location; body = o.descriptionPlain || o.descriptionHtml; posted = o.publishedAt;
       break;
+    case 'amazon': {
+      const f = amazonJdFields(o);
+      title = f.title; location = f.location; body = f.body; posted = f.posted;
+      break;
+    }
     default:
       break;
   }
+  return jdFromFields({ title, location, body, posted, deadlineFields });
+}
+
+/** Normalise `{title, location, body (HTML or text), posted, deadlineFields}` into the JD shape. */
+export function jdFromFields({ title, location, body, posted, deadlineFields = [] }) {
   const description = clip(htmlToText(body));
   return {
     title: String(title ?? '').trim(),
@@ -206,6 +225,7 @@ function perJobMatches(ats, json, id) {
     case 'lever': return sameId(json.id, id);
     case 'smartrecruiters': return sameId(json.id, id) || sameId(json.refNumber, id);
     case 'workday': return Boolean(json.jobPostingInfo);
+    case 'amazon': return Boolean(amazonHit(json, id));
     default: return false;
   }
 }
@@ -219,31 +239,49 @@ function boardEntries(boardType, json) {
  * Run the ladder for one posting URL.
  *
  * @param {string} url
- * @param {{http: {getJson:Function, getText:Function}, now?: Date}} deps
+ * @param {{http: {getJson:Function, getText:Function}, now?: Date, workdaySites?: Record<string,string[]>}} deps
  * @returns {Promise<{verdict: null | {result:'active'|'expired', reason:string, via:'api-job'|'api-board'|'html', jd?:object},
- *                    errors: Array<{rung:string, message:string, status:number|null}>, attempted: string[], ats: string|null}>}
+ *                    errors: Array<{rung:string, message:string, status:number|null}>, attempted: string[], ats: string|null, hint?: string}>}
  */
-export async function climbLadder(url, { http, now = new Date() }) {
+export async function climbLadder(url, { http, now = new Date(), workdaySites = {} }) {
   const errors = [];
   const attempted = [];
   const parsed = parsePostingUrl(url);
   if (!parsed) return { verdict: null, errors, attempted, ats: null };
   const api = postingApiUrls(parsed, url);
   const note = (rung, err) => errors.push({ rung, message: String(err?.message || err).slice(0, 200), status: err?.status ?? null });
+  const isSite = parsed.ats === 'amazon' || parsed.ats === 'picnic' || parsed.ats === 'factorial';
+  const hosts = SITE_API_HOSTS[parsed.ats];
+
+  // A Workday URL with no site segment: try the sites the user's portals.yml knows for this tenant.
+  let perJobUrls = api.perJob ? [api.perJob] : [];
+  if (parsed.ats === 'workday' && !parsed.site) {
+    perJobUrls = (workdaySites[parsed.host] || []).map((site) => workdayPerJobUrl(parsed, site));
+    if (!perJobUrls.length) {
+      // Nothing to ask and the siteless page URL 404s: no rung can run. Not a network failure.
+      return {
+        verdict: null, errors, attempted, ats: parsed.ats,
+        hint: 'Workday URL has no site segment and no site is known for this tenant (add the company to user/portals.yml)',
+      };
+    }
+  }
 
   // 1. per-job API
-  if (api.perJob) {
+  const siteless = parsed.ats === 'workday' && !parsed.site;
+  for (const perJob of perJobUrls) {
     attempted.push('api-job');
     try {
-      const json = await http.getJson(api.perJob, { type: parsed.ats, retries: 1 });
+      const json = await http.getJson(perJob, { type: parsed.ats, retries: 1, ...(hosts ? { hosts } : {}) });
       if (perJobMatches(parsed.ats, json, parsed.id)) {
+        const hit = parsed.ats === 'amazon' ? amazonHit(json, parsed.id) : json;
         return {
-          verdict: { result: 'active', reason: `${parsed.ats} per-job API returned the posting`, via: 'api-job', jd: extractJd(parsed.ats, json) },
+          verdict: { result: 'active', reason: `${parsed.ats} per-job API returned the posting`, via: 'api-job', jd: extractJd(parsed.ats, hit) },
           errors, attempted, ats: parsed.ats,
         };
       }
     } catch (err) {
-      if (err?.status === 404 || err?.status === 410) {
+      // A 404 on a guessed site proves nothing about the posting; only a known site's 404 does.
+      if (!siteless && (err?.status === 404 || err?.status === 410)) {
         return {
           verdict: { result: 'expired', reason: `${parsed.ats} per-job API: HTTP ${err.status}`, via: 'api-job' },
           errors, attempted, ats: parsed.ats,
@@ -275,9 +313,10 @@ export async function climbLadder(url, { http, now = new Date() }) {
   attempted.push('html');
   try {
     const res = await http.getText(api.html, { type: parsed.ats });
-    const judged = judgePostingHtml(res, { now });
+    const judged = isSite ? judgeSitePage(parsed.ats, res, parsed.id, { now }) : judgePostingHtml(res, { now });
     if (judged.result) {
-      return { verdict: { result: judged.result, reason: judged.reason, via: 'html' }, errors, attempted, ats: parsed.ats };
+      const jd = judged.jd ? jdFromFields({ ...judged.jd, deadlineFields: judged.jd.deadline }) : undefined;
+      return { verdict: { result: judged.result, reason: judged.reason, via: 'html', ...(jd ? { jd } : {}) }, errors, attempted, ats: parsed.ats };
     }
   } catch (err) {
     note('html', err);

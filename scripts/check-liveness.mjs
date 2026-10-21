@@ -10,7 +10,7 @@
  * Zero Claude API tokens.
  *
  * Usage:
- *   node scripts/check-liveness.mjs <url1> [url2] ...
+ *   node scripts/check-liveness.mjs '<url1>' ['<url2>'] ...   (single-quote URLs: zsh globs `?`)
  *   node scripts/check-liveness.mjs --file urls.txt
  *   node scripts/check-liveness.mjs --pipeline            # every Pending URL in data/pipeline.md
  *   node scripts/check-liveness.mjs --no-browser <url>    # ladder only; ambiguous stays "uncertain"
@@ -32,6 +32,7 @@ import yaml from 'js-yaml';
 import { pollUntilDecisive } from './liveness-core.mjs';
 import { http } from './lib/http.mjs';
 import { checkPosting, toOutcome } from './lib/liveness-check.mjs';
+import { loadWorkdaySites } from './lib/workday-sites.mjs';
 import { applyChecks, readLivenessPolicy } from './lib/liveness-state.mjs';
 import { parseHistoryFile, upgradeColumns } from './lib/scan-history.mjs';
 
@@ -135,12 +136,13 @@ async function main() {
 
   const rung = useBrowser ? makeBrowserRung() : null;
   const checks = [];
+  const workdaySites = loadWorkdaySites();
   const tally = { active: 0, expired: 0, uncertain: 0, unreachable: 0 };
   const icons = { active: '✅', expired: '❌', uncertain: '⚠️', unreachable: '🔌' };
 
   // Sequential — project rule: never Playwright in parallel
   for (const url of urls) {
-    const check = await checkPosting(url, { http, browser: rung });
+    const check = await checkPosting(url, { http, browser: rung, workdaySites });
     checks.push(check);
     tally[check.kind]++;
     console.log(`${icons[check.kind]} ${check.kind.padEnd(11)} ${url}`);

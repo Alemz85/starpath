@@ -121,7 +121,7 @@ function preamble(batchId: string, today: string): string {
   return (
     'Run the scouting-evaluation pipeline defined in the system prompt (the compact eval bundle). ' +
     `Its placeholders are unresolved in this desktop path — use these values: Date: ${today}. Batch ID: ${batchId}. ` +
-    'No pre-fetched JD file exists; fetch each JD from its URL with `node scripts/fetch-posting.mjs <url>` (exit 2 = closed, stop; exit 3 → read the posting check’s saved file, else WebFetch; § Untrusted content). ' +
+    'No pre-fetched JD file exists; fetch each JD from its URL with `node scripts/fetch-posting.mjs \'<url>\'` (single-quote the URL; exit 2 = closed, stop; exit 3 → read the posting check’s saved file, else WebFetch; § Untrusted content). ' +
     RESERVE_NUM
   )
 }
