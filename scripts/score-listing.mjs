@@ -117,7 +117,7 @@ import {
   isDreamCompany, isRevisitCompany,
 } from './lib/calibration.mjs'
 
-import { evaluateEligibility } from './lib/eligibility.mjs'
+import { evaluateEligibility, eligibilityFlags } from './lib/eligibility.mjs'
 import { parseScoreHistory } from './lib/targeting-core.mjs'
 import { findPrior, compareToPrior } from './lib/prior-score.mjs'
 import { explainScore, LEVER_DIMS } from './lib/explain-score.mjs'
@@ -251,7 +251,9 @@ export async function scoreListing(input, opts = {}) {
   const today = input.today ?? new Date().toISOString().slice(0, 10)
   const eligibility = evaluateEligibility(facts, eligibilityProfile, { today })
 
-  if (eligibilityOnly) return { eligibility }
+  // eligibility_flags: the score-history cell, verbatim (the red that kept a
+  // listing unscored leads, so the app shows the right reason).
+  if (eligibilityOnly) return { eligibility, eligibility_flags: eligibilityFlags(eligibility) }
 
   const calibration = input.calibration ?? {}
   // A red listing is Blocked. It still gets Want / Ease when the profile's
@@ -262,6 +264,7 @@ export async function scoreListing(input, opts = {}) {
     const reason = eligibility.blocking_reason
     return {
       eligibility,
+      eligibility_flags: eligibilityFlags(eligibility),
       want: null,
       ease: null,
       priority: null,
@@ -329,6 +332,7 @@ export async function scoreListing(input, opts = {}) {
 
   return {
     eligibility,
+    eligibility_flags: eligibilityFlags(eligibility),
     salary_adj_for_city: salary,
     calibrated_dims: {
       brand_value:     { raw: j.brand_value,     final: brandCal.value,  adjustments: brandCal.adjustments },

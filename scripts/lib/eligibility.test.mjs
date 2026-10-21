@@ -484,3 +484,19 @@ test('score_through_red: every red check must be allowed; excepted employment ty
   assert.equal(evaluateEligibility(plusGrad, THROUGH, { today: TODAY }).scored, false, 'graduation is not in checks')
   assert.equal(redIsScored([{ check: 'language', status: 'red' }], {}, THROUGH), false, 'a language red without names is not scored')
 })
+
+test('score_through_red: the red that keeps a listing unscored is its reason and leads the flags', () => {
+  const facts = {
+    employment: 'internship', country: 'ES', duration_months: 6,
+    start: { earliest: '2027-02-01', flexible: false },
+    languages: [{ language: 'German', level: 'C1', required: true }],
+  }
+  const r = evaluateEligibility(facts, THROUGH, { today: TODAY })
+  assert.equal(r.scored, false)
+  assert.match(r.blocking_reason, /^language: German/)
+  assert.match(eligibilityFlags(r), /^language:red:German[^;]*;start_date:red:/)
+  // without a rule, CHECK_ORDER as before
+  const plain = evaluateEligibility(facts, PROFILE, { today: TODAY })
+  assert.match(plain.blocking_reason, /^start_date:/)
+  assert.match(eligibilityFlags(plain), /^start_date:red:/)
+})
