@@ -11,6 +11,9 @@
 //   - posting age from scan-history.tsv first_seen (fresh beats stale)
 //   - dream-company / brand-affinity match from user/profile.yml (data
 //     passed in by the caller — nothing user-specific lives here)
+//   - the brand gate: a `brand: low` tracked company (user/portals.yml) is
+//     demoted, and one company can fill at most `perCompanyCap` deep-eval
+//     slots, so a noisy board can't crowd out the rest of the inbox
 //   - entry-level vs senior title signals (safety net behind the scan filter)
 //   - already-evaluated (company, role) hits against data/dedup-index.tsv
 //
@@ -122,6 +125,37 @@ export const DEFAULT_WEIGHTS = {
   entryTitle: 1,
   seniorTitle: -4,
   alreadyEvaluated: -5,
+  lowBrand: -3,
+}
+
+// How many deep-eval slots one company may take per triage run. Dream
+// companies are exempt. 0 (or any non-positive number) turns the cap off.
+export const DEFAULT_PER_COMPANY_CAP = 5
+
+/** `brand:` on a tracked_companies entry → 'high' | 'mid' | 'low'. Missing or unknown = 'mid'. */
+export function normalizeBrand(value) {
+  const v = String(value ?? '').trim().toLowerCase()
+  return v === 'high' || v === 'low' ? v : 'mid'
+}
+
+/**
+ * Index user/portals.yml `tracked_companies` by lowercased name → brand tier.
+ * Only entries that state a `brand:` are indexed; everything else reads as
+ * 'mid' at lookup time.
+ */
+export function buildCompanyBrands(trackedCompanies) {
+  const brands = new Map()
+  for (const c of Array.isArray(trackedCompanies) ? trackedCompanies : []) {
+    const name = String(c?.name ?? '').trim().toLowerCase()
+    if (!name || c.brand == null) continue
+    brands.set(name, normalizeBrand(c.brand))
+  }
+  return brands
+}
+
+function isDreamCompany(company, opts) {
+  const lc = (company || '').trim().toLowerCase()
+  return !!lc && (opts.dreamCompanies || []).some(d => (d?.name || '').trim().toLowerCase() === lc)
 }
 
 function daysBetween(fromIso, toIso) {
@@ -141,6 +175,7 @@ function daysBetween(fromIso, toIso) {
  *   dedupKeys:        Set from buildDedupKeySet (optional),
  *   dreamCompanies:   [{ name, priority }] from user/profile.yml (optional),
  *   affinityCompanies:[string] from profile.yml calibration (optional),
+ *   companyBrands:    Map from buildCompanyBrands (optional),
  *   today:            'YYYY-MM-DD',
  *   weights:          overrides for DEFAULT_WEIGHTS (optional),
  * }
@@ -177,6 +212,10 @@ export function scorePendingEntry(entry, opts = {}) {
     } else if ((opts.affinityCompanies || []).some(c => (c || '').trim().toLowerCase() === companyLc)) {
       score += w.affinity
       reasons.push(`brand-affinity company (+${w.affinity})`)
+    } else if (opts.companyBrands?.get(companyLc) === 'low') {
+      // Dream and affinity companies never get here: the user's own list wins.
+      score += w.lowBrand
+      reasons.push(`low-brand company (${w.lowBrand})`)
     }
   }
 
@@ -203,6 +242,9 @@ export function scorePendingEntry(entry, opts = {}) {
  * Rank all pending entries and split them into deep-eval / hold buckets
  * (plus `closed` for postings scan-history marks expired).
  * Deterministic: ties break by company then title so repeated runs agree.
+ * `opts.perCompanyCap` (default DEFAULT_PER_COMPANY_CAP) limits the deep-eval
+ * slots one non-dream company can take; its overflow is held, and the slot
+ * goes to the next company down the ranking.
  *
  * @returns {Array<entry & { triageScore, triageReasons, bucket }>}
  */
@@ -219,10 +261,22 @@ export function triagePending(entries, opts = {}) {
   // A posting a liveness check already declared expired (scan-history status)
   // is never worth an evaluation: it gets its own bucket and does not use up a
   // deep-eval slot.
+  const cap = opts.perCompanyCap ?? DEFAULT_PER_COMPANY_CAP
+  const perCompany = new Map()
   let live = 0
   return scored.map((e) => {
     if (opts.scanIndex?.get(canonicalizeUrl(e.url))?.status === 'expired') return { ...e, bucket: 'closed' }
-    return { ...e, bucket: live++ < topN ? 'deep-eval' : 'hold' }
+    if (live >= topN) return { ...e, bucket: 'hold' }
+    const key = e.company.trim().toLowerCase()
+    if (cap > 0 && key && !isDreamCompany(e.company, opts)) {
+      const taken = perCompany.get(key) || 0
+      if (taken >= cap) {
+        return { ...e, bucket: 'hold', triageReasons: [...e.triageReasons, `company cap reached (${cap} in this slice)`] }
+      }
+      perCompany.set(key, taken + 1)
+    }
+    live++
+    return { ...e, bucket: 'deep-eval' }
   })
 }
 

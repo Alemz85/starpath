@@ -11,7 +11,11 @@ import {
   emitBatchInput,
   BATCH_INPUT_HEADER,
   DEFAULT_WEIGHTS,
+  DEFAULT_PER_COMPANY_CAP,
+  normalizeBrand,
+  buildCompanyBrands,
 } from './triage-core.mjs'
+import { triageOptsFromConfig } from './triage-config.mjs'
 
 const PIPELINE_MD = `# Pipeline — Pending Evaluations
 
@@ -226,4 +230,129 @@ test('triagePending: a posting scan-history marks expired goes to `closed` and d
   const md = renderTriagePlan(ranked, { topN: 2 })
   assert.match(md, /## Closed \(1\)/)
   assert.doesNotMatch(emitBatchInput(ranked.filter(e => e.bucket === "deep-eval"), "").content, /acme\/jobs\/123/)
+})
+
+// ─── brand gate ──────────────────────────────────────────────────────────────
+
+test('normalizeBrand: high / mid / low, anything else reads as mid', () => {
+  assert.equal(normalizeBrand('High'), 'high')
+  assert.equal(normalizeBrand(' low '), 'low')
+  assert.equal(normalizeBrand('mid'), 'mid')
+  assert.equal(normalizeBrand(undefined), 'mid')
+  assert.equal(normalizeBrand('mid-high'), 'mid')
+})
+
+test('buildCompanyBrands indexes only entries that state a brand, case-insensitively', () => {
+  const brands = buildCompanyBrands([
+    { name: 'Vandelay Industries', brand: 'low' },
+    { name: 'Initech', brand: 'HIGH' },
+    { name: 'Globex' },
+    { brand: 'low' },
+  ])
+  assert.equal(brands.get('vandelay industries'), 'low')
+  assert.equal(brands.get('initech'), 'high')
+  assert.equal(brands.has('globex'), false)
+  assert.equal(brands.size, 2)
+  assert.equal(buildCompanyBrands(undefined).size, 0)
+})
+
+test('a low-brand company is demoted; mid, high and untagged are not', () => {
+  const companyBrands = buildCompanyBrands([
+    { name: 'Acme', brand: 'low' },
+    { name: 'Initech', brand: 'high' },
+  ])
+  const low = scorePendingEntry(BASE_ENTRY, { companyBrands })
+  assert.equal(low.score, 4.0 + DEFAULT_WEIGHTS.lowBrand)
+  assert.match(low.reasons.join(' '), /low-brand company/)
+  assert.equal(scorePendingEntry({ ...BASE_ENTRY, company: 'Initech' }, { companyBrands }).score, 4.0)
+  assert.equal(scorePendingEntry({ ...BASE_ENTRY, company: 'Globex' }, { companyBrands }).score, 4.0)
+})
+
+test('the lowBrand weight is overridable like the others', () => {
+  const companyBrands = buildCompanyBrands([{ name: 'Acme', brand: 'low' }])
+  assert.equal(scorePendingEntry(BASE_ENTRY, { companyBrands, weights: { lowBrand: -10 } }).score, -6)
+})
+
+test('dream and affinity companies are never brand-penalized, even when tagged low', () => {
+  const companyBrands = buildCompanyBrands([{ name: 'Acme', brand: 'low' }, { name: 'Initech', brand: 'low' }])
+  const opts = { companyBrands, dreamCompanies: [{ name: 'Acme', priority: 'top' }], affinityCompanies: ['Initech'] }
+  assert.equal(scorePendingEntry(BASE_ENTRY, opts).score, 4.0 + DEFAULT_WEIGHTS.dreamTop)
+  assert.equal(scorePendingEntry({ ...BASE_ENTRY, company: 'Initech' }, opts).score, 4.0 + DEFAULT_WEIGHTS.affinity)
+})
+
+test('a low-brand posting reaches deep eval only when nothing better is waiting', () => {
+  const entries = [
+    { ...BASE_ENTRY, url: 'https://x.test/1', company: 'Vandelay Industries', relevanceScore: 5.0 },
+    { ...BASE_ENTRY, url: 'https://x.test/2', company: 'Globex', relevanceScore: 3.0 },
+  ]
+  const companyBrands = buildCompanyBrands([{ name: 'Vandelay Industries', brand: 'low' }])
+  const one = triagePending(entries, { topN: 1, companyBrands })
+  assert.equal(one.find(e => e.bucket === 'deep-eval').company, 'Globex')
+  // With a free slot it still gets evaluated: demoted, never dropped.
+  const two = triagePending(entries, { topN: 2, companyBrands })
+  assert.deepEqual(two.map(e => e.bucket), ['deep-eval', 'deep-eval'])
+})
+
+// ─── per-company cap ─────────────────────────────────────────────────────────
+
+const noisyFeed = (company, n, score) =>
+  Array.from({ length: n }, (_, i) => ({
+    ...BASE_ENTRY, url: `https://x.test/${company}/${i}`, company, title: `Analyst ${i}`, relevanceScore: score,
+  }))
+
+test('one company fills at most perCompanyCap deep-eval slots; the rest go to others', () => {
+  const entries = [...noisyFeed('Vandelay Industries', 8, 5.0), ...noisyFeed('Globex', 3, 2.0)]
+  const ranked = triagePending(entries, { topN: 5, perCompanyCap: 3 })
+  const deep = ranked.filter(e => e.bucket === 'deep-eval')
+  assert.equal(deep.length, 5)
+  assert.equal(deep.filter(e => e.company === 'Vandelay Industries').length, 3)
+  assert.equal(deep.filter(e => e.company === 'Globex').length, 2)
+  const capped = ranked.find(e => e.company === 'Vandelay Industries' && e.bucket === 'hold')
+  assert.match(capped.triageReasons.join(' '), /company cap reached \(3/)
+  assert.match(renderTriagePlan(ranked, { topN: 5 }), /company cap reached/)
+})
+
+test('the cap defaults to DEFAULT_PER_COMPANY_CAP, 0 turns it off, dream companies are exempt', () => {
+  const entries = noisyFeed('Vandelay Industries', DEFAULT_PER_COMPANY_CAP + 3, 5.0)
+  const deepCount = (opts) => triagePending(entries, { topN: 20, ...opts }).filter(e => e.bucket === 'deep-eval').length
+  assert.equal(deepCount({}), DEFAULT_PER_COMPANY_CAP)
+  assert.equal(deepCount({ perCompanyCap: 0 }), entries.length)
+  assert.equal(deepCount({ dreamCompanies: [{ name: 'Vandelay Industries', priority: 'lower' }] }), entries.length)
+})
+
+test('a capped slice stays within topN; holds past topN carry no cap reason', () => {
+  const entries = [...noisyFeed('Vandelay Industries', 4, 5.0), ...noisyFeed('Globex', 4, 4.0)]
+  const ranked = triagePending(entries, { topN: 3, perCompanyCap: 2 })
+  assert.equal(ranked.filter(e => e.bucket === 'deep-eval').length, 3)
+  // Beyond topN, entries are plain holds without a cap reason.
+  const plainHolds = ranked.filter(e => e.bucket === 'hold' && !e.triageReasons.some(r => r.includes('company cap')))
+  assert.ok(plainHolds.length > 0)
+})
+
+// ─── triageOptsFromConfig ────────────────────────────────────────────────────
+
+test('triageOptsFromConfig reads dreams, affinity, brands, weights and cap from parsed yaml', () => {
+  const opts = triageOptsFromConfig({
+    profile: {
+      target_roles: { dream_companies: ['Initech', { name: 'Globex', priority: 'lower' }] },
+      calibration: { brand_affinity_companies: ['Hooli'] },
+      triage: { weights: { lowBrand: -6, notAWeight: 1, dreamTop: 'big' }, per_company_cap: 3 },
+    },
+    portals: { tracked_companies: [{ name: 'Vandelay Industries', brand: 'low' }] },
+  })
+  assert.deepEqual(opts.dreamCompanies, [{ name: 'Initech', priority: 'top' }, { name: 'Globex', priority: 'lower' }])
+  assert.deepEqual(opts.affinityCompanies, ['Hooli'])
+  assert.equal(opts.companyBrands.get('vandelay industries'), 'low')
+  assert.deepEqual(opts.weights, { lowBrand: -6 })
+  assert.equal(opts.perCompanyCap, 3)
+  assert.equal(opts.warnings.length, 2)
+})
+
+test('triageOptsFromConfig with nothing configured leaves the core defaults in charge', () => {
+  const opts = triageOptsFromConfig({ profile: null, portals: null })
+  assert.deepEqual(opts.dreamCompanies, [])
+  assert.equal(opts.companyBrands.size, 0)
+  assert.deepEqual(opts.weights, {})
+  assert.equal('perCompanyCap' in opts, false)
+  assert.equal(triageOptsFromConfig({ profile: { triage: { per_company_cap: -1 } } }).warnings.length, 1)
 })

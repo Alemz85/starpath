@@ -4,8 +4,9 @@
  * triage-pipeline.mjs — zero-token pre-eval triage of the pipeline inbox.
  *
  * Ranks the Pending URLs in data/pipeline.md with deterministic signals
- * (scan relevance, posting freshness, dream/affinity companies, title level,
- * already-evaluated dedup hits) and recommends the top slice for deep
+ * (scan relevance, posting freshness, dream/affinity companies, the brand
+ * gate from user/portals.yml, title level, already-evaluated dedup hits)
+ * and recommends the top slice for deep
  * evaluation. This is TODO.md's biggest token lever: deep-evaluate ~15
  * listings, not 300.
  *
@@ -32,11 +33,13 @@ import {
   renderTriagePlan,
   emitBatchInput,
 } from './lib/triage-core.mjs'
+import { triageOptsFromConfig } from './lib/triage-config.mjs'
 
 const PIPELINE_PATH = 'data/pipeline.md'
 const SCAN_HISTORY_PATH = 'data/scan-history.tsv'
 const DEDUP_INDEX_PATH = 'data/dedup-index.tsv'
 const PROFILE_PATH = 'user/profile.yml'
+const PORTALS_PATH = 'user/portals.yml'
 const BATCH_INPUT_PATH = 'batch/batch-input.tsv'
 
 const args = process.argv.slice(2)
@@ -60,21 +63,16 @@ if (!pipelineText) {
 }
 
 // User calibration data — read at run time, never hardcoded (Data Contract).
-let dreamCompanies = []
-let affinityCompanies = []
-const profileRaw = readSafe(PROFILE_PATH)
-if (profileRaw) {
-  try {
-    const profile = yaml.load(profileRaw) ?? {}
-    const dreams = profile?.target_roles?.dream_companies ?? profile?.profile?.dream_companies ?? []
-    dreamCompanies = (Array.isArray(dreams) ? dreams : [])
-      .map(d => (typeof d === 'string' ? { name: d, priority: 'top' } : d))
-      .filter(d => d?.name)
-    affinityCompanies = profile?.calibration?.brand_affinity_companies ?? []
-  } catch (e) {
-    process.stderr.write(`triage: warning — could not parse ${PROFILE_PATH} (${e.message}); continuing without company boosts\n`)
+function loadYaml(path) {
+  const raw = readSafe(path)
+  if (!raw) return null
+  try { return yaml.load(raw) ?? null } catch (e) {
+    process.stderr.write(`triage: warning — could not parse ${path} (${e.message}); continuing without it\n`)
+    return null
   }
 }
+const companyOpts = triageOptsFromConfig({ profile: loadYaml(PROFILE_PATH), portals: loadYaml(PORTALS_PATH) })
+for (const w of companyOpts.warnings) process.stderr.write(`triage: warning — ${w}\n`)
 
 const entries = parsePendingEntries(pipelineText)
 const ranked = triagePending(entries, {
@@ -82,8 +80,7 @@ const ranked = triagePending(entries, {
   today: new Date().toISOString().slice(0, 10),
   scanIndex: buildScanIndex(readSafe(SCAN_HISTORY_PATH)),
   dedupKeys: buildDedupKeySet(readSafe(DEDUP_INDEX_PATH)),
-  dreamCompanies,
-  affinityCompanies,
+  ...companyOpts,
 })
 
 if (asJson) {

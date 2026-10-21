@@ -184,6 +184,10 @@ search_queries:
 # portals). The desktop app auto-detects this when you Add Company —
 # it probes the common ATS endpoints and writes the right config.
 #
+# Optional `brand: high | mid | low` (missing = mid) is the brand gate:
+# a `brand: low` entry gets no WebSearch in a Full scan and its postings
+# rank lower in triage, so low-value companies don't spend tokens.
+#
 # A few examples below. Add your target companies here, or use the
 # Configuration → Portals tab in the app to add them with API probing.
 

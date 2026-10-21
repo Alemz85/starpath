@@ -70,6 +70,7 @@ import {
   buildDedupKeySet,
   triagePending,
 } from './lib/triage-core.mjs'
+import { triageOptsFromConfig } from './lib/triage-config.mjs'
 import { parseNetwork, parsePipeline } from './lib/network-core.mjs'
 import { warmOutreachOpportunities } from './lib/warm-outreach-core.mjs'
 import { assembleBrief, renderBrief, countFreshScanRows } from './lib/daily-brief-core.mjs'
@@ -96,6 +97,7 @@ const SCOUTING_FILE = join(DATA, 'data/scouting.md')
 const PIPELINE_FILE = join(DATA, 'data/pipeline.md')
 const DEDUP_FILE = join(DATA, 'data/dedup-index.tsv')
 const PROFILE_FILE = join(DATA, 'user/profile.yml')
+const PORTALS_FILE = join(DATA, 'user/portals.yml')
 const FOLLOWUP_SCRIPT = join(ROOT, 'scripts/followup-cadence.mjs')
 const PATTERNS_SCRIPT = join(ROOT, 'scripts/analyze-patterns.mjs')
 const BRIEFS_DIR = join(DATA, 'reports/briefs')
@@ -261,34 +263,29 @@ function getPipelineHealth() {
 
 // 7. Inbox triage — the "deep-eval next" top slice from triage-core, ranked
 //    with the same signals `npm run triage` uses (scan relevance, freshness,
-//    dream/affinity company from user/profile.yml, title level, dedup hits).
-//    Best-effort + read-only: a missing/unparseable profile just drops the
-//    company boosts, never the section.
+//    dream/affinity company from user/profile.yml, the brand gate from
+//    user/portals.yml, title level, dedup hits).
+//    Best-effort + read-only: a missing/unparseable profile or portals file
+//    just drops the company boosts and the brand gate, never the section.
 function getTriage() {
   const pipelineMd = read(PIPELINE_FILE)
   if (!pipelineMd) return null
   const entries = parsePendingEntries(pipelineMd)
   if (entries.length === 0) return null
 
-  let dreamCompanies = []
-  let affinityCompanies = []
-  try {
-    const profile = yaml.load(read(PROFILE_FILE)) ?? {}
-    const dreams = profile?.target_roles?.dream_companies ?? []
-    dreamCompanies = (Array.isArray(dreams) ? dreams : [])
-      .map((d) => (typeof d === 'string' ? { name: d, priority: 'top' } : d))
-      .filter((d) => d && d.name)
-    affinityCompanies = profile?.calibration?.brand_affinity_companies ?? []
-  } catch {
-    // no profile boosts — deterministic signals still rank the inbox
+  const loadYaml = (path) => {
+    try { return yaml.load(read(path)) ?? null } catch { return null }
   }
+  const companyOpts = triageOptsFromConfig({
+    profile: loadYaml(PROFILE_FILE),
+    portals: loadYaml(PORTALS_FILE),
+  })
 
   return triagePending(entries, {
     today: asOf,
     scanIndex: buildScanIndex(read(SCAN_FILE)),
     dedupKeys: buildDedupKeySet(read(DEDUP_FILE)),
-    dreamCompanies,
-    affinityCompanies,
+    ...companyOpts,
   })
 }
 

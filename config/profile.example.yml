@@ -118,6 +118,14 @@ location:
 #     - { company: "Placeholder Co", bonus: 0.5, reason: "household name in the target market" }
 #   has_structured_onboarding: false            # true → +1 Growth
 
+# ── Inbox triage (optional — read by scripts/triage-pipeline.mjs) ───────────
+# Which pending postings get a deep evaluation. `brand: low` on a portals.yml
+# tracked company applies the lowBrand weight; one company fills at most
+# per_company_cap deep-eval slots per run (dream companies exempt). Defaults shown.
+# triage:
+#   weights: { lowBrand: -3 }   # any key of DEFAULT_WEIGHTS in scripts/lib/triage-core.mjs
+#   per_company_cap: 5          # 0 = no cap
+
 # ── Outcomes (optional — read by scripts/outcomes.mjs) ──────────────────────
 # outcomes:
 #   no_response_days: 30          # still Applied this long after sending → "no response"
