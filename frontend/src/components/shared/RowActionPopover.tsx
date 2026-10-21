@@ -6,6 +6,8 @@ import { useDataStore } from '@/store/data'
 import { useWriteGate } from '@/store/dataRoot'
 import { livenessOf } from '@/lib/databaseRows'
 import { resolveReport } from '@/lib/reportMatch'
+import { reportPrompt, reportSpawnId } from '@/lib/reportSpawn'
+import { useSpawnsStore } from '@/store/spawns'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
@@ -85,6 +87,9 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
     resolveReport(s.reports, entry, [...s.scouting, ...s.applications]) != null,
   )
 
+  // This listing's own report run, if one is going (other listings' runs don't matter).
+  const reportRunning = useSpawnsStore(s => s.spawns[reportSpawnId(entry)]?.status === 'running')
+
   const live = liveness ? LIVENESS_CHIP[liveness] : undefined
 
   return (
@@ -147,7 +152,9 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
             (b) no report already exists. Once a report is on disk, the
             "View full report" item above covers it; re-running would
             just rewrite the same file. */}
-        {!hasReport && liveness === 'active' && (canWrite ? (
+        {!hasReport && liveness === 'active' && (reportRunning ? (
+          <ItemDisabled icon={FileOutput} label="Generating report…" tooltip="This listing's report is being written; see Activity" note="Running" />
+        ) : canWrite ? (
           <Item
             icon={FileOutput}
             label="Generate report"
@@ -281,22 +288,14 @@ function spawnPerListing(
 function spawnReport(entry: ScoreEntry) {
   Promise.all([import('@/store/spawns'), import('@/store/app')]).then(
     ([{ useSpawnsStore, claudeArgs }, { useAppStore }]) => {
-      const id = 'popover-generate-report'
+      // One spawn per listing (lib/reportSpawn): other listings' reports keep
+      // running; only this listing's own run blocks a second click.
+      const id = reportSpawnId(entry)
       const { spawns, start, clear } = useSpawnsStore.getState()
       if (spawns[id]?.status === 'running') return
       if (spawns[id]) clear(id)
-      // Render-only: the listing was already scored by Filter to Database,
-      // so this run fetches the JD only to write prose. Numbers are copied
-      // from data/score-history.tsv + data/scouting.md verbatim — no
-      // re-scoring, no new score-history row.
-      const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
-      const reuseInstr =
-        'RENDER-ONLY mode: do not re-score. Read the dimensional row from data/score-history.tsv (match by company + role) and the rollup score + tier from data/scouting.md, and copy those numbers verbatim into the report header and dimensional table. Write the prose sections (Role summary, Gaps, Comp, Recommendation, Career path impact) normally from the JD — do not narrate, justify, or comment on the score numbers; treat them as given. Do NOT append a new row to data/score-history.tsv.'
-      const slash = url
-        ? `/career-ops scouting ${url} — write the per-listing report under reports/tier-N/{Company} - {Role}.md following the Tier-1 deep template in modes/scouting.md § "Full Report Format". ${reuseInstr}`
-        : `/career-ops scouting for ${entry.company} — ${entry.role} — write the per-listing report under reports/tier-N/ following the Tier-1 deep template in modes/scouting.md. ${reuseInstr}`
       const model = useAppStore.getState().models.generateReport
-      start(id, `Generate Report: ${entry.company}`, 'claude', claudeArgs(slash, model, 'eval-app'))
+      start(id, `Generate Report: ${entry.company} — ${entry.role}`, 'claude', claudeArgs(reportPrompt(entry), model, 'eval-app'))
     },
   )
 }

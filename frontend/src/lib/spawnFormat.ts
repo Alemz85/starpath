@@ -33,8 +33,13 @@ export function modelArg(model: ClaudeModel): string {
 // human on the other end to confirm anything. Without this, Claude will often
 // emit a "should I batch all 47 URLs?" question and exit cleanly when stdin
 // is closed — which our activity panel can't distinguish from real success.
+//
+// The shell sentence is there from the first call: workers run least-privilege
+// (dontAsk), and one that opened with `cd …; node scripts/x.mjs …; echo $?`
+// was denied before it had read the rule in modes/_shared.md, then stopped.
 export const NON_INTERACTIVE_SUFFIX =
-  ' — run end-to-end without asking for confirmations; batch and parallelize where possible; if you would normally pause to confirm, proceed with the default and continue working.'
+  ' — run end-to-end without asking for confirmations; batch and parallelize where possible; if you would normally pause to confirm, proceed with the default and continue working.' +
+  ' Shell: run each `node scripts/…` command alone, exactly as named, one per Bash call (no `cd`, no `;`/`&&`/`|` chains, no `echo $?`, no `>` redirects, no `mkdir`); read and search files with the Read, Grep and Glob tools, never `cat`, `sed`, `head` or `ls`.'
 
 // ─── Worker kinds ───────────────────────────────────────────────────────────
 //

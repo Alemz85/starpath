@@ -172,7 +172,8 @@ const RELEVANCE_GATE =
   '(e) matches a stated red flag in user/_profile.md. ' +
   'Work-authorisation, location, language, start-date, duration and graduation walls are NOT discards: ' +
   'they are the eligibility gate. Run it first (`node scripts/score-listing.mjs --eligibility-only`); ' +
-  'a red listing is still logged — as Blocked, with its reason and no Want/Ease — and an amber one is ' +
+  'a red listing is still logged as Blocked with its reason: when the gate says `scored: true` (the profile scores ' +
+  'through that wall) score its Want/Ease as usual, otherwise it gets no Want/Ease; no report either way. An amber one is ' +
   'scored normally with its recruiter question recorded. ' +
   'Borderline = DISCARD: the bar for inclusion is a one-sentence, JD-cited reason why the role fits an archetype. ' +
   'Move each discard to the "## Filtered Out" section of data/pipeline.md as ' +

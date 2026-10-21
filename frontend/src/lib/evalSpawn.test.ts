@@ -131,7 +131,7 @@ test('prompts contain no hardcoded user data (system-layer hygiene)', () => {
 test('triage prompts route eligibility walls through the gate, never a silent discard', () => {
   for (const p of [inboxEvalPrompt('https://x.example/j', '2026-07-01'), filterAllPrompt('2026-07-01')]) {
     assert.ok(p.includes('--eligibility-only'))
-    assert.ok(p.includes('logged — as Blocked'))
+    assert.ok(p.includes('logged as Blocked with its reason'))
     assert.ok(!/Ease of Entry|Overall/.test(p))
   }
 })
@@ -154,4 +154,10 @@ test('every eval prompt can claim several row numbers in one call', () => {
 test('every app eval run gets its own batch id, so runs never share scratch file names', () => {
   assert.equal(runBatchId('pipeline-filter', new Date('2026-10-21T13:54:02.123Z')), 'pipeline-filter-20261021-135402')
   for (const [name, p] of ALL_PROMPTS()) assert.ok(/Batch ID: [a-z0-9-]+-\d{8}-\d{6}\./.test(p), `${name} has a per-run batch id`)
+})
+
+test('the relevance gate tells a red listing the profile scores through to get its Want/Ease', () => {
+  const p = filterAllPrompt('2026-07-01')
+  assert.ok(p.includes('when the gate says `scored: true`'))
+  assert.ok(!p.includes('as Blocked, with its reason and no Want/Ease'), 'the old unconditional wording is gone')
 })
