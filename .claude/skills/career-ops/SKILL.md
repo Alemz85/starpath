@@ -124,7 +124,7 @@ Read `modes/{mode}.md`
 Applies to: `tracker`, `deep`, `training`, `project`, `patterns`, `followup`, `positioning`, `respond`, `interview-prep`, `apply-kit`, `mock-interview`, `network`, `db`, `deadlines`, `calibrate`, `comp-bench`, `cv-gap` (the ones that need `_shared.md` say so in their own file)
 
 ### Modes delegated to subagent:
-For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as Agent with the content of `_shared.md` + `modes/{mode}.md` injected into the subagent prompt. Always in the foreground (never `run_in_background`) and wait for its result: under `claude -p` the process exits when the main thread finishes, and a background agent dies mid-run without writing anything.
+For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as Agent with the content of `_shared.md` + `modes/{mode}.md` injected into the subagent prompt. Always in the foreground (never `run_in_background`) and wait for its result: under `claude -p` the process exits when the main thread finishes, and a background agent dies mid-run without writing anything. **No Agent tool in this session** (the app's unattended workers have none, by design): run the mode inline in the main thread instead, every step of it; the missing subagent is never a reason to skip a step.
 
 ```
 Agent(

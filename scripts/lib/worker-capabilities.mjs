@@ -128,6 +128,12 @@ const EVAL_WRITES = [
 // user: their final output lands in Activity, which nobody reads unprompted.
 const postMessage = (source) => `node scripts/messages.mjs post --source ${source}`
 
+// The agent issue log (scripts/agent-log.mjs): workers log what they hit, and
+// may read the open entries too. CLAUDE.md and modes/_shared.md tell sessions
+// to check them first, and a denied read-only check once ended a Full scan
+// before scan.mjs ran (a denial stops the run).
+const AGENT_LOG = ['node scripts/agent-log.mjs log', 'node scripts/agent-log.mjs list', 'npm run agent-log -- list']
+
 const EVAL_COMMANDS = [
   'node scripts/posting-guard.mjs',
   'node scripts/fetch-posting.mjs',
@@ -136,7 +142,7 @@ const EVAL_COMMANDS = [
   'node scripts/append-score-rows.mjs',
   'node scripts/reserve-report-num.mjs',
   'node scripts/cv-summary.mjs',
-  'node scripts/agent-log.mjs log',
+  ...AGENT_LOG,
   // Read-only outcome stats (docs/scoring-statistical-design.md § 3.7).
   { exact: 'node scripts/outcomes.mjs --json' },
   // One optional message to the user when only they can unblock a listing.
@@ -237,7 +243,7 @@ export const WORKER_CAPABILITIES = {
       'node scripts/whats-new.mjs',
       'node scripts/check-liveness.mjs',
       'node scripts/fetch-posting.mjs',
-      'node scripts/agent-log.mjs log',
+      ...AGENT_LOG,
       postMessage('scan'),
     ],
     web: 'fetch+search',
@@ -261,7 +267,7 @@ export const WORKER_CAPABILITIES = {
       'node scripts/cv-sync-check.mjs',
       'node scripts/company-research.mjs check',
       'node scripts/check-story-bank.mjs',
-      'node scripts/agent-log.mjs log',
+      ...AGENT_LOG,
       { exact: 'node scripts/outcomes.mjs --json' },
       postMessage('apply'),
       { pattern: 'cp private/CV/applications/*.pdf output/*.pdf' },
@@ -274,7 +280,7 @@ export const WORKER_CAPABILITIES = {
     summary: 'Positioning review',
     writes: ['reports/positioning/**'],
     tmp: [],
-    commands: ['node scripts/positioning-intel.mjs', 'node scripts/score-trend.mjs', 'node scripts/agent-log.mjs log', postMessage('worker')],
+    commands: ['node scripts/positioning-intel.mjs', 'node scripts/score-trend.mjs', ...AGENT_LOG, postMessage('worker')],
     web: 'none',
     deny: ['Edit(./user/**)'],
   },

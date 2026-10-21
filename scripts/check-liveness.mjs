@@ -33,6 +33,7 @@ import { pollUntilDecisive } from './liveness-core.mjs';
 import { http } from './lib/http.mjs';
 import { checkPosting, toOutcome } from './lib/liveness-check.mjs';
 import { loadWorkdaySites } from './lib/workday-sites.mjs';
+import { loadGreenhouseBoards } from './lib/greenhouse-boards.mjs';
 import { applyChecks, readLivenessPolicy } from './lib/liveness-state.mjs';
 import { parseHistoryFile, upgradeColumns } from './lib/scan-history.mjs';
 
@@ -137,12 +138,13 @@ async function main() {
   const rung = useBrowser ? makeBrowserRung() : null;
   const checks = [];
   const workdaySites = loadWorkdaySites();
+  const greenhouseBoards = loadGreenhouseBoards();
   const tally = { active: 0, expired: 0, uncertain: 0, unreachable: 0 };
   const icons = { active: '✅', expired: '❌', uncertain: '⚠️', unreachable: '🔌' };
 
   // Sequential — project rule: never Playwright in parallel
   for (const url of urls) {
-    const check = await checkPosting(url, { http, browser: rung, workdaySites });
+    const check = await checkPosting(url, { http, browser: rung, workdaySites, greenhouseBoards });
     checks.push(check);
     tally[check.kind]++;
     console.log(`${icons[check.kind]} ${check.kind.padEnd(11)} ${url}`);

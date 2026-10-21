@@ -147,6 +147,8 @@ test('the batch eval worker argv, exactly', () => {
     'Bash(node scripts/reserve-report-num.mjs:*)',
     'Bash(node scripts/cv-summary.mjs:*)',
     'Bash(node scripts/agent-log.mjs log:*)',
+    'Bash(node scripts/agent-log.mjs list:*)',
+    'Bash(npm run agent-log -- list:*)',
     'Bash(node scripts/outcomes.mjs --json)',
     'Bash(node scripts/messages.mjs post --source eval:*)',
     'Bash(cd .)',
@@ -330,6 +332,19 @@ test("every script a worker's instructions name is one it may run", () => {
     const missing = [...named].filter((c) => !rules.some((r) => r.startsWith(`Bash(${c}`)))
     assert.deepEqual(missing, [], `${kind}: its instructions run ${missing.join(', ')} but its permissions don't allow it`)
   }
+})
+
+// modes/_shared.md (read by every mode the router delegates, scan included)
+// and CLAUDE.md tell a session to check the open issue log first. A worker
+// that obeyed and was denied stopped its whole Full scan before scan.mjs.
+test('every worker that logs issues may also read the open entries', () => {
+  for (const kind of UNATTENDED) {
+    const rules = allowedRules(kind)
+    if (!rules.includes('Bash(node scripts/agent-log.mjs log:*)')) continue
+    assert.ok(rules.includes('Bash(node scripts/agent-log.mjs list:*)'), `${kind} may log issues but not list them`)
+  }
+  const shared = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'modes', '_shared.md'), 'utf-8')
+  assert.ok(shared.includes('node scripts/agent-log.mjs list --unresolved'), 'modes/_shared.md no longer names the list check: drop this test')
 })
 
 test('every unattended worker can post to Messages, under its own source', () => {

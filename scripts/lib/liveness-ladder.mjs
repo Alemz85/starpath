@@ -39,6 +39,7 @@
  */
 
 import { parsePostingUrl, postingApiUrls, workdayPerJobUrl } from './ats-url.mjs';
+import { greenhouseEmbedId, embedBoards } from './greenhouse-boards.mjs';
 import { SITE_API_HOSTS } from './http.mjs';
 import { amazonHit, amazonJdFields, judgeSitePage } from './site-posting.mjs';
 import { resolveDeadline, cleanId } from './listing-fields.mjs';
@@ -239,15 +240,19 @@ function boardEntries(boardType, json) {
  * Run the ladder for one posting URL.
  *
  * @param {string} url
- * @param {{http: {getJson:Function, getText:Function}, now?: Date, workdaySites?: Record<string,string[]>}} deps
+ * @param {{http: {getJson:Function, getText:Function}, now?: Date, workdaySites?: Record<string,string[]>,
+ *          greenhouseBoards?: Array<{company:string, slug:string}>}} deps
  * @returns {Promise<{verdict: null | {result:'active'|'expired', reason:string, via:'api-job'|'api-board'|'html', jd?:object},
  *                    errors: Array<{rung:string, message:string, status:number|null}>, attempted: string[], ats: string|null, hint?: string}>}
  */
-export async function climbLadder(url, { http, now = new Date(), workdaySites = {} }) {
+export async function climbLadder(url, { http, now = new Date(), workdaySites = {}, greenhouseBoards = [] }) {
   const errors = [];
   const attempted = [];
   const parsed = parsePostingUrl(url);
-  if (!parsed) return { verdict: null, errors, attempted, ats: null };
+  if (!parsed) {
+    if (greenhouseEmbedId(url)) return climbGreenhouseEmbed(url, { http, greenhouseBoards });
+    return { verdict: null, errors, attempted, ats: null };
+  }
   const api = postingApiUrls(parsed, url);
   const note = (rung, err) => errors.push({ rung, message: String(err?.message || err).slice(0, 200), status: err?.status ?? null });
   const isSite = parsed.ats === 'amazon' || parsed.ats === 'picnic' || parsed.ats === 'factorial';
@@ -323,6 +328,41 @@ export async function climbLadder(url, { http, now = new Date(), workdaySites = 
   }
 
   return { verdict: null, errors, attempted, ats: parsed.ats };
+}
+
+/**
+ * A Greenhouse board embedded in the company's own site (`?gh_jid=<id>`, see
+ * lib/greenhouse-boards.mjs): ask the per-job API of each tracked board whose
+ * company matches the domain. The board is a guess, so a 404 is never
+ * `expired`; with no matching board there is nothing to ask.
+ */
+async function climbGreenhouseEmbed(url, { http, greenhouseBoards }) {
+  const errors = [];
+  const attempted = [];
+  const id = greenhouseEmbedId(url);
+  const boards = embedBoards(url, greenhouseBoards);
+  if (!boards.length) {
+    return {
+      verdict: null, errors, attempted, ats: 'greenhouse',
+      hint: 'Greenhouse board embedded in the company site and no tracked Greenhouse company matches this domain (add it to user/portals.yml)',
+    };
+  }
+  for (const b of boards) {
+    const parsed = { ats: 'greenhouse', org: b.slug, id, host: 'job-boards.greenhouse.io' };
+    attempted.push('api-job');
+    try {
+      const json = await http.getJson(postingApiUrls(parsed, url).perJob, { type: 'greenhouse', retries: 1 });
+      if (perJobMatches('greenhouse', json, id)) {
+        return {
+          verdict: { result: 'active', reason: `greenhouse per-job API returned the posting (board ${b.slug})`, via: 'api-job', jd: extractJd('greenhouse', json) },
+          errors, attempted, ats: 'greenhouse',
+        };
+      }
+    } catch (err) {
+      errors.push({ rung: 'api-job', message: String(err?.message || err).slice(0, 200), status: err?.status ?? null });
+    }
+  }
+  return { verdict: null, errors, attempted, ats: 'greenhouse' };
 }
 
 /** The verdict only: `{result, reason, via, jd?}` or `null` on anything ambiguous. */

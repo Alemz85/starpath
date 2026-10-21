@@ -25,11 +25,12 @@ import { climbLadder, allRungsFailed } from './liveness-ladder.mjs';
  *        page cannot be loaded at all (that becomes `unreachable`).
  * @param {Date} [deps.now]
  * @param {Record<string,string[]>} [deps.workdaySites] {host → sites} to resolve siteless Workday URLs
+ * @param {Array<{company:string, slug:string}>} [deps.greenhouseBoards] tracked boards, to resolve `?gh_jid=` embeds
  * @returns {Promise<{url:string, kind:'active'|'expired'|'unreachable'|'uncertain', reason:string,
  *                    via:string, error?:string, jd?:object, attempted:string[]}>}
  */
-export async function checkPosting(url, { http, browser = null, now = new Date(), workdaySites = {} }) {
-  const ladder = await climbLadder(url, { http, now, workdaySites });
+export async function checkPosting(url, { http, browser = null, now = new Date(), workdaySites = {}, greenhouseBoards = [] }) {
+  const ladder = await climbLadder(url, { http, now, workdaySites, greenhouseBoards });
   const base = { url, attempted: ladder.attempted };
 
   if (ladder.verdict) {

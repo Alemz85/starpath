@@ -29,6 +29,7 @@ import { pathToFileURL } from 'url';
 import { http } from './lib/http.mjs';
 import { climbLadder } from './lib/liveness-ladder.mjs';
 import { loadWorkdaySites } from './lib/workday-sites.mjs';
+import { loadGreenhouseBoards } from './lib/greenhouse-boards.mjs';
 
 const VIA = {
   'api-job': 'the ATS per-job API',
@@ -37,8 +38,8 @@ const VIA = {
 };
 
 /** Run the ladder and shape the result for printing. Pure given `http`. */
-export async function fetchPosting(url, { http: client = http, now = new Date(), workdaySites = loadWorkdaySites() } = {}) {
-  const ladder = await climbLadder(url, { http: client, now, workdaySites });
+export async function fetchPosting(url, { http: client = http, now = new Date(), workdaySites = loadWorkdaySites(), greenhouseBoards = loadGreenhouseBoards() } = {}) {
+  const ladder = await climbLadder(url, { http: client, now, workdaySites, greenhouseBoards });
   const v = ladder.verdict;
   if (!v) {
     const why = ladder.ats ? 'ambiguous or unreachable' : 'not a posting URL on a supported ATS';

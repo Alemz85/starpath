@@ -24,6 +24,8 @@ Agent(
 
 Nunca `run_in_background=True`: cuando el scan se lanza desde la app (`claude -p`), el proceso termina en cuanto el hilo principal acaba y un subagente en segundo plano muere a medias sin escribir nada. El Nivel 2 (script) tarda segundos; el Nivel 3 (WebSearch + verificación) tarda 10–20 minutos y es la parte que cubre las empresas sin API.
 
+**Sin herramienta Agent, todo en línea.** Los workers de la app (`claude -p`, tipo `scan`) no tienen la herramienta Agent a propósito (`scripts/lib/worker-capabilities.mjs`). Si no la tienes, no la busques ni lo anotes como bloqueo: ejecuta tú mismo todos los niveles en el hilo principal, en el mismo orden (Nivel 2 con `node scripts/scan.mjs`, después el Nivel 3 completo con WebSearch y `check-liveness.mjs`). Saltarse el Nivel 3 porque no hay subagente deja sin cubrir las empresas sin API.
+
 ## Configuración
 
 Leer `user/portals.yml` que contiene:
