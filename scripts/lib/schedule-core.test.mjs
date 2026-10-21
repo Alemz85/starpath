@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import {
   normalizeState, emptyState, decideRun, eligibleAt, lastFullRun, nextRunAt, newRun, reconcileRuns,
   upsertRun, finalStatus, summarizeRun, buildPlist, parseSlot, readState, updateState,
-  acquireRunLock, isRunLocked, runLockPath, fireTimes, LABEL, MAX_RUNS_KEPT, CADENCE_TOLERANCE_HOURS,
+  acquireRunLock, isRunLocked, runLockPath, fireTimes, LABEL, MAX_RUNS_KEPT, CADENCE_TOLERANCE_HOURS, countingScanAt,
 } from './schedule-core.mjs'
 
 const DAY = 86_400_000
@@ -75,6 +75,78 @@ test('--force runs regardless', () => {
   const d = decideRun({ state, now, force: true })
   assert.equal(d.run, true)
   assert.equal(d.reason, 'forced')
+})
+
+// ── a scan of any kind counts (app Full/API scan, manual scan.mjs, scheduled run) ──
+
+test('an app scan 3 days ago holds the run off, even with no full run on record', () => {
+  const now = at(2026, 10, 28, 12)
+  const d = decideRun({ state: emptyState(), now, lastScan: { at: now - 3 * DAY, ok: true } })
+  assert.equal(d.run, false)
+  assert.match(d.reason, /a scan ran 3\.0 days ago/)
+  assert.ok(d.eligibleAt > now)
+})
+
+test('a last scan 8 days ago does not: the run is due', () => {
+  const now = at(2026, 10, 28, 12)
+  const d = decideRun({ state: emptyState(), now, lastScan: { at: now - 8 * DAY, ok: true } })
+  assert.equal(d.run, true)
+  assert.equal(d.reason, 'due')
+})
+
+test('a failed scan (no board answered) does not count', () => {
+  const now = at(2026, 10, 28, 12)
+  const d = decideRun({ state: emptyState(), now, lastScan: { at: now - DAY, ok: false } })
+  assert.equal(d.run, true)
+  assert.equal(d.reason, 'first run')
+  assert.equal(countingScanAt(emptyState(), { at: now - DAY, ok: false }), null)
+  assert.equal(countingScanAt(emptyState(), { at: NaN, ok: true }), null)
+  assert.equal(countingScanAt(emptyState(), null), null)
+})
+
+test('the later of scan and full run governs; the reason names it', () => {
+  const now = at(2026, 10, 28, 12)
+  const state = stateWith(done(new Date(now - 5 * DAY).toISOString()))
+  const byScan = decideRun({ state, now, lastScan: { at: now - 2 * DAY, ok: true } })
+  assert.equal(byScan.run, false)
+  assert.match(byScan.reason, /a scan ran 2\.0 days ago/)
+  const byRun = decideRun({ state, now, lastScan: { at: now - 6 * DAY, ok: true } })
+  assert.equal(byRun.run, false)
+  assert.match(byRun.reason, /last full run finished 5\.0 days ago/)
+})
+
+test('the tolerance applies to a scan too, and --force still overrides', () => {
+  const scanned = at(2026, 10, 21, 12, 5)
+  const lastScan = { at: scanned, ok: true }
+  // A scheduled run scans a few minutes after it fires, so next week's same-slot fire is due.
+  assert.equal(decideRun({ state: emptyState(), now: at(2026, 10, 28, 12), lastScan }).run, true)
+  assert.equal(decideRun({ state: emptyState(), now: scanned + 7 * DAY - CADENCE_TOLERANCE_HOURS * HOUR - 60_000, lastScan }).run, false)
+  assert.equal(decideRun({ state: emptyState(), now: scanned + HOUR, lastScan, force: true }).run, true)
+})
+
+test('a scan made inside a scheduled run that failed does not block the same-day retry', () => {
+  const started = at(2026, 10, 28, 12)
+  const scanAt = started + 60_000
+  const failed = { ...done(new Date(started + 10 * 60_000).toISOString(), 'failed'), startedAt: new Date(started).toISOString() }
+  const state = stateWith(failed)
+  const now = at(2026, 10, 28, 14)
+  assert.equal(countingScanAt(state, { at: scanAt, ok: true }), null)
+  assert.equal(decideRun({ state, now, lastScan: { at: scanAt, ok: true } }).run, true)
+  // A user's own scan made before the failed run, or after it, still counts.
+  assert.equal(countingScanAt(state, { at: started - HOUR, ok: true }), started - HOUR)
+  assert.equal(countingScanAt(state, { at: started + 3 * HOUR, ok: true }), started + 3 * HOUR)
+  // …and so does a scan from a run that finished (even with errors).
+  const fine = { ...done(new Date(started + 10 * 60_000).toISOString(), 'completed-with-errors'), startedAt: new Date(started).toISOString() }
+  assert.equal(countingScanAt(stateWith(fine), { at: scanAt, ok: true }), scanAt)
+})
+
+test('nextRunAt waits for a counting scan', () => {
+  const slot = { weekday: 3, hour: 12, minute: 0 }
+  const scanned = at(2026, 10, 27, 20) // Tuesday evening, by hand
+  const now = at(2026, 10, 27, 21)
+  // Wed 12:00 is 16h later: held off; the 14:00 retry is also inside the week minus 6h tolerance.
+  assert.equal(nextRunAt({ slot, state: emptyState(), now, lastScan: { at: scanned, ok: true } }), at(2026, 11, 4, 12))
+  assert.equal(nextRunAt({ slot, state: emptyState(), now, lastScan: null }), at(2026, 10, 28, 12))
 })
 
 test('eligibleAt is now when nothing has run', () => {

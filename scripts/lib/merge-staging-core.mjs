@@ -69,6 +69,22 @@ const TRACKING_PARAM_RE =
   /^(utm_[a-z]+|gclid|fbclid|mc_[a-z]+|ref|referrer|source|src|campaign|cmp|spreadsheet|trk|trackingid|recommended|from|origin|sid|cid|igshid|_ga|gh_src)$/i;
 
 /**
+ * A Workday posting's identity path. The scanner used to store
+ * `https://{tenant}.wdN.myworkdayjobs.com/job/…` (no career-site segment, a 404
+ * as a page); it now stores the real `/{site}/job/…` (optionally behind a locale).
+ * Everything before the first `job` segment is presentation, not identity, so
+ * it is dropped: already-seen postings stay seen across the URL change.
+ * Non-Workday hosts, and Workday paths with no `job` segment, are untouched.
+ */
+export function workdayIdentityPath(hostname, pathname) {
+  if (!/\.wd\d+\.myworkdayjobs\.com$/i.test(hostname)) return pathname;
+  const segs = pathname.split('/').filter(Boolean);
+  const at = segs.indexOf('job');
+  if (at < 1 || segs.length < at + 2) return pathname;
+  return `/${segs.slice(at).join('/')}`;
+}
+
+/**
  * Canonicalize a job URL for exact-match dedup. Best-effort and fail-open:
  * any URL we can't parse is returned trimmed-but-otherwise-untouched so it
  * still dedups against an identical raw string.
@@ -78,6 +94,9 @@ const TRACKING_PARAM_RE =
  *  - lowercase scheme + host, drop a leading `www.`
  *  - strip tracking query params (keep functional ones like `jk`, `gh_jid`)
  *  - drop the fragment and any trailing slash on the path
+ *  - Workday: drop the locale + career-site segments before `/job/`, so the
+ *    stored page URL (`/<site>/job/…`) and the siteless form older scans wrote
+ *    (`/job/…`) are ONE identity (see workdayIdentityPath)
  */
 export function canonicalizeUrl(raw) {
   if (!raw) return raw;
@@ -105,6 +124,7 @@ export function canonicalizeUrl(raw) {
   url.protocol = url.protocol.toLowerCase();
   url.hostname = url.hostname.toLowerCase().replace(/^www\./, '');
   url.hash = '';
+  url.pathname = workdayIdentityPath(url.hostname, url.pathname);
 
   // Drop tracking params, keep the rest in a stable (sorted) order.
   const kept = [];

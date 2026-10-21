@@ -18,6 +18,10 @@
  * data/blacklist.md → title → language → location → seen-set — the same gate
  * merge-scan-staging.mjs uses for JobSpy rows.
  *
+ * Last scan: a completed run stamps data/last-scan.json (lib/last-scan.mjs), which
+ * the weekly scheduled run reads: it fires only when no scan of any kind
+ * happened in the last 7 days.
+ *
  * Board health: data/portal-health.tsv remembers boards that fail; a board that
  * answers a real 404 on 3 consecutive scans is skipped for 30 days
  * (lib/portal-health.mjs). `--company` always probes.
@@ -71,6 +75,7 @@ import {
   setCells,
 } from './lib/scan-history.mjs';
 import { gateFromPortals } from './lib/admission-gate.mjs';
+import { buildLastScan, writeLastScan } from './lib/last-scan.mjs';
 import { normalizeJob } from './lib/job.mjs';
 import { parallelFetch } from './lib/parallel.mjs';
 import {
@@ -557,6 +562,16 @@ export async function runScan({
     }
     if (serializeHealth(health) !== healthBefore) {
       writeFileSync(HEALTH_PATH, serializeHealth(health), 'utf-8');
+    }
+    // The weekly scheduled run counts a scan of any kind (lib/last-scan.mjs); a
+    // single-company probe (`--company`) is not a scan of the portal list.
+    // Non-fatal: the scan's results are already saved.
+    if (!filterCompany) {
+      try {
+        writeLastScan(buildLastScan({ boards: targets.length, errors: errors.length, added: newOffers.length }));
+      } catch (err) {
+        log(`  ! could not record the scan time (${err.message})`);
+      }
     }
   }
 

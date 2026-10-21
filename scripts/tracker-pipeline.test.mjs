@@ -386,17 +386,28 @@ test('parse-batch-result: prints Priority + verdict; a blocked listing prints "-
     writeFileSync(join(root, 'ok.log'), ev('```json\n{"want": 8.25, "ease": 5.6, "eligibility": "amber", "verdict": "stretch", "tier": "T2", "score": 6.8}\n```'));
     writeFileSync(join(root, 'blocked.log'), ev('```json\n{"want": null, "ease": null, "eligibility": "red", "verdict": "blocked", "tier": "T4", "score": null}\n```'));
     const ok = spawnSync('node', [join(SCRIPTS, 'parse-batch-result.mjs'), join(root, 'ok.log')], { encoding: 'utf-8' }).stdout.trim().split('\t');
-    assert.equal(ok.length, 11);
+    assert.equal(ok.length, 13);
     assert.equal(ok[0], 'completed');
     assert.equal(ok[1], '6.8');
     assert.equal(ok[9], 'stretch');
     assert.equal(ok[10], '-', 'no refused calls');
+    assert.equal(ok[11], 'completed', 'no failure reported');
+    assert.equal(ok[12], '-');
     const bl = spawnSync('node', [join(SCRIPTS, 'parse-batch-result.mjs'), join(root, 'blocked.log')], { encoding: 'utf-8' }).stdout.trim().split('\t');
     assert.equal(bl[1], '-');
     assert.equal(bl[9], 'blocked');
     const missing = spawnSync('node', [join(SCRIPTS, 'parse-batch-result.mjs'), join(root, 'nope.log')], { encoding: 'utf-8' }).stdout.trim().split('\t');
-    assert.equal(missing.length, 11);
+    assert.equal(missing.length, 13);
     assert.equal(missing[0], 'unknown');
+    // A worker that exits 0 but reports failure in its final JSON; a closed posting is told apart.
+    writeFileSync(join(root, 'failed.log'), ev('```json\n{"status": "failed", "score": null, "error": "JD unreachable"}\n```'));
+    writeFileSync(join(root, 'closed.log'), ev('```json\n{"status": "failed", "score": null, "error": "posting closed"}\n```'));
+    const failed = spawnSync('node', [join(SCRIPTS, 'parse-batch-result.mjs'), join(root, 'failed.log')], { encoding: 'utf-8' }).stdout.trim().split('\t');
+    assert.equal(failed[0], 'failed');
+    assert.equal(failed[11], 'failed');
+    assert.equal(failed[12], 'JD unreachable');
+    const closed = spawnSync('node', [join(SCRIPTS, 'parse-batch-result.mjs'), join(root, 'closed.log')], { encoding: 'utf-8' }).stdout.trim().split('\t');
+    assert.equal(closed[11], 'closed');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 

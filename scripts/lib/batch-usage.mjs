@@ -128,12 +128,62 @@ export function isBlocked(verdict, eligibility) {
 }
 
 /**
+ * What the worker said about its own run in the final JSON summary
+ * (batch-prompt.md Step 8): `"status": "completed | skipped_duplicate | failed"`
+ * and `"error"`. A worker that could not fetch the JD, or found the posting
+ * closed, exits 0 and reports `"status": "failed"` here, so the exit code alone
+ * cannot tell success from failure. The LAST status wins (the summary is the
+ * final JSON object; earlier objects, e.g. `other` flags, use other words).
+ *
+ * @returns {{status: 'completed'|'failed'|'skipped_duplicate'|null, error: string|null}}
+ */
+export function extractReported(content, resultEvent = null) {
+  const haystacks = []
+  if (resultEvent && typeof resultEvent.result === 'string') haystacks.push(resultEvent.result)
+  if (typeof content === 'string') haystacks.push(content)
+  for (const h of haystacks) {
+    const statuses = [...h.matchAll(/"status"\s*:\s*"(completed|failed|skipped_duplicate)"/g)]
+    if (statuses.length === 0) continue
+    const last = statuses[statuses.length - 1]
+    const status = last[1]
+    // The summary's own `error` follows its `status`; an earlier object's does not count.
+    const after = h.slice(last.index + last[0].length)
+    const err = /"error"\s*:\s*(null|"(?:[^"\\]|\\.)*")/.exec(after)
+    let error = null
+    if (err && err[1] !== 'null') {
+      try { error = String(JSON.parse(err[1])).replace(/\s+/g, ' ').trim().slice(0, 200) || null } catch { /* keep null */ }
+    }
+    return { status, error }
+  }
+  return { status: null, error: null }
+}
+
+/** Does a worker's failure reason say the posting is closed (nothing to retry)? */
+export function isClosedPostingReason(error) {
+  return /posting (is |was )?(closed|expired|removed)|no longer (open|available|accepting)|(position|role|job) (has been |is )?(filled|closed)|\bexpired\b/i.test(String(error ?? ''))
+}
+
+/**
+ * How the batch runner should record a worker that exited 0:
+ *   'failed'    the final summary says failed (JD unreachable, denied call, …): retryable
+ *   'closed'    it failed because the posting is closed: skipped, not retried
+ *   'duplicate' it skipped the listing as already evaluated
+ *   'completed' anything else (including a log with no summary: see evalNoResult)
+ */
+export function reportedOutcome(reported) {
+  if (reported?.status === 'failed') return isClosedPostingReason(reported.error) ? 'closed' : 'failed'
+  if (reported?.status === 'skipped_duplicate') return 'duplicate'
+  return 'completed'
+}
+
+/**
  * Parse a full worker log into the accounting fields for one usage row.
  * Never throws — a mangled log yields nulls, not a crashed batch.
  *
  * @param {string} content raw log content
  * @returns {{
  *   status: 'completed'|'failed'|'unknown',
+ *   reported: string|null, reportedError: string|null, outcome: 'completed'|'failed'|'closed'|'duplicate',
  *   score: number|null, verdict: string|null, blocked: boolean,
  *   inputTokens: number|null, cacheCreationTokens: number|null,
  *   cacheReadTokens: number|null, outputTokens: number|null,
@@ -148,8 +198,13 @@ export function parseWorkerLog(content) {
   const verdict = extractVerdict(content, ev)
   // A refused tool call fails the worker (worker-capabilities.mjs).
   const denied = deniedTools(ev)
+  const reported = extractReported(content, ev)
+  const outcome = reportedOutcome(reported)
   return {
-    status: ev ? (ev.is_error || denied.length > 0 ? 'failed' : 'completed') : 'unknown',
+    status: ev ? (ev.is_error || denied.length > 0 || outcome === 'failed' || outcome === 'closed' ? 'failed' : 'completed') : 'unknown',
+    reported: reported.status,
+    reportedError: reported.error,
+    outcome,
     score: extractScore(content, ev),
     verdict,
     blocked: isBlocked(verdict, extractEligibility(content, ev)),

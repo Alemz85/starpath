@@ -270,6 +270,15 @@ run_with_state_lock() {
   return "$status"
 }
 
+# Error/reason cell of an offer in the state file ("-" when none)
+get_reason() {
+  local id="$1"
+  [[ -f "$STATE_FILE" ]] || { echo "-"; return; }
+  local reason
+  reason=$(awk -F'\t' -v id="$id" '$1 == id { print $8 }' "$STATE_FILE")
+  echo "${reason:--}"
+}
+
 # Get status of an offer from state file
 get_status() {
   local id="$1"
@@ -474,13 +483,13 @@ process_offer() {
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
   # Parse the worker log once: status heuristic, score, token usage, verdict.
-  # Fields: status score input cache_creation cache_read output cost duration turns verdict denied
+  # Fields: status score input cache_creation cache_read output cost duration turns verdict denied outcome reported_error
   # `score` is the worker's Priority (sqrt(want*ease)); a Blocked listing has no
   # Priority (score "-", verdict "blocked").
   local parsed
-  parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\n')
-  local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied
-  IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied <<< "$parsed"
+  parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\tcompleted\t-\n')
+  local p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied p_outcome p_rerror
+  IFS=$'\t' read -r p_status p_score p_in p_cc p_cr p_out p_cost p_dur p_turns p_verdict p_denied p_outcome p_rerror <<< "$parsed"
 
   # The worker's scratch: score-listing inputs and the saved posting (batch/work/<id>-…).
   rm -f "$PROJECT_DIR/batch/work/${id}-"*
@@ -495,6 +504,31 @@ process_offer() {
   # Append the accounting row (best-effort — never fails the batch).
   append_usage_row "$id" "$report_num" "$completed_at" \
     "$p_status" "$p_score" "$p_verdict" "$p_in" "$p_cc" "$p_cr" "$p_out" "$p_cost" "$p_dur" "$p_turns" || true
+
+  # A worker can exit 0 and still say `"status": "failed"` in its final JSON
+  # (JD unreachable, a denied call it reported, posting closed). Believe it:
+  # a failed run is retryable, not "completed". A posting that is closed is not
+  # a failure to retry, so it is skipped with the reason; a listing the worker
+  # skipped as already evaluated is skipped too, not counted completed.
+  local worker_error=""
+  if [[ $exit_code -eq 0 ]]; then
+    case "$p_outcome" in
+      failed)
+        exit_code=125
+        worker_error="worker reported failure: ${p_rerror:--}"
+        ;;
+      closed)
+        update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "-" "posting-closed" "$retries"
+        echo "    ⏭️  Skipped (posting closed: ${p_rerror:--})"
+        return 0
+        ;;
+      duplicate)
+        update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "-" "duplicate" "$retries"
+        echo "    ⏭️  Skipped (already evaluated: duplicate of an earlier listing)"
+        return 0
+        ;;
+    esac
+  fi
 
   if [[ $exit_code -eq 0 ]]; then
     local score="${p_score:--}"
@@ -530,11 +564,17 @@ process_offer() {
     local error_msg
     if [[ $exit_code -eq 126 ]]; then
       error_msg=$(printf 'permission denied: %s' "$p_denied" | tr '\t\n' '  ' | cut -c1-200)
+    elif [[ $exit_code -eq 125 ]]; then
+      error_msg=$(printf '%s' "$worker_error" | tr '\t\n' '  ' | cut -c1-200)
     else
       error_msg=$(tail -5 "$log_file" 2>/dev/null | tr '\n' ' ' | cut -c1-200 || echo "Unknown error (exit code $exit_code)")
     fi
     update_state "$id" "$url" "failed" "$started_at" "$completed_at" "$report_num" "-" "$error_msg" "$retries"
-    echo "    ❌ Failed (attempt $retries, exit code $exit_code)"
+    if [[ $exit_code -eq 125 ]]; then
+      echo "    ❌ Failed (attempt $retries, $error_msg)"
+    else
+      echo "    ❌ Failed (attempt $retries, exit code $exit_code)"
+    fi
   fi
 }
 
@@ -577,7 +617,7 @@ print_summary() {
     return
   fi
 
-  local total=0 completed=0 failed=0 pending=0
+  local total=0 completed=0 failed=0 pending=0 skipped=0
   local score_sum=0 score_count=0 blocked_count=0
 
   while IFS=$'\t' read -r sid _ sstatus _ _ _ sscore _ _; do
@@ -593,11 +633,12 @@ print_summary() {
         fi
         ;;
       failed) failed=$((failed + 1)) ;;
+      skipped) skipped=$((skipped + 1)) ;;
       *) pending=$((pending + 1)) ;;
     esac
   done < "$STATE_FILE"
 
-  echo "Total: $total | Completed: $completed | Failed: $failed | Pending: $pending"
+  echo "Total: $total | Completed: $completed | Failed: $failed | Skipped: $skipped | Pending: $pending"
 
   # Priority = sqrt(want*ease). Blocked listings have none, so they are
   # excluded from the average and reported separately.
@@ -672,6 +713,13 @@ main() {
       # Skip completed offers
       if [[ "$status" == "completed" ]]; then
         continue
+      fi
+      # A closed posting or an already-evaluated duplicate has nothing to
+      # retry; skipping on a score gate (below-min-score) is re-evaluated.
+      if [[ "$status" == "skipped" ]]; then
+        case "$(get_reason "$id")" in
+          posting-closed|duplicate) continue ;;
+        esac
       fi
       # Skip failed offers that hit retry limit (unless --retry-failed)
       if [[ "$status" == "failed" ]]; then
