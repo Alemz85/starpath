@@ -8,6 +8,7 @@
 **Verdict:** Go — apply now
 **Tier:** T1
 **URL:** https://example.com/jobs/northwind-analytics/graduate-analyst-programme-1042
+**Documents:** CV required · cover letter required · transcript required · references not stated · language test not stated · 1 file, 2 MB max · all documents in one PDF · from the posting
 
 ## Eligibility
 | Check | Status | Reason |

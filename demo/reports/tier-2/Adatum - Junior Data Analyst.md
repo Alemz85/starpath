@@ -8,6 +8,7 @@
 **Verdict:** If pipeline thin — apply only if your pipeline is thin
 **Tier:** T2
 **URL:** https://example.com/jobs/adatum/junior-data-analyst-2716
+**Documents:** not stated
 
 ## Eligibility
 | Check | Status | Reason |

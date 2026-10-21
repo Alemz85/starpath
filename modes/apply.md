@@ -43,6 +43,7 @@ Modo interactivo para cuando el candidato está rellenando un formulario de apli
 1. Extraer nombre de empresa y título del rol de la página
 2. Buscar en `reports/` por nombre de empresa (Grep case-insensitive)
 3. Si hay match → cargar el report completo
+   - Si el report tiene una línea `**Documents:**`, abre la respuesta con los documentos `required` (y di cuáles están `not stated`) para que el candidato los tenga listos antes de empezar a rellenar.
 4. Si hay un `interview-prep/{Company} - {Role}.md` → cargarlo también (contexto STAR + draft answers previos)
 5. Si NO hay match → avisar y ofrecer ejecutar `/career-ops scouting` para evaluar primero
 6. **Leer `interview-prep/story-bank.md`** si existe — las historias STAR+R del banco son la fuente preferida para respuestas de formulario. Usar historias existentes antes de generar respuestas desde cero. El formato canónico del banco está definido en `templates/story-bank.template.md` (heading `### {Título}`, beats `**Situation/Task/Action/Result/Reflection:**`, línea `**Themes:**` de tags). Cada historia tiene un **título-handle** y **themes**; usa los themes para hacer match con cada pregunta del formulario (ver Paso 5).
@@ -82,6 +83,18 @@ Identificar TODAS las preguntas visibles:
 Para cada pregunta behavioral, hacer **match por competency primero, luego por theme/texto** — es el orden que usa el ranking del banco (`scripts/lib/story-bank.mjs`: clasifica la pregunta a una competency canónica, luego elige la historia que la cubre; el texto desempata). Las competencies canónicas (ownership, leadership, collaboration, conflict, failure, ambiguity, analytical, impact, communication, customer, learning, innovation) son el vocabulario compartido entre la pregunta y la línea `**Themes:**` de cada historia. Una sola historia fuerte > tres historias tibias. Si **ninguna** historia cubre la competency de la pregunta, marcarlo como gap (Paso 5D) — no fabriques una historia nueva sobre la marcha para un formulario en vivo.
 
 **La clasificación de la tabla de arriba está implementada de forma determinista** en `classifyQuestion()` (`scripts/lib/apply-core.mjs`) — recorre las mismas filas en el mismo orden (logística primero), detecta campos **compuestos** (devuelve un `secondary` recipe cuando una segunda receta también dispara) y, para preguntas behavioral, infiere la competency con la MISMA taxonomía compartida (`story-bank.mjs`) que usa el ranking de historias. Úsala para fijar el tipo de cada campo antes de redactar — así la receta (5A/5B/5C/5F) y la fuente quedan determinadas por código, no por criterio variable campo a campo. Para un campo que la función marque `defaulted: true` (no matcheó ninguna señal), lee el contexto y decide tú; el default es solo un punto de partida seguro.
+
+## Paso 4b — Registrar los documentos que pide el formulario
+
+Cuando ves el formulario real (Playwright, screenshot o las preguntas pegadas), actualiza la línea `**Documents:**` del report con lo que pide de verdad (formato en `modes/scouting.md` § Documents):
+
+- Campo de subida obligatorio → `required`; opcional → `optional`.
+- `not asked` solo si has visto el formulario **entero** y no hay campo para ese documento. Si solo has visto una parte, lo que no viste se queda `not stated`.
+- Los límites del campo van como límites (`1 file, 1 MB max`) o como nota (`all documents in one PDF`).
+- La línea termina con `from the form YYYY-MM-DD` (la fecha de hoy).
+- Si el report no tiene la línea (reports antiguos), añádela debajo de la última línea de la cabecera (`**Posting check:**`, `**Posted:**` o `**URL:**`). Cambia solo esa línea del report.
+- Si el formulario pide un documento obligatorio que el report no esperaba (p. ej. un transcript que figuraba como `not stated`), dilo en la primera línea de las Notas para que el candidato lo prepare antes de seguir.
+- En modo autónomo, o sin permiso para escribir en `reports/`, no toques el report: lista los documentos en las Notas.
 
 ## Paso 5 — Generar respuestas (la artesanía de conversión)
 

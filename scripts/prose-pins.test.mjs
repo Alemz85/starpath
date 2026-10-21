@@ -179,6 +179,20 @@ test('the header carries TL;DR between Verdict and Tier, URL after Tier, and any
   assert.deepEqual(afterUrl(batch), afterUrl(scouting), 'the lines after the URL agree')
 })
 
+// The Documents line (what the application asks you to submit) closes the
+// shared header in both templates, _shared.md names it, and both rule texts
+// keep the fail-closed sentence: a posting's silence is never "not asked".
+test('the Documents line closes the header everywhere and keeps silence as not stated', () => {
+  const scouting = headerLabels(read('modes/scouting.md'))
+  const batch = headerLabels(read('batch/batch-prompt.md')).filter((l) => !BATCH_ONLY.has(l))
+  assert.equal(scouting.at(-1), 'Documents')
+  assert.equal(batch.at(-1), 'Documents')
+  assert.ok(read('modes/_shared.md').includes('`**Documents:**`'), '_shared.md names the Documents line')
+  for (const rel of ['modes/scouting.md', 'batch/batch-prompt.md']) {
+    assert.match(read(rel), /Silence is `not stated`, never `not asked`/, rel)
+  }
+})
+
 test('_shared.md header block is the tail of the scouting header, in order', () => {
   const scouting = headerLabels(read('modes/scouting.md'))
   const shared = sharedHeaderLabels(read('modes/_shared.md'))

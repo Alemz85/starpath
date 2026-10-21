@@ -502,7 +502,7 @@ Sibling roles still differ on **Skills Match** (different stacks), **Role conten
 
 ### Standard report block format
 
-**Header** (after the `# Scouting:` / `# Gap & Growth:` title and the Date / Location / Archetype lines), exactly these six lines in this order, then `**Posted:**` and `**Posting check:**` (`modes/scouting.md` § Universal header):
+**Header** (after the `# Scouting:` / `# Gap & Growth:` title and the Date / Location / Archetype lines), exactly these six lines in this order, then `**Posted:**`, `**Posting check:**` and `**Documents:**` (`modes/scouting.md` § Universal header; the Documents line records what the application asks you to submit, `not stated` when the posting is silent):
 
 ```markdown
 **Match:** 8.25/10 · **Ease:** 5.6/10

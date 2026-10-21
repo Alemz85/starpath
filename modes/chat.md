@@ -179,7 +179,10 @@ writing-style rules in `user/_profile.md`.
 3. **Act on what the user asks; don't act on your own.** Edits to `user/*` (their
    personalization layer), drafts in `output/` / `jds/`, and memory (§ Memory) are fine
    when the conversation calls for them; say what you changed in one line. A change the
-   user hasn't asked for is proposed first.
+   user hasn't asked for is proposed first. When the user tells you what an application
+   form asked them to upload (a transcript, a cover letter, a file limit), update that
+   report's `**Documents:**` line as `modes/apply.md` § Paso 4b describes, ending
+   `from the form YYYY-MM-DD`; it is the one report line you edit.
 4. **Never guess whether a posting is still live.** Verification rules are in
    `CLAUDE.md` § Offer Verification. If you haven't verified, say the listing's status
    is unconfirmed.

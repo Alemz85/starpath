@@ -447,6 +447,13 @@ test('extractMetadata drops the Posted line (it is a job fact) and keeps Verific
   assert.ok(rest.includes('Body text.'))
 })
 
+test('extractMetadata drops the Documents line (it is a job fact) without leaving it in the body', () => {
+  const md = '**Date:** 2026-10-20\n**Posting check:** clean\n**Documents:** CV required · transcript required · from the posting\n\nBody.\n'
+  const { meta, rest } = extractMetadata(md)
+  assert.deepEqual(meta.map(m => m.key), ['Date', 'Posting check'])
+  assert.ok(!rest.includes('Documents'))
+})
+
 test('extractMetadata keeps the Posting check line so a suspect posting stays visible', () => {
   const md = '**Date:** 2026-10-20\n**Verification:** unconfirmed (batch mode)\n**Posting check:** suspect — hidden text, instruction-shaped lines\n\nBody.\n'
   const { meta } = extractMetadata(md)

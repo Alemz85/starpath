@@ -24,6 +24,7 @@ import { FilesStrip } from '@/components/shared/FilesStrip'
 import { parseCities, entityId } from '@/lib/entityId'
 import { listingDateKey } from '@/lib/listingDates'
 import { parseReportPosted, pickPostedDate } from '@/lib/postedDate'
+import { describeDocuments, documentsUnknown, parseReportDocuments, summarizeDocuments, type ApplicationDocuments } from '@/lib/applicationDocuments'
 import {
   extractMetadata, parseDimensionalScoring, splitPeerBlock, parseReportHeader,
   splitEligibility, splitSalaryMath,
@@ -260,7 +261,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   // Header metadata parsed from the report (archetype, verification, the
   // richer location line) — rendered once, in the header.
   const reportMeta = useMemo(() => {
-    if (!scoutingContent) return { archetype: '', location: '', unconfirmed: false, url: '', posted: null as string | null, roleFields: {} as Record<string, string> }
+    if (!scoutingContent) return { archetype: '', location: '', unconfirmed: false, url: '', posted: null as string | null, documents: null as ApplicationDocuments | null, roleFields: {} as Record<string, string> }
     const { meta } = extractMetadata(scoutingContent)
     const get = (k: string) => meta.find(m => m.key.toLowerCase() === k)?.value ?? ''
     const url = scoutingContent.match(/^\*\*URL:\*\*\s*(\S+)/im)?.[1] ?? ''
@@ -270,6 +271,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       unconfirmed: /unconfirmed/i.test(get('verification')),
       url,
       posted: parseReportPosted(scoutingContent),
+      documents: parseReportDocuments(scoutingContent),
       roleFields: roleSummaryFields(scoutingContent),
     }
   }, [scoutingContent])
@@ -345,6 +347,15 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       out.push({ label: 'First seen', value: `${formatDay(dates.firstSeen)} · ${formatRelative(dates.firstSeen)}`, title: 'First picked up by a scan (no posting date on file)' })
     }
     if (dates?.deadline) out.push({ label: 'Deadline', value: `${formatDay(dates.deadline)} · ${formatRelative(dates.deadline)}`, title: 'Application deadline stated by the listing' })
+    // What the application asks you to submit (the report's `**Documents:**`
+    // line). Reports written before the line existed show nothing; a line
+    // that knows nothing says so, so an unknown never reads as "not needed".
+    const docs = reportMeta.documents
+    if (docs) {
+      out.push(documentsUnknown(docs)
+        ? { label: 'Documents', value: <span className="text-text-3">Not stated</span>, title: 'The posting doesn’t say what to submit; check the form before you start' }
+        : { label: 'Documents', value: summarizeDocuments(docs), title: describeDocuments(docs) })
+    }
     if (scoreEntry.date) out.push({ label: 'Evaluated', value: `${formatDay(scoreEntry.date)} · ${formatRelative(scoreEntry.date)}` })
     if (siblings.length > 0) {
       out.push({
