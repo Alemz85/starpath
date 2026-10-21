@@ -8,6 +8,9 @@ import {
   extractEligibility,
   isBlocked,
   parseWorkerLog,
+  extractReported,
+  isClosedPostingReason,
+  reportedOutcome,
   usageTsvRow,
   USAGE_TSV_HEADER,
 } from './batch-usage.mjs'
@@ -146,6 +149,9 @@ test('parses a full successful worker log', () => {
     durationMs: 184223,
     numTurns: 41,
     denied: [],
+    reported: 'completed',
+    reportedError: null,
+    outcome: 'completed',
   })
 })
 
@@ -190,4 +196,53 @@ test('full row renders every numeric field', () => {
     row,
     't\t1\t001\tcompleted\t6.8\tstretch\t1200\t45000\t310000\t5400\t0.8123\t184223\t41',
   )
+})
+
+// ─── the worker's own verdict on its run ─────────────────────────────────────
+
+const withSummary = (summary) => ({
+  ...RESULT_EVENT,
+  result: 'Done.\n```json\n' + JSON.stringify(summary, null, 2) + '\n```',
+})
+
+test('a worker that exits 0 but reports "status": "failed" is a failed run, with its error', () => {
+  const log = JSON.stringify(withSummary({ status: 'failed', id: '7', score: null, error: 'JD unreachable: fetch-posting exit 3, WebFetch empty' }))
+  const p = parseWorkerLog(log)
+  assert.equal(p.status, 'failed')
+  assert.equal(p.outcome, 'failed')
+  assert.equal(p.reported, 'failed')
+  assert.equal(p.reportedError, 'JD unreachable: fetch-posting exit 3, WebFetch empty')
+})
+
+test('a failure whose reason is a closed posting is "closed" (skipped, not retried)', () => {
+  const p = parseWorkerLog(JSON.stringify(withSummary({ status: 'failed', error: 'posting closed' })))
+  assert.equal(p.outcome, 'closed')
+  assert.equal(p.status, 'failed')
+  for (const reason of ['Posting is closed', 'role no longer available', 'position has been filled', 'listing expired']) {
+    assert.equal(isClosedPostingReason(reason), true, reason)
+  }
+  for (const reason of ['JD unreachable', 'permission denied: Bash(curl)', null, '']) {
+    assert.equal(isClosedPostingReason(reason), false, String(reason))
+  }
+})
+
+test('skipped_duplicate is its own outcome; a normal completion and a log with no summary stay "completed"', () => {
+  assert.equal(parseWorkerLog(JSON.stringify(withSummary({ status: 'skipped_duplicate', error: null }))).outcome, 'duplicate')
+  const ok = parseWorkerLog(JSON.stringify(RESULT_EVENT))
+  assert.equal(ok.outcome, 'completed')
+  assert.equal(ok.status, 'completed')
+  assert.equal(ok.reportedError, null)
+  assert.equal(parseWorkerLog('not json at all').outcome, 'completed')
+  assert.equal(reportedOutcome(null), 'completed')
+})
+
+test('the LAST status in the result wins, and flag objects with other words are ignored', () => {
+  const result = 'Notes {"status": "amber", "reason": "x"}\n{"status": "failed", "error": "first try"}\nretried\n{"status": "completed", "error": null}'
+  assert.deepEqual(extractReported(null, { result }), { status: 'completed', error: null })
+})
+
+test('an error with escaped quotes decodes; tabs and newlines collapse to one line', () => {
+  const result = JSON.stringify({ status: 'failed', error: 'said "no"\tand\nstopped' })
+  const r = extractReported(null, { result })
+  assert.equal(r.error, 'said "no" and stopped')
 })

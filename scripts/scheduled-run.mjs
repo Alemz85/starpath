@@ -7,7 +7,8 @@
  *
  * Commands
  *   run        scan → merge → triage → [evaluate] → merge trackers.
- *              Exits early when a full run finished in the last 7 days.
+ *              Exits early when a full run finished, or a scan of any kind ran
+ *              (app Full/API scan, manual scan.mjs, scheduled run), in the last 7 days.
  *              Evaluations are OFF unless saved with `config --evaluate on` (or --eval for one run):
  *              the workers (`claude -p`, least privilege: worker-capabilities.mjs) run unattended.
  *              --force            ignore the 7-day check
@@ -45,9 +46,10 @@ import { repoRootFrom } from './lib/data-root.mjs'
 import { resolveWriteTarget } from './lib/write-file-atomic.mjs'
 import {
   RETRY_EVERY_HOURS, LABEL, LAUNCHD_LOG_REL, LOG_REL, buildPlist, isRunLocked, lastFullRun, lastRun, nextRunAt, parseSlot, readState,
-  summarizeRun, updateState, validSlot, decideRun,
+  summarizeRun, updateState, validSlot, decideRun, countingScanAt,
 } from './lib/schedule-core.mjs'
 import { runScheduled, resolveOptions, DEFAULT_OPTIONS } from './lib/scheduled-run-core.mjs'
+import { readLastScan } from './lib/last-scan.mjs'
 import {
   DEFAULT_PLIST_DIR, installJob, jobPath, jobStatus, plistPathFor, resolveBinary, uninstallJob,
 } from './lib/schedule-launchd.mjs'
@@ -198,7 +200,8 @@ export function statusReport({ root, now = Date.now(), plistDir = DEFAULT_PLIST_
   const job = jobStatus({ plistDir, expect: { slot: state.slot, root }, load, ...(run ? { run } : {}) })
   const full = lastFullRun(state)
   const last = lastRun(state)
-  const next = state.slot && job.installed ? nextRunAt({ slot: state.slot, state, now }) : null
+  const lastScan = readLastScan(root)
+  const next = state.slot && job.installed ? nextRunAt({ slot: state.slot, state, now, lastScan }) : null
   return {
     installed: job.installed,
     loaded: job.loaded,
@@ -210,8 +213,11 @@ export function statusReport({ root, now = Date.now(), plistDir = DEFAULT_PLIST_
     running: isRunLocked(root),
     lastRun: last ? { ...last.run, summaryText: summarizeRun(last.run) } : null,
     lastFullRunAt: full ? full.run.finishedAt : null,
+    // The last scan of any kind (app, manual or scheduled) and whether it holds the weekly run off.
+    lastScanAt: lastScan ? new Date(lastScan.at).toISOString() : null,
+    lastScanCounts: countingScanAt(state, lastScan) !== null,
     nextRunAt: next ? new Date(next).toISOString() : null,
-    dueNow: decideRun({ state, now }).run,
+    dueNow: decideRun({ state, now, lastScan }).run,
     options: resolveOptions(state.options),
     logPath: join(root, LOG_REL),
     root,
@@ -225,6 +231,7 @@ function printStatus(r) {
   console.log(`Job:        ${r.installed ? (r.loaded ? 'installed and loaded' : 'installed but NOT loaded') : 'not installed'}${r.installed && r.upToDate === false ? ` (needs attention: ${r.problems.join('; ')}; re-run install)` : ''}`)
   console.log(`Slot:       ${r.slotLabel ?? 'none chosen yet'}`)
   console.log(`Last run:   ${r.lastRun ? `${r.lastRun.finishedAt ?? r.lastRun.startedAt} (${r.lastRun.trigger}), ${r.lastRun.status}: ${r.lastRun.summaryText}` : 'never'}`)
+  console.log(`Last scan:  ${r.lastScanAt ? `${r.lastScanAt}${r.lastScanCounts ? '' : ' (not counted: no board answered, or it was part of a run that failed)'}` : 'never recorded'} (any scan counts toward the 7-day wait)`)
   console.log(`Next run:   ${r.nextRunAt ?? (r.installed ? 'unknown' : 'n/a (job not installed)')}`)
   console.log(`Running:    ${r.running ? 'yes' : 'no'}`)
   console.log(`Evaluations: ${r.options.evaluate ? `on (up to ${r.options.top} listings per run, ${r.options.parallel} at a time, model ${r.options.model || 'runner default'})` : 'off (scan + triage only; enable with `config --evaluate on`)'}`)
@@ -346,7 +353,7 @@ async function cmdInstall({ root, flags }) {
   console.log(`Installed ${LABEL}`)
   console.log(`  plist: ${res.plistPath}`)
   console.log(`  slot:  ${formatSlot(slot)} (${source}); retries every ${RETRY_EVERY_HOURS}h the same day if a run fails (never the next day), and runs when the Mac wakes if it was asleep`)
-  console.log(`  runs:  at most once every 7 days, counted from the last run`)
+  console.log(`  runs:  only if no scan of any kind (app, manual or scheduled) happened in the last 7 days`)
   const o = resolveOptions(readState(root).options)
   console.log(`  evaluations: ${o.evaluate ? `ON (up to ${o.top} listings per run on ${o.model || 'the runner default model'}, unattended claude workers)` : 'OFF (scan + triage only; turn on with `npm run schedule -- config --evaluate on`)'}`)
   return 0

@@ -114,27 +114,57 @@ export function lastRun(state) {
   return best
 }
 
-/** The moment the weekly cadence next allows a run, or `now` when none has run. */
-export function eligibleAt(state, now) {
+/**
+ * The last scan of ANY kind that counts toward the cadence, as epoch ms, or
+ * null. `scan` is the marker every completed scan leaves (last-scan.mjs:
+ * `{at, ok}`), whoever ran it: the app's Full scan or API scan, a manual
+ * `node scripts/scan.mjs`, or a scheduled run. A scan where no board answered
+ * (`ok: false`) does not count.
+ *
+ * One exception keeps the same-day retries working: a scan made inside a
+ * scheduled run that then failed or was interrupted belongs to that run, and
+ * the run is what the retry fires redo, so it does not hold the next one off.
+ */
+export function countingScanAt(state, scan) {
+  if (!scan || scan.ok === false || !Number.isFinite(scan.at)) return null
+  for (const r of state.runs) {
+    if (!['failed', 'interrupted', 'running'].includes(r.status)) continue
+    const from = Date.parse(r.startedAt)
+    const to = r.finishedAt ? Date.parse(r.finishedAt) : Infinity
+    if (Number.isFinite(from) && scan.at >= from && scan.at <= to) return null
+  }
+  return scan.at
+}
+
+/** The moment the weekly cadence next allows a run, or `now` when nothing has run or scanned. */
+export function eligibleAt(state, now, scan = null) {
   const last = lastFullRun(state)
-  if (!last) return now
-  return last.at + INTERVAL_DAYS * DAY_MS - CADENCE_TOLERANCE_HOURS * HOUR_MS
+  const scanAt = countingScanAt(state, scan)
+  const afterRun = last ? last.at + INTERVAL_DAYS * DAY_MS - CADENCE_TOLERANCE_HOURS * HOUR_MS : now
+  const afterScan = scanAt !== null ? scanAt + INTERVAL_DAYS * DAY_MS - CADENCE_TOLERANCE_HOURS * HOUR_MS : now
+  return Math.max(afterRun, afterScan)
 }
 
 /**
- * Should this invocation do a full run? A full run finished within the last
- * 7 days (minus the tolerance) means no; `force` overrides.
+ * Should this invocation do a full run? Only when NO scan of any kind (see
+ * countingScanAt) and no finished full run happened within the last 7 days
+ * (minus the tolerance); `force` overrides.
  * Returns { run, reason, eligibleAt }.
  */
-export function decideRun({ state, now, force = false }) {
-  if (force) return { run: true, reason: 'forced', eligibleAt: eligibleAt(state, now) }
-  const at = eligibleAt(state, now)
-  if (now >= at) return { run: true, reason: lastFullRun(state) ? 'due' : 'first run', eligibleAt: at }
+export function decideRun({ state, now, force = false, lastScan = null }) {
+  if (force) return { run: true, reason: 'forced', eligibleAt: eligibleAt(state, now, lastScan) }
+  const at = eligibleAt(state, now, lastScan)
+  const scanAt = countingScanAt(state, lastScan)
   const last = lastFullRun(state)
-  const days = (now - last.at) / DAY_MS
+  if (now >= at) return { run: true, reason: last || scanAt !== null ? 'due' : 'first run', eligibleAt: at }
+  const due = `next run is due after ${new Date(at).toISOString()}`
+  // Name the event that is holding the run off: the later of the two.
+  if (scanAt !== null && (!last || scanAt >= last.at)) {
+    return { run: false, reason: `a scan ran ${((now - scanAt) / DAY_MS).toFixed(1)} days ago (${new Date(scanAt).toISOString()}); ${due}`, eligibleAt: at }
+  }
   return {
     run: false,
-    reason: `last full run finished ${days.toFixed(1)} days ago (${last.run.finishedAt}); next run is due after ${new Date(at).toISOString()}`,
+    reason: `last full run finished ${((now - last.at) / DAY_MS).toFixed(1)} days ago (${last.run.finishedAt}); ${due}`,
     eligibleAt: at,
   }
 }
@@ -159,9 +189,9 @@ export function fireTimes(slot) {
  * (launchd fires the missed interval on wake; that run happens whenever the
  * Mac wakes, so this is the nominal time.)
  */
-export function nextRunAt({ slot, state, now }) {
+export function nextRunAt({ slot, state, now, lastScan = null }) {
   if (!validSlot(slot)) return null
-  const start = Math.max(now, eligibleAt(state, now))
+  const start = Math.max(now, eligibleAt(state, now, lastScan))
   const times = fireTimes(slot)
   const first = new Date(start)
   for (let i = 0; i < 21; i++) {
@@ -247,7 +277,7 @@ const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 /**
  * The LaunchAgent plist. `StartCalendarInterval` fires at the slot and then
  * every RETRY_EVERY_HOURS later the same day (see fireTimes); the 7-day check
- * inside the script makes the extra fires no-ops once a run has finished, and
+ * inside the script (no scan of any kind in the last week) makes the extra fires no-ops once a run has finished, and
  * the run lock turns one that lands mid-run into a no-op. launchd runs a missed
  * interval when the Mac wakes, which is the "retry until it ran" behaviour.
  *

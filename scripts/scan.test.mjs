@@ -483,3 +483,71 @@ test('requisition ids are labels: two postings sharing one are both new', async 
     assert.deepEqual(rankedOffers.map((o) => o.title).sort(), ['Ops Analyst', 'Pricing Analyst']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ── Workday page URLs ──────────────────────────────────────────────────────
+
+const WD_PAGE_URL = 'https://contoso.wd3.myworkdayjobs.com/ext/job/Hub/Finance-Analyst_R-1042';
+const WD_OLD_URL = 'https://contoso.wd3.myworkdayjobs.com/job/Hub/Finance-Analyst_R-1042';
+
+test('a new Workday posting is stored under its real page URL (with the career-site segment)', async () => {
+  const dir = sandbox('');
+  try {
+    await inDir(dir, () => runScan({ argv: [], http: fakeClient(TABLE), log: quiet }));
+    const { columns, rows } = parseHistoryFile(readFileSync(join(dir, 'data/scan-history.tsv'), 'utf-8'));
+    const r = rows.find((x) => getCell(x, columns, 'title') === 'Finance Analyst');
+    assert.equal(getCell(r, columns, 'url'), WD_PAGE_URL);
+    assert.match(readFileSync(join(dir, 'data/pipeline.md'), 'utf-8'), new RegExp(`- \\[ \\] ${WD_PAGE_URL.replace(/[.]/g, '\\.')} \\| Contoso Demo`));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a Workday posting stored with the OLD siteless URL is not new again (history row without posting id)', async () => {
+  const row = buildHistoryRow({ url: WD_OLD_URL, source: 'workday-api', title: 'Finance Analyst', company: 'Contoso Demo', location: 'Aldervale' }, '2026-09-01');
+  const dir = sandbox(`${HISTORY_COLUMNS.join('\t')}\n${row}\n`);
+  try {
+    const { rankedOffers } = await inDir(dir, () => runScan({ argv: [], http: fakeClient(TABLE), log: quiet, today: '2026-10-20' }));
+    assert.ok(!rankedOffers.some((o) => o.title === 'Finance Analyst'), 'already-seen job does not come back as new');
+    const { columns, rows } = parseHistoryFile(readFileSync(join(dir, 'data/scan-history.tsv'), 'utf-8'));
+    const wd = rows.filter((x) => getCell(x, columns, 'title') === 'Finance Analyst');
+    assert.equal(wd.length, 1, 'no second row');
+    assert.match(getCell(wd[0], columns, 'scan_dates'), /2026-09-01\|2026-10-20$/, 'the old row is bumped as re-seen');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a Workday posting listed only in pipeline.md under the old URL is not re-added either', async () => {
+  const dir = sandbox('');
+  try {
+    writeFileSync(join(dir, 'data/pipeline.md'), `# Pipeline\n\n## Pending\n\n- [ ] ${WD_OLD_URL} | Contoso Demo | Finance Analyst\n\n## Processed\n`);
+    const { rankedOffers } = await inDir(dir, () => runScan({ argv: ['--dry-run'], http: fakeClient(TABLE), log: quiet }));
+    assert.ok(!rankedOffers.some((o) => o.title === 'Finance Analyst'));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── last-scan marker ───────────────────────────────────────────────────────
+
+test('a completed scan stamps data/last-scan.json; a dry run and a --company probe do not', async () => {
+  const dir = sandbox('');
+  try {
+    const marker = join(dir, 'data/last-scan.json');
+    await inDir(dir, () => runScan({ argv: ['--dry-run'], http: fakeClient(TABLE), log: quiet }));
+    assert.equal(existsSync(marker), false, 'dry run writes nothing');
+    await inDir(dir, () => runScan({ argv: ['--company', 'Nimbus'], http: fakeClient(TABLE), log: quiet }));
+    assert.equal(existsSync(marker), false, 'a single-company probe is not a scan of the list');
+    await inDir(dir, () => runScan({ argv: [], http: fakeClient(TABLE), log: quiet }));
+    const m = JSON.parse(readFileSync(marker, 'utf-8'));
+    assert.equal(m.ok, true);
+    assert.equal(m.boards, 4);
+    assert.equal(m.errors, 0);
+    assert.ok(m.added >= 1);
+    assert.ok(Math.abs(Date.parse(m.at) - Date.now()) < 60_000);
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+});
+
+test('a scan where every board failed is stamped ok:false, so it does not hold the weekly run off', async () => {
+  const dir = sandbox('');
+  try {
+    await inDir(dir, () => runScan({ argv: [], http: fakeClient({}), log: quiet }));
+    const m = JSON.parse(readFileSync(join(dir, 'data/last-scan.json'), 'utf-8'));
+    assert.equal(m.ok, false);
+    assert.equal(m.errors, m.boards);
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+});

@@ -24,6 +24,7 @@ import {
   decideRun, finalStatus, newRun, reconcileRuns, upsertRun, updateState, readState, acquireRunLock,
   lastFullRun, summarizeRun,
 } from './schedule-core.mjs'
+import { readLastScan } from './last-scan.mjs'
 
 /**
  * `evaluate` is off by default: the workers run `claude -p` unattended (least
@@ -153,7 +154,7 @@ const iso = (ms) => new Date(ms).toISOString()
  * Run the weekly pipeline once.
  *
  * Returns { outcome, ... } where outcome is one of
- *   'skipped'   a full run finished within the last 7 days (nothing recorded)
+ *   'skipped'   a full run finished, or a scan of any kind ran, within the last 7 days (nothing recorded)
  *   'locked'    another run holds the lock (nothing recorded)
  *   'blocked'   onboarding is incomplete (`missing` lists the files)
  *   'dry-run'   plan printed, read-only stages ran, nothing recorded
@@ -163,10 +164,13 @@ export async function runScheduled({
   root, exec, log = () => {}, now = () => Date.now(),
   trigger = 'manual', force = false, dryRun = false, noEval = false,
   options = {}, nodePath = 'node', pythonPath, exists = existsSync, runId, stopRequested = () => false,
+  readScan = (r) => readLastScan(r),
   readUsage = (r) => { try { return readFileSync(join(r, 'batch/logs/usage.tsv'), 'utf8') } catch { return '' } },
 }) {
   const t0 = now()
   const state0 = readState(root)
+  // A scan of any kind (app, manual, scheduled) in the last 7 days holds the run off.
+  const lastScan = readScan(root)
   const opts = resolveOptions(state0.options, options)
 
   const missing = missingPrereqs(root, exists)
@@ -178,8 +182,8 @@ export async function runScheduled({
   if (dryRun) {
     const stages = buildStages({ options: opts, noEval, dryRun: true, nodePath, pythonPath })
     log(`dry run (${trigger}): nothing is written and no worker is spawned`)
-    const decision = decideRun({ state: state0, now: t0, force: true })
-    const natural = decideRun({ state: state0, now: t0 })
+    const decision = decideRun({ state: state0, now: t0, force: true, lastScan })
+    const natural = decideRun({ state: state0, now: t0, lastScan })
     log(`cadence: ${natural.run ? 'a real run would start now' : 'a real run would be skipped: ' + natural.reason}`)
     log(`options: evaluations ${opts.evaluate ? 'on' : 'off (enable with `config --evaluate on`, or `run --eval` for one run)'}, top ${opts.top}, parallel ${opts.parallel}, model ${opts.model || 'runner default'}, jobspy ${opts.jobspy ? 'on' : 'off'}`)
     const results = []
@@ -201,7 +205,7 @@ export async function runScheduled({
     return { outcome: 'dry-run', stages: results, decision, wouldRun: natural.run }
   }
 
-  const decision = decideRun({ state: state0, now: t0, force })
+  const decision = decideRun({ state: state0, now: t0, force, lastScan })
   if (!decision.run) {
     log(`skipped: ${decision.reason}`)
     return { outcome: 'skipped', reason: decision.reason }

@@ -373,3 +373,56 @@ test('the run records the evaluation cost from usage.tsv', async () => {
     assert.match(summarizeRun(r.run), /\$0\.75/)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
+
+// ── a scan of any kind holds the run off ──
+
+test('a scan made outside the scheduler (app or manual) 3 days ago skips the run; 8 days ago it runs', async () => {
+  const root = fixtureRoot()
+  try {
+    const t0 = Date.parse('2026-10-28T12:00:00Z')
+    const recent = fakeExec(root, happy)
+    const skipped = await runScheduled({ root, exec: recent.exec, now: () => t0, readScan: () => ({ at: t0 - 3 * DAY, ok: true }), trigger: 'scheduled' })
+    assert.equal(skipped.outcome, 'skipped')
+    assert.match(skipped.reason, /a scan ran 3\.0 days ago/)
+    assert.deepEqual(recent.calls, [], 'no stage spawned')
+    assert.equal(readState(root).runs.length, 0, 'a skip leaves no record')
+
+    const old = fakeExec(root, happy)
+    const ran = await runScheduled({ root, exec: old.exec, now: () => t0, readScan: () => ({ at: t0 - 8 * DAY, ok: true }), trigger: 'scheduled' })
+    assert.notEqual(ran.outcome, 'skipped')
+    assert.ok(old.calls.includes('scan'))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('a failed scan does not skip the run, and --force overrides a recent one', async () => {
+  const root = fixtureRoot()
+  try {
+    const t0 = Date.parse('2026-10-28T12:00:00Z')
+    const failedScan = fakeExec(root, happy)
+    assert.notEqual((await runScheduled({ root, exec: failedScan.exec, now: () => t0, readScan: () => ({ at: t0 - DAY, ok: false }) })).outcome, 'skipped')
+    const forced = fakeExec(root, happy)
+    assert.notEqual((await runScheduled({ root, exec: forced.exec, now: () => t0 + 60_000, force: true, readScan: () => ({ at: t0, ok: true }) })).outcome, 'skipped')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('the default scan reader uses data/last-scan.json: a marker written by scan.mjs holds the run off', async () => {
+  const root = fixtureRoot()
+  try {
+    const t0 = Date.parse('2026-10-28T12:00:00Z')
+    writeFileSync(join(root, 'data/last-scan.json'), JSON.stringify({ version: 1, at: new Date(t0 - 2 * DAY).toISOString(), ok: true }))
+    const x = fakeExec(root, happy)
+    assert.equal((await runScheduled({ root, exec: x.exec, now: () => t0 })).outcome, 'skipped')
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('dry run reports that a recent scan would skip the real run', async () => {
+  const root = fixtureRoot()
+  try {
+    const t0 = Date.parse('2026-10-28T12:00:00Z')
+    const logs = []
+    const r = await runScheduled({ root, exec: fakeExec(root).exec, now: () => t0, dryRun: true, log: (l) => logs.push(l), readScan: () => ({ at: t0 - DAY, ok: true }) })
+    assert.equal(r.outcome, 'dry-run')
+    assert.equal(r.wouldRun, false)
+    assert.ok(logs.some((l) => /a real run would be skipped: a scan ran/.test(l)))
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})

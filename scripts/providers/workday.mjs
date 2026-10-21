@@ -13,11 +13,22 @@ const PAGE_LIMIT = 20;
 export const DETAIL_LIMIT = 60;
 const DETAIL_CONCURRENCY = 5;
 
-export function parseWorkday(json, companyName, baseUrl) {
+/**
+ * The page URL of a posting: `{baseUrl}/{site}{externalPath}` (externalPath is
+ * `/job/…`). Without a site it falls back to the siteless form older scans
+ * stored, which 404s as a page but still identifies the posting.
+ */
+export function workdayJobUrl(baseUrl, site, externalPath) {
+  if (!externalPath) return '';
+  if (!baseUrl) return externalPath;
+  return `${baseUrl}${site ? `/${site}` : ''}${externalPath}`;
+}
+
+export function parseWorkday(json, companyName, baseUrl, site = '') {
   const jobs = json?.jobPostings || [];
   return jobs.map((j) => ({
     title: j.title || '',
-    url: baseUrl && j.externalPath ? `${baseUrl}${j.externalPath}` : j.externalPath || '',
+    url: workdayJobUrl(baseUrl, site, j.externalPath),
     company: companyName,
     location: j.locationsText || '',
     // Workday's list endpoint exposes only a relative "Posted Today / 30+ Days
@@ -54,9 +65,9 @@ export function applyWorkdayDetail(job, detail) {
 
 /**
  * The Workday site (career-site name) a portals.yml entry points at, as
- * `{host, tenant, site}`, or null. The scanner stores job URLs WITHOUT the site
- * segment, so a stored posting URL can only be resolved back through this.
- * Reads the explicit CXS `api` URL first, then `careers_url`.
+ * `{host, tenant, site}`, or null. Postings scanned before the provider stored
+ * the site segment have siteless URLs, which are resolved back through this
+ * (liveness ladder, migrate-workday-urls). Reads the explicit CXS `api` URL first, then `careers_url`.
  */
 export function workdaySiteOf(entry) {
   const api = String(entry?.api || '').match(/^https:\/\/(([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com)\/wday\/cxs\/([^/]+)\/([^/?#]+)/i);
@@ -72,13 +83,13 @@ export default {
   detect(entry) {
     if (entry.api && String(entry.api).includes('myworkdayjobs.com')) {
       const baseMatch = String(entry.api).match(/(https:\/\/[^/]+\.myworkdayjobs\.com)/);
-      return { url: entry.api, baseUrl: baseMatch ? baseMatch[1] : '', explicit: true };
+      return { url: entry.api, baseUrl: baseMatch ? baseMatch[1] : '', site: workdaySiteOf(entry)?.site || '', explicit: true };
     }
-    // https://{tenant}.wd{shard}.myworkdayjobs.com/{site}
-    const m = String(entry.careers_url || '').match(/(https:\/\/([^/]+)\.wd\d+\.myworkdayjobs\.com)\/([^/?#]+)/);
-    if (!m) return null;
-    const [, baseUrl, tenant, site] = m;
-    return { url: `${baseUrl}/wday/cxs/${tenant}/${site}/jobs`, baseUrl };
+    // https://{tenant}.wd{shard}.myworkdayjobs.com/[{locale}/]{site}
+    const t = workdaySiteOf(entry);
+    if (!t) return null;
+    const baseUrl = `https://${t.host}`;
+    return { url: `${baseUrl}/wday/cxs/${t.tenant}/${t.site}/jobs`, baseUrl, site: t.site };
   },
 
   async fetch(entry, ctx) {
@@ -91,7 +102,7 @@ export default {
     for (let page = 0; page < ctx.maxPages; page++) {
       const offset = page * PAGE_LIMIT;
       const json = await ctx.postJson(ctx.api.url, { appliedFacets: {}, limit: PAGE_LIMIT, offset, searchText: '' });
-      const jobs = parseWorkday(json, entry.name, ctx.api.baseUrl);
+      const jobs = parseWorkday(json, entry.name, ctx.api.baseUrl, ctx.api.site);
       all.push(...jobs);
       if (total === null && Number(json.total) > 0) total = Number(json.total);
       if (jobs.length === 0) break;
