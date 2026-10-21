@@ -126,6 +126,10 @@ const KNOWN_COUNTRIES = new Set<string>([
   'Spain', 'España', 'Sweden', 'Sverige', 'Switzerland', 'Schweiz', 'Suisse', 'Türkiye', 'Turkey',
   'United Kingdom', 'UK', 'England', 'Scotland', 'United States', 'USA', 'US', 'Canada',
   'Australia', 'Singapore', 'Japan', 'India', 'UAE', 'United Arab Emirates', 'Israel',
+  'Serbia', 'Ukraine', 'Egypt', 'Morocco', 'Tunisia', 'South Africa', 'Nigeria', 'Kenya',
+  'Saudi Arabia', 'Qatar', 'Brazil', 'Mexico', 'Argentina', 'Chile', 'Colombia', 'Peru',
+  'China', 'Taiwan', 'South Korea', 'Korea', 'Indonesia', 'Malaysia', 'Thailand', 'Vietnam',
+  'Philippines', 'New Zealand',
 ])
 
 const isCountry = (t: string) => KNOWN_COUNTRIES.has(t)

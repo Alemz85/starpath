@@ -48,7 +48,7 @@ const col = createColumnHelper<ScoreEntry>()
 // sidebar and the facet rail) without scrolling; narrower windows scroll
 // horizontally with the caret + Listing columns pinned on the left.
 const LISTING_MIN_WIDTH = 280
-const CARET_WIDTH = 28
+const CARET_WIDTH = 40
 const STATUS_WIDTH = 104
 const RIGHT_ALIGNED = new Set(['score', 'date'])
 
@@ -56,7 +56,7 @@ const RIGHT_ALIGNED = new Set(['score', 'date'])
 // full 56px for two 24px buttons; Status keeps 24px of air before the scores
 // so the chip and the numbers never read as one cluster.
 const CELL_PAD: Record<string, string> = {
-  breakdown: 'px-0.5',
+  breakdown: 'pl-3 pr-0.5',
   company:   'pl-1 pr-3',
   status:    'pl-2 pr-6',
   actions:   'px-1',
@@ -71,7 +71,7 @@ const cellPad = (id: string) => CELL_PAD[id] ?? 'px-2'
 // Sticky-left offsets for the pinned columns (caret, then Listing).
 const STICKY_LEFT: Record<string, string> = {
   breakdown: 'sticky left-0',
-  company:   'sticky left-7',
+  company:   'sticky left-10',
 }
 
 // Row surface. Applied to every cell (not the <tr>) so the pinned cells are
@@ -198,7 +198,7 @@ function BreakdownRow({
         {/* Pinned with the Listing column so the breakdown stays in view
             when a narrow window scrolls the table sideways. Indent lines the
             content up with the company name above it. */}
-        <div className="sticky left-0 pl-[74px] max-w-[794px]">
+        <div className="sticky left-0 pl-[86px] max-w-[806px]">
           {lever.best && (
             <p className="mb-3 flex items-start gap-1.5 text-label text-text-2">
               <TrendingUp
