@@ -22,6 +22,7 @@ import {
   companyKey,
   normalizeRoleForIndex,
   roleFuzzyMatch,
+  roleVariantMatch,
   extractReportNum,
   coalesceDeadline,
   rewriteReportPathForTier,
@@ -149,6 +150,18 @@ test('companyKey / role helpers', () => {
   assert.equal(normalizeRoleForIndex('  Data   Analyst '), 'data analyst');
   assert.ok(roleFuzzyMatch('Data Analyst (12 month FTC)', 'Senior Data Analyst'));
   assert.ok(!roleFuzzyMatch('Data Analyst', 'Account Executive'));
+});
+
+test('roleVariantMatch: boilerplate variants match, sibling listings do not', () => {
+  assert.ok(roleVariantMatch('Data Analyst', 'Data Analyst (m/f/d) - Lyon'));
+  assert.ok(roleVariantMatch('Strategy Analyst #12345', 'strategy  analyst'));
+  assert.ok(roleVariantMatch('Associate Consultant Intern', 'Associate Consultant Intern, Summer 2027 – Lyon, France'));
+  // siblings: same intake, different track / city / level
+  assert.ok(!roleVariantMatch('Ops Intern, Summer 2027 – Lyon, France', 'Sales Intern, Summer 2027 – Lyon, France'));
+  assert.ok(!roleVariantMatch('Associate Consultant Intern – Lyon', 'Associate Consultant Intern – Nantes'));
+  assert.ok(!roleVariantMatch('Graduate Programme 2027 – Lyon', 'Rotational Graduate Programme 2027 – Nantes'));
+  assert.ok(!roleVariantMatch('Data Analyst (12 month FTC)', 'Senior Data Analyst'));
+  assert.ok(!roleVariantMatch('Analyst', 'Data Analyst'), 'one word is too little to call it the same listing');
 });
 
 test('extractReportNum', () => {
