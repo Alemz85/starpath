@@ -146,3 +146,26 @@ location:
 #   liveness:
 #     unreachable_attempts: 2     # failed checks in a row before it can expire
 #     unreachable_hours: 240      # ...and at least this long since the first failure
+
+# ── Portal review (optional — omit to use the defaults) ─────────────────────
+# After the weekly scan, `node scripts/portal-review.mjs` suggests (as Messages
+# in the app; it never edits user/portals.yml) which tracked companies to keep,
+# pause or add. A company enters "probation" with a `# probation since
+# YYYY-MM-DD` comment above its entry in user/portals.yml.
+#   pause  no posting passed your title + location filters over `pause_min_scans`
+#          scans spanning `pause_min_days` days, or its board keeps failing.
+#          Graduate and intern programmes cluster Sep–Nov and Feb–Mar, so the
+#          defaults (about five months) only fire after a whole season. Dream,
+#          lower-tier-dream and brand-affinity companies are never suggested.
+#   keep   a probation company produced a passing posting or a go/stretch/solid score.
+#   add    an untracked company keeps turning up in the board-wide queries or
+#          aggregators, or scored go/stretch/solid.
+#   scanner:
+#     portal_review:
+#       enabled: true
+#       pause_min_scans: 12         # scans with no passing posting…
+#       pause_min_days: 150         # …spanning at least this many days
+#       failing_scans: 3            # board URL failed this many scans in a row
+#       add_min_postings: 2         # untracked company: distinct postings…
+#       add_min_scans: 2            # …seen on at least this many scan days
+#       max_per_run: 8              # new suggestions posted per run (the rest wait)
