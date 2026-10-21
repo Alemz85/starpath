@@ -774,7 +774,9 @@ try {
     { today: FX_TODAY, eligibility_profile: FX_PROFILE, scoring_weights: {}, country: 'DE', eligibility_facts: FX_INTERN_FACTS },
     { eligibilityOnly: true },
   );
-  if (Object.keys(r).join(',') === 'eligibility' && r.eligibility.status === 'green') pass('--eligibility-only returns only { eligibility }');
+  // The gate plus its flags string (score-listing.mjs carries `eligibility_flags`
+  // so workers copy it verbatim); nothing that needs comp or scores.
+  if (Object.keys(r).sort().join(',') === 'eligibility,eligibility_flags' && r.eligibility.status === 'green') pass('--eligibility-only returns only { eligibility, eligibility_flags }');
   else fail(`--eligibility-only — got keys ${Object.keys(r).join(',')}, status ${r.eligibility?.status}`);
 } catch (e) {
   fail(`--eligibility-only — threw: ${e.message}`);
