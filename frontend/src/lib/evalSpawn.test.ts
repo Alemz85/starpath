@@ -134,3 +134,16 @@ test('triage prompts route eligibility walls through the gate, never a silent di
     assert.ok(!/Ease of Entry|Overall/.test(p))
   }
 })
+
+test('the whole-pipeline prompts park an unreadable posting once and skip it for a week', () => {
+  for (const p of [filterAllPrompt('2026-07-01'), top5ReportsPrompt('2026-07-01')]) {
+    assert.ok(p.includes('NOT EVALUATED YYYY-MM-DD'), 'one note format')
+    assert.ok(p.includes('within the last 7 days, without fetching it'), 'no refetch while it waits for the user')
+    assert.ok(p.includes('never guess a score'))
+  }
+  assert.ok(!scoreOnlyEvalPrompt('https://x.example/1', '2026-07-01').includes('NOT EVALUATED'), 'a single pasted URL is always tried')
+})
+
+test('every eval prompt can claim several row numbers in one call', () => {
+  for (const [name, p] of ALL_PROMPTS()) assert.ok(p.includes('reserve-report-num.mjs --count <N>'), name)
+})

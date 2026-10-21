@@ -160,6 +160,14 @@ const RELEVANCE_GATE =
   'company+archetype+level+region group), collapse them and score ONE master, noting the variant count. ' +
   'The survivor count is a result, not a target — flag it in the run summary if <5% or >80% survive. '
 
+// A posting no rung can read (a 403 site, an application form with no JD)
+// used to be re-fetched by every run. Park it once, visibly, for the user.
+const UNREADABLE =
+  'A pending URL whose job description you cannot read (fetch-posting, the posting check and WebFetch all fail) stays ' +
+  '`- [ ]` with ` | NOT EVALUATED YYYY-MM-DD: <why, in a few words>` appended to its line; never guess a score for it. ' +
+  'Skip any pending line that already carries a NOT EVALUATED note dated within the last 7 days, without fetching it ' +
+  '(it is waiting for the user); retry an older one once and refresh its date. '
+
 const NO_REPORT_DEVIATION =
   'DEVIATION — score only: skip the bundle’s Step 5 entirely (write NO report file under reports/); ' +
   'the report column in the scouting TSV is `—`. All Step 6 data writes still apply. '
@@ -211,6 +219,7 @@ export function filterAllPrompt(today: string = todayISO()): string {
   return (
     preamble('pipeline-filter', today) +
     'Process EVERY pending URL in data/pipeline.md, one listing at a time: ' +
+    UNREADABLE +
     '(1) apply the user/portals.yml title filters and dedup against data/dedup-index.tsv; ' +
     '(2) ' + RELEVANCE_GATE +
     '(3) evaluate each SURVIVING listing through the system-prompt pipeline. ' +
@@ -231,6 +240,7 @@ export function top5ReportsPrompt(today: string = todayISO()): string {
   return (
     preamble('pipeline-top5', today) +
     'Process EVERY pending URL in data/pipeline.md: ' +
+    UNREADABLE +
     '(1) apply the user/portals.yml title filters and dedup against data/dedup-index.tsv; ' +
     '(2) ' + RELEVANCE_GATE +
     '(3) evaluate each SURVIVING listing through the system-prompt pipeline, but DEFER Step 5: ' +
