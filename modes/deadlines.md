@@ -98,7 +98,7 @@ Run `/career-ops scouting` or check the JD to fill in missing deadlines.
 ## Liveness Verification (for MISSED / stale entries)
 
 For entries in the MISSED bucket or entries whose deadline is uncertain but still
-worth applying to, the agent may call `node scripts/check-liveness.mjs <url>` to
+worth applying to, the agent may call `node scripts/check-liveness.mjs '<url>'` (single-quoted: zsh globs an unquoted `?`) to
 verify whether the posting is still active before recommending the user act. It
 asks the ATS's own API first and starts Playwright only when that is ambiguous.
 

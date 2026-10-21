@@ -52,6 +52,20 @@ export function applyWorkdayDetail(job, detail) {
   };
 }
 
+/**
+ * The Workday site (career-site name) a portals.yml entry points at, as
+ * `{host, tenant, site}`, or null. The scanner stores job URLs WITHOUT the site
+ * segment, so a stored posting URL can only be resolved back through this.
+ * Reads the explicit CXS `api` URL first, then `careers_url`.
+ */
+export function workdaySiteOf(entry) {
+  const api = String(entry?.api || '').match(/^https:\/\/(([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com)\/wday\/cxs\/([^/]+)\/([^/?#]+)/i);
+  if (api) return { host: api[1].toLowerCase(), tenant: api[3], site: api[4] };
+  const m = String(entry?.careers_url || '').match(/^https:\/\/(([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com)\/(?:[a-z]{2}(?:-[A-Za-z]{2,4})?\/)?([^/?#]+)/i);
+  if (m && m[3] !== 'job') return { host: m[1].toLowerCase(), tenant: m[2], site: m[3] };
+  return null;
+}
+
 export default {
   id: 'workday',
 

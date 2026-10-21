@@ -628,7 +628,7 @@ date	archetype	skills_match	experience_bar	competition	ease	growth_mobility	opti
 - `salary_raw`: the figure as stated (`€1,500/mo`, `€35–45K`, `competitive`); `n/d` if undisclosed.
 - `url`: the **listing-specific** URL — the stable join key the frontend uses to bind a row to its report. **NEVER a bare portal / careers-homepage URL** (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`) — those collide across every listing at the company. A listing URL carries a job identifier (`/jobs/{id}`, a job-token slug, a UUID, `?gh_jid=...`). Use `n/d` for a paste with no URL or when only a portal homepage is known.
 
-If the file does not exist, create it with the 29-column header exactly as above. Readers parse by header name. Append-only; never rewrite. (v1 history was archived to `data/archive/scoring-v1/` on the switch.)
+Add the row with `node scripts/append-score-rows.mjs --input batch/work/<id>-rows.json`, where the file (written with the Write tool) holds `{"score_history": {<column>: <value>, …}}` and, for the summary cache, `"report_summary": {…}` (keys in `modes/scouting.md` § Report Summary Cache). The script creates the file with the 29-column header exactly as above when it is missing, refuses a header that does not match, appends under a lock and skips an identical row; columns you leave out are written empty. **Never** append with shell redirection (`printf … >> file`; unattended workers are denied it, and quoting breaks on an apostrophe or `$`) and never rewrite the file with Write. Readers parse by header name. Append-only. (v1 history was archived to `data/archive/scoring-v1/` on the switch.)
 
 ## Archetype Detection
 
@@ -680,8 +680,8 @@ After detecting the archetype, read `user/_profile.md` for the user's specific f
 |------|-----|
 | WebSearch | Comp research, trends, company culture, LinkedIn contacts, fallback for JDs |
 | WebFetch | Fallback for extracting JDs from static pages |
-| Bash `node scripts/fetch-posting.mjs <url>` | JD + liveness straight from the ATS API (Greenhouse, Lever, SmartRecruiters, Workday, Ashby). No browser; first choice for fetching a JD on a supported ATS |
-| Playwright | Last rung for verifying offers, after `node scripts/check-liveness.mjs --no-browser <url>` (browser_navigate + browser_snapshot). **NEVER 2+ agents with Playwright in parallel.** |
+| Bash `node scripts/fetch-posting.mjs '<url>'` | JD + liveness straight from the ATS API (Greenhouse incl. EU, Lever, SmartRecruiters, Workday, Ashby) or, for amazon.jobs, jobs.picnic.app and careers.factorial.com, the site's own JSON/JSON-LD. No browser; first choice for fetching a JD on a supported host. **Always single-quote a URL in a shell command** (zsh globs an unquoted `?`/`&`) |
+| Playwright | Last rung for verifying offers, after `node scripts/check-liveness.mjs --no-browser '<url>'` (browser_navigate + browser_snapshot). **NEVER 2+ agents with Playwright in parallel.** |
 | Read | cv.md, _profile.md, user/article-digest.md, cv-template.html |
 | Write | Temporary HTML for PDF, applications.md, reports .md |
 | Edit | Update tracker |

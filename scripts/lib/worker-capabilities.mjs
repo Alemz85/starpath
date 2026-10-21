@@ -132,6 +132,8 @@ const EVAL_COMMANDS = [
   'node scripts/posting-guard.mjs',
   'node scripts/fetch-posting.mjs',
   'node scripts/score-listing.mjs',
+  // The score rows: a locked, header-checked append (shell redirection is denied).
+  'node scripts/append-score-rows.mjs',
   'node scripts/reserve-report-num.mjs',
   'node scripts/cv-summary.mjs',
   'node scripts/agent-log.mjs log',

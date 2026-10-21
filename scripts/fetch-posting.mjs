@@ -8,9 +8,14 @@
  * answer to "is it still open?", so one request gives a worker both — no browser
  * and no WebFetch. Zero Claude API tokens.
  *
- * Usage:
- *   node scripts/fetch-posting.mjs <posting-url>          # readable text
- *   node scripts/fetch-posting.mjs <posting-url> --json   # the same, as JSON
+ * Also covers company career sites with no ATS: amazon.jobs (public search
+ * JSON), jobs.picnic.app and careers.factorial.com (the page's JobPosting /
+ * rendered description), and Workday URLs without a site segment (the site is
+ * recovered from user/portals.yml). See lib/liveness-ladder.mjs.
+ *
+ * Usage (single-quote the URL: zsh globs `?` and `&`):
+ *   node scripts/fetch-posting.mjs '<posting-url>'          # readable text
+ *   node scripts/fetch-posting.mjs '<posting-url>' --json   # the same, as JSON
  *
  * Exit code:
  *   0  JD printed; the first line says `Verification: active …`
@@ -23,6 +28,7 @@
 import { pathToFileURL } from 'url';
 import { http } from './lib/http.mjs';
 import { climbLadder } from './lib/liveness-ladder.mjs';
+import { loadWorkdaySites } from './lib/workday-sites.mjs';
 
 const VIA = {
   'api-job': 'the ATS per-job API',
@@ -31,12 +37,12 @@ const VIA = {
 };
 
 /** Run the ladder and shape the result for printing. Pure given `http`. */
-export async function fetchPosting(url, { http: client = http, now = new Date() } = {}) {
-  const ladder = await climbLadder(url, { http: client, now });
+export async function fetchPosting(url, { http: client = http, now = new Date(), workdaySites = loadWorkdaySites() } = {}) {
+  const ladder = await climbLadder(url, { http: client, now, workdaySites });
   const v = ladder.verdict;
   if (!v) {
     const why = ladder.ats ? 'ambiguous or unreachable' : 'not a posting URL on a supported ATS';
-    return { url, status: 'unknown', verification: `unknown (${why})`, exitCode: 3, errors: ladder.errors };
+    return { url, status: 'unknown', verification: `unknown (${why})`, exitCode: 3, errors: ladder.errors, ...(ladder.hint ? { note: ladder.hint } : {}) };
   }
   if (v.result === 'expired') {
     return { url, status: 'expired', verification: `expired (${v.reason}; via ${VIA[v.via] || v.via})`, exitCode: 2 };
@@ -69,7 +75,7 @@ async function main() {
   const args = process.argv.slice(2);
   const url = args.find((a) => !a.startsWith('--'));
   if (!url) {
-    console.error('Usage: node scripts/fetch-posting.mjs <posting-url> [--json]');
+    console.error("Usage: node scripts/fetch-posting.mjs '<posting-url>' [--json]  (single-quote the URL)");
     process.exit(1);
   }
   const r = await fetchPosting(url);

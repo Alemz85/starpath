@@ -144,7 +144,7 @@ The Verdict line is `{verdict_label} — {action}` exactly as `_shared.md` § St
 
 **Posted date.** Find when the listing was first posted, from the source only, in this order: the posting check's `posted` field (or a `Posted (from page):` value in the task message); a publish/creation date in the ATS's own JSON for this job (`datePosted`, `first_published`, `publishedAt`, `postedOn`, Lever `createdAt`); schema.org `JobPosting` → `datePosted` in the page; a visible "Posted on …" line, or "posted N days/weeks ago" / "today" / "yesterday" converted against today's date. Write `**Posted:** YYYY-MM-DD`, or `**Posted:** n/d` when the source gives none. Never guess, and never use an `updated_at`, a deadline / `validThrough`, the scan date or today's date; "30+ days ago" is `n/d`. Listings found by the scanner already carry a posting date in `data/scan-history.tsv` (the app prefers it); the report's line is what a listing added by URL has.
 
-**Posting check.** `node scripts/posting-guard.mjs --url {url} --save-text batch/work/check-{company-slug}.txt` before reading the posting; copy its `line`, and read the saved file as the posting (`_shared.md` § Untrusted content).
+**Posting check.** `node scripts/posting-guard.mjs --url '{url}' --save-text batch/work/check-{company-slug}.txt` before reading the posting; copy its `line`, and read the saved file as the posting (`_shared.md` § Untrusted content).
 
 **URL discipline (NEVER write a generic portal URL).** The `**URL:**` field MUST be listing-specific — a job identifier (`/jobs/{id}`, a job-token slug, a UUID, `?gh_jid=...`). If the only URL you have is a portal homepage (`https://boards.greenhouse.io/{company}`, `https://jobs.ashbyhq.com/{company}`, `https://jobs.lever.co/{company}`, `https://careers.{company}.com`) — write `—` instead (`n/d` in the `url` column of `data/score-history.tsv`). A portal URL collides across every listing at the company and the frontend cache would link the wrong report.
 
@@ -263,7 +263,7 @@ When the pipeline feeds you **multi-city postings of the same role** (same JD co
 
 ## Data Layer — Score History Logging
 
-**EVERY evaluation must append a row to `data/score-history.tsv`**, regardless of tier (including Tier 4 skips and Blocked listings). This is the trajectory log.
+**EVERY evaluation must append a row to `data/score-history.tsv`**, regardless of tier (including Tier 4 skips and Blocked listings). This is the trajectory log. Append it with `node scripts/append-score-rows.mjs --input batch/work/<id>-rows.json` (`modes/_shared.md` § Logging), never with shell redirection.
 
 The TSV format and column order are defined in `modes/_shared.md` § "Logging to data/score-history.tsv". Use exactly that format — do NOT invent columns here.
 
@@ -279,7 +279,7 @@ Also fill the metadata columns: `location`, `employment_type`, `duration`, `sala
 
 ## Report Summary Cache
 
-After writing the report (or recording a T4 skip / Blocked listing), also append a row to `data/report-summaries.tsv` (headerless, 10 columns):
+After writing the report (or recording a T4 skip / Blocked listing), also append a row to `data/report-summaries.tsv` (headerless, 10 columns; the `report_summary` object of the same `append-score-rows.mjs` input file, keys `date`, `company`, `role`, `archetype`, `tier`, `want`, `ease`, `eligibility`, `key_gaps`, `verdict`):
 
 ```
 {date}	{company}	{role}	{archetype}	{tier}	{want}	{ease}	{eligibility}	{key_gaps}	{verdict}

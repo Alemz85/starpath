@@ -22,6 +22,18 @@ export function isSafeSegment(s) {
   return SEGMENT_RE.test(v) && v !== '.' && v !== '..' && !v.includes('..');
 }
 
+const WD_TAIL_RE = /^[A-Za-z0-9][A-Za-z0-9._~%-]{0,249}$/;
+
+/**
+ * A Workday job-path segment. Titles run long and the public URL may carry
+ * percent-escapes, so this allows both; an escaped slash, backslash or dot
+ * (path traversal) is still refused.
+ */
+export function isSafeWorkdaySegment(s) {
+  const v = String(s ?? '');
+  return WD_TAIL_RE.test(v) && v !== '.' && v !== '..' && !v.includes('..') && !/%(2f|5c|2e)/i.test(v) && !/%(?![0-9a-f]{2})/i.test(v);
+}
+
 /** `isSafeSegment(s) ? s : null` — convenient in a regex-capture pipeline. */
 export function safeSegment(s) {
   return isSafeSegment(s) ? String(s) : null;
@@ -44,8 +56,8 @@ const GH_HOSTS = new Set(['boards.greenhouse.io', 'job-boards.greenhouse.io', 'j
  * ATS host (company-hosted career pages, `?gh_jid=` embeds, unknown hosts).
  *
  * @param {string} raw
- * @returns {null | {ats:'greenhouse'|'ashby'|'lever'|'smartrecruiters'|'workday', org:string, id:string,
- *                   host:string, eu?:boolean, site?:string, externalPath?:string, tenant?:string}}
+ * @returns {null | {ats:'greenhouse'|'ashby'|'lever'|'smartrecruiters'|'workday'|'amazon'|'picnic'|'factorial', org:string, id:string,
+ *                   host:string, eu?:boolean, site?:string|null, externalPath?:string, tenant?:string}}
  */
 export function parsePostingUrl(raw) {
   const u = parse(raw);
@@ -86,20 +98,55 @@ export function parsePostingUrl(raw) {
   const wd = /^([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com$/.exec(host);
   if (wd) {
     // /[{locale}/]{site}/job/{...}/{Title}_{ReqId}
+    // or, as the scanner has stored it, with no site: /[{locale}/]job/{...}/{Title}_{ReqId}
     const rest = [...segs];
     if (rest.length && /^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(rest[0]) && rest[1] && rest[1] !== 'job') rest.shift();
     const jobIdx = rest.indexOf('job');
+    const localeOnly = jobIdx === 1 && /^[a-z]{2}(-[A-Za-z]{2,4})?$/.test(rest[0]);
+    if ((jobIdx === 0 || localeOnly) && rest.length > jobIdx + 1) {
+      const tail = rest.slice(jobIdx + 1);
+      if (isSafeSegment(wd[1]) && tail.every(isSafeWorkdaySegment)) {
+        return { ats: 'workday', org: wd[1], tenant: wd[1], site: null, id: tail[tail.length - 1], host, externalPath: `/job/${tail.join('/')}` };
+      }
+      return null;
+    }
     if (jobIdx >= 1 && rest.length > jobIdx + 1) {
       const site = rest[jobIdx - 1];
       const tail = rest.slice(jobIdx + 1);
-      if (isSafeSegment(wd[1]) && isSafeSegment(site) && tail.every(isSafeSegment)) {
+      if (isSafeSegment(wd[1]) && isSafeSegment(site) && tail.every(isSafeWorkdaySegment)) {
         const id = tail[tail.length - 1];
         return { ats: 'workday', org: wd[1], tenant: wd[1], site, id, host, externalPath: `/job/${tail.join('/')}` };
       }
     }
     return null;
   }
+
+  // ── Company career sites (no ATS API; see lib/site-posting.mjs) ──
+  const LOCALE = /^[a-z]{2}(?:-[A-Za-z]{2})?$/;
+  if (host === 'amazon.jobs' || host === 'www.amazon.jobs') {
+    // /[{locale}/]jobs/{numeric id}[/{slug}]
+    const r = LOCALE.test(segs[0] || '') ? segs.slice(1) : segs;
+    if (r[0] === 'jobs' && /^\d{5,}$/.test(r[1] || '')) return { ats: 'amazon', org: 'amazon', id: r[1], host };
+    return null;
+  }
+  if (host === 'jobs.picnic.app') {
+    // /[{locale}/]vacancies/{CODE}[/...]
+    const r = LOCALE.test(segs[0] || '') ? segs.slice(1) : segs;
+    if (r[0] === 'vacancies' && /^[A-Za-z0-9]{6,12}$/.test(r[1] || '')) return { ats: 'picnic', org: 'picnic', id: r[1], host };
+    return null;
+  }
+  if (host === 'careers.factorial.com') {
+    // /job_posting/{slug}-{numeric id}
+    const m = segs[0] === 'job_posting' && segs.length === 2 ? /^[a-z0-9-]*?-?(\d{3,})$/i.exec(segs[1]) : null;
+    if (m && isSafeSegment(segs[1])) return { ats: 'factorial', org: 'factorial', id: m[1], host, slug: segs[1] };
+    return null;
+  }
   return null;
+}
+
+/** The CXS per-job JSON endpoint for a Workday posting on `site`. */
+export function workdayPerJobUrl(p, site) {
+  return `https://${p.host}/wday/cxs/${p.tenant}/${site}${p.externalPath}`;
 }
 
 /**
@@ -115,8 +162,10 @@ export function postingApiUrls(p, originalUrl) {
   switch (p.ats) {
     case 'greenhouse':
       return {
-        perJob: `https://boards-api.${p.eu ? 'eu.' : ''}greenhouse.io/v1/boards/${p.org}/jobs/${p.id}`,
-        board: `https://boards-api.${p.eu ? 'eu.' : ''}greenhouse.io/v1/boards/${p.org}/jobs`,
+        // EU-hosted boards (job-boards.eu.greenhouse.io) are served by the same
+        // global API host: boards-api.eu.greenhouse.io does not exist in DNS.
+        perJob: `https://boards-api.greenhouse.io/v1/boards/${p.org}/jobs/${p.id}`,
+        board: `https://boards-api.greenhouse.io/v1/boards/${p.org}/jobs`,
         boardType: 'greenhouse',
         html: originalUrl,
       };
@@ -143,11 +192,25 @@ export function postingApiUrls(p, originalUrl) {
       };
     case 'workday':
       return {
-        perJob: `https://${p.host}/wday/cxs/${p.tenant}/${p.site}${p.externalPath}`,
+        // null when the URL carries no site segment: the ladder then tries the
+        // sites user/portals.yml knows for this tenant (lib/workday-sites.mjs).
+        perJob: p.site ? workdayPerJobUrl(p, p.site) : null,
         board: null, // POST + pagination
         boardType: 'workday',
         html: originalUrl,
       };
+    case 'amazon':
+      return {
+        // amazon.jobs has no single-posting JSON; its public search takes the
+        // job id as the query and lists the posting with its description.
+        perJob: `https://www.amazon.jobs/en/search.json?base_query=${p.id}&result_limit=10`,
+        board: null,
+        boardType: 'amazon',
+        html: `https://www.amazon.jobs/en/jobs/${p.id}`,
+      };
+    case 'picnic':
+    case 'factorial':
+      return { perJob: null, board: null, boardType: p.ats, html: originalUrl };
     default:
       return { perJob: null, board: null, boardType: p.ats, html: originalUrl };
   }

@@ -143,6 +143,7 @@ test('the batch eval worker argv, exactly', () => {
     'Bash(node scripts/posting-guard.mjs:*)',
     'Bash(node scripts/fetch-posting.mjs:*)',
     'Bash(node scripts/score-listing.mjs:*)',
+    'Bash(node scripts/append-score-rows.mjs:*)',
     'Bash(node scripts/reserve-report-num.mjs:*)',
     'Bash(node scripts/cv-summary.mjs:*)',
     'Bash(node scripts/agent-log.mjs log:*)',

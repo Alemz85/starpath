@@ -11,7 +11,7 @@ test('planFetch routes ATS listing URLs to their public API and everything else 
     (({ kind, apiUrl, source }) => ({ kind, apiUrl, source }))(planFetch('https://boards.greenhouse.io/nimbus/jobs/4012345')),
     { kind: 'greenhouse', apiUrl: 'https://boards-api.greenhouse.io/v1/boards/nimbus/jobs/4012345', source: 'greenhouse-api' },
   );
-  assert.equal(planFetch('https://job-boards.eu.greenhouse.io/nimbus?gh_jid=77').apiUrl, 'https://boards-api.eu.greenhouse.io/v1/boards/nimbus/jobs/77');
+  assert.equal(planFetch('https://job-boards.eu.greenhouse.io/nimbus?gh_jid=77').apiUrl, 'https://boards-api.greenhouse.io/v1/boards/nimbus/jobs/77');
   assert.equal(planFetch('https://jobs.lever.co/contoso/0f0e0d0c-aaaa-bbbb-cccc-1234567890ab').apiUrl, 'https://api.lever.co/v0/postings/contoso/0f0e0d0c-aaaa-bbbb-cccc-1234567890ab');
   assert.equal(planFetch('https://jobs.ashbyhq.com/tailspin/0f0e0d0c-aaaa-bbbb-cccc-1234567890ab').kind, 'ashby');
   assert.equal(planFetch('https://jobs.smartrecruiters.com/Fabrikam/743999-data-analyst').apiUrl, 'https://api.smartrecruiters.com/v1/companies/Fabrikam/postings/743999');
