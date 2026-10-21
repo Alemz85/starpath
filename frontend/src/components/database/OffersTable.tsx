@@ -25,7 +25,7 @@ import { canonicalizeArchetype } from '@/lib/archetype'
 import { tierVerdict } from '@/lib/tier'
 import { rowLever } from '@/lib/tierLevers'
 import {
-  blockedReason, eligibilityCheckLabel, isBlocked, parseEligibilityFlags, priorityOf,
+  blockedReason, computePriority, eligibilityCheckLabel, isBlocked, parseEligibilityFlags, priorityOf,
   DIM_LABELS, EASE_DIMS, HYGIENE_DIMS, MOTIVATOR_DIMS, type V2DimKey,
 } from '@/lib/scoreBands'
 import { WantEase } from '@/components/shared/WantEase'
@@ -48,7 +48,7 @@ const col = createColumnHelper<ScoreEntry>()
 // sidebar and the facet rail) without scrolling; narrower windows scroll
 // horizontally with the caret + Listing columns pinned on the left.
 const LISTING_MIN_WIDTH = 280
-const CARET_WIDTH = 40
+const CARET_WIDTH = 52
 const STATUS_WIDTH = 104
 const RIGHT_ALIGNED = new Set(['score', 'date'])
 
@@ -71,7 +71,7 @@ const cellPad = (id: string) => CELL_PAD[id] ?? 'px-2'
 // Sticky-left offsets for the pinned columns (caret, then Listing).
 const STICKY_LEFT: Record<string, string> = {
   breakdown: 'sticky left-0',
-  company:   'sticky left-10',
+  company:   'sticky left-[52px]',
 }
 
 // Row surface. Applied to every cell (not the <tr>) so the pinned cells are
@@ -105,7 +105,15 @@ const sentence = (s: string) => s.charAt(0) + s.slice(1).toLowerCase()
 //
 // Scoring v2: the eligibility dot + the Want · Ease pair (shared WantEase,
 // bare — the column header names the two numbers). A blocked row shows its
-// red reason in place of the scores. Sorted by Priority, which is never shown.
+// red reason in place of the scores, unless the profile scored it anyway
+// (score_through_red): then the red flag sits beside the numbers. Sorted by
+// Priority, which is never shown; a scored blocked row sorts by its scores.
+
+/** Sort key for the Want · Ease column: Priority, else (a blocked row scored
+ *  through its wall) the same √(Want × Ease), else below every score. */
+function sortPriority(e: ScoreEntry): number {
+  return priorityOf(e) ?? computePriority(e.want, e.ease) ?? -1
+}
 
 function ScoreCell({ entry }: { entry: ScoreEntry }) {
   const blocked = isBlocked(entry)
@@ -198,7 +206,7 @@ function BreakdownRow({
         {/* Pinned with the Listing column so the breakdown stays in view
             when a narrow window scrolls the table sideways. Indent lines the
             content up with the company name above it. */}
-        <div className="sticky left-0 pl-[86px] max-w-[806px]">
+        <div className="sticky left-0 pl-[98px] max-w-[818px]">
           {lever.best && (
             <p className="mb-3 flex items-start gap-1.5 text-label text-text-2">
               <TrendingUp
@@ -408,7 +416,10 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const isOpen = expandedRef.current.has(entryKey(entry))
         const sibCount = entry.siblings?.length ?? 0
         const titleSuffix = sibCount > 0 ? ` · ${sibCount} more in this group` : ''
+        // Rows with nested variants carry a small "+N" beside the caret, the
+        // cue that expanding shows more than the score breakdown.
         return (
+          <span className="inline-flex items-center gap-0.5">
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); toggleExpandedRef.current(entry) }}
@@ -424,6 +435,12 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
               aria-hidden
             />
           </button>
+          {sibCount > 0 && (
+            <span className="text-micro text-text-4 tabular-nums" title={`${sibCount} more ${sibCount === 1 ? 'variant' : 'variants'} of this listing`} aria-hidden>
+              +{sibCount}
+            </span>
+          )}
+          </span>
         )
       },
       enableSorting: false,
@@ -434,7 +451,6 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const company = info.getValue()
         const entry = info.row.original
         const role = entry.role
-        const sibCount = entry.siblings?.length ?? 0
         return (
           <div className="flex items-center gap-2.5 min-w-0">
             <CompanyLink company={company} size={32} className="shrink-0" />
@@ -444,14 +460,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
               </div>
               <div className="text-label text-text-3 truncate" title={role}>{role}</div>
             </div>
-            {sibCount > 0 && (
-              <span
-                className="shrink-0 text-label text-text-4 tabular-nums"
-                title={`${sibCount} more ${sibCount === 1 ? 'variant' : 'variants'} of this listing: expand the row to see them`}
-              >
-                +{sibCount} {sibCount === 1 ? 'variant' : 'variants'}
-              </span>
-            )}
+
           </div>
         )
       },
@@ -476,7 +485,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
       size: 100,
       // Sorted by Priority (sqrt(Want × Ease)) — the v2 sort key, never shown
       // as a number. Blocked / unscored rows sit at -1 → bottom on desc.
-      sortingFn: (a, b) => (priorityOf(a.original) ?? -1) - (priorityOf(b.original) ?? -1),
+      sortingFn: (a, b) => sortPriority(a.original) - sortPriority(b.original),
       sortDescFirst: true,
       enableSorting: true,
       cell: info => <ScoreCell entry={info.row.original} />,

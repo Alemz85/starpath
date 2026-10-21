@@ -82,3 +82,27 @@ test('--input reads the JSON from a file inside the checkout, and refuses one ou
     rmSync(outside, { recursive: true, force: true })
   }
 })
+
+test('scoreListing: a red listing the profile scores through keeps verdict blocked but gets Want / Ease', async () => {
+  const base = {
+    company: 'Lumen Freight', role_archetype: 'Business Analyst', city: 'Lyon', country: 'FR',
+    comp: { base: 30000 }, comp_source: 'estimate',
+    tax_override: { rate: 0.25, source: 'test' }, col_override: { baseline_eur: 1950, source: 'test' },
+    is_intern: false, scoring_weights: {},
+    eligibility_facts: { employment: 'permanent', country: 'FR', languages: [{ language: 'Spanish', level: 'C1', required: true }] },
+    judgment_scores: {
+      growth_mobility: 7, optionality_exit: 7, brand_value: 6, role_content: 7,
+      best_cities: 7, work_life_balance: 7, skills_match: 7, experience_bar: 7, competition: 6,
+    },
+  }
+  const profile = { languages: [{ language: 'Spanish', level: 'B2' }], work_authorisation: ['EU'] }
+  const blocked = await scoreListing({ ...base, eligibility_profile: profile })
+  assert.equal(blocked.verdict, 'blocked')
+  assert.equal(blocked.want, null)
+
+  const scored = await scoreListing({ ...base, eligibility_profile: { ...profile, score_through_red: { languages: ['Spanish'] } } })
+  assert.equal(scored.verdict, 'blocked')
+  assert.equal(scored.tier, 'T4')
+  assert.equal(scored.priority, null)
+  assert.ok(Number.isFinite(scored.want.score) && Number.isFinite(scored.ease.score))
+})

@@ -409,8 +409,8 @@ export function buildReEvalRow(existing, addition) {
  * Validate a parsed scouting row against the v2 cell rules. Returns
  * { errors: string[], warnings: string[] } (both empty = clean).
  *   errors   — structurally invalid: bad tier, Want/Ease not a number 1-10 or
- *              "—", eligibility not green|amber|red[: reasons], a red row that
- *              carries Want/Ease or isn't T4, a non-red row missing them.
+ *              "—", eligibility not green|amber|red[: reasons], a red row with
+ *              only one of Want/Ease or not T4, a non-red row missing them.
  *   warnings — tier disagrees with the verdict grid for the stored cells (the
  *              writer may have used a stale grid), or a blocked row carries a
  *              READY/MONITOR hint.
@@ -430,7 +430,9 @@ export function validateScoutingRow(row) {
     const w = toNumber(row.want);
     const e = toNumber(row.ease);
     if (elig.status === 'red') {
-      if (w !== null || e !== null) errors.push('red (blocked) row must have Want and Ease "—"');
+      // A red row is Blocked; it carries scores only when the profile's
+      // score_through_red allowed them, and then both or neither.
+      if ((w === null) !== (e === null)) errors.push('red (blocked) row must have both Want and Ease, or "—" for both');
       if (row.tier !== 'T4') errors.push(`red (blocked) row must be T4, got ${row.tier}`);
       if (/^(READY|MONITOR)$/i.test(row.hint || '')) warnings.push(`blocked row carries hint "${row.hint}"`);
     } else if (w === null || e === null) {

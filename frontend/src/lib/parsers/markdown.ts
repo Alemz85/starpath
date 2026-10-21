@@ -61,8 +61,10 @@ export function parseScouting(md: string): ScoutingEntry[] {
       date:          row['Date'] ?? '',
       company:       row['Company'] ?? '',
       role:          row['Role'] ?? '',
-      want:          blocked ? null : scoreNum(row['Want']),
-      ease:          blocked ? null : scoreNum(row['Ease']),
+      // A red row's cells are "—" unless the profile scores through that
+      // wall (score_through_red); then the numbers are real and kept.
+      want:          scoreNum(row['Want']),
+      ease:          scoreNum(row['Ease']),
       tier,
       eligibility:   elig.status,
       eligibilityReason: elig.reason,

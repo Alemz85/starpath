@@ -64,7 +64,7 @@ Extract `eligibility_facts` from the JD. `null` = the JD doesn't say — never g
 
 ```jsonc
 "eligibility_facts": {
-  "employment": "internship | graduate_programme | fixed_term | permanent",
+  "employment": "internship | graduate_programme | fixed_term | permanent | working_student",
   "start": { "earliest": "YYYY-MM-DD|null", "latest": "YYYY-MM-DD|null", "flexible": false, "text": "verbatim JD line|null" },
   "duration_months": 6,
   "graduation": { "from": "YYYY-MM|null", "to": "YYYY-MM|null", "soft": true, "text": "..." },
@@ -83,7 +83,9 @@ Extract `eligibility_facts` from the JD. `null` = the JD doesn't say — never g
 
 Write `{ "eligibility_facts": {...} }` to `batch/work/{{ID}}-eligibility.json` with the Write tool and run `node scripts/score-listing.mjs --input batch/work/{{ID}}-eligibility.json --eligibility-only`. The script runs the six checks — `start_date`, `duration`, `graduation`, `language`, `work_auth`, `other` — against `user/profile.yml` → `eligibility:` and returns `{ eligibility }`. Unknown is not green: an internship with no stated start is amber. Language: red when a required language is missing, ≥2 CEFR steps below, or any gap at a C1+ requirement; amber at 1 step below a B2-or-lower requirement.
 
-**If eligibility is `red` → Blocked path:** verdict `blocked`, tier `T4`, **no report file**, no judgment scores. Skip to Step 7 and write the score-history row (dimension, `want`, `ease`, `priority` columns empty), the report-summaries row and the scouting TSV (Eligibility cell `red: {reason}`). If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
+**If eligibility is `red` and `scored` is `true`** (the profile's `score_through_red` lets this wall through): the listing stays Blocked (verdict `blocked`, tier `T4`, empty `priority`, **no report file**), but score it: run Steps 4–6 as usual, then write the score-history row with its dimensions, `want` and `ease`, and the scouting TSV with Want/Ease numbers and the Eligibility cell `red: {reason}`.
+
+**If eligibility is `red` and `scored` is `false` → Blocked path:** verdict `blocked`, tier `T4`, **no report file**, no judgment scores. Skip to Step 7 and write the score-history row (dimension, `want`, `ease`, `priority` columns empty), the report-summaries row and the scouting TSV (Eligibility cell `red: {reason}`). If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
 
 **Amber** listings are scored normally; the script takes −0.5 Ease per amber check (max −1.0). Keep every amber `question` for the report.
 

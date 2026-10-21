@@ -97,6 +97,10 @@ location:
 #   duration_months: { min: 3, max: 12 }     # acceptable internship / fixed-term length
 #   permanent_start_ok_before_block: false   # false = a permanent role that would run
 #                                            # through a blocked window is Blocked
+#   score_through_red:                       # Blocked listings that still get Want / Ease,
+#     checks: [start_date, work_auth]        # so the Database maps the market behind walls
+#     languages: [German]                    # you may clear later (a language red: only these)
+#     except_employment: [working_student]   # never scored
 
 # ── Scoring weights (optional — omit to use the defaults) ───────────────────
 # Want averages four motivators; Ease is a weighted geometric mean of three

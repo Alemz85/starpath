@@ -24,6 +24,7 @@ import {
   EEA_NON_EU,
   EU_EEA_COUNTRIES,
   CHECK_ORDER,
+  redIsScored,
 } from './eligibility.mjs'
 
 const TODAY = '2026-10-20'
@@ -388,4 +389,40 @@ test('evaluateEligibility: empty profile gates nothing; null inputs are safe', (
   const blind = evaluateEligibility({}, PROFILE, { today: TODAY })
   assert.equal(blind.status, 'amber')
   assert.deepEqual(blind.checks.filter(c => c.status === 'amber').map(c => c.check), ['start_date', 'work_auth'])
+})
+
+// ─── score_through_red ───────────────────────────────────────────────────────
+
+const THROUGH = {
+  ...PROFILE,
+  score_through_red: { checks: ['start_date', 'work_auth'], languages: ['Spanish'], except_employment: ['working_student'] },
+}
+
+test('score_through_red: absent → a red listing is never scored', () => {
+  const r = evaluateEligibility({ employment: 'internship', country: 'ES', languages: [{ language: 'German', level: 'C1', required: true }] }, PROFILE, { today: TODAY })
+  assert.equal(r.status, 'red')
+  assert.equal(r.scored, false)
+  assert.equal(evaluateEligibility({ employment: 'internship', country: 'ES', duration_months: 6, start: { earliest: '2027-06-01' } }, PROFILE, { today: TODAY }).scored, true, 'non-red is always scored')
+})
+
+test('score_through_red: language reds only for the listed languages', () => {
+  const lang = (language, level) => ({ employment: 'permanent', country: 'ES', languages: [{ language, level, required: true }] })
+  const spanish = evaluateEligibility(lang('Spanish', 'C1'), THROUGH, { today: TODAY })
+  assert.equal(spanish.status, 'red')
+  assert.deepEqual(spanish.checks.find(c => c.check === 'language').red_languages, ['Spanish'])
+  assert.equal(spanish.scored, true)
+  assert.equal(evaluateEligibility(lang('German', 'C1'), THROUGH, { today: TODAY }).scored, false)
+  const both = { employment: 'permanent', country: 'ES', languages: [{ language: 'Spanish', level: 'C1', required: true }, { language: 'German', level: 'B2', required: true }] }
+  assert.equal(evaluateEligibility(both, THROUGH, { today: TODAY }).scored, false, 'every red language must be allowed')
+})
+
+test('score_through_red: every red check must be allowed; excepted employment types never score', () => {
+  const lateStart = { employment: 'internship', country: 'ES', duration_months: 6, start: { earliest: '2027-02-01', flexible: false } }
+  const r = evaluateEligibility(lateStart, THROUGH, { today: TODAY })
+  assert.equal(r.status, 'red')
+  assert.equal(r.scored, true)
+  assert.equal(evaluateEligibility({ ...lateStart, employment: 'working_student' }, THROUGH, { today: TODAY }).scored, false)
+  const plusGrad = { ...lateStart, graduation: { from: '2025-01', to: '2025-12', soft: false } }
+  assert.equal(evaluateEligibility(plusGrad, THROUGH, { today: TODAY }).scored, false, 'graduation is not in checks')
+  assert.equal(redIsScored([{ check: 'language', status: 'red' }], {}, THROUGH), false, 'a language red without names is not scored')
 })

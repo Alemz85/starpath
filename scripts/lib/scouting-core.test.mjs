@@ -394,10 +394,10 @@ test('validateScoutingRow: structural errors', () => {
   assert.ok(validateScoutingRow(row({ ease: '14' })).errors.some(e => /Ease/.test(e)));
   assert.ok(validateScoutingRow(row({ eligibility: 'maybe' })).errors.some(e => /Eligibility/.test(e)));
   assert.ok(validateScoutingRow(row({ want: '—', ease: '—' })).errors.some(e => /only valid for a red/.test(e)));
-  const redWithScores = row({ eligibility: 'red: x', tier: 'T2' });
-  const errs = validateScoutingRow(redWithScores).errors;
-  assert.ok(errs.some(e => /Want and Ease/.test(e)));
-  assert.ok(errs.some(e => /T4/.test(e)));
+  // A red row may carry scores (profile score_through_red), but both or neither, and always T4.
+  assert.deepEqual(validateScoutingRow(row({ eligibility: 'red: x', tier: 'T4' })).errors, []);
+  assert.ok(validateScoutingRow(row({ eligibility: 'red: x', tier: 'T4', ease: '—' })).errors.some(e => /both Want and Ease/.test(e)));
+  assert.ok(validateScoutingRow(row({ eligibility: 'red: x', tier: 'T2' })).errors.some(e => /T4/.test(e)));
 });
 
 test('validateScoutingRow: tier vs grid disagreement is a warning, not an error', () => {

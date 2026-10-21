@@ -254,7 +254,10 @@ export async function scoreListing(input, opts = {}) {
   if (eligibilityOnly) return { eligibility }
 
   const calibration = input.calibration ?? {}
-  if (eligibility.status === 'red') {
+  // A red listing is Blocked. It still gets Want / Ease when the profile's
+  // `score_through_red` allows every red check (eligibility.redIsScored):
+  // the verdict stays `blocked`, Priority stays null, only the scores fill in.
+  if (eligibility.status === 'red' && !eligibility.scored) {
     const verdict = assignVerdict({ want: null, ease: null, eligibility })
     const reason = eligibility.blocking_reason
     return {
@@ -373,7 +376,7 @@ export async function scoreListing(input, opts = {}) {
 
   // 5. Verdict + Priority.
   const verdict = assignVerdict({ want: want.score, ease: ease.score, eligibility })
-  const priority = computePriority(want.score, ease.score)
+  const priority = eligibility.status === 'red' ? null : computePriority(want.score, ease.score)
 
   // 6. Explainability — replays the same engine, so it can't drift.
   const explanation = explainScore({

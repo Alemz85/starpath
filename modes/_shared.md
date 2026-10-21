@@ -154,6 +154,7 @@ echo '{ "eligibility_facts": { ... } }' | node scripts/score-listing.mjs --eligi
 
 It reads the candidate's `eligibility:` block from `user/profile.yml` and returns only `{ eligibility }`. **If it says `red`, stop scoring** — no judgment dimensions are needed.
 
+- **red, `scored: true` → Blocked but scored.** When `user/profile.yml` › `eligibility.score_through_red` allows every red check (by check; a language red only for the languages it lists; never for its `except_employment` types), the eligibility result says `scored: true`: the verdict stays `blocked`, tier `T4`, no Priority and no report file, but Want and Ease are scored as usual and written to score-history and the scouting row, so the Database keeps a picture of the market behind walls the candidate may clear later.
 - **red → Blocked.** Verdict `blocked`, tier `T4`, no Want / Ease / Priority, **no report file**. The listing is still logged — a `data/score-history.tsv` row (dimension and score columns empty) and a scouting TSV row whose Eligibility cell carries the reason — so it shows in the app with its reason instead of silently vanishing. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
 - **amber → scored normally**, Ease −0.5 per amber check (max −1.0, applied by the script). Every amber `question` goes into the report's `## Eligibility` block.
 - **green → no effect.**

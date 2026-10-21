@@ -34,14 +34,18 @@ const fmt = (n: number | null | undefined) =>
   n == null || !Number.isFinite(n) ? '—' : n.toFixed(2)
 
 export function WantEase({ want, ease, blockedReason, size = 'md', bare = false, decimals, numberClassName, className }: WantEaseProps) {
-  if (blockedReason) {
+  // A blocked row shows its reason in place of the scores, unless it was
+  // scored anyway (profile score_through_red): then the numbers show and the
+  // reason rides in the tooltip, next to the red eligibility flag.
+  const scored = want != null && Number.isFinite(want) && ease != null && Number.isFinite(ease)
+  if (blockedReason && !scored) {
     return (
       <span className={cn('text-label text-danger truncate', className)} title={`Blocked — ${blockedReason}`}>
         {blockedReason}
       </span>
     )
   }
-  const title = `Want ${fmt(want)} · Ease ${fmt(ease)}`
+  const title = `Want ${fmt(want)} · Ease ${fmt(ease)}${blockedReason ? ` · Blocked: ${blockedReason}` : ''}`
   return (
     <span className={cn('inline-flex items-baseline gap-1.5 whitespace-nowrap', className)} title={title}>
       {!bare && <span className="label">Want</span>}

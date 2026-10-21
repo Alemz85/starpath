@@ -116,6 +116,7 @@ const EMPLOYMENT_NOUN = {
   graduate_programme: 'graduate programme',
   fixed_term: 'fixed-term role',
   permanent: 'permanent role',
+  working_student: 'working-student role',
 }
 
 /* ───── Checks ──────────────────────────────────────────────────── */
@@ -277,11 +278,11 @@ export function checkLanguage(facts, profile) {
   if (mine.length === 0) return result('language', 'green', 'Not checked: no languages in profile')
   const find = (name) => mine.find(m => String(m?.language ?? '').trim().toLowerCase() === String(name).trim().toLowerCase())
 
-  const reds = [], ambers = [], questions = []
+  const reds = [], ambers = [], questions = [], redLanguages = []
   for (const req of required) {
     const have = find(req.language)
     const reqLabel = req.level ? `${req.language} ${req.level}` : req.language
-    if (!have) { reds.push(`${reqLabel} required; not in your profile`); continue }
+    if (!have) { reds.push(`${reqLabel} required; not in your profile`); redLanguages.push(req.language); continue }
     const r = levelRank(req.level)
     if (r == null) continue // no level stated: having the language is enough
     const c = levelRank(have.level)
@@ -293,13 +294,13 @@ export function checkLanguage(facts, profile) {
     const gap = r - c
     if (gap <= 0) continue
     const msg = `${reqLabel} required; you have ${have.level} (${gap} step${gap > 1 ? 's' : ''} below)`
-    if (gap >= 2 || r >= STRICT_LANGUAGE_LEVEL) reds.push(msg)
+    if (gap >= 2 || r >= STRICT_LANGUAGE_LEVEL) { reds.push(msg); redLanguages.push(req.language) }
     else {
       ambers.push(msg)
       questions.push(`Is ${req.language} at ${have.level} (vs. ${req.level} required) acceptable for this role?`)
     }
   }
-  if (reds.length > 0) return result('language', 'red', [...reds, ...ambers].join('; '))
+  if (reds.length > 0) return { ...result('language', 'red', [...reds, ...ambers].join('; ')), red_languages: redLanguages }
   if (ambers.length > 0) return result('language', 'amber', ambers.join('; '), questions.join(' '))
   return result('language', 'green', 'All required languages met')
 }
@@ -416,7 +417,36 @@ export function evaluateEligibility(facts, profile, opts = {}) {
     amber_count,
     checks,
     blocking_reason: red ? `${red.check}: ${red.reason}` : null,
+    scored: status !== 'red' || redIsScored(checks, f, p),
   }
+}
+
+/**
+ * Whether a red listing still gets Want / Ease (profile
+ * `eligibility.score_through_red`). Red stays red: the verdict is Blocked and
+ * the flag shows; the scores only fill in the market picture for a wall the
+ * candidate could plausibly clear later (a start date that may move, a
+ * language they are learning). Every red check must be allowed:
+ *
+ *   score_through_red:
+ *     checks: [start_date, duration, graduation, work_auth, other]
+ *     languages: [<language>]          # a language red is scored only for these
+ *     except_employment: [working_student]   # never scored, whatever the red
+ *
+ * No block (the default) → no red listing is scored.
+ */
+export function redIsScored(checks, facts, profile) {
+  const cfg = profile?.score_through_red
+  if (!cfg || typeof cfg !== 'object') return false
+  const lower = (xs) => new Set((Array.isArray(xs) ? xs : []).map(x => String(x).trim().toLowerCase()))
+  const allowedChecks = lower(cfg.checks)
+  const allowedLanguages = lower(cfg.languages)
+  if (lower(cfg.except_employment).has(String(facts?.employment ?? '').toLowerCase())) return false
+  const reds = (checks ?? []).filter(c => c.status === 'red')
+  if (reds.length === 0) return false
+  return reds.every(c => c.check === 'language'
+    ? (c.red_languages ?? []).length > 0 && c.red_languages.every(l => allowedLanguages.has(String(l).toLowerCase()))
+    : allowedChecks.has(c.check))
 }
 
 /**

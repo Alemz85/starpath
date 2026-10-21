@@ -59,6 +59,10 @@ eligibility:
   work_authorisation: ["EU"]              # "EU" expands to EU-27 + EEA (IS, LI, NO); CH = amber; also ISO codes, e.g. "GB"
   duration_months: { min: 3, max: 12 }    # acceptable fixed-term length
   permanent_start_ok_before_block: false  # if false, a permanent role starting before a blocked window that it would run through is red
+  score_through_red:                      # optional: red listings that still get Want / Ease (see below)
+    checks: [start_date, duration, graduation, work_auth, other]
+    languages: [German]                   # a language red is scored only for these languages
+    except_employment: [working_student]  # never scored, whatever the red
 ```
 
 ### 1.2 Checks
@@ -82,6 +86,7 @@ The checks are `start_date`, `duration`, `graduation`, `language`, `work_auth` a
 
 ### 1.3 Effects
 
+- **red, scored through** → when `score_through_red` allows every red check (`eligibility.scored: true`; a language red only when every language that caused it is listed; never for an `except_employment` type), the listing stays `blocked` / `T4` with no Priority and no report file, but Want and Ease are scored and stored, so the Database still shows what that part of the market looks like. The app shows the scores with the red flag beside them and sorts them by √(Want × Ease). Absent block → no red listing is scored.
 - **red** → verdict `blocked`, tier `T4`, no Want / Ease / Priority, no report file. The row still lands in `data/score-history.tsv` and `data/scouting.md` with the blocking reason, so it shows in the app with its reason instead of a score. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
 - **amber** → scored normally; Ease −0.5 per amber check, max −1.0 (§3.3). Every amber `question` goes into the report's Eligibility block.
 - **green** → no effect.
