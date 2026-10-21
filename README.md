@@ -2,7 +2,7 @@
 
 A local-first job-search workspace. It scans company job boards, scores every listing against your own profile, writes an evaluation report you can audit, and tracks applications and outreach in a desktop app. The AI work runs through [Claude Code](https://claude.ai/download) on your own machine; your data stays in plain Markdown files on your disk.
 
-[![starpath demo video: scan, score, report, and a chat that knows your whole search (24 s)](docs/images/demo-poster.jpg)](docs/media/starpath-demo.mp4)
+https://github.com/user-attachments/assets/76e53604-06c6-40cf-a8ed-c89b9d3d9036
 
 Everything in the video and the screenshots is fictional: a made-up candidate, made-up companies and logos, made-up reports. The screenshots are the bundled demo.
 
