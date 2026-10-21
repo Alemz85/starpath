@@ -4,7 +4,7 @@ A local-first job-search workspace. It scans company job boards, scores every li
 
 https://github.com/user-attachments/assets/76e53604-06c6-40cf-a8ed-c89b9d3d9036
 
-Everything in the video and the screenshots is fictional: a made-up candidate, made-up companies and logos, made-up reports. The screenshots are the bundled demo.
+I built starpath for my own job search and use it every day. The video and the screenshots show the bundled demo instead, so my real search stays private: a made-up candidate, made-up companies and logos, made-up reports. starpath never applies for you; every application is reviewed and sent by hand.
 
 ## Try it in two minutes
 
