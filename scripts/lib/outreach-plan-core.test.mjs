@@ -87,7 +87,7 @@ test('companyThreads returns [] when nothing matches', () => {
 
 test('annotatePaths marks threaded contacts and leaves the rest untouched', () => {
   const threads = companyThreads([touch({ contact: 'Grace Hopper', lastTouch: '2026-06-30' })], 'Acme', TODAY);
-  const out = annotatePaths([path(), path({ name: 'Alan Turing' })], threads);
+  const out = annotatePaths([path(), path({ name: 'Linus Turing' })], threads);
   assert.equal(out[0].thread.action, 'waiting'); // sent yesterday → on track
   assert.equal(out[0].thread.touches, 1);
   assert.equal(out[1].thread, null);
@@ -125,11 +125,11 @@ test('a due nudge beats an untouched warm path, which becomes a caution', () => 
 // warm-intro path as a fallback caution, not silently drop it.
 test('a due nudge outranks an untouched 2nd-degree (warm-intro) path → nudge', () => {
   const threads = companyThreads([touch({ lastTouch: '2026-06-10' })], 'Acme', TODAY); // 21d → nudge on Ada
-  const p = path({ name: 'Alan Turing', degree: 2, via: 'Katherine Johnson', warmth: 2.4 });
+  const p = path({ name: 'Linus Turing', degree: 2, via: 'Katherine Johnson', warmth: 2.4 });
   const rec = recommendPlay({ paths: annotatePaths([p], threads), threads });
   assert.equal(rec.play, 'nudge');
   assert.equal(rec.target.name, 'Ada Lovelace');
-  assert.ok(rec.cautions.some((c) => c.includes('Alan Turing')),
+  assert.ok(rec.cautions.some((c) => c.includes('Linus Turing')),
     'the warm-intro option should survive as a caution');
 });
 
@@ -141,11 +141,11 @@ test('untouched 1st-degree path → warm-direct', () => {
 });
 
 test('untouched 2nd-degree path → warm-intro naming the bridge', () => {
-  const p = path({ degree: 2, via: 'Alan Turing', warmth: 2.2 });
+  const p = path({ degree: 2, via: 'Linus Turing', warmth: 2.2 });
   const rec = recommendPlay({ paths: annotatePaths([p], []), threads: [] });
   assert.equal(rec.play, 'warm-intro');
-  assert.match(rec.channel, /Alan Turing/);
-  assert.equal(rec.target.via, 'Alan Turing');
+  assert.match(rec.channel, /Linus Turing/);
+  assert.equal(rec.target.via, 'Linus Turing');
 });
 
 test('warm path over an on-track thread, but the thread is flagged', () => {
@@ -234,7 +234,7 @@ test('assemblePlan wires everything together with honest counts', () => {
   const plan = assemblePlan({
     company: 'Acme',
     roles: [{ role: 'Data Analyst', score: 8.1, match: 8.1, ease: 8.1, scoreLabel: 'M8.1 · E8.1', source: 'application' }],
-    paths: [path(), path({ name: 'Alan Turing', warmth: 2.0 })],
+    paths: [path(), path({ name: 'Linus Turing', warmth: 2.0 })],
     threads,
     research: { exists: true, state: 'fresh', ageDays: 3, valid: true, path: 'data/companies/acme.md' },
     report: { exists: true, path: 'reports/tier-1/Acme - Data Analyst.md', tier: 1 },
@@ -247,7 +247,7 @@ test('assemblePlan wires everything together with honest counts', () => {
   assert.equal(plan.counts.untouchedPaths, 1); // Grace has a thread
   assert.equal(plan.counts.threads, 1);
   assert.equal(plan.recommendation.play, 'warm-direct');
-  assert.equal(plan.recommendation.target.name, 'Alan Turing'); // Grace is threaded
+  assert.equal(plan.recommendation.target.name, 'Linus Turing'); // Grace is threaded
   assert.equal(plan.ingredients.hook.source, 'research-fresh');
   assert.ok(plan.ingredients.storyAmmo.length >= 1);
 });

@@ -144,7 +144,7 @@ test('parseContactRow normalizes a 2nd-degree row and keeps Via', () => {
 });
 
 test('parseContactRow treats em-dash / n/a sentinels as absent', () => {
-  const line = '| 3 | Alan Turing | Initech | — | medium | 1 | — | — | — |';
+  const line = '| 3 | Linus Turing | Initech | — | medium | 1 | — | — | — |';
   const c = parseContactRow(line);
   assert.equal(c.title, '');
   assert.equal(c.via, '');
@@ -265,7 +265,7 @@ function fixture() {
 |---|------|---------|-------|--------------|--------|-----|--------------|-------|
 | 1 | Ada Lovelace | Acme Corp | Eng Manager | strong | 1 |  | 2026-06-01 | ex-colleague, hiring |
 | 2 | Grace Hopper | Acme Corp | Recruiter | weak | 1 |  | 2024-01-01 | met once |
-| 3 | Alan Turing | Globex | Director | medium | 2 | Ada Lovelace | n/d | conf intro possible |
+| 3 | Linus Turing | Globex | Director | medium | 2 | Ada Lovelace | n/d | conf intro possible |
 | 4 | Katherine Johnson | Umbrella Inc | VP Data | strong | 1 |  | 2026-06-10 | not in my pipeline |`;
   const apps = `| # | Date | Company | Role | Score | Status |
 | 1 | 2026-05-05 | Acme Corp | Data Analyst | 7.2/10 | Applied |`;
@@ -285,7 +285,7 @@ test('matchNetworkToPipeline pairs contacts to pipeline companies and ranks path
   // Umbrella has a contact but is NOT in pipeline → orphan. Initech is in
   // pipeline but has NO contact → gap.
   assert.equal(res.counts.matchedCompanies, 2);
-  assert.equal(res.counts.contactsMatched, 3); // Ada + Grace + Alan
+  assert.equal(res.counts.contactsMatched, 3); // Ada + Grace + Linus
   assert.equal(res.counts.gaps, 1); // Initech
   assert.equal(res.counts.orphanContacts, 1); // Katherine @ Umbrella
 
@@ -296,7 +296,7 @@ test('matchNetworkToPipeline pairs contacts to pipeline companies and ranks path
   assert.ok(acme.contacts[0].warmth > acme.contacts[1].warmth);
 
   // Matches are globally ranked warmest-path-first: Acme's Ada (3.0, 1st/strong)
-  // beats Globex's Alan (2nd-degree medium → 1.2).
+  // beats Globex's Linus (2nd-degree medium → 1.2).
   assert.equal(res.matches[0].companyKey, 'acmecorp');
   assert.equal(res.matches[1].companyKey, 'globex');
 
@@ -370,8 +370,8 @@ test('pathLabel explains the path in plain words', () => {
     'Ada · Eng Manager — strong tie, 1st-degree (direct)',
   );
   assert.equal(
-    pathLabel({ name: 'Alan', title: '', relationship: 'medium', degree: 2, via: 'Ada' }),
-    'Alan — medium tie, 2nd-degree via Ada',
+    pathLabel({ name: 'Linus', title: '', relationship: 'medium', degree: 2, via: 'Ada' }),
+    'Linus — medium tie, 2nd-degree via Ada',
   );
   assert.equal(
     pathLabel({ name: 'Grace', title: 'Director', relationship: 'weak', degree: 2, via: '' }),

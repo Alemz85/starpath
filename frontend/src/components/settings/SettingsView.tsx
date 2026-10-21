@@ -205,7 +205,7 @@ function buildCompanyProbePrompt(name: string, careersUrl: string): string {
     '   Same slug variants.',
     '',
     '4. **SmartRecruiters** — https://api.smartrecruiters.com/v1/companies/{slug}/postings',
-    '   Try CamelCase no-spaces, lowercase no-spaces, and TitleCase variants. e.g. for "Nimbus Robotics": NimbusRobotics. Some companies post under a parent brand (e.g. Glovo postings live under DeliveryHero with brand=Glovo) — note this in the entry if discovered.',
+    '   Try CamelCase no-spaces, lowercase no-spaces, and TitleCase variants. e.g. for "Nimbus Robotics": NimbusRobotics. Some companies post under a parent brand (e.g. Nimbus Robotics postings live under Nimbus Group with brand=Nimbus Robotics) — note this in the entry if discovered.',
     '',
     '5. **Workday** — careers URL like `*.myworkdayjobs.com/*` is the strongest signal. If careers_url contains a wd subdomain (wd1, wd3, wd103, etc), construct the API as `{base}/wday/cxs/{tenant}/{site}/jobs`. e.g. https://accenture.wd103.myworkdayjobs.com/wday/cxs/accenture/AccentureCareers/jobs.',
     '',

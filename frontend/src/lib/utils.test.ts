@@ -161,6 +161,5 @@ test('extractReportLink pulls the path out of a markdown link', () => {
 
 test('companyLogoUrl uses the known-domain map, else a slugified guess', () => {
   assert.equal(companyLogoUrl('Google'), 'https://logo.clearbit.com/google.com')
-  assert.equal(companyLogoUrl('Glovo'), 'https://logo.clearbit.com/glovoapp.com')
   assert.equal(companyLogoUrl('Some New Co'), 'https://logo.clearbit.com/some-new-co.com')
 })
