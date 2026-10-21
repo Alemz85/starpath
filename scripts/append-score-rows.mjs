@@ -17,6 +17,11 @@
  * header are SCORE_HISTORY_HEADER (docs/scoring-v2.md §8.1). Appends are
  * locked, atomic and idempotent (an identical row is not added twice).
  * Prints `{"score_history":"appended"|"duplicate","report_summary":…}`.
+ *
+ * The file may also hold an ARRAY of such objects, one per listing, so a run
+ * that scored many listings adds them all in one call; it prints one result
+ * per entry. Entries are appended in order; a bad entry stops the run with
+ * its index, and rerunning after the fix is safe (identical rows are skipped).
  */
 
 import { readFileSync } from 'node:fs'
@@ -34,11 +39,19 @@ if (i === -1 || !argv[i + 1]) {
 try {
   const input = JSON.parse(readFileSync(argv[i + 1], 'utf-8'))
   const ROOT = process.env.CAREER_OPS_ROOT || dataRootFor(repoRootFrom(import.meta.url))
-  const out = appendScoreRows(input, {
+  const files = {
     historyFile: join(ROOT, 'data/score-history.tsv'),
     summariesFile: join(ROOT, 'data/report-summaries.tsv'),
-  })
-  console.log(JSON.stringify(out))
+  }
+  if (Array.isArray(input)) {
+    if (input.length === 0) throw new Error('the array is empty: nothing to append')
+    const out = input.map((entry, n) => {
+      try { return appendScoreRows(entry, files) } catch (err) { throw new Error(`entry ${n}: ${err.message}`) }
+    })
+    console.log(JSON.stringify(out))
+  } else {
+    console.log(JSON.stringify(appendScoreRows(input, files)))
+  }
 } catch (err) {
   console.error(`append-score-rows: ${err.message}`)
   process.exit(1)

@@ -140,6 +140,7 @@ test('the whole-pipeline prompts park an unreadable posting once and skip it for
     assert.ok(p.includes('NOT EVALUATED YYYY-MM-DD'), 'one note format')
     assert.ok(p.includes('within the last 7 days, without fetching it'), 'no refetch while it waits for the user')
     assert.ok(p.includes('never guess a score'))
+    assert.ok(p.includes('single `node scripts/append-score-rows.mjs --input` call'), 'one append for the whole run')
   }
   assert.ok(!scoreOnlyEvalPrompt('https://x.example/1', '2026-07-01').includes('NOT EVALUATED'), 'a single pasted URL is always tried')
 })

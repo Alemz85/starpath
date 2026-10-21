@@ -112,3 +112,28 @@ test('the CLI reads a JSON file and appends under CAREER_OPS_ROOT/data (parallel
     assert.equal(spawnSync(process.execPath, [script], { env, encoding: 'utf8' }).status, 2)
   } finally { rmSync(d, { recursive: true, force: true }) }
 })
+
+test('the CLI takes an array of entries in one file: one call for a whole run', () => {
+  const d = tmp()
+  try {
+    const script = join(dirname(fileURLToPath(import.meta.url)), '..', 'append-score-rows.mjs')
+    const env = { ...process.env, CAREER_OPS_ROOT: d }
+    mkdirSync(join(d, 'data'))
+    const entry = (n) => ({ score_history: { ...HISTORY, role: `Role ${n}` }, report_summary: { ...SUMMARY, role: `Role ${n}` } })
+    const input = join(d, 'rows.json')
+    writeFileSync(input, JSON.stringify([entry(1), entry(2), entry(3)]))
+    const ok = spawnSync(process.execPath, [script, '--input', input], { env, encoding: 'utf8' })
+    assert.equal(ok.status, 0, ok.stderr)
+    assert.deepEqual(JSON.parse(ok.stdout).map((r) => r.score_history), ['appended', 'appended', 'appended'])
+    assert.equal(readFileSync(join(d, 'data/score-history.tsv'), 'utf8').trim().split('\n').length, 4)
+
+    writeFileSync(input, JSON.stringify([entry(3), { score_row: {} }]))
+    const bad = spawnSync(process.execPath, [script, '--input', input], { env, encoding: 'utf8' })
+    assert.equal(bad.status, 1)
+    assert.match(bad.stderr, /entry 1: unknown top-level key/)
+    assert.equal(readFileSync(join(d, 'data/score-history.tsv'), 'utf8').trim().split('\n').length, 4, 'the identical row was skipped')
+
+    writeFileSync(input, '[]')
+    assert.equal(spawnSync(process.execPath, [script, '--input', input], { env, encoding: 'utf8' }).status, 1)
+  } finally { rmSync(d, { recursive: true, force: true }) }
+})

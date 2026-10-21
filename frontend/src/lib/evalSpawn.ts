@@ -168,6 +168,13 @@ const UNREADABLE =
   'Skip any pending line that already carries a NOT EVALUATED note dated within the last 7 days, without fetching it ' +
   '(it is waiting for the user); retry an older one once and refresh its date. '
 
+// One run, many listings: the per-listing commands take them all at once, so
+// the run doesn't spend one turn (and one re-read of its context) per row.
+const MANY_LISTINGS =
+  'Write the score rows of all scored listings into ONE array file (`batch/work/<batch id>-rows.json`, one ' +
+  '`{score_history, report_summary}` object per listing) and add them with a single ' +
+  '`node scripts/append-score-rows.mjs --input` call. '
+
 const NO_REPORT_DEVIATION =
   'DEVIATION — score only: skip the bundle’s Step 5 entirely (write NO report file under reports/); ' +
   'the report column in the scouting TSV is `—`. All Step 6 data writes still apply. '
@@ -220,6 +227,7 @@ export function filterAllPrompt(today: string = todayISO()): string {
     preamble('pipeline-filter', today) +
     'Process EVERY pending URL in data/pipeline.md, one listing at a time: ' +
     UNREADABLE +
+    MANY_LISTINGS +
     '(1) apply the user/portals.yml title filters and dedup against data/dedup-index.tsv; ' +
     '(2) ' + RELEVANCE_GATE +
     '(3) evaluate each SURVIVING listing through the system-prompt pipeline. ' +
@@ -241,6 +249,7 @@ export function top5ReportsPrompt(today: string = todayISO()): string {
     preamble('pipeline-top5', today) +
     'Process EVERY pending URL in data/pipeline.md: ' +
     UNREADABLE +
+    MANY_LISTINGS +
     '(1) apply the user/portals.yml title filters and dedup against data/dedup-index.tsv; ' +
     '(2) ' + RELEVANCE_GATE +
     '(3) evaluate each SURVIVING listing through the system-prompt pipeline, but DEFER Step 5: ' +
