@@ -17,7 +17,7 @@ import type { ScoreEntry, AppStatus } from '@/types'
 import { ENGAGED_STATUSES } from '@/types'
 import { CompanyLink } from '@/components/shared/CompanyLink'
 import { Button, Chip, ScoreBar, ScoreNumber, StatusChip, type ChipTone } from '@/components/ui'
-import { formatLocation } from '@/lib/entityId'
+import { formatLocation, variantLabel } from '@/lib/entityId'
 import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
 import { ipc } from '@/lib/ipc'
@@ -178,6 +178,10 @@ function BreakdownRow({
     return (priorityOf(b) ?? -1) - (priorityOf(a) ?? -1)
   })
   const showCityList = siblings.length > 0
+  // The nested rows are labelled by what sets each variant apart: its market
+  // or language when the title names one, else its location.
+  const labels = new Map(allCities.map(s => [s, variantLabel(s.role, s.location)]))
+  const allByPlace = allCities.every(s => labels.get(s) === (s.location ? formatLocation(s.location) : s.role))
 
   // Cheapest verdict-improving lever for this row — the "what would move it
   // up" line, shown above the dim bars so the expanded view leads with the
@@ -269,7 +273,7 @@ function BreakdownRow({
 
           {showCityList && (
             <div className="mt-4 pt-3 border-t border-border-default">
-              <div className="label mb-1.5">Cities ({allCities.length})</div>
+              <div className="label mb-1.5">{allByPlace ? 'Locations' : 'Variants'} ({allCities.length})</div>
               <div>
                 {cityRows.map(s => {
                   const isPrimary = s === entry
@@ -291,9 +295,9 @@ function BreakdownRow({
                           'flex-1 min-w-0 truncate text-body',
                           isPrimary ? 'text-text-1 font-medium' : 'text-text-2',
                         )}
-                        title={s.location || s.role}
+                        title={[s.role, s.location].filter(Boolean).join(' · ')}
                       >
-                        {s.location ? formatLocation(s.location) : s.role}
+                        {labels.get(s)}
                         {isPrimary && <span className="ml-2 text-label font-normal text-text-4">Primary</span>}
                       </span>
                       <VerdictChip verdict={s.verdict} />
@@ -430,6 +434,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         const company = info.getValue()
         const entry = info.row.original
         const role = entry.role
+        const sibCount = entry.siblings?.length ?? 0
         return (
           <div className="flex items-center gap-2.5 min-w-0">
             <CompanyLink company={company} size={32} className="shrink-0" />
@@ -439,6 +444,14 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
               </div>
               <div className="text-label text-text-3 truncate" title={role}>{role}</div>
             </div>
+            {sibCount > 0 && (
+              <span
+                className="shrink-0 text-label text-text-4 tabular-nums"
+                title={`${sibCount} more ${sibCount === 1 ? 'variant' : 'variants'} of this listing: expand the row to see them`}
+              >
+                +{sibCount} {sibCount === 1 ? 'variant' : 'variants'}
+              </span>
+            )}
           </div>
         )
       },
@@ -477,14 +490,18 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
         // read as "City +N" (formatLocation). Grouped sibling evaluations of
         // the same role in other cities add a muted "+N" — the caret expands
         // them. Hover shows the full string.
+        // Only variants in OTHER places count here; a language/market variant
+        // in the same city is shown by the Listing cell's "+N variants".
         const sibs = info.row.original.siblings ?? []
-        const title = sibs.length > 0
+        const here = formatLocation(raw)
+        const elsewhere = [...new Set(sibs.map(s => formatLocation(s.location)).filter(l => l !== here && l !== '—'))]
+        const title = elsewhere.length > 0
           ? [raw, ...sibs.map(s => s.location)].filter(Boolean).join(' · ')
           : raw || undefined
         return (
           <span className="block truncate text-label text-text-2" title={title}>
-            {formatLocation(raw)}
-            {sibs.length > 0 && <span className="text-text-4"> +{sibs.length}</span>}
+            {here}
+            {elsewhere.length > 0 && <span className="text-text-4"> +{elsewhere.length}</span>}
           </span>
         )
       },

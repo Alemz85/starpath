@@ -230,3 +230,119 @@ export function entityId(company: string, role: string, parsed: ParsedLocation):
   const roleKey = canonicalRoleSlug(role, parsed.isMulti ? null : parsed.primary)
   return `${slug(company)}::${roleKey}::${cityKey}`
 }
+
+// ─── Variant groups (the Database's nested rows) ────────────────────────────
+//
+// A company often posts one role as several listings that differ only by
+// where it is or which language/market it serves: "Analyst – Lyon, France" and
+// "Analyst – Nantes, France", "Sales Path – French Market" and "Sales Path –
+// Polish or Czech Market". The Database shows those as ONE row (the best one)
+// with the rest nested under it. `variantGroupKey` is that grouping only: it
+// is NOT an entity id (each variant keeps its own entityId, score and report),
+// so it can be looser without migrating anything.
+
+const LANGUAGE_WORDS = [
+  'english', 'french', 'german', 'spanish', 'italian', 'portuguese', 'dutch', 'flemish',
+  'polish', 'czech', 'slovak', 'croatian', 'serbian', 'slovenian', 'hungarian', 'romanian',
+  'bulgarian', 'greek', 'turkish', 'swedish', 'danish', 'norwegian', 'finnish', 'icelandic',
+  'estonian', 'latvian', 'lithuanian', 'ukrainian', 'russian', 'arabic', 'hebrew', 'hindi',
+  'japanese', 'korean', 'chinese', 'mandarin', 'cantonese', 'catalan', 'basque', 'irish',
+]
+const REGION_WORDS = [
+  'europe', 'european', 'eastern', 'western', 'northern', 'southern', 'central', 'nordics',
+  'nordic', 'dach', 'benelux', 'cee', 'emea', 'apac', 'latam', 'mena', 'iberia', 'baltics',
+  'balkans', 'eu', 'uki', 'global', 'international',
+]
+// Glue words a market/language qualifier is made of ("Polish or Czech
+// speaking market"). On their own they never make a segment a qualifier.
+const QUALIFIER_GLUE = ['market', 'markets', 'speaking', 'speaker', 'speakers', 'language',
+  'languages', 'fluent', 'native', 'or', 'and', 'region', 'based', 'hub', 'office']
+
+const PLACE_WORDS = new Set(
+  [...KNOWN_CITIES, ...KNOWN_COUNTRIES, ...Object.values(KNOWN_CITY_ALIASES).flat()]
+    .flatMap(p => wordsOf(p)),
+)
+const MARKET_WORDS = new Set([...LANGUAGE_WORDS, ...REGION_WORDS])
+const GLUE_WORDS = new Set(QUALIFIER_GLUE)
+
+function wordsOf(s: string): string[] {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .split(/[^a-z0-9]+/).filter(Boolean)
+}
+
+// Separators between the parts of a title: spaced dashes, pipes, commas.
+const SEGMENT_SPLIT = /\s+[-–—|]\s+|\s*[|,]\s*/
+
+type SegmentKind = 'place' | 'market' | 'role'
+
+function segmentKind(segment: string, rowPlaces: Set<string>): SegmentKind {
+  const words = wordsOf(segment).filter(w => !/^\d+$/.test(w))
+  if (words.length === 0) return 'place' // a bare year or number: noise, drop it
+  let market = false
+  for (const w of words) {
+    if (GLUE_WORDS.has(w)) continue
+    if (MARKET_WORDS.has(w)) { market = true; continue }
+    if (rowPlaces.has(w) || PLACE_WORDS.has(w)) continue
+    return 'role'
+  }
+  if (words.every(w => GLUE_WORDS.has(w))) return 'role'
+  return market ? 'market' : 'place'
+}
+
+/**
+ * Split a role title into the role itself and the qualifiers that only say
+ * where / for which market it is. The first segment always stays role.
+ */
+export function splitVariantQualifiers(role: string, location: string | null | undefined): {
+  base: string
+  places: string[]
+  markets: string[]
+} {
+  const rowPlaces = new Set(wordsOf(location ?? ''))
+  const places: string[] = []
+  const markets: string[] = []
+  // Parentheticals first: "(Italy)", "(Madrid)", "(French speaking)".
+  let rest = role.replace(/\(([^)]*)\)/g, (whole, inner: string) => {
+    const kind = segmentKind(inner, rowPlaces)
+    if (kind === 'role') return whole
+    ;(kind === 'market' ? markets : places).push(inner.trim())
+    return ' '
+  })
+  const parts = rest.split(SEGMENT_SPLIT).map(p => p.trim()).filter(Boolean)
+  const kept: string[] = []
+  parts.forEach((p, i) => {
+    const kind = i === 0 ? 'role' : segmentKind(p, rowPlaces)
+    if (kind === 'role') kept.push(p)
+    else (kind === 'market' ? markets : places).push(p)
+  })
+  rest = kept.join(' - ')
+  return { base: rest || role, places, markets }
+}
+
+/** Grouping key for the Database's nested variant rows (see above). */
+export function variantGroupKey(company: string, role: string, location: string | null | undefined): string {
+  let { base } = splitVariantQualifiers(role, location)
+  // The row's own places can also sit inside a segment ("Engineer Berlin",
+  // "Consultant - Roma - Internship"): strip each one, as entityId does for
+  // the primary city, but for every city and the country.
+  const parsed = parseCities(location)
+  for (const place of [...parsed.cities, ...(parsed.country ? [parsed.country] : [])]) {
+    for (const name of [place, ...(KNOWN_CITY_ALIASES[place] ?? [])]) {
+      const stripped = base.replace(new RegExp(`\\b${escapeRe(name)}\\b`, 'gi'), ' ')
+      if (stripped.trim()) base = stripped
+    }
+  }
+  return `${slug(company)}::${canonicalRoleSlug(base, null)}`
+}
+
+/**
+ * What tells one variant of a group from the others, for the nested rows:
+ * its market/language qualifier when it has one ("French Market"), else its
+ * location ("Lisbon"). Falls back to the role when neither exists.
+ */
+export function variantLabel(role: string, location: string | null | undefined): string {
+  const { markets } = splitVariantQualifiers(role, location)
+  if (markets.length > 0) return markets.join(' · ')
+  if (location && location.trim()) return formatLocation(location)
+  return role
+}
