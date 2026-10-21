@@ -21,6 +21,9 @@ async function detectExistingSetup(): Promise<boolean> {
 }
 
 interface AppState {
+  /** False until init() has read the config: the launch gate shows nothing
+   *  instead of guessing (lib/dataRoot.ts → launchView). */
+  initialized: boolean
   repoPath: string | null
   isOnboarded: boolean
   tailoringComplete: boolean
@@ -68,6 +71,7 @@ const RELOGIN_POLL_INTERVAL = 2500
 const RELOGIN_POLL_TIMEOUT = 5 * 60 * 1000
 
 export const useAppStore = create<AppState>((set, get) => ({
+  initialized: false,
   repoPath: null,
   isOnboarded: false,
   tailoringComplete: true,
@@ -109,6 +113,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     set({
+      initialized:     true,
       repoPath:        cfg?.repoPath ?? null,
       isOnboarded,
       tailoringComplete,

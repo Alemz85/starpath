@@ -96,6 +96,18 @@ export function needsOnboarding(g: GateInput): boolean {
   return !!g.forceOnboarding || !g.isOnboarded || !g.repoPath
 }
 
+/**
+ * Which top-level screen the window shows. 'loading' until the app has read
+ * its config: before that, "not onboarded" is only the store's default, and
+ * rendering the onboarding gate from it flashes it on every launch.
+ */
+export function launchView(g: GateInput & { initialized: boolean }): 'loading' | 'onboarding' | 'tailoring' | 'app' {
+  if (!g.initialized) return 'loading'
+  if (needsOnboarding(g)) return 'onboarding'
+  if (needsTailoring(g)) return 'tailoring'
+  return 'app'
+}
+
 export function needsTailoring(g: GateInput): boolean {
   if (isDemo(g.info)) return false
   return !needsOnboarding(g) && !g.tailoringComplete

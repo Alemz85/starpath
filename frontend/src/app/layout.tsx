@@ -7,7 +7,7 @@ import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
 import { useAppStore } from '@/store/app'
 import { useDataRootStore } from '@/store/dataRoot'
 import { useProfilesStore } from '@/store/profiles'
-import { needsOnboarding as gateOnboarding, needsTailoring as gateTailoring } from '@/lib/dataRoot'
+import { launchView } from '@/lib/dataRoot'
 import { AppShell } from '@/components/layout/AppShell'
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate'
 import { TailoringScreen } from '@/components/onboarding/TailoringScreen'
@@ -31,6 +31,7 @@ const mono = IBM_Plex_Mono({
 
 export default function RootLayout({ children: _children }: { children: React.ReactNode }) {
   const init = useAppStore(s => s.init)
+  const initialized = useAppStore(s => s.initialized)
   const isOnboarded = useAppStore(s => s.isOnboarded)
   const tailoringComplete = useAppStore(s => s.tailoringComplete)
   const repoPath = useAppStore(s => s.repoPath)
@@ -38,7 +39,8 @@ export default function RootLayout({ children: _children }: { children: React.Re
   const dataRoot = useDataRootStore(s => s.info)
 
   useEffect(() => {
-    init()
+    // Even if init fails, stop showing the blank launch state.
+    void init().finally(() => useAppStore.setState({ initialized: true }))
   }, [init])
 
   // The data moved (demo on/off, private init): re-check "already set up?"
@@ -53,9 +55,9 @@ export default function RootLayout({ children: _children }: { children: React.Re
 
   // Demo mode never forces onboarding (or tailoring): it goes straight to
   // the app, read-only (lib/dataRoot.ts → needsOnboarding).
-  const gate = { isOnboarded, repoPath, tailoringComplete, forceOnboarding, info: dataRoot }
-  const needsOnboarding = gateOnboarding(gate)
-  const needsTailoring  = gateTailoring(gate)
+  // Nothing renders until init() has read the config ('loading'), so the
+  // onboarding gate never flashes before an onboarded app.
+  const view = launchView({ initialized, isOnboarded, repoPath, tailoringComplete, forceOnboarding, info: dataRoot })
 
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
@@ -70,13 +72,10 @@ export default function RootLayout({ children: _children }: { children: React.Re
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body>
-        {needsOnboarding ? (
-          <OnboardingGate />
-        ) : needsTailoring ? (
-          <TailoringScreen />
-        ) : (
-          <AppShell key={dataKey} />
-        )}
+        {view === 'loading' ? null
+          : view === 'onboarding' ? <OnboardingGate />
+          : view === 'tailoring' ? <TailoringScreen />
+          : <AppShell key={dataKey} />}
       </body>
     </html>
   )

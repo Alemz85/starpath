@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   canWrite, dataKindLabel, demoToggleState, describePrivateInitFailure,
-  initialOnboardingPhase, isDemo, isDemoReadOnlyError, needsOnboarding,
+  initialOnboardingPhase, isDemo, isDemoReadOnlyError, launchView, needsOnboarding,
   needsPrivateInit, needsTailoring, ownDataAction, phaseAfterChoosingOwn,
   writeGate, DEMO_READ_ONLY_TOOLTIP, type DataRootInfo,
 } from './dataRoot'
@@ -113,4 +113,13 @@ test('describePrivateInitFailure lists the message, conflicts and warnings', () 
     ['refusing', 'Conflict: data/ is a real folder and private/data exists', 'no git'],
   )
   assert.deepEqual(describePrivateInitFailure({ ok: false, error: 'cli' }), ['private init failed (cli)'])
+})
+
+test('launchView shows nothing until the config is read, then the right screen', () => {
+  const own = { kind: 'private', root: '/r/private', demoAvailable: true } as unknown as Parameters<typeof launchView>[0]['info']
+  const base = { isOnboarded: false, repoPath: null, tailoringComplete: true, info: null }
+  assert.equal(launchView({ ...base, initialized: false }), 'loading')
+  assert.equal(launchView({ ...base, initialized: true }), 'onboarding')
+  assert.equal(launchView({ initialized: true, isOnboarded: true, repoPath: '/r', tailoringComplete: false, info: own }), 'tailoring')
+  assert.equal(launchView({ initialized: true, isOnboarded: true, repoPath: '/r', tailoringComplete: true, info: own }), 'app')
 })
