@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { ArrowRight, Building2, MapPin, ScrollText } from 'lucide-react'
+import { ArrowRight, Building2, Check, MapPin, ScrollText, X } from 'lucide-react'
 import { useDataStore } from '@/store/data'
 import { useNavStore } from '@/store/nav'
+import { useMessagesStore } from '@/store/messages'
+import { useWriteGate } from '@/store/dataRoot'
 import { ipc } from '@/lib/ipc'
 import { cn } from '@/lib/utils'
 import { rejectionInfo } from '@/lib/applyingBoard'
@@ -17,11 +19,14 @@ import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChi
 import { TOP_LIST_DEFS, TopListCard, buildTopList } from '@/components/shared/TopListCard'
 import { WantEase } from '@/components/shared/WantEase'
 import { reportSummary } from '@/components/reports/reportFacts'
-import { Button, Panel, ScoreNumber, StatusChip, TierChip } from '@/components/ui'
+import { Button, Chip, Panel, ScoreNumber, StatusChip, TierChip } from '@/components/ui'
+import { KIND_TONE } from '@/components/messages/MessageCard'
+import { KIND_LABEL, SOURCE_LABEL, relativeTime, type MessageStatus } from '@/lib/messages'
 import { useChatCardActions } from './context'
 import {
   companyOverview, deadlinesWithin, findApplication, findReport, findScouting, latestEvaluation,
 } from './cardData'
+import { findMessageById, messageExcerpt } from './messageCardData'
 
 // Reference cards: the block names a listing (or a company, a window, a list)
 // and the card reads it live from the store. Nothing the model wrote is shown
@@ -388,6 +393,94 @@ export function TopBlockCard({ list, limit, label }: { list: TopListKind; limit:
           </Button>
         )}
       />
+    </CardFrame>
+  )
+}
+
+// ─── starpath:message ────────────────────────────────────────────────────────
+
+/** One Messages item: kind, source, title, a plain excerpt of the body and its
+ *  status, with Resolve / Dismiss while it is open. The full text, its links
+ *  and a note on resolving live in Messages. */
+export function MessageBlockCard({ id, label }: { id: string; label?: string }) {
+  const loaded = useMessagesStore(s => s.loaded)
+  const messages = useMessagesStore(s => s.messages)
+  const load = useMessagesStore(s => s.load)
+  const setStatus = useMessagesStore(s => s.setStatus)
+  const navigate = useNavStore(s => s.navigate)
+  const { canWrite, readOnlyTitle } = useWriteGate()
+  const [busy, setBusy] = useState<MessageStatus | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => { if (!loaded) void load() }, [loaded, load])
+
+  const message = useMemo(() => findMessageById(messages, id), [messages, id])
+  const excerpt = useMemo(() => (message ? messageExcerpt(message.body) : ''), [message])
+
+  if (!loaded) return <CardFrame label={label}><CardSkeleton height="h-24" /></CardFrame>
+  if (!message) return <CardFrame label={label}><MissingCard what={`Message ${id} isn't in your Messages.`} /></CardFrame>
+
+  const open = message.status === 'open'
+  const act = async (status: MessageStatus) => {
+    setBusy(status)
+    setError(null)
+    const res = await setStatus(message.id, status)
+    setBusy(null)
+    if (!res) setError('Not available outside the app')
+    else if (!res.ok) setError(res.error)
+  }
+
+  return (
+    <CardFrame label={label}>
+      <article className="card px-3.5 py-3" aria-labelledby={`chat-msg-${message.id}`}>
+        <div className="flex items-center gap-2 mb-1">
+          <Chip tone={KIND_TONE[message.kind]} pill>{KIND_LABEL[message.kind]}</Chip>
+          <span className="text-label text-text-3 truncate">
+            {SOURCE_LABEL[message.source]} · {relativeTime(message.created_at)}
+          </span>
+          {!open && (
+            <Chip tone={message.status === 'resolved' ? 'success' : 'muted'} pill className="ml-auto shrink-0">
+              {message.status === 'resolved' ? 'Resolved' : 'Dismissed'}
+            </Chip>
+          )}
+        </div>
+        <p id={`chat-msg-${message.id}`} className="text-section text-text-1">{message.title}</p>
+        {excerpt && <p className="mt-1 text-body text-text-2">{excerpt}</p>}
+        {!open && message.resolution_note && (
+          <p className="mt-1.5 text-label text-text-2"><span className="text-text-3">Note:</span> {message.resolution_note}</p>
+        )}
+        {error && <p className="mt-1.5 text-label text-danger" role="alert">{error}</p>}
+        <CardActions className="mt-2 pt-1.5 border-t border-border-default/60">
+          {open && (
+            <>
+              <Button
+                size="xs"
+                icon={<Check size={12} />}
+                loading={busy === 'resolved'}
+                disabled={!canWrite || busy !== null}
+                title={readOnlyTitle}
+                onClick={() => void act('resolved')}
+              >
+                Resolve
+              </Button>
+              <Button
+                tone="ghost"
+                size="xs"
+                icon={<X size={12} />}
+                loading={busy === 'dismissed'}
+                disabled={!canWrite || busy !== null}
+                title={readOnlyTitle ?? 'Close it without acting on it'}
+                onClick={() => void act('dismissed')}
+              >
+                Dismiss
+              </Button>
+            </>
+          )}
+          <Button tone="ghost" size="xs" trailing={<ArrowRight size={12} />} onClick={() => navigate('messages')}>
+            Open in Messages
+          </Button>
+        </CardActions>
+      </article>
     </CardFrame>
   )
 }

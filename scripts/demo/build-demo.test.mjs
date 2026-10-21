@@ -21,6 +21,7 @@ import { parseScanHistory } from '../lib/whats-new-core.mjs'
 import { parseNetwork } from '../lib/network-core.mjs'
 import { parseLog } from '../outreach-cadence.mjs'
 import { parseFollowups } from '../lib/followup-cadence-core.mjs'
+import { openMessages, parseRecords, foldMessages } from '../lib/messages-core.mjs'
 import { parsePendingEntries } from '../lib/triage-core.mjs'
 import { HEADER as DEDUP_HEADER, buildIndexLines } from '../lib/dedup-index.mjs'
 import { parseStoryBank, validateBank, resultIsQuantified } from '../lib/story-bank.mjs'
@@ -201,6 +202,19 @@ test('network, outreach and follow-up logs parse', () => {
   const followups = parseFollowups(read('data/follow-ups.md'))
   assert.ok(followups.length >= 2)
   for (const f of followups) assert.ok(apps.some(a => a.num === f.appNum && a.company === f.company), `follow-up #${f.num} points at its application`)
+})
+
+test('one open sample message points at a demo report and application', () => {
+  const { records, skipped } = parseRecords(read('data/agent-messages.jsonl'))
+  assert.equal(skipped, 0)
+  const open = openMessages(foldMessages(records))
+  assert.equal(open.length, 1)
+  const [m] = open
+  assert.match(m.id, /^m-\d{8}-[0-9a-f]{8}$/)
+  const report = m.links.find(l => l.kind === 'report')
+  assert.ok(report && existsSync(join(DEFAULT_OUT, report.target)), 'the report link resolves inside demo/')
+  const app = m.links.find(l => l.kind === 'application')
+  assert.ok(app && apps.some(a => String(a.num) === app.target), 'the application link names a demo application')
 })
 
 test('story bank: six complete, quantified STAR+R stories', () => {

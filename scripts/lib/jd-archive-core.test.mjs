@@ -61,6 +61,11 @@ test('trackerNumbers maps decoded report paths to row numbers, # prefix allowed'
   assert.equal(map.size, 2);
 });
 
+test('trackerNumbers handles literal parentheses in the link target', () => {
+  const map = trackerNumbers(['| 7 | x | [7](reports/tier-1/Nimbus Robotics - Analyst (Lyon, autumn start).md) | n/d |']);
+  assert.equal(map.get('reports/tier-1/Nimbus Robotics - Analyst (Lyon, autumn start).md'), 7);
+});
+
 test('formatArchive / parseArchive round-trip, body kept verbatim', () => {
   const body = '## About the role\n\nYou will build *things*.\n\n- one\n- two\n\n---\n\nA rule inside the posting.';
   const text = formatArchive({ company: 'Nimbus Robotics', role: 'Data Analyst', url: 'https://jobs.example.com/1', fetched: '2026-10-20', source: 'worker', body });

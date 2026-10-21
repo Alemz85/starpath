@@ -39,6 +39,7 @@ import { isV2ScoutingHeader, parseScoutingRow, validateScoutingRow } from './lib
 import { checkScoreHistoryRows } from './lib/doctor-checks.mjs';
 import { loadAudit } from './lib/jd-archive-fs.mjs';
 import { describeMissing } from './check-jd-archive.mjs';
+import { reportLinkTarget } from './lib/report-link.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
@@ -190,11 +191,11 @@ if (dupes === 0) ok('No exact duplicates found');
 // --- Check 3: Report links ---
 let brokenReports = 0;
 for (const e of entries) {
-  const match = e.report.match(/\]\(([^)]+)\)/);
-  if (!match) continue;
-  const reportPath = join(CAREER_OPS, decodeURIComponent(match[1]));
+  const rel = reportLinkTarget(e.report);
+  if (!rel) continue;
+  const reportPath = join(CAREER_OPS, rel);
   if (!existsSync(reportPath)) {
-    error(`#${e.num}: Report not found: ${match[1]}`);
+    error(`#${e.num}: Report not found: ${rel}`);
     brokenReports++;
   }
 }
@@ -291,15 +292,15 @@ if (existsSync(SCOUTING_FILE)) {
   let brokenScoutReports = 0;
   for (const e of scoutingEntries) {
     if (e.report === '—' || e.report === '-') continue;
-    const m = e.report.match(/\]\(([^)]+)\)/);
-    if (!m) {
+    const rel = reportLinkTarget(e.report);
+    if (!rel) {
       error(`scouting #${e.num}: Malformed report link "${e.report}"`);
       brokenScoutReports++;
       continue;
     }
-    const reportPath = join(CAREER_OPS, decodeURIComponent(m[1]));
+    const reportPath = join(CAREER_OPS, rel);
     if (!existsSync(reportPath)) {
-      error(`scouting #${e.num}: Report not found: ${m[1]}`);
+      error(`scouting #${e.num}: Report not found: ${rel}`);
       brokenScoutReports++;
     }
   }

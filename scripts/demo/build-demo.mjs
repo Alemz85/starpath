@@ -526,6 +526,7 @@ export async function buildDemo({ asOf }) {
   put('data/network.md', docs.renderNetwork(ctx))
   put('data/outreach.md', docs.renderOutreach(ctx))
   put('data/follow-ups.md', docs.renderFollowUps(ctx))
+  put('data/agent-messages.jsonl', docs.renderMessages(ctx))
 
   // ── data caches (demo values) ──
   const usedPlaces = [...new Set(recs.filter(r => r.tax).map(r => r.L.city))].sort()

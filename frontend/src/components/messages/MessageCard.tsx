@@ -16,7 +16,7 @@ import {
 // collapsed to one row (status, title, when, note) that expands on click and
 // can be reopened.
 
-const KIND_TONE: Record<MessageKind, ChipTone> = {
+export const KIND_TONE: Record<MessageKind, ChipTone> = {
   approval:   'accent',   // needs the user: the "act now" colour
   alert:      'danger',   // something failed or is stuck: a state
   suggestion: 'neutral',

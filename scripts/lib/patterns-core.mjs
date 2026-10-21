@@ -43,6 +43,7 @@ import { verdictFromCells } from './scouting-core.mjs'
 import { computePriority, verdictRank, VERDICT_ORDER, VERDICT_LABELS } from './score-bands.mjs'
 import { ACTIONABLE_VERDICTS, normalizeArchetype } from './targeting-core.mjs'
 import { normalizeCompany, normalizeRole } from './dedup-index.mjs'
+import { reportLinkTarget } from './report-link.mjs'
 
 /* ───── Status normalization (mirrors verify-pipeline.mjs) ──────────────────
  *
@@ -413,9 +414,9 @@ export function buildArchetypeLookup(scoreRows) {
  */
 export function enrichEntries(entries, loadReport, { archetypeFor = null } = {}) {
   return entries.map(e => {
-    const reportMatch = e.report.match(/\]\(([^)]+)\)/)
-    const reportData = reportMatch && typeof loadReport === 'function'
-      ? loadReport(reportMatch[1])
+    const reportRel = reportLinkTarget(e.report)
+    const reportData = reportRel && typeof loadReport === 'function'
+      ? loadReport(reportRel)
       : null
     const outcome = classifyOutcome(e.status)
     const remoteSource = reportData?.remote || e.notes || ''

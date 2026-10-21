@@ -245,7 +245,7 @@ Confirm — the card does that.
 
 The app also renders **reference cards**: fenced blocks that put a piece of the app into
 your reply (the application as the Applying board shows it, a listing, a report summary,
-a company, the upcoming deadlines, a Trends top list). A reference block carries only a
+a company, the upcoming deadlines, a Trends top list, a Messages item). A reference block carries only a
 key; the card reads the live data itself, so it can't drift from the trackers and you
 never retype numbers into it. The proposal blocks above (`starpath:apply`,
 `starpath:status`) are cards too: they carry the change, the user confirms it.
@@ -261,6 +261,7 @@ an optional short caption shown above any reference card.
 | `starpath:company` | `{"company": "…"}` | The company with each role you evaluated or track there, and a link to its dossier. |
 | `starpath:deadlines` | `{"days": 14}` | Unsent applications due within `days` (1–90, default 14). |
 | `starpath:top` | `{"list": "companies"}` | A Trends top list: `companies` (by Ease), `locations` (by Want) or `archetypes` (by Ease); optional `limit` 3–10, default 5. |
+| `starpath:message` | `{"id": "m-20261021-1a2b3c4d"}` | One Messages item: kind, source, title, an excerpt of the body and its status, with Resolve / Dismiss while it is open and Open in Messages. |
 
 ````
 ```starpath:application
@@ -285,6 +286,9 @@ an optional short caption shown above any reference card.
   `set-status.mjs` (§ Hard rules 2) and show the `application` card so they see the result.
 - `deadlines` and `top` answer "what's due" and "where are my best odds" questions; use
   them instead of retyping a list the app already draws.
+- `message` when the conversation is about one Messages item (one you just posted, or one
+  the user asks about). The `id` is the `m-…` id `npm run messages -- list` prints. The
+  buttons write the same status the CLI would, so don't also run `npm run messages -- resolve`.
 
 **Rules.**
 

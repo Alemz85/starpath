@@ -168,6 +168,8 @@ Every interactive element has hover, focus-visible, disabled and (where it appli
 
 A full-page table lives in a `card` on the page wash (the Database), with its filter rail beside it on the wash rather than in a bordered sidebar. Header cells use `.th` (12 / 500 / `text-3`, sentence case) on the table surface with a bottom hairline, no fill. Rows are 44–52px (52 when a row carries two text lines and a logo) with a `border-default/50` hairline between them, hover `bg-bg-elevated`, selected `bg-accent-soft`. The table fits its container; when it cannot, the first column is sticky and the rest scroll. Numbers are right-aligned and tabular. In the Database, the application status (Applied, Responded, Interview, Offer, Rejected) has its own Status column left of Want · Ease, a `StatusChip` per row with 24px of air before the scores; untouched listings leave it empty. Secondary facts (peer rank, upgrade lever, archetype) are plain `text-3` text, not chips, unless they carry a state.
 
+- **Prose lists.** Inside `.prose-report` (reports, Messages bodies, chat replies) `ul` shows disc → circle → square markers by depth and `ol` decimals, in `text-3` so the marker recedes behind the text; GFM task lists (`.contains-task-list`) keep their own checkbox and no marker. Preflight strips list styles, so the prose class restores them; never add `list-disc` per call site.
+
 ## 9. Motion
 
 150–250ms, `ease-quart`. Motion conveys state (open, select, hover, load, expand), never decoration. The running indicator (orbital loader) and the one pulsing dot on an "act now" figure are the only animated elements at rest. No mount choreography. `prefers-reduced-motion` disables the starfield, loaders and shimmer.
@@ -192,6 +194,7 @@ Retired: the Meta-store hero cards, pill buttons, ring dials, the teal "stellar"
 
 Newest first; every entry below landed on 2026-10-20. The audit that started this is `docs/design-audit-2026-10-20.md`.
 
+- **2026-10-21: prose list markers.** Markdown lists in `.prose-report` render with muted bullets and numbers again (§ 8).
 - **Applying rework.** Applying tracks instead of nagging: next-step buttons, follow-up badges, the progress strip, the per-card Tailor / Draft / Prep icons and the inbox card are gone; a stage dropdown per card, a Rejected column with a date + stage dialog (and a pencil to correct it), a date cue (deadline, else posted, else first scan) and the report sheet opening in place. An Evaluated card can't be rejected (the move asks to discard it). The report's job facts show Posted (else First seen) and Deadline from scan-history. The Pipeline tab is removed. Trends' time chart counts listings by posting date with a wanted split and drops the gated mean-Want line. The Database row popover wraps its chip row instead of letting the liveness chip cover the Ease number.
 
 - **Trends rework.** Trends is one page (the Score trend sub-tab, Verdict distribution and What drives your fit are gone): top lists first, named by their axis (Top companies by Ease, Top locations by Want, Top archetypes by Ease); the score line became listings per week / month with a gated mean-Want line; Archetype mix became Archetype focus (composition bars, no scores).

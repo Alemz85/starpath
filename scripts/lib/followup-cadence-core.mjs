@@ -23,6 +23,7 @@
 // normalizeStatus returns a different object contract.
 
 import { parseAppRow } from './tracker-core.mjs';
+import { reportLinkTarget } from './report-link.mjs';
 
 /* ───── Cadence policy ───────────────────────────────────────────────────────
  *
@@ -183,9 +184,8 @@ export function extractContacts(notes) {
  * an fs-backed predicate; tests pass a stub. Pure given the predicate.
  */
 export function resolveReportPath(reportField, exists) {
-  const match = String(reportField || '').match(/\]\(([^)]+)\)/);
-  if (!match) return null;
-  const rel = match[1];
+  const rel = reportLinkTarget(reportField);
+  if (!rel) return null;
   return exists(rel) ? rel : null;
 }
 

@@ -3,8 +3,8 @@
 //
 // Two kinds of block:
 //   - REFERENCE blocks (`application`, `listing`, `report`, `company`,
-//     `deadlines`, `top`) carry only a key — company + role, a company, a day
-//     window, a list name. The card reads the live data from the app's store,
+//     `deadlines`, `top`, `message`) carry only a key — company + role, a
+//     company, a day window, a list name, a Messages id. The card reads the live data from the app's store,
 //     so it can't drift from the trackers and the model can't put numbers in
 //     the user's mouth.
 //   - PROPOSAL blocks (`apply`, `status`) carry the change to apply; the body
@@ -42,6 +42,7 @@ export const REFERENCE_FENCE_TAGS = [
   'starpath:company',
   'starpath:deadlines',
   'starpath:top',
+  'starpath:message',
 ] as const
 
 export const CHAT_BLOCK_TAGS = [...PROPOSAL_FENCE_TAGS, ...REFERENCE_FENCE_TAGS] as const
@@ -61,6 +62,9 @@ export const TOP_LIMIT_MIN = 3
 export const TOP_LIMIT_MAX = 10
 export const TOP_LIMIT_DEFAULT = 5
 export const MAX_LABEL_CHARS = 120
+/** A Messages id (`m-YYYYMMDD-<hex>`), loosely: one token, no spaces. */
+export const MAX_MESSAGE_ID_CHARS = 64
+const MESSAGE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
 /** Cards per message, proposals and references together. */
 export const MAX_BLOCKS_PER_MESSAGE = 20
 /** Kept for callers that predate reference cards. */
@@ -85,6 +89,7 @@ export type ChatBlock =
   | { kind: 'company'; company: string; label?: string }
   | { kind: 'deadlines'; days: number; label?: string }
   | { kind: 'top'; list: TopListKind; limit: number; label?: string }
+  | { kind: 'message'; id: string; label?: string }
 
 export type ChatBlockKind = ChatBlock['kind']
 
@@ -186,6 +191,14 @@ export function validateBlock(tag: ChatBlockTag, json: unknown): Read<ChatBlock>
         ok: true,
         value: { kind: 'top', list: list as TopListKind, limit: limit.value, ...(label.value ? { label: label.value } : {}) },
       }
+    }
+    case 'starpath:message': {
+      const id = requiredText(json.id, 'id')
+      if (!id.ok) return id
+      if (id.value.length > MAX_MESSAGE_ID_CHARS || !MESSAGE_ID_RE.test(id.value)) return { ok: false, reason: 'id must be a Messages id like m-20261021-1a2b3c4d' }
+      const label = readLabel(json.label)
+      if (!label.ok) return label
+      return { ok: true, value: { kind: 'message', id: id.value, ...(label.value ? { label: label.value } : {}) } }
     }
     default: {
       const exhaustive: never = tag
