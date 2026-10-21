@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { variantGroupKey, variantLabel, splitVariantQualifiers, entityId, parseCities } from '@/lib/entityId'
+import { variantGroupKey, variantLabel, splitVariantQualifiers, entityId, parseCities, formatLocation } from '@/lib/entityId'
 
 test('location variants of one role share a group key; the country no longer splits them', () => {
   const lyon = variantGroupKey('Nimbus Robotics', 'Product Specialist, Launch Graduate Program 2027 – Lyon, France', 'Lyon, France')
@@ -38,4 +38,9 @@ test('location labels and qualifier split', () => {
   assert.deepEqual(s.places, ['Madrid'])
   // a market word alone in the first segment never empties the role
   assert.equal(splitVariantQualifiers('Market Analyst', 'Lyon').base, 'Market Analyst')
+})
+
+test('a city followed by its country is one place, outside Europe too', () => {
+  assert.equal(formatLocation('Cairo, Egypt'), 'Cairo')
+  assert.equal(formatLocation('Bogota, Colombia'), 'Bogota')
 })

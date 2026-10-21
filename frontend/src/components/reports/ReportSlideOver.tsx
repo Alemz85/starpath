@@ -372,7 +372,8 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
         {/* Header: identity, then two zones. Left, the job's own facts as a
             stacked list (they belong to the listing, so they sit under its
             name). Right, what the app made of it: verdict, scores, actions,
-            in a quiet well. */}
+            set off by a hairline rule (no box, so both zones read alike) and
+            ending under the close button, never past it. */}
         <div className="px-8 pt-2 pb-4 shrink-0">
           <div className="flex items-start gap-4">
             <CompanyLogo company={company} size={44} className="shrink-0" />
@@ -383,10 +384,10 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
             <Button tone="ghost" size="sm" iconOnly aria-label="Close" title="Close (Esc)" onClick={handleClose} icon={<X size={15} />} />
           </div>
 
-          <div className="mt-4 flex items-start gap-6">
+          <div className="mt-4 flex items-start gap-8 pr-7">
             <JobFacts facts={facts} className="flex-1 min-w-0 pl-[60px] pt-0.5" />
 
-            <div className="w-[392px] shrink-0 rounded-lg bg-bg-panel/50 border border-border-default/60 p-4 flex flex-col gap-3">
+            <div className="w-[360px] shrink-0 border-l border-border-default pl-6 py-0.5 flex flex-col gap-3">
               <div className="flex items-center gap-2 min-w-0">
                 <VerdictChip verdict={entryVerdict} size="md" />
                 {entryVerdict && (
