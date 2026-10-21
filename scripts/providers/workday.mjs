@@ -9,6 +9,12 @@
 import { resolveDeadline, cleanId } from '../lib/listing-fields.mjs';
 
 const PAGE_LIMIT = 20;
+// Big tenants (a 2,000-posting board is 100 requests) answer 429 when paged
+// back to back, and one refused page used to throw away every page already
+// read. Pace the pages, give a refused page one long pause, and keep what was
+// read when it is still refused (no posting is ever expired for being absent).
+export const PAGE_DELAY_MS = 250;
+export const RATE_LIMIT_PAUSE_MS = 15_000;
 // Per scan, per board. A failed detail fetch just leaves the fields empty.
 export const DETAIL_LIMIT = 60;
 const DETAIL_CONCURRENCY = 5;
@@ -99,9 +105,25 @@ export default {
     // empty page.)
     const all = [];
     let total = null;
+    const body = (offset) => ({ appliedFacets: {}, limit: PAGE_LIMIT, offset, searchText: '' });
     for (let page = 0; page < ctx.maxPages; page++) {
       const offset = page * PAGE_LIMIT;
-      const json = await ctx.postJson(ctx.api.url, { appliedFacets: {}, limit: PAGE_LIMIT, offset, searchText: '' });
+      if (page > 0) await ctx.sleep(PAGE_DELAY_MS);
+      let json;
+      try {
+        json = await ctx.postJson(ctx.api.url, body(offset));
+      } catch (err) {
+        // The first page failing is the board failing: let it surface.
+        if (page === 0 || !err?.retryable) throw err;
+        await ctx.sleep(RATE_LIMIT_PAUSE_MS);
+        try {
+          json = await ctx.postJson(ctx.api.url, body(offset));
+        } catch (again) {
+          if (!again?.retryable) throw again;
+          ctx.log(`  ⚠ ${entry.name} · stopped at page ${page + 1}${total ? ` of ${Math.ceil(total / PAGE_LIMIT)}` : ''} (${again.message}); kept the ${all.length} postings read`);
+          break;
+        }
+      }
       const jobs = parseWorkday(json, entry.name, ctx.api.baseUrl, ctx.api.site);
       all.push(...jobs);
       if (total === null && Number(json.total) > 0) total = Number(json.total);

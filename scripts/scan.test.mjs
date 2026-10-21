@@ -22,7 +22,7 @@ import {
   applyWorkdayDetail,
 } from './scan.mjs';
 import { createHttp } from './lib/http.mjs';
-import workday from './providers/workday.mjs';
+import workday, { PAGE_DELAY_MS, RATE_LIMIT_PAUSE_MS } from './providers/workday.mjs';
 import { makeProviderCtx } from './lib/provider-registry.mjs';
 import { HISTORY_COLUMNS, getCell, parseHistoryFile } from './lib/scan-history.mjs';
 
@@ -118,10 +118,11 @@ const quiet = () => {};
 // ── Workday paging ─────────────────────────────────────────────────────────
 
 /** Run the Workday provider's fetch against a fake client, as scan.mjs would. */
-function fetchWorkdayJobs(client) {
+function fetchWorkdayJobs(client, { sleeps = [], log = () => {} } = {}) {
   const entry = { name: 'Contoso Demo', careers_url: 'https://contoso.wd3.myworkdayjobs.com/ext' };
   const api = workday.detect(entry);
-  return workday.fetch(entry, makeProviderCtx(workday, { http: client, api }));
+  const sleep = async (ms) => { sleeps.push(ms); };
+  return workday.fetch(entry, makeProviderCtx(workday, { http: client, api, sleep, log }));
 }
 
 test('workday paging keeps the first page\'s total: later pages report total 0', async () => {
@@ -147,6 +148,38 @@ test('workday paging with no total anywhere stops at the first empty page', asyn
   };
   const jobs = await fetchWorkdayJobs(client);
   assert.equal(jobs.length, 1);
+});
+
+const rateLimited = () => new HttpError('HTTP 429', { code: 'ESTATUS', status: 429, retryable: true });
+const wdPosting = (i) => ({ title: `Analyst ${i}`, externalPath: `/job/Hub/Analyst_R-${i}`, bulletFields: [`R-${i}`] });
+const wdPage = (offset, total) => ({ total: offset === 0 ? total : 0, jobPostings: Array.from({ length: Math.max(0, Math.min(20, total - offset)) }, (_, k) => wdPosting(offset + k)) });
+
+test('workday paging is paced, and a rate-limited page gets one long pause before it is asked again', async () => {
+  let refused = false;
+  const client = {
+    postJson: async (_url, body) => {
+      if (body.offset === 20 && !refused) { refused = true; throw rateLimited(); }
+      return wdPage(body.offset, 45);
+    },
+  };
+  const sleeps = [];
+  const jobs = await fetchWorkdayJobs(client, { sleeps });
+  assert.equal(jobs.length, 45);
+  assert.deepEqual(sleeps, [PAGE_DELAY_MS, RATE_LIMIT_PAUSE_MS, PAGE_DELAY_MS]);
+});
+
+test('workday paging keeps the pages it read when a later page stays rate-limited', async () => {
+  const client = { postJson: async (_url, body) => { if (body.offset >= 40) throw rateLimited(); return wdPage(body.offset, 100); } };
+  const lines = [];
+  const jobs = await fetchWorkdayJobs(client, { log: (l) => lines.push(l) });
+  assert.equal(jobs.length, 40);
+  assert.match(lines.join('\n'), /stopped at page 3 of 5 .*kept the 40 postings read/);
+});
+
+test('workday: a first page that fails, or a page that fails for good, still fails the board', async () => {
+  await assert.rejects(fetchWorkdayJobs({ postJson: async () => { throw rateLimited(); } }), /429/);
+  const gone = () => new HttpError('HTTP 404', { code: 'ESTATUS', status: 404 });
+  await assert.rejects(fetchWorkdayJobs({ postJson: async (_u, b) => { if (b.offset) throw gone(); return wdPage(0, 45); } }), /404/);
 });
 
 // ── parsers ────────────────────────────────────────────────────────────────
