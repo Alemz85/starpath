@@ -622,17 +622,14 @@ export async function runScan({
   // ── Silent filter health check (runs every scan, reports conditionally) ──────
 
   const passCount = totalFound - totalFiltered - totalLangFiltered - totalLocationFiltered - totalBlacklisted;
-  const passRate = totalFound > 0 ? (passCount / totalFound * 100) : 100;
 
   const daysSinceLastReport = auditState.lastReportDate
     ? (Date.now() - new Date(auditState.lastReportDate).getTime()) / (1000 * 60 * 60 * 24)
     : Infinity;
 
-  const overFilter = totalFound > 10 && passRate < 5;
+  const filterReport = filterHealth({ totalFound, totalBlacklisted, totalLangFiltered, totalLocationFiltered, passCount, auditStats });
+  const overFilter = filterReport.overFilter;
   const monthlyDue = daysSinceLastReport >= AUDIT_REPORT_INTERVAL_DAYS && totalFound > 0;
-
-  const sortedHits = Object.entries(auditStats.negativeHits).sort(([, a], [, b]) => b - a);
-  const zeroHitKeywords = sortedHits.filter(([, c]) => c === 0).map(([k]) => k);
 
   if (overFilter || monthlyDue) {
     log(`\n${'─'.repeat(50)}`);
@@ -640,24 +637,9 @@ export async function runScan({
       ? `⚠  FILTER HEALTH — Over-filter detected`
       : `Filter health check (monthly)`);
     log(`${'─'.repeat(50)}`);
-    log(`Pass rate: ${passRate.toFixed(1)}%  (${passCount} of ${totalFound} postings)`);
-
-    const topBlockers = sortedHits.filter(([, c]) => c > 0).slice(0, 5);
-    if (topBlockers.length > 0) {
-      log(`Top blockers:`);
-      for (const [keyword, count] of topBlockers) {
-        const pct = totalFiltered > 0 ? (count / totalFiltered * 100).toFixed(0) : '0';
-        log(`  "${keyword}" — ${count} blocked (${pct}%)`);
-      }
-    }
-
-    if (zeroHitKeywords.length > 0) {
-      log(`Zero-hit keywords this scan (${zeroHitKeywords.length} — possible dead weight):`);
-      log(`  ${zeroHitKeywords.slice(0, 8).map(k => `"${k}"`).join(', ')}`);
-    }
-
+    for (const line of filterReport.lines) log(line);
     if (overFilter) {
-      log(`\n→ Filters may be too aggressive. Review top blockers above.`);
+      log(`\n→ Negative keywords remove most on-target titles. Review the top blockers above.`);
       log(`  Use /career-ops to ask Claude for removal suggestions.`);
     }
 
@@ -670,6 +652,40 @@ export async function runScan({
   }
 
   return { rankedOffers, errors, dryRun, skippedBoards, blacklisted };
+}
+
+/**
+ * Filter health from one scan's counts. Most postings on a big board match no
+ * target keyword, and dropping them is the title filter working, so the
+ * over-filter warning looks only at titles that DID match a target keyword:
+ * it fires when the negative keywords remove more than half of them. Language
+ * and location are reported but never blamed on the keywords.
+ */
+export function filterHealth({ totalFound, totalBlacklisted = 0, totalLangFiltered = 0, totalLocationFiltered = 0, passCount, auditStats }) {
+  const hits = Object.entries(auditStats?.negativeHits || {}).sort(([, a], [, b]) => b - a);
+  const negBlocked = hits.reduce((n, [, c]) => n + c, 0);
+  const noTarget = auditStats?.noPositiveMatch || 0;
+  const onTarget = Math.max(0, totalFound - totalBlacklisted - noTarget);
+  const pct = (n, d) => (d > 0 ? (n / d * 100).toFixed(0) : '0');
+  const passRate = totalFound > 0 ? (passCount / totalFound * 100) : 100;
+  const overFilter = onTarget > 20 && negBlocked / onTarget > 0.5;
+
+  const lines = [
+    `Pass rate: ${passRate.toFixed(1)}%  (${passCount} of ${totalFound} postings)`,
+    `  no target keyword in the title: ${noTarget} · negative keyword: ${negBlocked} · language: ${totalLangFiltered} · location: ${totalLocationFiltered}`,
+    `Titles with a target keyword: ${onTarget}; negative keywords removed ${negBlocked} of them (${pct(negBlocked, onTarget)}%)`,
+  ];
+  const top = hits.filter(([, c]) => c > 0).slice(0, 5);
+  if (top.length) {
+    lines.push('Top blockers:');
+    for (const [k, c] of top) lines.push(`  "${k}" — ${c} blocked (${pct(c, onTarget)}% of on-target titles)`);
+  }
+  const zero = hits.filter(([, c]) => c === 0).map(([k]) => k);
+  if (zero.length) {
+    lines.push(`Zero-hit keywords this scan (${zero.length} — possible dead weight):`);
+    lines.push(`  ${zero.slice(0, 8).map((k) => `"${k}"`).join(', ')}`);
+  }
+  return { overFilter, passRate, onTarget, negBlocked, lines };
 }
 
 // CLI entry (skipped when imported by tests).

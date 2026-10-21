@@ -20,6 +20,7 @@ import {
   parseSmartRecruiters,
   parseWorkday,
   applyWorkdayDetail,
+  filterHealth,
 } from './scan.mjs';
 import { createHttp } from './lib/http.mjs';
 import workday, { PAGE_DELAY_MS, RATE_LIMIT_PAUSE_MS } from './providers/workday.mjs';
@@ -180,6 +181,26 @@ test('workday: a first page that fails, or a page that fails for good, still fai
   await assert.rejects(fetchWorkdayJobs({ postJson: async () => { throw rateLimited(); } }), /429/);
   const gone = () => new HttpError('HTTP 404', { code: 'ESTATUS', status: 404 });
   await assert.rejects(fetchWorkdayJobs({ postJson: async (_u, b) => { if (b.offset) throw gone(); return wdPage(0, 45); } }), /404/);
+});
+
+test('filter health: titles with no target keyword are not over-filtering; negatives removing most on-target titles are', () => {
+  // A big board: 13,000 postings, 12,000 with no target keyword, 300 caught by negatives.
+  const calm = filterHealth({
+    totalFound: 13000, totalLocationFiltered: 600, passCount: 100,
+    auditStats: { noPositiveMatch: 12000, negativeHits: { Senior: 200, Director: 100, Chief: 0 } },
+  });
+  assert.equal(calm.overFilter, false, 'a 0.8% pass rate is the positive filter doing its job');
+  assert.equal(calm.onTarget, 1000);
+  assert.match(calm.lines.join('\n'), /no target keyword in the title: 12000 · negative keyword: 300 · language: 0 · location: 600/);
+  assert.match(calm.lines.join('\n'), /"Senior" — 200 blocked \(20% of on-target titles\)/);
+  assert.match(calm.lines.join('\n'), /Zero-hit keywords this scan \(1/);
+
+  const tight = filterHealth({
+    totalFound: 400, passCount: 40,
+    auditStats: { noPositiveMatch: 100, negativeHits: { Analyst: 260 } },
+  });
+  assert.equal(tight.overFilter, true);
+  assert.equal(filterHealth({ totalFound: 15, passCount: 0, auditStats: { noPositiveMatch: 0, negativeHits: { A: 15 } } }).overFilter, false, 'too few to judge');
 });
 
 // ── parsers ────────────────────────────────────────────────────────────────
