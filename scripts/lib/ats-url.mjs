@@ -57,7 +57,7 @@ const GH_HOSTS = new Set(['boards.greenhouse.io', 'job-boards.greenhouse.io', 'j
  *
  * @param {string} raw
  * @returns {null | {ats:'greenhouse'|'ashby'|'lever'|'smartrecruiters'|'workday'|'amazon'|'picnic'|'factorial', org:string, id:string,
- *                   host:string, eu?:boolean, site?:string|null, externalPath?:string, tenant?:string}}
+ *                   host:string, eu?:boolean, site?:string|null, externalPath?:string, tenant?:string, page?:string}}
  */
 export function parsePostingUrl(raw) {
   const u = parse(raw);
@@ -130,15 +130,22 @@ export function parsePostingUrl(raw) {
     return null;
   }
   if (host === 'jobs.picnic.app') {
-    // /[{locale}/]vacancies/{CODE}[/...]
-    const r = LOCALE.test(segs[0] || '') ? segs.slice(1) : segs;
-    if (r[0] === 'vacancies' && /^[A-Za-z0-9]{6,12}$/.test(r[1] || '')) return { ats: 'picnic', org: 'picnic', id: r[1], host };
+    // /[{locale}/]vacancies/{CODE}[/...] (older links) or /[{locale}/]jobs/{CODE}[/...];
+    // without a locale the site answers 307 to /en/…, and redirects are never followed.
+    const hasLocale = LOCALE.test(segs[0] || '');
+    const r = hasLocale ? segs.slice(1) : segs;
+    if ((r[0] === 'vacancies' || r[0] === 'jobs') && /^[A-Za-z0-9]{6,12}$/.test(r[1] || '')) {
+      return { ats: 'picnic', org: 'picnic', id: r[1], host, ...(hasLocale ? {} : { page: `https://${host}/en/${r[0]}/${r[1]}` }) };
+    }
     return null;
   }
-  if (host === 'careers.factorial.com') {
-    // /job_posting/{slug}-{numeric id}
+  if (host === 'careers.factorial.com' || host === 'careers.factorialhr.com') {
+    // /job_posting/{slug}-{numeric id}; careers.factorialhr.com is the old host
+    // and only answers 301 to careers.factorial.com, so the page is read there.
     const m = segs[0] === 'job_posting' && segs.length === 2 ? /^[a-z0-9-]*?-?(\d{3,})$/i.exec(segs[1]) : null;
-    if (m && isSafeSegment(segs[1])) return { ats: 'factorial', org: 'factorial', id: m[1], host, slug: segs[1] };
+    if (m && isSafeSegment(segs[1])) {
+      return { ats: 'factorial', org: 'factorial', id: m[1], host: 'careers.factorial.com', slug: segs[1], page: `https://careers.factorial.com/job_posting/${segs[1]}` };
+    }
     return null;
   }
   return null;
@@ -210,7 +217,7 @@ export function postingApiUrls(p, originalUrl) {
       };
     case 'picnic':
     case 'factorial':
-      return { perJob: null, board: null, boardType: p.ats, html: originalUrl };
+      return { perJob: null, board: null, boardType: p.ats, html: p.page || originalUrl };
     default:
       return { perJob: null, board: null, boardType: p.ats, html: originalUrl };
   }

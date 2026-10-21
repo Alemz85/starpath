@@ -55,6 +55,35 @@ test('scoreListing: salary block carries summary + markdown-safe math', async ()
   assert.match(s.math, /\(estimated\)/)
 })
 
+test('scoreListing: comp_source "none" is the default-5 path (no comp, no tax or city lookups)', async () => {
+  const base = {
+    company: 'Lumen Freight', role_archetype: 'Business Analyst', city: 'Aldervale', country: 'XY',
+    is_intern: true,
+    eligibility_facts: { employment: 'internship', country: 'XY' },
+    eligibility_profile: {}, scoring_weights: {},
+    judgment_scores: {
+      growth_mobility: 7, optionality_exit: 7, brand_value: 6, role_content: 7,
+      best_cities: 7, work_life_balance: 7, skills_match: 7, experience_bar: 7, competition: 6,
+    },
+  }
+  const out = await scoreListing({ ...base, comp_source: 'none' })
+  const s = out.salary_adj_for_city
+  assert.equal(out.error, undefined)
+  assert.equal(s.base_score, 5)
+  assert.equal(s.score, 5)
+  assert.equal(out.dims.salary_adj_city, 5)
+  assert.match(s.summary, /undisclosed/)
+  assert.equal(s.computed, null)
+  assert.ok(!s.math.includes('**') && !/\[[^\]]*\]/.test(s.math))
+
+  const modified = await scoreListing({ ...base, comp_source: 'none', soft_benefits_modifier: 0.5 })
+  assert.equal(modified.salary_adj_for_city.score, 5.5)
+
+  const missing = await scoreListing(base)
+  assert.equal(missing.error, 'comp_missing')
+  assert.match(missing.message, /comp_source.*none/, 'the error names the way out')
+})
+
 // ─── --input (background workers write the JSON with the Write tool) ─────────
 
 test('--input reads the JSON from a file inside the checkout, and refuses one outside', async () => {

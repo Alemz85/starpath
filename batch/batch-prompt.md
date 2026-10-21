@@ -141,8 +141,8 @@ Leave `referral` null — batch workers don't look up `data/network.md`.
 
 ### Step 5 — Compute with score-listing.mjs (MANDATORY — never hand-roll)
 
-1. Build comp inputs from the JD: base, bonus % (estimate by industry when undisclosed: big tech ≈15%, top consulting ≈20%, banking ≈30%+, else 0-10%), 13th/14th months, monthly cash benefits, sign-on, annualized equity (Levels.fyi preferred; 50% haircut for private grants; zero when unresolvable, and say in Comp that the figure is base only).
-2. If comp is undisclosed, look up `(company, role_archetype, city)` in `data/comp-cache.tsv` (60-day TTL, cross-city and peer-archetype fallbacks allowed with a provenance tag). On a miss, WebSearch (Levels.fyi → Glassdoor → LinkedIn → Payscale → Blind), take the entry-band median, say in Comp where the estimate came from, and append the row to the cache. Only a genuinely-empty search scores a default 5 (say so plainly). A pay band (cache, posting or lookup) always resolves to its **midpoint** `(min + max) / 2` as the base, never a low or high end picked by feel.
+1. Build comp inputs from the JD (annual EUR; `bonusPct` is a fraction, 0.10 for 10%): base, bonus % (estimate by industry when undisclosed: big tech ≈15%, top consulting ≈20%, banking ≈30%+, else 0-10%), 13th/14th months, monthly cash benefits, sign-on, annualized equity (Levels.fyi preferred; 50% haircut for private grants; zero when unresolvable, and say in Comp that the figure is base only).
+2. If comp is undisclosed, look up `(company, role_archetype, city)` in `data/comp-cache.tsv` (60-day TTL, cross-city and peer-archetype fallbacks allowed with a provenance tag). On a miss, WebSearch (Levels.fyi → Glassdoor → LinkedIn → Payscale → Blind), take the entry-band median, say in Comp where the estimate came from, and append the row to the cache. Only a genuinely-empty search scores a default 5 (say so plainly): pass `"comp_source": "none"` with no `comp`, and the script returns the 5 and its plain summary (never invent a base to get there). A pay band (cache, posting or lookup) always resolves to its **midpoint** `(min + max) / 2` as the base, never a low or high end picked by feel.
 3. Resolve tax (`data/tax-cache.tsv`, 90d) and city baseline (`data/col-cache.tsv`, 60d); on a miss WebSearch a calculator / Numbeo and pass `tax_override` / `col_override`, running with `--write-cache`.
 4. Pick the soft-benefits modifier (±1.0 max; when it moves the score, say why in plain words in Comp).
 5. Write the input to `batch/work/{{ID}}-score.json` with the Write tool (add `--write-cache` to the command when step 3 passed an override):
@@ -150,9 +150,9 @@ Leave `referral` null — batch workers don't look up `data/network.md`.
 ```jsonc
 {
   "company": "...", "role": "...", "url": "...", "role_archetype": "...", "city": "...", "country": "..",
-  "comp": { "base": 0 },
+  "comp": { "base": 0, "bonusPct": 0, "thirteenthMonthMonths": 0, "benefitsMonthlyEur": 0, "signOnEur": 0, "equityAnnualEur": 0 },
   "is_intern": false,
-  "comp_source": "disclosed|estimate",
+  "comp_source": "disclosed|estimate|none",
   "soft_benefits_modifier": 0,
   "calibration": { ...from user/profile.yml calibration block... },
   "eligibility_facts": { ...Step 2... },

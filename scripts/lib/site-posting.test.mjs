@@ -161,6 +161,25 @@ test('jobs.picnic.app: a 404 is expired; a page with JobPosting and a full body 
   assert.doesNotMatch(r.verdict.jd.description, /Menu/, 'only <main>, not the site chrome');
 });
 
+test('jobs.picnic.app: current /jobs/{CODE} links parse too, and a locale-less one is read on its /en/ page (redirects are not followed)', async () => {
+  const bare = 'https://jobs.picnic.app/jobs/AB12CD34';
+  assert.equal(parsePostingUrl(bare).id, 'AB12CD34');
+  assert.equal(postingApiUrls(parsePostingUrl(bare), bare).html, 'https://jobs.picnic.app/en/jobs/AB12CD34');
+  const withLocale = 'https://jobs.picnic.app/de/jobs/AB12CD34/internships/route-planner/aldervale';
+  assert.equal(postingApiUrls(parsePostingUrl(withLocale), withLocale).html, withLocale);
+  const http = fakeHttp({ '/en/jobs/AB12CD34': html('', 404) });
+  assert.equal((await climbLadder(bare, { http, now: NOW })).verdict.result, 'expired');
+  assert.deepEqual(http.calls.map((c) => c.url), ['https://jobs.picnic.app/en/jobs/AB12CD34']);
+});
+
+test('careers.factorialhr.com (the old host, a 301 to careers.factorial.com) is read on the current host', () => {
+  const old = 'https://careers.factorialhr.com/job_posting/account-executive-295523';
+  const p = parsePostingUrl(old);
+  assert.equal(p.ats, 'factorial');
+  assert.equal(p.id, '295523');
+  assert.equal(postingApiUrls(p, old).html, 'https://careers.factorial.com/job_posting/account-executive-295523');
+});
+
 // ── careers.factorial.com ───────────────────────────────────────────────────
 
 test('careers.factorial.com: JobPosting JSON-LD is the JD; the id must match; the generic list page is expired', async () => {

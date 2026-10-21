@@ -233,6 +233,13 @@ test('filterPipelineLines does not mutate the caller-provided seen sets', () => 
 });
 
 // ── canonicalizeUrl ─────────────────────────────────────────────────────────
+test('canonicalizeUrl folds an old host that only redirects into the current one', () => {
+  assert.equal(
+    canonicalizeUrl('https://careers.factorialhr.com/job_posting/account-executive-295523'),
+    canonicalizeUrl('https://careers.factorial.com/job_posting/account-executive-295523'),
+  );
+});
+
 test('canonicalizeUrl strips tracking params, keeps functional ones', () => {
   assert.equal(
     canonicalizeUrl('https://boards.greenhouse.io/acme/jobs/123?utm_source=indeed&gh_jid=9'),

@@ -98,6 +98,9 @@ export function workdayIdentityPath(hostname, pathname) {
  *    stored page URL (`/<site>/job/…`) and the siteless form older scans wrote
  *    (`/job/…`) are ONE identity (see workdayIdentityPath)
  */
+// Old hosts that only redirect to the current one: one posting, one identity.
+const HOST_ALIASES = { 'careers.factorialhr.com': 'careers.factorial.com' };
+
 export function canonicalizeUrl(raw) {
   if (!raw) return raw;
   const trimmed = String(raw).trim();
@@ -123,6 +126,7 @@ export function canonicalizeUrl(raw) {
 
   url.protocol = url.protocol.toLowerCase();
   url.hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+  url.hostname = HOST_ALIASES[url.hostname] || url.hostname;
   url.hash = '';
   url.pathname = workdayIdentityPath(url.hostname, url.pathname);
 

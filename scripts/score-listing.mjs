@@ -287,69 +287,11 @@ export async function scoreListing(input, opts = {}) {
       eligibility,
     }
   }
-  if (!input.comp || !Number.isFinite(input.comp.base)) {
-    return { error: 'comp_missing', message: 'comp.base (annual EUR) is required to compute Salary Adj for City', eligibility }
-  }
-
-  // 2. Salary Adj for City. Total comp build-up → tax → net.
-  const { total: totalComp, breakdown } = buildTotalComp(input.comp)
-
-  let taxRate, taxSource
-  if (input.tax_override) {
-    taxRate   = input.tax_override.rate
-    taxSource = input.tax_override.source
-  } else {
-    const hit = await taxCache.lookup(input.country, totalComp)
-    if (hit) {
-      taxRate   = hit.effective_rate
-      taxSource = `cache: ${hit.source} (${hit.last_updated})`
-    } else {
-      return { error: 'tax_rate_unresolved',
-        message: `No tax rate found for country=${input.country} band=${totalComp}. Provide tax_override or run a tax-calculator WebSearch first.`,
-        totalComp, breakdown, eligibility,
-      }
-    }
-  }
-  const { annualNet, monthlyNet } = grossToNet(totalComp, taxRate)
-
-  let baseline, colSource
-  if (input.col_override) {
-    baseline  = input.col_override.baseline_eur
-    colSource = input.col_override.source
-  } else {
-    const hit = await colCache.lookup(input.city)
-    if (hit) {
-      baseline  = hit.baseline_eur
-      colSource = `cache: ${hit.source} (${hit.last_updated})`
-    } else {
-      return { error: 'col_baseline_unresolved',
-        message: `No COL baseline found for city=${input.city}. Provide col_override or run a Numbeo WebSearch first.`,
-        totalComp, breakdown, taxRate, eligibility,
-      }
-    }
-  }
+  // 2. Salary Adj for City.
   const isIntern = input.is_intern === true
-  if (isIntern) baseline = baseline / 2  // shared housing assumed
-
-  const savings    = Number((monthlyNet - baseline).toFixed(2))
-  const baseScore  = savingsToBaseScore(savings)
-  const finalSalaryAdjScore = applyBenefitsModifier(baseScore, input.soft_benefits_modifier)
-
-  if (writeCache && input.tax_override) {
-    await taxCache.append({
-      country:        input.country,
-      gross:          totalComp,
-      effective_rate: taxRate,
-      source:         taxSource,
-    })
-  }
-  if (writeCache && input.col_override) {
-    await colCache.append({
-      city:         input.city,
-      baseline_eur: input.col_override.baseline_eur,
-      source:       colSource,
-    })
-  }
+  const salary = await salaryAdjForCity(input, { isIntern, writeCache })
+  if (salary.error) return { ...salary, eligibility }
+  const finalSalaryAdjScore = salary.score
 
   // 3. Calibration, before the rollups so calibrated values flow into them.
   const brandCal  = applyBrandCalibration(j.brand_value, input.company, calibration)
@@ -385,6 +327,117 @@ export async function scoreListing(input, opts = {}) {
     context: { is_intern: isIntern, dream, preference: pref.bonus, weights },
   })
 
+  return {
+    eligibility,
+    salary_adj_for_city: salary,
+    calibrated_dims: {
+      brand_value:     { raw: j.brand_value,     final: brandCal.value,  adjustments: brandCal.adjustments },
+      growth_mobility: { raw: j.growth_mobility, final: growthCal.value, adjustments: growthCal.adjustments },
+      competition:     { raw: j.competition,     final: compCal.value,   adjustments: compCal.adjustments },
+    },
+    dims,
+    want,
+    ease,
+    priority,
+    verdict: verdict.verdict,
+    verdict_label: VERDICT_LABELS[verdict.verdict],
+    verdict_action: VERDICT_ACTIONS[verdict.verdict],
+    tier: verdict.tier,
+    tier_reason: verdict.reason,
+    promotion_hint: promotionHint(verdict.verdict),
+    explanation,
+    prior: prior ? { ...prior, changes: compareToPrior(prior, dims) } : null,
+  }
+}
+
+// ─── Salary Adj for City ─────────────────────────────────────────────────────
+//
+// Total comp → tax → net → minus the city baseline → monthly savings → base
+// score, then the soft-benefits modifier. `comp_source: "none"` is the one path
+// to a default 5: pay is undisclosed and the comp search found nothing public
+// (modes/_shared.md › Comp research), so there is no figure to compute from.
+
+export const NO_COMP_BASE_SCORE = 5
+
+async function salaryAdjForCity(input, { isIntern, writeCache }) {
+  if (input.comp_source === 'none') {
+    const modifier = input.soft_benefits_modifier ?? 0
+    const score = applyBenefitsModifier(NO_COMP_BASE_SCORE, modifier)
+    return {
+      score,
+      base_score: NO_COMP_BASE_SCORE,
+      modifier,
+      summary: 'Pay is undisclosed and nothing public turned up, so this scores a neutral 5.',
+      math: `pay undisclosed, no public figure → default base ${NO_COMP_BASE_SCORE} → modifier ${modifier >= 0 ? '+' : ''}${modifier} → final ${score}`,
+      provenance: { tax: null, col: null },
+      computed: null,
+    }
+  }
+  if (!input.comp || !Number.isFinite(input.comp.base)) {
+    return {
+      error: 'comp_missing',
+      message: 'comp.base (annual EUR) is required to compute Salary Adj for City; when pay is undisclosed and the comp search found nothing, pass "comp_source": "none" instead',
+    }
+  }
+
+  const { total: totalComp, breakdown } = buildTotalComp(input.comp)
+
+  let taxRate, taxSource
+  if (input.tax_override) {
+    taxRate   = input.tax_override.rate
+    taxSource = input.tax_override.source
+  } else {
+    const hit = await taxCache.lookup(input.country, totalComp)
+    if (hit) {
+      taxRate   = hit.effective_rate
+      taxSource = `cache: ${hit.source} (${hit.last_updated})`
+    } else {
+      return { error: 'tax_rate_unresolved',
+        message: `No tax rate found for country=${input.country} band=${totalComp}. Provide tax_override or run a tax-calculator WebSearch first.`,
+        totalComp, breakdown,
+      }
+    }
+  }
+  const { annualNet, monthlyNet } = grossToNet(totalComp, taxRate)
+
+  let baseline, colSource
+  if (input.col_override) {
+    baseline  = input.col_override.baseline_eur
+    colSource = input.col_override.source
+  } else {
+    const hit = await colCache.lookup(input.city)
+    if (hit) {
+      baseline  = hit.baseline_eur
+      colSource = `cache: ${hit.source} (${hit.last_updated})`
+    } else {
+      return { error: 'col_baseline_unresolved',
+        message: `No COL baseline found for city=${input.city}. Provide col_override or run a Numbeo WebSearch first.`,
+        totalComp, breakdown, taxRate,
+      }
+    }
+  }
+  if (isIntern) baseline = baseline / 2  // shared housing assumed
+
+  const savings    = Number((monthlyNet - baseline).toFixed(2))
+  const baseScore  = savingsToBaseScore(savings)
+  const finalSalaryAdjScore = applyBenefitsModifier(baseScore, input.soft_benefits_modifier)
+
+  if (writeCache && input.tax_override) {
+    await taxCache.append({
+      country:        input.country,
+      gross:          totalComp,
+      effective_rate: taxRate,
+      source:         taxSource,
+    })
+  }
+  if (writeCache && input.col_override) {
+    await colCache.append({
+      city:         input.city,
+      baseline_eur: input.col_override.baseline_eur,
+      source:       colSource,
+    })
+  }
+
   // Salary text. `summary` is the one plain line for the report's Salary cell
   // ("About €150 a month left after living costs in Lyon"); `math` is the
   // full provenance chain for the report's single `Salary math:` footer line.
@@ -407,36 +460,15 @@ export async function scoreListing(input, opts = {}) {
     `→ savings €${savings.toFixed(0)}/mo → base ${baseScore} ` +
     `→ modifier ${(input.soft_benefits_modifier ?? 0) >= 0 ? '+' : ''}${input.soft_benefits_modifier ?? 0} ` +
     `→ final ${finalSalaryAdjScore}`
-  const summary = salarySummary({ savings, city: input.city, estimated, isIntern })
 
   return {
-    eligibility,
-    salary_adj_for_city: {
-      score:      finalSalaryAdjScore,
-      base_score: baseScore,
-      modifier:   input.soft_benefits_modifier ?? 0,
-      summary,
-      math,
-      provenance: { tax: taxSource, col: colSource },
-      computed:   { totalComp, annualNet, monthlyNet, baseline, savings },
-    },
-    calibrated_dims: {
-      brand_value:     { raw: j.brand_value,     final: brandCal.value,  adjustments: brandCal.adjustments },
-      growth_mobility: { raw: j.growth_mobility, final: growthCal.value, adjustments: growthCal.adjustments },
-      competition:     { raw: j.competition,     final: compCal.value,   adjustments: compCal.adjustments },
-    },
-    dims,
-    want,
-    ease,
-    priority,
-    verdict: verdict.verdict,
-    verdict_label: VERDICT_LABELS[verdict.verdict],
-    verdict_action: VERDICT_ACTIONS[verdict.verdict],
-    tier: verdict.tier,
-    tier_reason: verdict.reason,
-    promotion_hint: promotionHint(verdict.verdict),
-    explanation,
-    prior: prior ? { ...prior, changes: compareToPrior(prior, dims) } : null,
+    score:      finalSalaryAdjScore,
+    base_score: baseScore,
+    modifier:   input.soft_benefits_modifier ?? 0,
+    summary:    salarySummary({ savings, city: input.city, estimated, isIntern }),
+    math,
+    provenance: { tax: taxSource, col: colSource },
+    computed:   { totalComp, annualNet, monthlyNet, baseline, savings },
   }
 }
 

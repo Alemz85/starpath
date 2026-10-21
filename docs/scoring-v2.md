@@ -228,7 +228,7 @@ Promotion hint: `READY` for `go`; `MONITOR` for `stretch` and `solid`; blank oth
 
 ## 6. Script I/O (`scripts/score-listing.mjs`)
 
-**Input** (v1 fields kept: `company`, `role_archetype`, `city`, `country`, `comp`, `comp_source`, `tax_override`, `col_override`, `is_intern`, `soft_benefits_modifier`, `calibration`):
+**Input** (v1 fields kept: `company`, `role_archetype`, `city`, `country`, `comp`, `comp_source`, `tax_override`, `col_override`, `is_intern`, `soft_benefits_modifier`, `calibration`). `comp_source` is `disclosed` · `estimate` · `none`; `none` (pay undisclosed, nothing public found) takes no `comp` and gives Salary Adj for City a default 5 before the soft-benefits modifier, with no tax or city lookup:
 
 ```jsonc
 {

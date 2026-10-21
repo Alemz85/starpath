@@ -275,7 +275,7 @@ vetoes    : any hygiene factor < 3 (salary ignored for interns) → Want ≤ 5.0
 The math is encoded in `scripts/score-listing.mjs` (and `scripts/lib/score-bands.mjs`). The agent's job is to:
 
 1. **Build total comp inputs** from the JD:
-   - Base salary, bonus % (industry-typical estimate when undisclosed: big tech ≈ 15%, top consulting ≈ 20%, banking ≈ 30%+, most other ≈ 0–10%), 13th/14th month, monthly cash benefits (transit / meals / gym / housing), one-off sign-on.
+   - Base salary, bonus % (`bonusPct` in the script input, as a fraction: 0.10 for 10%; industry-typical estimate when undisclosed: big tech ≈ 15%, top consulting ≈ 20%, banking ≈ 30%+, most other ≈ 0–10%), 13th/14th month, monthly cash benefits (transit / meals / gym / housing), one-off sign-on.
    - **Equity:** prefer Levels.fyi (`company × role × level × city`). If Levels.fyi has nothing AND the JD discloses an equity number, annualize over vest — public RSU at face value, private RSU/options at 50% haircut (say in the Comp section that the equity value is speculative). If neither resolves it, set it to zero and say the figure is base pay only. Don't speculate.
    - Statutory benefits the country requires anyway (basic healthcare, statutory PTO, statutory parental leave) DO NOT count.
 2. **Resolve the tax rate** for `(country, gross-rounded-to-€5K)`: check `data/tax-cache.tsv` for a row within 90 days. On a miss, WebSearch a tax calculator at this exact gross, pass it as `tax_override` and run with `--write-cache`.
@@ -325,7 +325,7 @@ Globex	Revenue Planning Intern	Berlin	EUR	2000	2500	jd	high	2026-04-28
 2. **Cross-city same role** in a peer city within 60 days → adjust by the ratio of the two cities' baselines; note it as a cross-city estimate.
 3. **Same company, peer archetype** in the same city within 60 days → note it as a proxy from a similar role.
 4. **Miss or stale** → WebSearch **Levels.fyi → Glassdoor → LinkedIn Salary → Payscale → Blind**, aim for 2 sources, take the median of the entry / target-level band, say where the estimate came from in plain words in the Comp section (*"estimated from Glassdoor"*), and **append a row to the cache**.
-5. **Nothing useful found** → score **5** and say plainly that pay is undisclosed and nothing public turned up. Never fabricate a band. This is the only path to a default 5.
+5. **Nothing useful found** → score **5** and say plainly that pay is undisclosed and nothing public turned up. Never fabricate a band. This is the only path to a default 5: pass `"comp_source": "none"` with no `comp` to `score-listing.mjs`, which returns the 5 and its plain summary (never invent a base to get there).
 
 **Refresh:** a stale row consulted → WebSearch and **overwrite** it (no duplicate), update `last_updated`. `source = manual` pins a row until the user touches it again.
 
@@ -448,7 +448,8 @@ Verdict labels: `go` "Go" · `stretch` "Stretch" · `growth` "Growth target" · 
 ```bash
 echo '{
   "company": "...", "role_archetype": "...", "city": "...", "country": "..",
-  "comp": { "base": 0 }, "comp_source": "disclosed|estimate",
+  "comp": { "base": 0, "bonusPct": 0, "thirteenthMonthMonths": 0, "benefitsMonthlyEur": 0, "signOnEur": 0, "equityAnnualEur": 0 },
+  "comp_source": "disclosed|estimate|none",
   "is_intern": false, "soft_benefits_modifier": 0,
   "calibration": { ...from user/profile.yml calibration block... },
   "eligibility_facts": { ...Step 1... },
