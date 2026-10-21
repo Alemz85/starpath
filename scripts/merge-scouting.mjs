@@ -49,7 +49,7 @@ import { execFileSync } from 'child_process';
 import {
   companyKey,
   normalizeRoleForIndex,
-  roleFuzzyMatch,
+  roleVariantMatch,
   extractReportNum,
   isV2ScoutingHeader,
   parseScoutingRow,
@@ -161,6 +161,10 @@ let skipped = 0;
 const newRows = [];
 const mergedNums = []; // TSV numbers to release from the reservation folder
 const merged = []; // every addition that landed (added or updated), for the applications refresh
+// Rows this run already rewrote. Only an exact role or report-path match may
+// land on one again: a loose match would compare the next addition with the
+// role the previous one just wrote, chaining sibling listings into one row.
+const touched = new Set();
 
 for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8').trim();
@@ -176,14 +180,15 @@ for (const file of tsvFiles) {
   const sameCompany = (e) => companyKey(e.company) === normCompany;
   const roleKey = normalizeRoleForIndex(addition.role);
   const path = reportPath(addition.report);
+  const untouched = (e) => !touched.has(e);
   let dup =
     existing.find(e => sameCompany(e) && normalizeRoleForIndex(e.role) === roleKey) ||
     (path && existing.find(e => reportPath(e.report) === path)) ||
-    existing.find(e => sameCompany(e) && roleFuzzyMatch(addition.role, e.role)) ||
+    existing.find(e => sameCompany(e) && untouched(e) && roleVariantMatch(addition.role, e.role)) ||
     null;
   if (!dup) {
     const reportNum = extractReportNum(addition.report);
-    dup = existing.find(e => sameCompany(e) && ((reportNum && extractReportNum(e.report) === reportNum) || e.num === addition.num)) || null;
+    dup = existing.find(e => sameCompany(e) && untouched(e) && ((reportNum && extractReportNum(e.report) === reportNum) || e.num === addition.num)) || null;
   }
 
   if (dup) {
@@ -194,6 +199,7 @@ for (const file of tsvFiles) {
         const newLine = formatScoutingRow(buildReEvalRow(dup, addition));
         fileLines[idx] = newLine;
         Object.assign(dup, parseScoutingRow(newLine)); // keep `existing` in sync for later additions in this batch
+        touched.add(dup);
         updated++;
         merged.push(addition);
         appendDedupIndex(addition.company, addition.role, addition.date);

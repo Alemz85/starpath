@@ -156,6 +156,31 @@ export function roleFuzzyMatch(a, b) {
   return overlap.length >= 2;
 }
 
+/**
+ * Same-listing role match for scouting.md, where one company often has many
+ * sibling rows (one per city, track or intake). After gender tags and req ids
+ * are stripped, the shorter title's words must all appear in the longer one
+ * and number at least two: "Data Analyst" ~ "Data Analyst (m/f/d) - Lyon". A
+ * differing city, track or level word keeps two titles apart, which
+ * `roleFuzzyMatch` (≥2 shared words) does not: it calls "Ops Intern, Summer
+ * 2027 – Lyon" and "Sales Intern, Summer 2027 – Lyon" the same listing.
+ * Trailing locations are deliberately NOT stripped (unlike the scanner's
+ * canonicalizeRole): in scouting the city is what separates two rows.
+ */
+const VARIANT_GENDER_TAG_RE = /\(\s*[mwfdhx](?:\s*[\/|]\s*[mwfdhx])+\s*\)/gi;
+const VARIANT_REQ_ID_RE = /(?:[#(]\s*(?:jr|req|ref|id|r)?[-\s]?\d{4,}[a-z0-9-]*\s*\)?|\b(?:req|ref|job\s*id|requisition)\b[:#]?\s*[a-z]?\d{3,}[a-z0-9-]*)/gi;
+
+export function roleVariantMatch(a, b) {
+  const words = (t) => new Set(String(t ?? '').toLowerCase().replace(VARIANT_GENDER_TAG_RE, ' ').replace(VARIANT_REQ_ID_RE, ' ')
+    .split(/[^\p{L}\p{N}]+/u).filter((w) => w.length > 1));
+  const wa = words(a);
+  const wb = words(b);
+  const [small, big] = wa.size <= wb.size ? [wa, wb] : [wb, wa];
+  if (small.size < 2) return false;
+  for (const w of small) if (!big.has(w)) return false;
+  return true;
+}
+
 /* ───── Scalar parsers ───────────────────────────────────────────── */
 
 /** Extract the report number from a "[#12](…)" / "[12](…)" link, else null. */

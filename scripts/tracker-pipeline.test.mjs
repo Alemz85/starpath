@@ -128,6 +128,29 @@ test('merge-scouting: parallel re-scores that share a number each update their o
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
+test('merge-scouting: sibling listings at one company get their own rows, never chain into one', () => {
+  const root = makeRoot();
+  try {
+    addScouting(root, '001-a.tsv', '12', '2026-06-01', 'Nimbus Robotics', 'Associate Consultant Intern, Summer 2027 – Lyon, France', '7.85', '7.15', 'T2', 'amber: internship length not stated', '[12](reports/tier-2/Nimbus Robotics - Associate Consultant Intern.md)', 'n/d', '', 'original');
+    assert.equal(run('merge-scouting.mjs', [], root).code, 0);
+    // One run brings four sibling listings sharing "Intern / Summer / 2027 / Lyon / France".
+    addScouting(root, '002.tsv', '13', '2026-06-02', 'Nimbus Robotics', 'Product Management Intern, Summer 2027 - Lyon, France', '7.6', '7.77', 'T2', 'amber: x', '—', 'n/d', '', 'pm');
+    addScouting(root, '003.tsv', '14', '2026-06-02', 'Nimbus Robotics', 'Global Markets Intern, Summer 2027 - Lyon, France', '7.1', '7.77', 'T2', 'amber: x', '—', 'n/d', '', 'gm');
+    addScouting(root, '004.tsv', '15', '2026-06-02', 'Nimbus Robotics', 'Associate Consultant, Launch Program 2027 – Lyon/Nantes, France', '8.2', '7.01', 'T1', 'amber: x', '—', 'n/d', '', 'launch');
+    addScouting(root, '005.tsv', '16', '2026-06-02', 'Nimbus Robotics', 'Associate Consultant Intern, Summer 2027 – Lyon, France (m/f/d)', '7.9', '7.15', 'T2', 'amber: internship length not stated', '—', 'n/d', '', 're-eval');
+    const { code, out } = run('merge-scouting.mjs', [], root);
+    assert.equal(code, 0, out);
+    const rows = scoutingRows(root);
+    assert.equal(rows.length, 4, out);
+    const original = rows.find((r) => r.num === 12);
+    assert.equal(original.role, 'Associate Consultant Intern, Summer 2027 – Lyon, France (m/f/d)', 'the boilerplate variant re-evaluates #12');
+    assert.equal(original.want, '7.9');
+    assert.ok(rows.some((r) => r.role.startsWith('Product Management Intern')));
+    assert.ok(rows.some((r) => r.role.startsWith('Global Markets Intern')));
+    assert.ok(rows.some((r) => r.role.startsWith('Associate Consultant, Launch Program')));
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
 test('merge-scouting: a newer evaluation replaces the row (even lower) and notes W/E movement; stale ones are skipped', () => {
   const root = makeRoot();
   try {
