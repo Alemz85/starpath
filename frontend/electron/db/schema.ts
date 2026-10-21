@@ -21,7 +21,11 @@ import type Database from 'better-sqlite3'
 // v9: no shape change — the multi-city location parsing changed (one listing,
 // several places), so caches built before it hold stale `cities` cells under
 // current mtimes; force a rebuild.
-export const SCHEMA_VERSION = 9
+// v10: no shape change — reports_index now takes company/role from the
+// report's title when it names the same listing as the file name (so a role
+// like "… (Lyon)" keeps its parentheses); rows cached under current mtimes
+// hold the old file-name spelling, so force a rebuild.
+export const SCHEMA_VERSION = 10
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (

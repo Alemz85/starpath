@@ -5,6 +5,7 @@ import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { useWriteGate } from '@/store/dataRoot'
 import { livenessOf } from '@/lib/databaseRows'
+import { resolveReport } from '@/lib/reportMatch'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
@@ -78,9 +79,10 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
   const liveness = useDataStore(s => livenessOf(entry, s.liveness))
   // Does a report file already exist for this entry? If so, hide the
   // Generate-report option — re-running it would just rewrite what's there.
-  const hasReport = useDataStore(s => s.reports).some(r =>
-    r.company.trim().toLowerCase() === entry.company.trim().toLowerCase() &&
-    r.role.trim().toLowerCase() === entry.role.trim().toLowerCase()
+  // Same resolver as the report panel (lib/reportMatch): tracker link, then
+  // the file-name rule, so "… (Lyon)" finds "… Lyon.md".
+  const hasReport = useDataStore(s =>
+    resolveReport(s.reports, entry, [...s.scouting, ...s.applications]) != null,
   )
 
   const live = liveness ? LIVENESS_CHIP[liveness] : undefined

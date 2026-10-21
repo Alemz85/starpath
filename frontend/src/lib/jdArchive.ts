@@ -8,6 +8,7 @@
 // takes the two IPC reads it needs as arguments.
 
 import type { ApplicationEntry, ScoutingEntry } from '@/types'
+import { normalizeReportPath, reportLinkTarget, sameReportListing } from '@/lib/reportMatch'
 
 export interface JdArchive {
   /** `jds/…` path the text was read from. */
@@ -70,16 +71,11 @@ export function reportNumberFor(args: {
 }): number | null {
   const { scouting, applications, reportPath, company, role } = args
   const rows: Array<{ num: number; report: string; company: string; role: string }> = [...scouting, ...applications]
-  const linked = (r: { report: string }) => {
-    if (!reportPath) return false
-    let link = r.report ?? ''
-    try { link = decodeURI(link) } catch { /* as written */ }
-    return link.includes(reportPath)
-  }
+  const target = reportPath ? normalizeReportPath(reportPath) : null
+  const linked = (r: { report: string }) => target != null && reportLinkTarget(r.report) === target
   const byLink = rows.find(r => r.num > 0 && linked(r))
   if (byLink) return byLink.num
-  const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
-  const byName = rows.find(r => r.num > 0 && same(r.company, company) && same(r.role, role))
+  const byName = rows.find(r => r.num > 0 && sameReportListing(r, { company, role }))
   return byName ? byName.num : null
 }
 

@@ -23,6 +23,7 @@ import {
   buildScoreIndex, matchScore,
   type FixabilityRow,
 } from '@/lib/reportsList'
+import { reportFileStem, resolveReport } from '@/lib/reportMatch'
 import {
   normalizeEligibility, normalizeTier, parseEligibilityFlags,
 } from '@/lib/scoreBands'
@@ -552,8 +553,9 @@ export function ReportsView() {
             const tierDir = match.tier === 'T1' ? 'tier-1'
               : match.tier === 'T2' ? 'tier-2'
               : match.tier === 'T3' ? 'tier-3' : 'tier-4'
+            const file = resolveReport(reportRows, match)
             setSelected({
-              path:    `reports/${tierDir}/${match.company} - ${match.role}.md`,
+              path:    file?.path ?? `reports/${tierDir}/${reportFileStem(match.company, match.role)}.md`,
               company: match.company,
               role:    match.role,
               tier:    tierDir,

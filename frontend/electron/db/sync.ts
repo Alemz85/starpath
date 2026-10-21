@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import type Database from 'better-sqlite3'
 import { parseScouting, parseApplications, parsePipeline, parseReportPath } from '../../src/lib/parsers/markdown'
+import { reportIdentity } from '../../src/lib/reportMatch'
 import { parseScoreHistory } from '../../src/lib/parsers/tsv'
 import { entityId, parseCities } from '../../src/lib/entityId'
 import { assignVerdict, normalizeTier, parseScoreCell } from '../../src/lib/scoreBands'
@@ -291,8 +292,13 @@ export function syncReports(db: Database.Database, dataPath: string): { changed:
         // Pull URL from the report's `**URL:** ...` header line. Reports are
         // small; reading them at sync time is cheap and gives us the stable
         // join key against score_history.url.
-        const url = extractUrl(read(fp) ?? '')
-        seen.push({ path: rel, mtime: mt, company: parsed.company, role: parsed.role, tier: parsed.tier, url })
+        const text = read(fp) ?? ''
+        const url = extractUrl(text)
+        // The file name drops ( ) and friends (modes/scouting.md § File
+        // Naming); the report's title keeps the role as the trackers spell
+        // it, so index that when both name the same listing.
+        const { company, role } = reportIdentity(parsed, text)
+        seen.push({ path: rel.split(path.sep).join('/'), mtime: mt, company, role, tier: parsed.tier, url })
       }
     }
   }

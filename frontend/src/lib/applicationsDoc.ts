@@ -20,6 +20,7 @@
 
 import type { AppStatus } from '@/types'
 import { formatScoreCell } from './scoreBands'
+import { reportFileStem } from './reportMatch'
 
 export function isTableSeparator(line: string): boolean {
   return /^\|\s*-+/.test(line)
@@ -150,7 +151,7 @@ export function upsertApplicationRow(raw: string, args: {
   const today = new Date().toISOString().slice(0, 10)
   const reportLink = args.reportPath
     ? `[#${num}](${args.reportPath})`
-    : `[#${num}](reports/${tierFolder(args.tier)}/${args.company} - ${args.role}.md)`
+    : `[#${num}](reports/${tierFolder(args.tier)}/${reportFileStem(args.company, args.role)}.md)`
   const newRow = joinRow([
     String(num),
     today,

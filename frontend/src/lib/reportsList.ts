@@ -13,6 +13,7 @@ import { TIER_COLORS } from '@/types'
 import { reportFixability, type Lever } from '@/lib/tierLevers'
 import { assignVerdict, normalizeEligibility, normalizeVerdict, priorityOf, VERDICT_LABELS, VERDICT_RANK, VERDICT_TIER } from '@/lib/scoreBands'
 import { tierColor } from '@/lib/tier'
+import { reportKey } from '@/lib/reportMatch'
 
 // ─── Verdict bands ───────────────────────────────────────────────────────────
 
@@ -213,42 +214,51 @@ export function bandCounts(rows: ReportRowLike[], query = ''): Record<ScoreBand,
 
 export interface ScoreIndex {
   byExact: Map<string, ScoreEntry>
-  byCompany: Map<string, ScoreEntry[]>
+  /** Keyed by the report file-name rule (lib/reportMatch § reportKey). */
+  byKey: Map<string, ScoreEntry>
+  /** Company (file-name rule) → its distinct role keys, in first-seen order. */
+  byCompany: Map<string, string[]>
 }
+
+const companyKeyOf = (company: string) => reportKey(company, '').split('|')[0]
 
 export function buildScoreIndex(scoreHistory: ScoreEntry[]): ScoreIndex {
   const byExact = new Map<string, ScoreEntry>()
-  const byCompany = new Map<string, ScoreEntry[]>()
+  const byKey = new Map<string, ScoreEntry>()
+  const byCompany = new Map<string, string[]>()
   for (const s of scoreHistory) {
     const c  = s.company.trim().toLowerCase()
     const ro = s.role.trim().toLowerCase()
     byExact.set(`${c}|${ro}`, s)
-    const list = byCompany.get(c)
-    if (list) list.push(s)
-    else byCompany.set(c, [s])
+    const key = reportKey(s.company, s.role)
+    byKey.set(key, s)
+    const ck = companyKeyOf(s.company)
+    const list = byCompany.get(ck)
+    if (!list) byCompany.set(ck, [key])
+    else if (!list.includes(key)) list.push(key)
   }
-  return { byExact, byCompany }
+  return { byExact, byKey, byCompany }
 }
 
-// Resolve a report file to its score entry. Three-tier fallback: exact
-// company|role, then a role that is a prefix of (or prefixed by) the report's
-// role within the same company, then the company's highest-priority entry.
-// Returns null when the company isn't in score-history at all.
+// Resolve a report file to its score entry: exact company|role, then the same
+// listing under the file-name rule (a report saved as "… Lyon" for the role
+// "… (Lyon)"), then a role that is a prefix of (or prefixed by) the report's
+// role at the same company — only when exactly one listing there fits. Never
+// another listing's entry: an ambiguous or unknown report stays unscored (null).
 export function matchScore(index: ScoreIndex, r: { company: string; role: string }): ScoreEntry | null {
   const c  = r.company.trim().toLowerCase()
   const ro = r.role.trim().toLowerCase()
   const exact = index.byExact.get(`${c}|${ro}`)
   if (exact) return exact
-  const list = index.byCompany.get(c)
-  if (!list || list.length === 0) return null
-  const prefix = list.find(s => {
-    const sr = s.role.trim().toLowerCase()
-    return sr.startsWith(ro) || ro.startsWith(sr)
+  const key = reportKey(r.company, r.role)
+  const same = index.byKey.get(key)
+  if (same) return same
+  const ck = companyKeyOf(r.company)
+  const roleKey = key.slice(ck.length + 1)
+  if (!roleKey) return null
+  const fits = (index.byCompany.get(ck) ?? []).filter(k => {
+    const sr = k.slice(ck.length + 1)
+    return sr.startsWith(roleKey) || roleKey.startsWith(sr)
   })
-  if (prefix) return prefix
-  let best: ScoreEntry | null = null
-  for (const s of list) {
-    if (!best || (priorityOf(s) ?? -1) > (priorityOf(best) ?? -1)) best = s
-  }
-  return best
+  return fits.length === 1 ? index.byKey.get(fits[0]) ?? null : null
 }

@@ -20,6 +20,7 @@ import { Button, Chip, ScoreBar, ScoreNumber, StatusChip, type ChipTone } from '
 import { formatLocation, variantLabel } from '@/lib/entityId'
 import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
+import { normalizeReportPath, reportKey, reportLinkTarget } from '@/lib/reportMatch'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
 import { tierVerdict } from '@/lib/tier'
@@ -374,21 +375,29 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
 
   // Fast lookup: which entries already have a report file on disk?
   // Match on URL primarily — that's the stable join key when both the
-  // score-history row and the report markdown have one. Fall back to
-  // (company, role) for legacy reports written before URL tracking.
+  // score-history row and the report markdown have one. Then the shared
+  // report rule (lib/reportMatch): a tracker row whose report link points at
+  // an indexed file, or the file-name rule (parentheses etc. dropped).
+  const scouting = useDataStore(s => s.scouting)
   const reportSet = useMemo(() => {
     const byUrl  = new Set<string>()
-    const byPair = new Set<string>()
+    const byKey  = new Set<string>()
+    const byPath = new Set<string>()
     for (const r of reports) {
       if (r.url) byUrl.add(r.url)
-      byPair.add(livenessKey(r.company, r.role))
+      byKey.add(reportKey(r.company, r.role))
+      byPath.add(normalizeReportPath(r.path))
     }
-    return { byUrl, byPair }
-  }, [reports])
+    for (const row of [...scouting, ...applications]) {
+      const link = reportLinkTarget(row.report)
+      if (link && byPath.has(link)) byKey.add(reportKey(row.company, row.role))
+    }
+    return { byUrl, byKey }
+  }, [reports, scouting, applications])
 
   const hasReport = (entry: ScoreEntry): boolean => {
     if (entry.url && reportSet.byUrl.has(entry.url)) return true
-    return reportSet.byPair.has(livenessKey(entry.company, entry.role))
+    return reportSet.byKey.has(reportKey(entry.company, entry.role))
   }
 
   // Listing → application status, keyed company|role (same key the liveness /

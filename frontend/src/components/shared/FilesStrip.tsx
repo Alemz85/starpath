@@ -5,6 +5,7 @@ import { ipc } from '@/lib/ipc'
 import { useAppStore } from '@/store/app'
 import { FileText, BookOpen } from 'lucide-react'
 import { clsx } from 'clsx'
+import { mirroredPathCandidates } from '@/lib/reportMatch'
 import {
   findCvFile,
   findCvSidecar,
@@ -49,11 +50,24 @@ export function FilesStrip({ company, role, size = 'md', className }: FilesStrip
   const [ats, setAts] = useState<AtsReadiness | null>(null)
 
   const legacyCvPath = `output/${company} - ${role}.pdf`
-  const prepPath = `interview-prep/${company} - ${role}.md`
+  // The name as written, or as cleaned the way report files are named
+  // (lib/reportMatch: no parentheses etc.); the first one on disk wins.
+  const [prepPath, setPrepPath] = useState(`interview-prep/${company} - ${role}.md`)
 
   useEffect(() => {
-    ipc.fileExists(prepPath).then(setPrepExists)
-  }, [prepPath])
+    let alive = true
+    const candidates = mirroredPathCandidates('interview-prep', company, role)
+    void (async () => {
+      for (const p of candidates) {
+        if (await ipc.fileExists(p)) {
+          if (alive) { setPrepPath(p); setPrepExists(true) }
+          return
+        }
+      }
+      if (alive) { setPrepPath(candidates[0]); setPrepExists(false) }
+    })()
+    return () => { alive = false }
+  }, [company, role])
 
   // One output/ listing resolves both the CV presence AND its ATS readiness, so
   // the two can never disagree. pdf mode writes the CV as

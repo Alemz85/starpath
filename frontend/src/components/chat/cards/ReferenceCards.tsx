@@ -192,10 +192,15 @@ export function ReportBlockCard({ company, role, label }: { company: string; rol
   const loaded = useDataStore(s => s.loaded)
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const reports = useDataStore(s => s.reports)
+  const scoutingRows = useDataStore(s => s.scouting)
+  const applicationRows = useDataStore(s => s.applications)
   const { openReport } = useChatCardActions()
 
   const evaluation = useMemo(() => latestEvaluation(scoreHistory, company, role), [scoreHistory, company, role])
-  const file = useMemo(() => findReport(reports, company, role), [reports, company, role])
+  const file = useMemo(
+    () => findReport(reports, company, role, [...scoutingRows, ...applicationRows]),
+    [reports, company, role, scoutingRows, applicationRows],
+  )
   // The TL;DR is read from the report itself, verbatim (reportFacts).
   const [summary, setSummary] = useState<{ path: string; text: string | null } | null>(null)
 

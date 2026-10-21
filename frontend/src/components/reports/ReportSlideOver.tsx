@@ -40,6 +40,7 @@ import {
 } from '@/lib/scoringStats'
 import { Button, Chip, ScoreNumber, ScoreBar, SectionHeading } from '@/components/ui'
 import { loadJdArchive, reportNumberFor, type JdArchive } from '@/lib/jdArchive'
+import { mirroredPathCandidates, reportFileStem, reportPathCandidates, resolveReport } from '@/lib/reportMatch'
 
 // ─── The report dossier ──────────────────────────────────────────────────────
 //
@@ -92,6 +93,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   const scoreHistory = useDataStore(s => s.scoreHistory)
   const scoutingRows = useDataStore(s => s.scouting)
   const applicationRows = useDataStore(s => s.applications)
+  const indexedReports = useDataStore(s => s.reports)
   const [scoutingContent, setScoutingContent] = useState<string | null>(null)
   const [applicationContent, setApplicationContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -178,23 +180,30 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       setLoading(false)
       return
     }
+    // lib/reportMatch: the report the cache index ties to this listing (by
+    // the tracker row's report link, then the file-name rule), else probe the
+    // disk with the same candidates — the tracker links, then each tier
+    // folder under the name as written and as cleaned (no parentheses etc.).
+    const trackerRows = [...scoutingRows, ...applicationRows]
     let scoutingPath: string | null = null
-    for (const dir of TIER_DIRS) {
-      const p = `reports/${dir}/${company} - ${role}.md`
-      if (await ipc.fileExists(p)) { scoutingPath = p; break }
-    }
+    const indexed = resolveReport(indexedReports, { company, role }, trackerRows)
+    if (indexed && await ipc.fileExists(indexed.path)) scoutingPath = indexed.path
     if (!scoutingPath) {
-      const flat = `reports/${company} - ${role}.md`
-      if (await ipc.fileExists(flat)) scoutingPath = flat
+      for (const p of reportPathCandidates(company, role, trackerRows)) {
+        if (await ipc.fileExists(p)) { scoutingPath = p; break }
+      }
     }
-    const prepPath = `interview-prep/${company} - ${role}.md`
-    const prepExists = await ipc.fileExists(prepPath)
+    let prepPath: string | null = null
+    for (const p of mirroredPathCandidates('interview-prep', company, role)) {
+      if (await ipc.fileExists(p)) { prepPath = p; break }
+    }
+    const prepExists = prepPath != null
 
     if (scoutingPath) {
       const text = await ipc.readFile(scoutingPath)
       if (text) setScoutingContent(text)
     }
-    if (prepExists) {
+    if (prepPath) {
       const text = await ipc.readFile(prepPath)
       if (text) setApplicationContent(text)
     }
@@ -203,6 +212,10 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     else if (prepExists) setActiveTab('application')
     else setError('No report or application prep exists for this listing yet.')
     setLoading(false)
+    // The tracker rows and the index only refine where the file is; reloading
+    // on every store refresh would flash the panel, so they're read from the
+    // latest render without being dependencies.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [company, role, repoPath])
 
   useEffect(() => { loadFiles() }, [loadFiles])
@@ -219,9 +232,19 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     if (!repoPath) return
     setSnapshotLoading(true)
     setSnapshot(null)
+    // Snapshots sit beside the report as `.history/{report name}.{date}.md`:
+    // try the found report's own folder and name first, then every tier
+    // folder under the name as written and as cleaned.
+    const candidates: string[] = []
+    if (reportPath) {
+      const slash = reportPath.lastIndexOf('/')
+      const base = reportPath.slice(slash + 1).replace(/\.md$/i, '')
+      candidates.push(`${reportPath.slice(0, slash)}/.history/${base}.${date}.md`)
+    }
+    const stems = [`${company} - ${role}`, reportFileStem(company, role)]
+    for (const dir of TIER_DIRS) for (const stem of stems) candidates.push(`reports/${dir}/.history/${stem}.${date}.md`)
     let path: string | null = null
-    for (const dir of TIER_DIRS) {
-      const candidate = `reports/${dir}/.history/${company} - ${role}.${date}.md`
+    for (const candidate of candidates) {
       if (await ipc.fileExists(candidate)) { path = candidate; break }
     }
     if (!path) {
@@ -232,7 +255,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     const text = await ipc.readFile(path)
     setSnapshot({ date, content: text ?? 'The snapshot file exists but could not be read.' })
     setSnapshotLoading(false)
-  }, [company, role, repoPath])
+  }, [company, role, repoPath, reportPath])
 
   // Header metadata parsed from the report (archetype, verification, the
   // richer location line) — rendered once, in the header.

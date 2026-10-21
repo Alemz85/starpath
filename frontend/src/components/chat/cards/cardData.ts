@@ -7,6 +7,7 @@ import { sameKey } from '@/lib/chat/blocks'
 import { buildTodaySummary, type DeadlineItem } from '@/lib/todayCockpit'
 import { latestPerListing } from '@/lib/trendsAnalytics'
 import type { ApplicationEntry, ReportFile, ScoreEntry, ScoutingEntry } from '@/types'
+import { resolveReport, type ReportLinkRow } from '@/lib/reportMatch'
 
 const matches = (row: { company: string; role: string }, company: string, role: string) =>
   sameKey(row.company, company) && sameKey(row.role, role)
@@ -34,8 +35,16 @@ export function findScouting(rows: ScoutingEntry[], company: string, role: strin
   return best
 }
 
-export function findReport(reports: ReportFile[], company: string, role: string): ReportFile | null {
-  return reports.find(r => matches(r, company, role)) ?? null
+/** The listing's report file: by the tracker row's report link, then the
+ *  file-name rule (lib/reportMatch), so a role with parentheses still finds a
+ *  file saved without them. */
+export function findReport(
+  reports: ReportFile[],
+  company: string,
+  role: string,
+  trackerRows?: ReportLinkRow[],
+): ReportFile | null {
+  return resolveReport(reports, { company, role }, trackerRows)
 }
 
 /** One role at a company, as the company card lists it. */

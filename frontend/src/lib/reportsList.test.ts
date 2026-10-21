@@ -156,7 +156,7 @@ test('bandCounts tallies per band and respects the query', () => {
 
 // ─── buildScoreIndex / matchScore ────────────────────────────────────────────
 
-test('matchScore: exact → prefix (both directions) → highest-priority fallback → null', () => {
+test('matchScore: exact → file-name rule → unique prefix (both directions) → null', () => {
   const entries = [
     makeScoreEntry({ company: 'Acme', role: 'Analyst', want: 6, ease: 6 }),
     makeScoreEntry({ company: 'Acme', role: 'Senior Strategy Associate', want: 7, ease: 7 }),
@@ -168,9 +168,26 @@ test('matchScore: exact → prefix (both directions) → highest-priority fallba
   assert.equal(matchScore(idx, { company: ' acme ', role: 'ANALYST' })?.role, 'Analyst')
   assert.equal(matchScore(idx, { company: 'Acme', role: 'Senior Strategy' })?.role, 'Senior Strategy Associate')
   assert.equal(matchScore(idx, { company: 'Acme', role: 'Senior Strategy Associate II' })?.role, 'Senior Strategy Associate')
-  assert.equal(matchScore(idx, { company: 'Globex', role: 'Something else' })?.role, 'Data Lead')
+  // No company-wide fallback: an unknown role at a known company stays unscored.
+  assert.equal(matchScore(idx, { company: 'Globex', role: 'Something else' }), null)
   assert.equal(matchScore(idx, { company: 'Nope', role: 'x' }), null)
   assert.equal(buildScoreIndex([]).byExact.size, 0)
+})
+
+test('matchScore: a report saved without parentheses finds its own listing, never a sibling', () => {
+  const entries = [
+    makeScoreEntry({ company: 'Nimbus Robotics', role: 'Program Analyst Intern, Lyon 2027', want: 8, ease: 8.25 }),
+    makeScoreEntry({ company: 'Nimbus Robotics', role: 'Process Analyst Intern 2027 (Lyon)', want: 8, ease: 7.4 }),
+  ]
+  const idx = buildScoreIndex(entries)
+  // File name "Nimbus Robotics - Process Analyst Intern 2027 Lyon.md"
+  const hit = matchScore(idx, { company: 'Nimbus Robotics', role: 'Process Analyst Intern 2027 Lyon' })
+  assert.equal(hit?.role, 'Process Analyst Intern 2027 (Lyon)')
+  assert.equal(hit?.ease, 7.4)
+  // A report for a third listing at the same company borrows nobody's scores.
+  assert.equal(matchScore(idx, { company: 'Nimbus Robotics', role: 'Data Analyst Intern (Lisbon)' }), null)
+  // A prefix that fits both listings is ambiguous: unscored, not the higher-priority one.
+  assert.equal(matchScore(idx, { company: 'Nimbus Robotics', role: 'P' }), null)
 })
 
 // ─── fixability / near-miss ──────────────────────────────────────────────────
