@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, KeyboardEvent } from 'react'
 import { Search, X } from 'lucide-react'
 import { clsx } from 'clsx'
+import { onAppCommand } from '@/lib/appCommands'
 
 const TOKEN_SUGGESTIONS = [
   { token: 'company:',   hint: 'filter by company name' },
@@ -93,6 +94,9 @@ export function FilterBar({ value, onChange }: FilterBarProps) {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [])
+
+  // Edit › Find (⌘F) in the menu bar lands here too.
+  useEffect(() => onAppCommand('search', () => inputRef.current?.focus()), [])
 
   return (
     <div className="relative w-full">

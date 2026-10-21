@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Sidebar } from './Sidebar'
 import { CmdK } from '@/components/shared/CmdK'
 import { ShortcutsOverlay } from '@/components/shared/ShortcutsOverlay'
+import { MenuCommands } from '@/components/layout/MenuCommands'
 import { useDataStore } from '@/store/data'
 import { useNavStore, VIEW_LABELS } from '@/store/nav'
 import { useConfigDirty } from '@/store/configDirty'
@@ -104,6 +105,7 @@ export function AppShell() {
       </main>
       <CmdK />
       <ShortcutsOverlay />
+      <MenuCommands />
       <AddListingModal />
 
       {/* Cross-view unsaved-changes guard. Fires when the user clicks a

@@ -6,6 +6,8 @@ import {
   shell,
   nativeTheme,
   session,
+  Menu,
+  type MenuItemConstructorOptions,
 } from 'electron'
 import path from 'path'
 import fs from 'fs'
@@ -440,8 +442,120 @@ async function checkClaudeAuth(): Promise<AuthResult> {
 
 let mainWindow: BrowserWindow | null = null
 
+// ─── Application menu ────────────────────────────────────────────────────────
+// Every command the title bar, the ⌘K palette and the g-chords offer is also
+// here, in Apple's order (app, File, Edit, View, app-specific, Window, Help),
+// so nothing is reachable only through a shortcut the renderer invents
+// (HIG › The menu bar: "Even when commands are available elsewhere in your
+// app, it’s important to list them in the menu bar."). Each item sends one
+// `menu:command` id; src/components/layout/MenuCommands.tsx maps it onto the
+// nav store and the app's command bus. Titles are title-style because the
+// system draws this menu beside its own.
+let sidebarVisible = true
+
+function menuCommand(id: string): () => void {
+  return () => { mainWindow?.webContents.send('menu:command', id) }
+}
+
+function buildMenu(): Menu {
+  // ⌘1 … ⌘9 follow the sidebar's order; src/lib/shortcuts.ts NAV_NUMBERS mirrors it.
+  const go = (label: string, view: string, n: number): MenuItemConstructorOptions =>
+    ({ label, accelerator: `CmdOrCtrl+${n}`, click: menuCommand(`nav:${view}`) })
+  const devItems: MenuItemConstructorOptions[] = isDev
+    ? [{ type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' }]
+    : []
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: menuCommand('nav:settings') },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'File',
+      submenu: [
+        { label: 'Add Listing…', accelerator: 'CmdOrCtrl+N', click: menuCommand('add-listing') },
+        { label: 'Export Database…', accelerator: 'Shift+CmdOrCtrl+E', click: menuCommand('export') },
+        { type: 'separator' },
+        { role: 'close' },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' }, { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+        { type: 'separator' },
+        { label: 'Find', accelerator: 'CmdOrCtrl+F', click: menuCommand('search') },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: sidebarVisible ? 'Hide Sidebar' : 'Show Sidebar',
+          accelerator: 'Control+CmdOrCtrl+S',
+          click: menuCommand('toggle-sidebar'),
+        },
+        { type: 'separator' },
+        go('Chat', 'chat', 1),
+        go('Scout', 'scouting', 2),
+        go('Applying', 'applying', 3),
+        go('Database', 'database', 4),
+        go('Reports', 'reports', 5),
+        go('Trends', 'trends', 6),
+        go('Activity', 'scan', 7),
+        go('Messages', 'messages', 8),
+        go('Profile', 'profile', 9),
+        { type: 'separator' },
+        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+K', click: menuCommand('palette') },
+        { type: 'separator' },
+        { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        ...devItems,
+      ],
+    },
+    {
+      label: 'Scan',
+      submenu: [
+        { label: 'Full Scan', click: menuCommand('scan:full') },
+        { label: 'API Only', click: menuCommand('scan:api') },
+        { label: 'Filtered Scan…', click: menuCommand('scan:filtered') },
+        { type: 'separator' },
+        { label: 'Filter to Database', click: menuCommand('filter-db') },
+      ],
+    },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        { label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/', click: menuCommand('shortcuts') },
+      ],
+    },
+  ]
+  return Menu.buildFromTemplate(template)
+}
+
+ipcMain.handle('app:set-sidebar-visible', (_e, visible: unknown) => {
+  const next = Boolean(visible)
+  if (next === sidebarVisible) return
+  sidebarVisible = next
+  Menu.setApplicationMenu(buildMenu())
+})
+
 function createWindow(): void {
   nativeTheme.themeSource = 'dark'
+  Menu.setApplicationMenu(buildMenu())
 
   const cfg = readConfig()
   const bounds = cfg.windowBounds ?? { width: 1280, height: 800 }

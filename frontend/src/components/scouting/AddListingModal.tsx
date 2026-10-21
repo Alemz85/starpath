@@ -364,7 +364,7 @@ export function AddListingModal() {
       {/* Backdrop */}
       <div
         className={clsx(
-          'fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] transition-opacity duration-200 ease-quart',
+          'fixed inset-0 z-50 bg-black/40 transition-opacity duration-200 ease-quart',
           entering ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}

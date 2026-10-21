@@ -277,8 +277,17 @@ const TABS: { key: SettingsTab; label: string; sub: string }[] = [
 
 const isSettingsTab = (v: string): v is SettingsTab => TABS.some(t => t.key === v)
 
+// The last tab the user looked at, kept for the life of the window so
+// reopening Settings restores it (unmounting the view would otherwise reset
+// it to General). Session-only on purpose: a fresh launch starts at General.
+let lastSettingsTab: SettingsTab = 'general'
+
 export function SettingsView() {
-  const [tab, setTab] = useState<SettingsTab>('general')
+  const [tab, setTabState] = useState<SettingsTab>(lastSettingsTab)
+  const setTab = useCallback((next: SettingsTab) => {
+    lastSettingsTab = next
+    setTabState(next)
+  }, [])
   // pendingTab is set when the user clicks a different tab while the
   // current tab is dirty. The modal asks them to discard or stay.
   const [pendingTab, setPendingTab] = useState<SettingsTab | null>(null)
@@ -305,7 +314,7 @@ export function SettingsView() {
     } else {
       setTab(next)
     }
-  }, [tab, isDirty])
+  }, [tab, isDirty, setTab])
 
   // Sub-tab requests from navigate() — e.g. a CmdK jump straight to
   // Portals. The payload is one-shot but lingers in the store until the
@@ -502,7 +511,7 @@ function GeneralTab() {
             icon={<FolderOpen size={13} aria-hidden="true" />}
             className="shrink-0"
           >
-            Change
+            Change…
           </Button>
         </div>
       </SettingRow>

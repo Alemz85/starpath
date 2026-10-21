@@ -45,6 +45,11 @@ export const ipc = {
   /** Open a repo-relative file (resolved through the data root) with the
    *  system's default app. False when it doesn't exist or can't open. */
   openFile:             (filePath: string)      => api().openFile(filePath) as Promise<boolean>,
+  /** The native menu bar's commands (`nav:<view>`, `toggle-sidebar`, and the
+   *  ids in lib/appCommands.ts). Returns the unsubscribe. */
+  onMenuCommand:        (cb: (id: string) => void) => api().onMenuCommand(cb),
+  /** Keeps View › Hide Sidebar / Show Sidebar true to the sidebar's state. */
+  setSidebarVisible:    (visible: boolean)      => api().setSidebarVisible(visible),
 
   // Data root — where personal files live. `info()` is null outside
   // Electron; `setDataPath('demo')` shows the fictional demo read-only,

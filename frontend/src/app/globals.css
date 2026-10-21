@@ -149,7 +149,7 @@ select:not([multiple]) {
   .btn-sm.btn-icon { @apply w-7; }
   .btn-xs.btn-icon { @apply w-6; }
   .btn-primary   { @apply bg-action text-action-text hover:bg-action-hover active:bg-action-press shadow-pill hover:shadow-pill-hover; }
-  .btn-secondary { @apply bg-bg-base text-text-1 border border-border-default shadow-subtle hover:bg-bg-elevated active:bg-bg-panel; }
+  .btn-secondary { @apply bg-bg-base text-text-1 border border-border-default hover:bg-bg-elevated active:bg-bg-panel; }
   .btn-ghost     { @apply text-text-3 hover:text-text-1 hover:bg-bg-elevated; }
   .btn-tinted    { @apply bg-accent-soft text-accent-text hover:bg-accent/20; }
   .btn-danger    { @apply bg-danger/10 text-danger hover:bg-danger/15; }
@@ -178,13 +178,13 @@ select:not([multiple]) {
   .label { @apply text-[12px] font-medium text-text-3 leading-tight; }
 
   /* Cards: hairline plus a 1px contact shadow, 14px. */
-  .card { @apply bg-bg-base border border-border-default rounded-lg shadow-subtle; }
+  .card { @apply bg-bg-base border border-border-default rounded-lg; }
 
   /* Inputs */
   .input {
     @apply h-8 w-full px-2.5 rounded border border-border-default bg-bg-base text-[13px] text-text-1
            placeholder:text-text-4 outline-none transition-[border-color,box-shadow] duration-150
-           shadow-subtle focus:border-accent/60 focus:ring-[3px] focus:ring-accent/15;
+           focus:border-accent/60 focus:ring-[3px] focus:ring-accent/15;
   }
   .input-sm { @apply h-7 px-2 text-[12px]; }
 
@@ -337,6 +337,29 @@ select:not([multiple]) {
   .shimmer            { animation: none; }
 }
 
+/* macOS › Accessibility › Display › Increase contrast: hairlines step up to the
+   strong border, secondary copy steps up a tier, the active nav pill and the
+   chips get a solid edge. Role tokens are swapped, so every theme follows. */
+@media (prefers-contrast: more) {
+  :root, [data-palette] {
+    --c-border-default: var(--c-border-strong);
+    --c-text-3: var(--c-text-2);
+    --c-text-4: var(--c-text-3);
+    --c-nav-faint: var(--c-nav-muted);
+  }
+  .card, .input, .btn-secondary, .chip { border-color: rgb(var(--c-border-strong)); }
+  .galaxy-bg { background: rgb(var(--c-bg-base)); }
+}
+
+/* macOS › Accessibility › Display › Reduce transparency: no translucent
+   surfaces, no star fields, an opaque scrim. */
+@media (prefers-reduced-transparency: reduce) {
+  * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+  .galaxy-stars::before,
+  .galaxy-stars::after { display: none; }
+  .scrim-opaque { background-color: rgb(var(--c-night-deep) / 0.6); }
+}
+
 /* Empty-state gradient border (no fill change). */
 .galaxy-border {
   border: 1px solid transparent;
@@ -353,11 +376,6 @@ select:not([multiple]) {
   animation: chip-appear 200ms cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
-.frosted {
-  background: rgb(var(--c-bg-panel) / 0.8);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
-}
 
 /* ─── Report prose ───────────────────────────────────────────────────────── */
 

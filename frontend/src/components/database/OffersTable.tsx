@@ -9,17 +9,19 @@ import {
   createColumnHelper,
   type SortingState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText, TrendingUp } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Search, ExternalLink, ChevronRight, FileText, TrendingUp, X, Sparkles, GraduationCap } from 'lucide-react'
+import { spawnPerListing } from '@/components/shared/RowActionPopover'
 // clsx, not cn(): twMerge reads the custom `text-label` / `text-body` sizes as
 // colours and would silently drop them next to a `text-text-*` class.
 import { clsx } from 'clsx'
 import type { ScoreEntry, AppStatus } from '@/types'
 import { ENGAGED_STATUSES } from '@/types'
 import { CompanyLink } from '@/components/shared/CompanyLink'
-import { Button, Chip, ScoreBar, ScoreNumber, StatusChip, type ChipTone } from '@/components/ui'
+import { Button, Chip, ScoreBar, ScoreNumber, StatusChip, openOnControlClick, useContextMenu, type ChipTone, type ContextMenuItemInput } from '@/components/ui'
 import { formatLocation, variantLabel } from '@/lib/entityId'
 import { livenessKey } from '@/lib/scanHistory'
 import { useDataStore } from '@/store/data'
+import { useWriteGate } from '@/store/dataRoot'
 import { normalizeReportPath, reportKey, reportLinkTarget } from '@/lib/reportMatch'
 import { ipc } from '@/lib/ipc'
 import { canonicalizeArchetype } from '@/lib/archetype'
@@ -415,6 +417,33 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     return status != null && ENGAGED_STATUSES.has(status) ? status : undefined
   }
 
+  // Secondary click on a row: the row popover's actions, reachable without
+  // opening it. Items the row can't use are left out (no report → no "View
+  // full report"); the demo's read-only gate disables the one write and says
+  // why. Tailor CV / Prep application run the popover's own spawn helper.
+  const menu = useContextMenu()
+  const { canWrite, readOnlyTitle } = useWriteGate()
+  const rowMenuItems = (entry: ScoreEntry): ContextMenuItemInput[] => {
+    const url = entry.url && /^https?:\/\//i.test(entry.url) ? entry.url : null
+    return [
+      hasReport(entry) && { label: 'View full report', icon: FileText, onSelect: () => onOpenReport(entry) },
+      url != null && { label: 'Open listing', icon: ExternalLink, onSelect: () => ipc.openExternal(url) },
+      'separator',
+      canWrite && { label: 'Tailor CV', icon: Sparkles, onSelect: () => spawnPerListing('Tailor CV', 'modes/pdf.md', entry, 'tailorCv') },
+      canWrite && { label: 'Prep application', icon: GraduationCap, onSelect: () => spawnPerListing('Prep Application', 'modes/interview-prep.md', entry, 'interviewPrep') },
+      'separator',
+      {
+        label: 'Mark not interested',
+        icon: X,
+        tone: 'danger',
+        disabled: !canWrite,
+        title: canWrite ? undefined : readOnlyTitle ?? undefined,
+        // Same tombstone the popover writes (store/data.ts discardListing).
+        onSelect: () => { void useDataStore.getState().discardListing(entry.company, entry.role) },
+      },
+    ]
+  }
+
   const columns = useMemo(() => [
     col.display({
       id: 'breakdown',
@@ -680,7 +709,8 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
             return (
               <Fragment key={row.id}>
                 <tr
-                  onClick={(evt) => onRowClick(entry, evt)}
+                  onClick={(evt) => { if (!openOnControlClick(evt, menu.open, rowMenuItems(entry))) onRowClick(entry, evt) }}
+                  onContextMenu={(evt) => menu.open(evt, rowMenuItems(entry))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()
@@ -740,6 +770,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
           )}
         </tbody>
       </table>
+      {menu.element}
     </div>
   )
 }

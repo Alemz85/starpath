@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { useNavStore } from '@/store/nav'
+import { onAppCommand } from '@/lib/appCommands'
 import {
   reduceChord,
   shortcutGroups,
@@ -30,6 +31,9 @@ export function ShortcutsOverlay() {
   const navigate = useNavStore(s => s.navigate)
   const [open, setOpen] = useState(false)
   const chord = useRef<ChordState>(IDLE_CHORD)
+
+  // Help › Keyboard Shortcuts (⌘/) in the menu bar.
+  useEffect(() => onAppCommand('shortcuts', () => setOpen(o => !o)), [])
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -76,7 +80,7 @@ export function ShortcutsOverlay() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       onClick={() => setOpen(false)}
       style={{ animation: 'chip-appear 160ms ease both' }}
     >

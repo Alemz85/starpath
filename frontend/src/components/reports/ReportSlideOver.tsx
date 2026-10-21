@@ -385,7 +385,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
     <>
       <div
         className={cn(
-          'fixed inset-0 z-30 bg-scrim/[0.32] backdrop-blur-[3px] backdrop-saturate-[0.9] transition-opacity duration-200',
+          'fixed inset-0 z-30 bg-scrim/[0.32] transition-opacity duration-200',
           open ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}

@@ -1,13 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { Check, FileText, Lightbulb, Eye } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/store/app'
 import { useWriteGate } from '@/store/dataRoot'
 import { ipc } from '@/lib/ipc'
-import { Button, Chip } from '@/components/ui'
-import { FeatureToggle } from '@/components/settings/FeatureToggle'
+import { Button, Chip, Switch } from '@/components/ui'
 import {
   MINUTE_CHOICES, TOP_CHOICES, WEEKDAY_NAMES, WEEKDAY_ORDER, evaluationCapLine, formatWhen, jobStateLine, parseScheduleStatus,
   parseSlotSuggestion, runResultChip, sameSlot, schedulerArgs, slotLabel,
@@ -125,21 +124,21 @@ export function ScheduleSection() {
 
   return (
     <div className="mt-4 space-y-4">
-      <FeatureToggle
+      <SwitchRow
         label="Run on its own"
         sub={`${jobStateLine(status)} Scans the job boards at most once every 7 days (counted from the last run, manual or scheduled) and ranks the new listings. It never applies or sends anything.`}
-        value={status.installed}
+        checked={status.installed}
         onChange={(on) => { if (on !== status.installed) void (on ? turnOn() : turnOff()) }}
         disabled={busy}
       />
 
       <div className="space-y-3">
-        <FeatureToggle
+        <SwitchRow
           label="Evaluate automatically"
           sub={status.options.evaluate
             ? `On. Each run also starts Claude workers that score the best new listings and write reports and tracker rows. They run unattended with permission prompts skipped, so nobody confirms their actions. ${evaluationCapLine(status.options)}`
             : 'Off. Runs only scan and rank, which costs no Claude usage. Turn on to also start unattended Claude workers (permission prompts skipped) that score the best new listings.'}
-          value={status.options.evaluate}
+          checked={status.options.evaluate}
           onChange={(on) => { if (on !== status.options.evaluate) void apply('Changing evaluations', schedulerArgs.setEvaluate(on), on ? 'Scheduled runs will evaluate listings.' : 'Scheduled runs will only scan and rank.') }}
           disabled={busy}
         />
@@ -276,6 +275,35 @@ export function ScheduleSection() {
           {note.text}
         </p>
       )}
+    </div>
+  )
+}
+
+// An on/off setting: title and explanation on the left, the Switch on the
+// right, centred on the title line. The explanation describes the switch.
+function SwitchRow({ label, sub, checked, onChange, disabled }: {
+  label: string
+  sub: ReactNode
+  checked: boolean
+  onChange: (on: boolean) => void
+  disabled?: boolean
+}) {
+  const descId = useId()
+  return (
+    <div className="flex items-start justify-between gap-6 py-1">
+      <div className="min-w-0">
+        <div className="text-body font-medium text-text-1">{label}</div>
+        <div id={descId} className="text-label text-text-3 mt-0.5">{sub}</div>
+      </div>
+      <Switch
+        label={label}
+        labelHidden
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        aria-describedby={descId}
+        className="shrink-0 mt-0.5"
+      />
     </div>
   )
 }

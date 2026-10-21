@@ -39,7 +39,7 @@
   --c-text-1: 11 19 38;
   --c-text-2: 31 42 61;
   --c-text-3: 86 99 122;
-  --c-text-4: 133 145 166;
+  --c-text-4: 104 113 129;
   --c-accent: 11 111 191;
   --c-accent-hover: 9 92 158;
   --c-accent-press: 7 76 132;
@@ -55,10 +55,10 @@
   --c-tier-2: 11 111 191;
   --c-tier-2-bg: 230 240 249;
   --c-tier-2-light: 125 184 240;
-  --c-tier-3: 104 144 182;
+  --c-tier-3: 84 117 147;
   --c-tier-3-bg: 238 243 248;
   --c-tier-3-light: 181 203 224;
-  --c-tier-4: 167 177 192;
+  --c-tier-4: 104 110 119;
   --c-tier-4-bg: 238 241 245;
   --c-tier-4-light: 201 209 220;
   --c-score-mid: 86 99 122;
@@ -95,7 +95,7 @@
   --c-nav-text: 230 235 245;
   --c-nav-strong: 255 255 255;
   --c-nav-muted: 139 150 174;
-  --c-nav-faint: 100 112 137;
+  --c-nav-faint: 116 126 149;
   --c-nav-active-text: 255 255 255;
   --c-nav-count-text: 185 211 242;
   --c-nav-accent: 125 184 240;
@@ -130,7 +130,7 @@
   --c-text-1: 5 5 5;
   --c-text-2: 28 43 51;
   --c-text-3: 93 108 123;
-  --c-text-4: 133 149 164;
+  --c-text-4: 105 118 130;
   --c-accent: 124 92 255;
   --c-accent-hover: 91 63 232;
   --c-accent-press: 74 47 200;
@@ -146,10 +146,10 @@
   --c-tier-2: 124 92 255;
   --c-tier-2-bg: 241 236 255;
   --c-tier-2-light: 181 163 255;
-  --c-tier-3: 139 127 194;
+  --c-tier-3: 118 108 165;
   --c-tier-3-bg: 244 241 250;
   --c-tier-3-light: 200 190 236;
-  --c-tier-4: 148 163 184;
+  --c-tier-4: 103 112 127;
   --c-tier-4-bg: 241 244 247;
   --c-tier-4-light: 201 210 221;
   --c-score-mid: 93 108 123;
@@ -186,7 +186,7 @@
   --c-nav-text: 28 43 51;
   --c-nav-strong: 5 5 5;
   --c-nav-muted: 93 108 123;
-  --c-nav-faint: 133 149 164;
+  --c-nav-faint: 102 114 126;
   --c-nav-active-text: 5 5 5;
   --c-nav-count-text: 91 63 232;
   --c-nav-accent: 124 92 255;
@@ -221,7 +221,7 @@
   --c-text-1: 26 24 48;
   --c-text-2: 45 42 69;
   --c-text-3: 98 94 125;
-  --c-text-4: 143 140 168;
+  --c-text-4: 113 111 133;
   --c-accent: 79 91 213;
   --c-accent-hover: 63 73 184;
   --c-accent-press: 51 60 156;
@@ -237,10 +237,10 @@
   --c-tier-2: 79 91 213;
   --c-tier-2-bg: 236 238 251;
   --c-tier-2-light: 156 180 232;
-  --c-tier-3: 122 128 190;
+  --c-tier-3: 105 110 163;
   --c-tier-3-bg: 241 241 249;
   --c-tier-3-light: 195 198 230;
-  --c-tier-4: 171 173 194;
+  --c-tier-4: 108 109 122;
   --c-tier-4-bg: 240 240 246;
   --c-tier-4-light: 208 210 224;
   --c-score-mid: 98 94 125;
@@ -277,7 +277,7 @@
   --c-nav-text: 237 236 245;
   --c-nav-strong: 255 255 255;
   --c-nav-muted: 147 145 171;
-  --c-nav-faint: 104 102 127;
+  --c-nav-faint: 127 125 146;
   --c-nav-active-text: 255 255 255;
   --c-nav-count-text: 199 211 240;
   --c-nav-accent: 156 180 232;
@@ -312,7 +312,7 @@
   --c-text-1: 11 19 38;
   --c-text-2: 31 42 61;
   --c-text-3: 86 99 122;
-  --c-text-4: 133 145 166;
+  --c-text-4: 104 113 129;
   --c-accent: 10 138 110;
   --c-accent-hover: 8 113 92;
   --c-accent-press: 6 92 75;
@@ -328,10 +328,10 @@
   --c-tier-2: 9 128 104;
   --c-tier-2-bg: 231 245 241;
   --c-tier-2-light: 127 221 190;
-  --c-tier-3: 78 154 136;
+  --c-tier-3: 62 123 109;
   --c-tier-3-bg: 238 246 243;
   --c-tier-3-light: 179 220 209;
-  --c-tier-4: 162 173 189;
+  --c-tier-4: 103 109 120;
   --c-tier-4-bg: 238 241 245;
   --c-tier-4-light: 201 209 220;
   --c-score-mid: 86 99 122;
@@ -368,7 +368,7 @@
   --c-nav-text: 230 235 245;
   --c-nav-strong: 255 255 255;
   --c-nav-muted: 139 150 174;
-  --c-nav-faint: 100 112 137;
+  --c-nav-faint: 116 126 149;
   --c-nav-active-text: 191 245 221;
   --c-nav-count-text: 155 235 200;
   --c-nav-accent: 124 240 192;
@@ -403,7 +403,7 @@
   --c-text-1: 15 35 66;
   --c-text-2: 34 49 74;
   --c-text-3: 86 100 128;
-  --c-text-4: 134 146 168;
+  --c-text-4: 103 112 129;
   --c-accent: 44 90 158;
   --c-accent-hover: 36 76 135;
   --c-accent-press: 28 61 110;
@@ -419,10 +419,10 @@
   --c-tier-2: 44 90 158;
   --c-tier-2-bg: 233 239 247;
   --c-tier-2-light: 157 183 222;
-  --c-tier-3: 111 137 173;
+  --c-tier-3: 92 114 144;
   --c-tier-3-bg: 239 242 247;
   --c-tier-3-light: 191 205 224;
-  --c-tier-4: 169 179 194;
+  --c-tier-4: 103 110 118;
   --c-tier-4-bg: 238 241 245;
   --c-tier-4-light: 203 210 220;
   --c-score-mid: 86 100 128;
@@ -459,7 +459,7 @@
   --c-nav-text: 232 237 246;
   --c-nav-strong: 255 255 255;
   --c-nav-muted: 142 156 184;
-  --c-nav-faint: 98 114 154;
+  --c-nav-faint: 125 138 171;
   --c-nav-active-text: 246 223 162;
   --c-nav-count-text: 241 212 138;
   --c-nav-accent: 232 190 90;

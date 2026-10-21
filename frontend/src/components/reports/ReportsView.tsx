@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { ReportFile, ScoreEntry } from '@/types'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
-import { Button, Panel, PageHeader } from '@/components/ui'
+import { Button, Panel, PageHeader, isSecondaryClick, useContextMenu } from '@/components/ui'
 import { ReportSlideOver } from './ReportSlideOver'
 import {
   getScoreBand, BAND_DETAILS, type ScoreBand,
@@ -227,6 +227,8 @@ export function ReportsView() {
   // run the engine path (see rowsWithFix). Declared here (above rowsWithFix)
   // because that memo now depends on it.
   const scoreIndex = useMemo(() => buildScoreIndex(scoreHistory), [scoreHistory])
+
+  const rowMenu = useContextMenu()
 
   const scoreFor = (r: { company: string; role: string }): ScoreEntry | null =>
     matchScore(scoreIndex, r)
@@ -519,26 +521,35 @@ export function ReportsView() {
             {filteredFiles.map(report => {
               const score = report.scoreEntry ?? scoreFor(report)
               const url = report.url || score?.url || ''
+              const validUrl = url && /^https?:\/\//i.test(url) ? url : null
+              const open = () => setSelected({
+                path: report.path,
+                company: report.company,
+                role: report.role,
+                tier: report.tier,
+                url: report.url ?? '',
+              })
               return (
                 <ReportRow
                   key={report.path}
                   report={report}
                   scoreEntry={score}
-                  url={url && /^https?:\/\//i.test(url) ? url : null}
+                  url={validUrl}
                   isSelected={selected?.path === report.path}
-                  onClick={() => setSelected({
-                    path: report.path,
-                    company: report.company,
-                    role: report.role,
-                    tier: report.tier,
-                    url: report.url ?? '',
-                  })}
+                  onClick={open}
+                  // Secondary click: the row's two actions as a menu.
+                  onContextMenu={(e) => rowMenu.open(e, [
+                    { label: 'Open report', icon: FileText, onSelect: open },
+                    validUrl != null && { label: 'Open listing', icon: ExternalLink, onSelect: () => ipc.openExternal(validUrl) },
+                  ])}
                 />
               )
             })}
           </div>
         )}
       </div>
+
+      {rowMenu.element}
 
       {/* Slide-over for opportunity evaluation report */}
       {selected && selectedScore && (
@@ -613,12 +624,14 @@ function ReportRow({
   url,
   isSelected,
   onClick,
+  onContextMenu,
 }: {
   report: DbReportRow & FixabilityRow
   scoreEntry: ScoreEntry | null
   url: string | null
   isSelected: boolean
   onClick: () => void
+  onContextMenu: (e: React.MouseEvent) => void
 }) {
   // Scores come from the joined report row (latest evaluation for the URL);
   // the resolved score-history entry fills a gap.
@@ -630,12 +643,16 @@ function ReportRow({
   const red = flags.find(f => f.status === 'red')
   const amberReasons = flags.filter(f => f.status === 'amber').map(f => f.reason).filter(Boolean).join('; ')
   return (
-    <div className={cn(
-      'flex items-center pr-3 transition-colors duration-150 ease-quart',
-      isSelected ? 'bg-accent-soft' : 'hover:bg-bg-elevated',
-    )}>
+    <div
+      onContextMenu={onContextMenu}
+      className={cn(
+        'flex items-center pr-3 transition-colors duration-150 ease-quart',
+        isSelected ? 'bg-accent-soft' : 'hover:bg-bg-elevated',
+      )}
+    >
       <button
-        onClick={onClick}
+        // A Control-click is a secondary click too (macOS): it opens the menu.
+        onClick={(e) => { if (isSecondaryClick(e)) onContextMenu(e); else onClick() }}
         className="flex-1 min-w-0 h-14 pl-4 pr-3 flex items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40"
       >
         <CompanyLogo company={report.company} size={28} className="shrink-0" />
@@ -848,7 +865,7 @@ function PositioningModal({
       {/* Backdrop */}
       <div
         className={cn(
-          'fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px] transition-opacity duration-200 ease-quart',
+          'fixed inset-0 z-30 bg-black/50 transition-opacity duration-200 ease-quart',
           active ? 'opacity-100' : 'opacity-0',
         )}
         onClick={handleClose}

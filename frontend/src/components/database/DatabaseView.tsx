@@ -131,23 +131,25 @@ export function DatabaseView() {
                 Untapped
               </Button>
               <ExportMenu rows={exportRows} />
-              <span className="w-px h-4 bg-border-default" aria-hidden />
-              <label className="flex items-center gap-1.5 pl-1 text-label text-text-3 hover:text-text-2 cursor-pointer select-none transition-colors duration-150">
-                <input
-                  type="checkbox"
-                  checked={showClosed}
-                  onChange={e => setShowClosed(e.target.checked)}
-                  className="w-[13px] h-[13px] accent-accent cursor-pointer"
-                />
-                Show unscored
-              </label>
             </>
           }
         />
 
         {/* Search row */}
-        <div className="h-14 flex items-center px-4 shrink-0">
+        <div className="h-14 flex items-center gap-4 px-4 shrink-0">
           <FilterBar value={query} onChange={setQuery} />
+          {/* A view option lives in the window body with the other filters,
+              not in the title bar (HIG › Toggles: "Use switches, checkboxes,
+              and radio buttons in the window body, not the window frame."). */}
+          <label className="flex items-center gap-1.5 shrink-0 text-label text-text-3 hover:text-text-2 select-none transition-colors duration-150">
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={e => setShowClosed(e.target.checked)}
+              className="w-[13px] h-[13px] accent-accent"
+            />
+            Show unscored
+          </label>
         </div>
 
         {/* Main area */}

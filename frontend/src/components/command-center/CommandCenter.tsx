@@ -17,6 +17,7 @@ import { OrbitalLoader } from '@/components/ui/orbital-loader'
 import { Button, Panel, Stat, StatStrip, type StatTone } from '@/components/ui'
 import { Play, Zap, Filter, Square, ArrowRight, ChevronDown, Check, Plus, Star, AlertTriangle, RotateCw, Loader2, ListFilter, X } from 'lucide-react'
 import { useAddListingStore } from '@/store/addListing'
+import { onAppCommand } from '@/lib/appCommands'
 
 // Class strings below are combined with `clsx`, not `cn`: tailwind-merge
 // reads custom size tokens (`text-label`, `text-body`) as text colours and
@@ -184,6 +185,16 @@ export function ScoutingActionPanel({
     start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', await claudeEvalArgsResolved(filterAllPrompt(), pipelineModel))
   }
 
+  // The Scan menu in the menu bar runs the same handlers as the buttons.
+  useEffect(() => {
+    const offs = [
+      onAppCommand('scan:full', handleFullScan),
+      onAppCommand('scan:api', handleApiScan),
+      onAppCommand('filter-db', () => { void handleFilter() }),
+    ]
+    return () => { for (const off of offs) off() }
+  })
+
   return (
     <div className="shrink-0 flex flex-col items-center">
       <HoverDescriptionRow
@@ -305,6 +316,8 @@ function FilteredScanButton({ disabled, title }: { disabled?: boolean; title?: s
 
   const [open, setOpen] = useState(false)
   const [companies, setCompanies] = useState<TrackedCompany[]>([])
+  // Scan › Filtered Scan… in the menu bar opens the picker.
+  useEffect(() => onAppCommand('scan:filtered', () => { if (!disabled) setOpen(true) }), [disabled])
   const [dreamCompanies, setDreamCompanies] = useState<string[]>([])
 
   // Load on mount: portals.yml → tracked_companies (with their scan
@@ -370,7 +383,7 @@ function FilteredScanButton({ disabled, title }: { disabled?: boolean; title?: s
           aria-haspopup="dialog"
           aria-expanded={open}
         >
-          Filtered scan
+          Filtered scan…
           {selected.size > 0 && <span className="text-text-4 font-normal">{selected.size}</span>}
         </Button>
       )}
@@ -715,6 +728,8 @@ function ActionButton({
 // data, not running an automation. Hover-row description owns the tooltip.
 function AddListingButton({ disabled, title }: { disabled?: boolean; title?: string }) {
   const show = useAddListingStore(s => s.show)
+  // File › Add Listing… (⌘N) in the menu bar.
+  useEffect(() => onAppCommand('add-listing', () => { if (!disabled) show() }), [disabled, show])
   return (
     <Button
       tone="tinted"
@@ -725,7 +740,7 @@ function AddListingButton({ disabled, title }: { disabled?: boolean; title?: str
       title={title}
       icon={<Plus size={15} aria-hidden />}
     >
-      Add listing
+      Add listing…
     </Button>
   )
 }

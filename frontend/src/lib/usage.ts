@@ -15,6 +15,10 @@
 // the app meanwhile is not part of that run. Both files read through
 // `parseUsageTsv`, which goes by header name so the column order can change.
 
+/** Ceiling on what any token can cost (USD): above $100 per million tokens
+ *  of any kind, a ledger row's cost is a misfiled value, not a price. */
+export const MAX_USD_PER_TOKEN = 100 / 1_000_000
+
 export const APP_USAGE_PATH = 'batch/logs/app-usage.tsv'
 export const BATCH_USAGE_PATH = 'batch/logs/usage.tsv'
 
@@ -198,6 +202,13 @@ export function parseUsageTsv(text: string | null, defaultSource = 'batch'): Usa
     }
     const cacheRead = n(iCr) ?? 0
     const input = (n(iIn) ?? 0) + (n(iCc) ?? 0) + cacheRead
+    // A cost no model could charge for these tokens is a misfiled column (a
+    // duration landed in cost_usd in some older batch rows), not a price:
+    // count the row as unpriced so the week reads "at least", never a figure
+    // that cannot be true.
+    const rawCost = n(iCost)
+    const outTokens = n(iOut) ?? 0
+    const costUsd = rawCost != null && rawCost > (input + outTokens) * MAX_USD_PER_TOKEN ? null : rawCost
     const report = iReport >= 0 && c[iReport] && c[iReport] !== '-' ? c[iReport] : null
     const label =
       iLabel >= 0 && c[iLabel] && c[iLabel] !== '-' ? c[iLabel]
@@ -210,9 +221,9 @@ export function parseUsageTsv(text: string | null, defaultSource = 'batch'): Usa
       label,
       status: iStatus >= 0 && c[iStatus] ? c[iStatus] : '-',
       inputTokens: input,
-      outputTokens: n(iOut) ?? 0,
+      outputTokens: outTokens,
       cachedShare: input > 0 ? cacheRead / input : 0,
-      costUsd: n(iCost),
+      costUsd,
       durationMs: n(iDur),
     })
   }
