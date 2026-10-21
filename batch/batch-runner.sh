@@ -270,6 +270,12 @@ run_with_state_lock() {
   return "$status"
 }
 
+# The posting a person saved for a URL parked for a browser read, once it is
+# back in Pending (`JD saved: jds/…` on its pipeline line); empty when none.
+saved_jd_for() {
+  (cd "$PROJECT_DIR" && node scripts/browser-read.mjs saved-jd --url "$1" 2>/dev/null) || true
+}
+
 # Error/reason cell of an offer in the state file ("-" when none)
 get_reason() {
   local id="$1"
@@ -430,15 +436,25 @@ process_offer() {
   # batch/work/: client-rendered ATS pages give WebFetch little more than a title,
   # and the worker never sees the page's hidden text. No file → the worker
   # fetches the URL itself (batch-prompt.md § Unresolved placeholders).
+  #
+  # A listing a person read in a browser (scripts/browser-read.mjs requeue: its
+  # pipeline line says `JD saved: jds/…`) is checked and read from that file;
+  # its site refuses scripts, so the URL is not fetched at all.
   local jd_rel="batch/work/${id}-posting.txt"
   rm -f "$PROJECT_DIR/$jd_rel"
+  local saved_jd
+  saved_jd=$(saved_jd_for "$url")
+  [[ -n "$saved_jd" && -s "$PROJECT_DIR/$saved_jd" ]] || saved_jd=""
+  local guard_src=(--url "$url" --save-text "$jd_rel")
+  [[ -n "$saved_jd" ]] && guard_src=(--file "$saved_jd")
   local posting_check posted_from_page jd_saved guard_out
-  guard_out=$(cd "$PROJECT_DIR" && node scripts/posting-guard.mjs --url "$url" --save-text "$jd_rel" 2>/dev/null \
+  guard_out=$(cd "$PROJECT_DIR" && node scripts/posting-guard.mjs "${guard_src[@]}" 2>/dev/null \
     | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{const j=JSON.parse(d);process.stdout.write([j.line,j.posted?j.posted.date:"none",j.saved||"none"].join("\t"))}catch{process.stdout.write("unchecked — guard error\tnone\tnone")}})' \
     || printf 'unchecked — guard error\tnone\tnone')
   IFS=$'\t' read -r posting_check posted_from_page jd_saved <<< "$guard_out"
   local jd_line="none (fetch the JD from the URL)"
   [[ "$jd_saved" == "$jd_rel" && -s "$PROJECT_DIR/$jd_rel" ]] && jd_line="$jd_rel"
+  [[ -n "$saved_jd" ]] && jd_line="$saved_jd (JD saved: a person read this posting in a browser; read it, do not fetch the URL)"
 
   echo "--- Processing offer #$id: $url (report $report_num, attempt $((retries + 1)))"
 
@@ -520,6 +536,13 @@ process_offer() {
       closed)
         update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "-" "posting-closed" "$retries"
         echo "    ⏭️  Skipped (posting closed: ${p_rerror:--})"
+        return 0
+        ;;
+      parked)
+        # A posting only a browser can read: the worker parked it for a person
+        # (scripts/browser-read.mjs). It runs again once its JD is saved.
+        update_state "$id" "$url" "skipped" "$started_at" "$completed_at" "$report_num" "-" "needs-browser-read" "$retries"
+        echo "    ⏭️  Skipped (needs a browser read: parked in data/pipeline.md and posted to Messages)"
         return 0
         ;;
       duplicate)
@@ -719,6 +742,8 @@ main() {
       if [[ "$status" == "skipped" ]]; then
         case "$(get_reason "$id")" in
           posting-closed|duplicate) continue ;;
+          # Parked for a browser read: wait until a person saved its posting.
+          needs-browser-read) [[ -n "$(saved_jd_for "$url")" ]] || continue ;;
         esac
       fi
       # Skip failed offers that hit retry limit (unless --retry-failed)

@@ -147,6 +147,10 @@ const EVAL_COMMANDS = [
   { exact: 'node scripts/outcomes.mjs --json' },
   // One optional message to the user when only they can unblock a listing.
   postMessage('eval'),
+  // A posting only a browser can read (a site that answers 403 to every
+  // script): park it for a person, out of the Pending inbox, with one alert.
+  // Only `park`: putting it back (`requeue`) is for an attended chat or session.
+  'node scripts/browser-read.mjs park',
 ]
 
 // Chat: attended, so broad. What it may never do, even when asked: change

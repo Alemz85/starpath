@@ -236,6 +236,23 @@ test('F4: parsePipeline (frontend) and parsePendingEntries (triage-core) agree o
   ])
 })
 
+test('parsePipeline: a listing parked for a browser read is not pending; a requeued one is, named', () => {
+  // scripts/browser-read.mjs moves an unreadable posting out of Pending (the
+  // Inbox count) and back with a `JD saved:` note once a person saved it.
+  const md = [
+    '## Pending',
+    '- [ ] https://jobs.example.com/contoso/ops-1 | Contoso | Ops Analyst | JD saved: jds/contoso-ops-analyst.md (browser read 2026-10-21)',
+    '',
+    '## Needs a browser read',
+    '- [!] BROWSER READ | https://jobs.example.com/nimbus/strategy-2 | Nimbus Robotics | Strategy Analyst | 2026-10-21: HTTP 403 to every script',
+  ].join('\n')
+  const urls = parsePipeline(md)
+  assert.deepEqual(urls.map(u => [u.url, u.company, u.title]), [
+    ['https://jobs.example.com/contoso/ops-1', 'Contoso', 'Ops Analyst'],
+  ])
+  assert.deepEqual(parsePendingEntries(md).map(e => e.url), ['https://jobs.example.com/contoso/ops-1'])
+})
+
 test('parseReportPath extracts company/role/tier and rejects non-report paths', () => {
   const r = parseReportPath('reports/tier-1/Northwind - Data Analyst Intern 2026.md')
   assert.equal(r?.company, 'Northwind')

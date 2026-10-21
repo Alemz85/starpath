@@ -136,15 +136,19 @@ test('triage prompts route eligibility walls through the gate, never a silent di
   }
 })
 
-test('the whole-pipeline prompts park an unreadable posting once and skip it for a week', () => {
+test('the whole-pipeline prompts park an unreadable posting for a browser read, and keep the week-long skip for old notes', () => {
   for (const p of [filterAllPrompt('2026-07-01'), top5ReportsPrompt('2026-07-01')]) {
-    assert.ok(p.includes('NOT EVALUATED YYYY-MM-DD'), 'one note format')
-    assert.ok(p.includes('within the last 7 days, without fetching it'), 'no refetch while it waits for the user')
+    assert.ok(p.includes("node scripts/browser-read.mjs park --url '<url>'"), 'parks it out of Pending, URL single-quoted')
+    assert.ok(p.includes('never try to get around'), 'no bot-protection workarounds')
+    assert.ok(!p.includes('appended to its line'), 'no new NOT EVALUATED notes')
+    assert.ok(p.includes('older NOT EVALUATED note dated within the last 7 days, without fetching it'), 'old notes still wait a week')
+    assert.ok(p.includes('`JD saved: <path>`') && p.includes('instead of fetching the URL'), 'a saved JD is read, not fetched')
     assert.ok(p.includes('never guess a score'))
     assert.ok(p.includes('single `node scripts/append-score-rows.mjs --input` call'), 'one append for the whole run')
     assert.ok(p.includes('ONE ' + '`batch/scouting-additions/<batch id>.tsv`'), 'one scouting file for the whole run')
   }
   assert.ok(!scoreOnlyEvalPrompt('https://x.example/1', '2026-07-01').includes('NOT EVALUATED'), 'a single pasted URL is always tried')
+  assert.ok(inboxEvalPrompt('https://x.example/1', '2026-07-01').includes('browser-read.mjs park'), 'inbox Evaluate parks instead of marking it done')
 })
 
 test('every eval prompt can claim several row numbers in one call', () => {

@@ -13,7 +13,7 @@
 // 'blocked'. `denied` is the `;`-joined calls the CLI refused (the worker's
 // permissions, scripts/lib/worker-capabilities.mjs); the runner fails the
 // listing when it is not '-'. `outcome` is what the worker's own final JSON
-// says (completed | failed | closed | duplicate; batch-usage.mjs › reportedOutcome)
+// says (completed | failed | closed | parked | duplicate; batch-usage.mjs › reportedOutcome)
 // and `reported_error` its `error`: a worker can exit 0 and still report
 // "status": "failed". Missing values print as '-'. Exits 0 even for mangled logs
 // (accounting must never fail the batch); exits 1 only on usage error.

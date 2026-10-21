@@ -26,6 +26,10 @@
  * JD archive: every T1-T3 report has a saved job description in jds/
  * (warns with the backfill command when one is missing; check-jd-archive.mjs).
  *
+ * pipeline.md: listings parked for a browser read (`## Needs a browser read`,
+ * scripts/browser-read.mjs) are counted, never pending; a malformed parked
+ * line, or a requeued line whose `JD saved:` file is missing, is a warning.
+ *
  * Set CAREER_OPS_ROOT to point the checks at another tree (used by the tests).
  *
  * Run: node career-ops/verify-pipeline.mjs
@@ -40,6 +44,7 @@ import { checkScoreHistoryRows } from './lib/doctor-checks.mjs';
 import { loadAudit } from './lib/jd-archive-fs.mjs';
 import { describeMissing } from './check-jd-archive.mjs';
 import { reportLinkTarget } from './lib/report-link.mjs';
+import { malformedParkedLines, parkedEntries, savedJdEntries } from './lib/browser-read-core.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 // Support both layouts: data/applications.md (boilerplate) and applications.md (original)
@@ -381,6 +386,21 @@ if (portalUrls === 0) ok('No portal-homepage URLs (all join keys are listing-spe
   } else {
     warn(`${counts.missing} of ${counts.total} reports have no saved job description (jds/): run node scripts/archive-posting.mjs --missing (see scripts/check-jd-archive.mjs)`);
     for (const line of describeMissing(audit).slice(0, 10)) console.log(`   ${line}`);
+  }
+}
+
+// --- pipeline.md: listings parked for a browser read (scripts/browser-read.mjs) ---
+{
+  const pipelineFile = join(CAREER_OPS, 'data/pipeline.md');
+  if (existsSync(pipelineFile)) {
+    const text = readFileSync(pipelineFile, 'utf-8');
+    const bad = malformedParkedLines(text);
+    for (const line of bad) warn(`pipeline.md: parked line does not parse (want "- [!] BROWSER READ | url | Company | Role | YYYY-MM-DD: why"): ${line.slice(0, 120)}`);
+    for (const { url, path } of savedJdEntries(text)) {
+      if (!existsSync(join(CAREER_OPS, path))) warn(`pipeline.md: ${url} says "JD saved: ${path}" but that file is missing`);
+    }
+    const parked = parkedEntries(text).length;
+    if (parked > 0 && bad.length === 0) ok(`${parked} listing${parked === 1 ? '' : 's'} parked for a browser read (not pending; see Messages)`);
   }
 }
 

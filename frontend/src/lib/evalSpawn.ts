@@ -182,13 +182,22 @@ const RELEVANCE_GATE =
   'company+archetype+level+region group), collapse them and score ONE master, noting the variant count. ' +
   'The survivor count is a result, not a target — flag it in the run summary if <5% or >80% survive. '
 
-// A posting no rung can read (a 403 site, an application form with no JD)
-// used to be re-fetched by every run. Park it once, visibly, for the user.
+// A posting no rung can read (a site that answers 403 to every script, an
+// application form with no JD) used to be re-fetched by every run, then left
+// pending with a note. Now it is parked for a person with a browser
+// (scripts/browser-read.mjs: out of the Pending inbox, one Messages alert);
+// the bundle's "Postings only a browser can read" rule says the same.
+// Lines an earlier run left with a NOT EVALUATED note keep the 7-day skip.
 const UNREADABLE =
-  'A pending URL whose job description you cannot read (fetch-posting, the posting check and WebFetch all fail) stays ' +
-  '`- [ ]` with ` | NOT EVALUATED YYYY-MM-DD: <why, in a few words>` appended to its line; never guess a score for it. ' +
-  'Skip any pending line that already carries a NOT EVALUATED note dated within the last 7 days, without fetching it ' +
-  '(it is waiting for the user); retry an older one once and refresh its date. '
+  'A pending URL whose job description you cannot read (fetch-posting exits 3, the posting check saved no job text, ' +
+  'and WebFetch fails, answers 403 or is blocked) needs a person with a browser: run ' +
+  '`node scripts/browser-read.mjs park --url \'<url>\' --company "<Company>" --role "<Role>" --why "<why, in a few words>"` ' +
+  'once and move on (it takes the line out of Pending and asks the user to read it); never guess a score for it and ' +
+  'never try to get around the site’s bot protection. ' +
+  'Skip any pending line that still carries an older NOT EVALUATED note dated within the last 7 days, without fetching it; ' +
+  'try an older one once more and park it if it still fails. ' +
+  'A pending line whose note says `JD saved: <path>` was read in a browser by a person: read that file as its job ' +
+  'description instead of fetching the URL (§ Postings only a browser can read). '
 
 // One run, many listings: the per-listing commands take them all at once, so
 // the run doesn't spend one turn (and one re-read of its context) per row.
@@ -236,7 +245,9 @@ export function inboxEvalPrompt(url: string, today: string = todayISO()): string
     'If it survives, evaluate it through the system-prompt pipeline. ' +
     NO_REPORT_DEVIATION +
     MERGE_STEP +
-    'Finally mark the URL [x] in data/pipeline.md (or leave it in Filtered Out if discarded).'
+    'Finally mark the URL [x] in data/pipeline.md (or leave it in Filtered Out if discarded). If no rung can read ' +
+    'its job description, park it with `node scripts/browser-read.mjs park` (§ Postings only a browser can read) ' +
+    'instead of marking it.'
   )
 }
 
