@@ -55,6 +55,7 @@ import {
 } from './lib/schedule-launchd.mjs'
 import { messageForRun, runStartDate, topPicksSince } from './lib/scheduled-run-messages.mjs'
 import { MESSAGES_REL, postMessage } from './lib/messages-store.mjs'
+import { runReview } from './portal-review.mjs'
 import { DEFAULT_WEEKS, FALLBACK_SLOT, awakeHistogram, formatSlot, rankSlots, usageHistogram } from './lib/idle-slot-core.mjs'
 import { collectAwakeIntervals, collectClaudeTimestamps } from './lib/idle-slot-io.mjs'
 
@@ -287,6 +288,7 @@ async function cmdRun({ root, flags }) {
     },
   })
   if (!dryRun && flags['no-message'] !== true) postRunMessage({ root, result, trigger, log })
+  if (!dryRun && flags['no-message'] !== true) await postPortalSuggestions({ root, result, log })
   if (flags.json) console.log(JSON.stringify(result))
   return result.outcome === 'failed' || result.outcome === 'blocked' ? 1 : 0
 }
@@ -309,6 +311,21 @@ function postRunMessage({ root, result, trigger, log }) {
     log(posted ? `message for the app: ${message.title}` : `message already open: ${message.title}`)
   } catch (e) {
     log(`could not leave a message for the app: ${e.message}`)
+  }
+}
+
+/**
+ * After a scan that finished, suggest (as Messages) which tracked companies to
+ * keep, pause or add (scripts/portal-review.mjs; it never edits portals.yml).
+ * Best effort: a failure here never fails the run.
+ */
+async function postPortalSuggestions({ root, result, log }) {
+  if (!result.run?.stages?.some((st) => st.name === 'scan' && st.status === 'ok')) return
+  try {
+    const r = await runReview({ root })
+    if (r.posted.length) log(`portal review: ${r.posted.length} suggestion${r.posted.length === 1 ? '' : 's'} for the app (${r.posted.map((p) => `${p.action} ${p.company}`).join(', ')})`)
+  } catch (e) {
+    log(`portal review failed: ${e.message}`)
   }
 }
 
