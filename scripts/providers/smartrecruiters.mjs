@@ -47,7 +47,7 @@ export default {
     const all = [];
     for (let page = 0; page < ctx.maxPages; page++) {
       const offset = page * PAGE_LIMIT;
-      const json = await ctx.getJson(`${ctx.api.url}?limit=${PAGE_LIMIT}&offset=${offset}`);
+      const json = await ctx.getBoardJson(`${ctx.api.url}?limit=${PAGE_LIMIT}&offset=${offset}`);
       const batch = json.content || [];
       all.push(...batch);
       if (batch.length < PAGE_LIMIT || all.length >= (json.totalFound || 0)) break;

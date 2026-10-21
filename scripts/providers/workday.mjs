@@ -83,8 +83,14 @@ export function workdaySiteOf(entry) {
   return null;
 }
 
+// Each list page is small (20 postings), but a big tenant answers slowly under
+// load; a page that times out is retried and then ends the paging, so give the
+// page requests more room than the 10 s default. Capped by lib/http.mjs › LIMITS.
+export const BOARD_FEED = Object.freeze({ timeoutMs: 30_000 });
+
 export default {
   id: 'workday',
+  boardFeed: BOARD_FEED,
 
   detect(entry) {
     if (entry.api && String(entry.api).includes('myworkdayjobs.com')) {
@@ -111,13 +117,13 @@ export default {
       if (page > 0) await ctx.sleep(PAGE_DELAY_MS);
       let json;
       try {
-        json = await ctx.postJson(ctx.api.url, body(offset));
+        json = await ctx.postBoardJson(ctx.api.url, body(offset));
       } catch (err) {
         // The first page failing is the board failing: let it surface.
         if (page === 0 || !err?.retryable) throw err;
         await ctx.sleep(RATE_LIMIT_PAUSE_MS);
         try {
-          json = await ctx.postJson(ctx.api.url, body(offset));
+          json = await ctx.postBoardJson(ctx.api.url, body(offset));
         } catch (again) {
           if (!again?.retryable) throw again;
           ctx.log(`  ⚠ ${entry.name} · stopped at page ${page + 1}${total ? ` of ${Math.ceil(total / PAGE_LIMIT)}` : ''} (${again.message}); kept the ${all.length} postings read`);

@@ -439,7 +439,7 @@ export async function runScan({
     const startedAt = Date.now();
     log(`→ ${company.name} (${provider.id})`);
     let kept = 0;
-    const ctx = makeProviderCtx(provider, { http: client, api, maxPages, sleep, log });
+    const ctx = makeProviderCtx(provider, { http: client, api, entry: company, maxPages, sleep, log });
     const source = `${provider.id}-api`;
     /** Normalise a provider's posting and stamp its source and identity key. */
     const prep = (raw) => {

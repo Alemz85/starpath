@@ -16,6 +16,9 @@ import {
   createHttp,
   HttpError,
   ATS_HOSTS,
+  DEFAULTS,
+  LIMITS,
+  clampLimit,
 } from './http.mjs';
 
 // ── isPrivateAddress ───────────────────────────────────────────────────────
@@ -210,4 +213,37 @@ test('backoffDelay: exponential, capped, jitter within [half, full], Retry-After
   assert.equal(backoffDelay(10, { ...o, random: () => 1 }), 5000);
   assert.equal(backoffDelay(0, { ...o, random: () => 0, retryAfterMs: 3000 }), 3000);
   assert.equal(backoffDelay(0, { ...o, random: () => 0, retryAfterMs: 60000 }), 5000);
+});
+
+// ── Per-request limits (big board feeds) ────────────────────────────────────
+
+test('clampLimit: positive numbers pass up to the ceiling; anything else falls back', () => {
+  assert.equal(clampLimit(60_000, 10_000, 120_000), 60_000);
+  assert.equal(clampLimit(10 ** 9, 10_000, 120_000), 120_000);
+  for (const bad of [undefined, null, 0, -5, NaN, 'soon', Infinity]) assert.equal(clampLimit(bad, 10_000, 120_000), 10_000);
+  assert.equal(clampLimit(undefined, 500, 100), 100, 'even the fallback respects the ceiling');
+});
+
+test('client: a caller may raise the timeout and body cap for one request, never past LIMITS', async () => {
+  const { http, calls } = client([ok([]), ok([]), ok([])]);
+  const URL_LEVER = 'https://api.lever.co/v0/postings/nimbus-demo';
+  await http.getJson(URL_LEVER, { type: 'lever', timeoutMs: 60_000, maxBytes: 64 * 1024 * 1024 });
+  await http.getJson(URL_LEVER, { type: 'lever', timeoutMs: 10 * 60_000, maxBytes: 10 * 1024 ** 3 });
+  await http.getJson(URL_LEVER, { type: 'lever' });
+  assert.deepEqual(calls.map((c) => [c.timeoutMs, c.maxBytes]), [
+    [60_000, 64 * 1024 * 1024],
+    [LIMITS.maxTimeoutMs, LIMITS.maxBytes],
+    [DEFAULTS.timeoutMs, DEFAULTS.maxBytes],
+  ]);
+});
+
+test('client: raised limits leave the host allowlist and the address guard in place', async () => {
+  const { http, calls } = client([ok([])]);
+  await assert.rejects(
+    http.getJson('https://evil.example/feed', { type: 'lever', timeoutMs: 60_000, maxBytes: 64 * 1024 * 1024 }),
+    (e) => e.code === 'EHOST',
+  );
+  assert.equal(calls.length, 0);
+  await http.getJson('https://api.lever.co/v0/postings/nimbus-demo', { type: 'lever', timeoutMs: 60_000 });
+  assert.equal(typeof calls[0].lookup, 'function');
 });

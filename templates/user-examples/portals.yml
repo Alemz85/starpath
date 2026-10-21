@@ -188,6 +188,10 @@ search_queries:
 # a `brand: low` entry gets no WebSearch in a Full scan and its postings
 # rank lower in triage, so low-value companies don't spend tokens.
 #
+# Optional `board_timeout_s: 90` / `board_max_mb: 80` give one huge API
+# board more time and a larger response cap than its ATS default (Lever
+# feeds already get 60 s / 64 MB); capped at 120 s / 100 MB.
+#
 # A few examples below. Add your target companies here, or use the
 # Configuration → Portals tab in the app to add them with API probing.
 

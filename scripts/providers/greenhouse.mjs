@@ -45,7 +45,7 @@ export default {
   },
 
   async fetch(entry, ctx) {
-    const json = await ctx.getJson(ctx.api.url);
+    const json = await ctx.getBoardJson(ctx.api.url);
     return parseGreenhouse(json, entry.name);
   },
 };

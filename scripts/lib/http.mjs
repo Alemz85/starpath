@@ -22,7 +22,8 @@
  *     process-wide DNS patching: the guard is scoped to this module's requests.
  *   • Bounded: connect/total timeout, response body capped (also after gzip),
  *     retries only for transient failures (network error / 429 / 5xx) with
- *     exponential backoff + jitter.
+ *     exponential backoff + jitter. A caller may raise the timeout and body cap
+ *     for one request (a big board feed), never past `LIMITS`.
  *
  * Everything with side effects (DNS, sockets, sleeping, randomness) is
  * injectable, so the whole thing is unit-tested without a network.
@@ -324,6 +325,24 @@ export const DEFAULTS = Object.freeze({
   maxDelayMs: 5_000,
 });
 
+/**
+ * Hard ceilings on what any caller may ask for. A big board feed (a 13 MB
+ * Lever JSON) needs more than DEFAULTS, so providers and `portals.yml` board
+ * entries may raise the timeout and body cap for their board request
+ * (provider-registry.mjs › boardFeedLimits), never past these.
+ */
+export const LIMITS = Object.freeze({
+  maxTimeoutMs: 120_000,
+  maxBytes: 100 * 1024 * 1024,
+});
+
+/** `value` when it is a positive finite number, capped at `max`; else `fallback`. */
+export function clampLimit(value, fallback, max) {
+  const n = Number(value);
+  if (value == null || !Number.isFinite(n) || n <= 0) return Math.min(fallback, max);
+  return Math.min(n, max);
+}
+
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
 /**
@@ -371,8 +390,8 @@ export function createHttp({ request = nodeRequest, lookup = dns.lookup, sleep, 
       ...(opts.headers || {}),
     };
     const retries = opts.retries ?? cfg.retries;
-    const maxBytes = opts.maxBytes ?? cfg.maxBytes;
-    const timeoutMs = opts.timeoutMs ?? cfg.timeoutMs;
+    const maxBytes = clampLimit(opts.maxBytes, cfg.maxBytes, LIMITS.maxBytes);
+    const timeoutMs = clampLimit(opts.timeoutMs, cfg.timeoutMs, LIMITS.maxTimeoutMs);
 
     let lastErr;
     for (let attempt = 0; attempt <= retries; attempt++) {

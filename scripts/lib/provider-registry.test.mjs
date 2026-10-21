@@ -13,7 +13,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   loadProviders, detectProvider, makeProviderCtx, providerProblem, jobDedupKey, PROVIDERS_DIR, DEFAULT_MAX_PAGES,
+  boardFeedLimits,
 } from './provider-registry.mjs';
+import { DEFAULTS as HTTP_DEFAULTS, LIMITS as HTTP_LIMITS } from './http.mjs';
+import lever, { BOARD_FEED as LEVER_FEED } from '../providers/lever.mjs';
+import workday, { BOARD_FEED as WORKDAY_FEED } from '../providers/workday.mjs';
 import { normalizeJob, normalizeSalary } from './job.mjs';
 import { parseAshby } from '../providers/ashby.mjs';
 
@@ -162,4 +166,48 @@ test('Ashby salary comes from numeric summaryComponents only', () => {
   ] }, 'Lumen');
   assert.deepEqual(a.salary, { min: 60000, max: 80000, currency: 'EUR', period: 'year' });
   assert.equal(b.salary, undefined, 'a summary string alone is not a salary');
+});
+
+// ── Board feed limits ───────────────────────────────────────────────────────
+
+const MB = 1024 * 1024;
+
+test('boardFeedLimits: client defaults, raised by the provider, then by the portals.yml entry, capped', () => {
+  assert.deepEqual(boardFeedLimits({ id: 'greenhouse' }, {}), { timeoutMs: HTTP_DEFAULTS.timeoutMs, maxBytes: HTTP_DEFAULTS.maxBytes });
+  assert.deepEqual(boardFeedLimits(lever, { name: 'Nimbus Robotics' }), { timeoutMs: LEVER_FEED.timeoutMs, maxBytes: LEVER_FEED.maxBytes });
+  assert.deepEqual(boardFeedLimits(workday, {}), { timeoutMs: WORKDAY_FEED.timeoutMs, maxBytes: HTTP_DEFAULTS.maxBytes });
+  // A board entry can ask for more (seconds / megabytes) …
+  assert.deepEqual(boardFeedLimits(lever, { board_timeout_s: 90, board_max_mb: 80 }), { timeoutMs: 90_000, maxBytes: 80 * MB });
+  // … never past the transport's ceilings.
+  assert.deepEqual(boardFeedLimits(lever, { board_timeout_s: 3600, board_max_mb: 4096 }), { timeoutMs: HTTP_LIMITS.maxTimeoutMs, maxBytes: HTTP_LIMITS.maxBytes });
+  assert.deepEqual(boardFeedLimits({ id: 'x', boardFeed: { timeoutMs: 1e9, maxBytes: 1e12 } }, {}), { timeoutMs: HTTP_LIMITS.maxTimeoutMs, maxBytes: HTTP_LIMITS.maxBytes });
+  // Junk is ignored.
+  assert.deepEqual(boardFeedLimits(lever, { board_timeout_s: 'forever', board_max_mb: -1 }), { timeoutMs: LEVER_FEED.timeoutMs, maxBytes: LEVER_FEED.maxBytes });
+  assert.equal(providerProblem({ id: 'bad', detect() {}, async fetch() {}, boardFeed: 5 }), 'boardFeed must be an object');
+});
+
+test('the board helpers carry the board limits; detail calls keep the client defaults', async () => {
+  const calls = [];
+  const http = {
+    getJson: async (url, opts) => { calls.push(['get', url, opts]); return []; },
+    postJson: async (url, body, opts) => { calls.push(['post', url, opts]); return {}; },
+  };
+  const entry = { name: 'Nimbus Robotics', careers_url: 'https://jobs.lever.co/nimbus-demo', board_timeout_s: 75 };
+  const ctx = makeProviderCtx(lever, { http, api: lever.detect(entry), entry, sleep: async () => {} });
+  assert.deepEqual(ctx.board, { timeoutMs: 75_000, maxBytes: LEVER_FEED.maxBytes });
+  await lever.fetch(entry, ctx);
+  assert.deepEqual(calls[0], ['get', 'https://api.lever.co/v0/postings/nimbus-demo', { timeoutMs: 75_000, maxBytes: LEVER_FEED.maxBytes, type: 'lever' }]);
+  await ctx.getJson('https://api.lever.co/v0/postings/nimbus-demo/abc');
+  assert.deepEqual(calls[1][2], { type: 'lever' }, 'a non-board call gets no raised limits');
+  await ctx.postBoardJson('https://api.lever.co/y', {}, { retries: 1 });
+  assert.deepEqual(calls[2][2], { timeoutMs: 75_000, maxBytes: LEVER_FEED.maxBytes, retries: 1, type: 'lever' });
+});
+
+test('every provider fetches its board through the board helpers', () => {
+  for (const f of readdirSync(PROVIDERS_DIR).filter((x) => x.endsWith('.mjs') && !x.endsWith('.test.mjs'))) {
+    const src = readFileSync(join(PROVIDERS_DIR, f), 'utf8');
+    const fetchBody = src.slice(src.indexOf('async fetch('), src.indexOf('async enrich(') > 0 ? src.indexOf('async enrich(') : undefined);
+    assert.match(fetchBody, /ctx\.(getBoardJson|postBoardJson)\(/, `${f} fetches its board without the board limits`);
+    assert.doesNotMatch(fetchBody, /ctx\.(getJson|postJson)\(/, `${f} fetches its board with the plain helpers`);
+  }
 });
