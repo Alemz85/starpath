@@ -22,9 +22,9 @@ There is no Overall. Surfaces that need one sortable number use **Priority** (§
 
 ```jsonc
 "eligibility_facts": {
-  "employment": "internship" | "graduate_programme" | "fixed_term" | "permanent",
+  "employment": "internship" | "graduate_programme" | "fixed_term" | "permanent" | "working_student",
   "start":    { "earliest": "2027-06-01" | null, "latest": "2027-09-30" | null, "flexible": false, "text": "verbatim JD quote or null" },
-  "duration_months": 6 | null,               // fixed-term / internship length
+  "duration_months": 6 | null,               // internship / programme / fixed-term length
   "graduation": { "from": "2025-06" | null, "to": "2027-12" | null, "soft": false, "text": "..." },
                                               // "must have graduated / be graduating between from..to"; soft = "ideally", "preferably"
   "languages": [ { "language": "German", "level": "C1", "required": true, "text": "..." } ],
@@ -57,7 +57,9 @@ eligibility:
     - { language: "English", level: "C2" }
     - { language: "Spanish", level: "B2" }
   work_authorisation: ["EU"]              # "EU" expands to EU-27 + EEA (IS, LI, NO); CH = amber; also ISO codes, e.g. "GB"
-  duration_months: { min: 3, max: 12 }    # acceptable fixed-term length
+  duration_months:                        # acceptable length: one range, or one per employment type
+    default: { min: 3, max: 12 }          # internships, fixed-term, working student, unknown type
+    graduate_programme: { min: 12, max: 24 }
   permanent_start_ok_before_block: false  # if false, a permanent role starting before a blocked window that it would run through is red
   score_through_red:                      # optional: red listings that still get Want / Ease (see below)
     checks: [start_date, duration, graduation, work_auth, other]
@@ -72,11 +74,26 @@ The checks are `start_date`, `duration`, `graduation`, `language`, `work_auth` a
 | Check | Red | Amber | Green |
 |---|---|---|---|
 | `start_date` | The role's period overlaps a blocked window and `start.flexible` is false. Role period = `[start.earliest, start.earliest + duration_months)` for internships/fixed-term/graduate programmes; for `permanent`, `[start.earliest, ∞)` when `permanent_start_ok_before_block` is false, else just the start date. Also red when `start.latest` < `available_from`. | Start not stated (`start.earliest` null) for internship / fixed-term / graduate programme; or an overlap exists but `start.flexible` is true; or start < `available_from` but `latest` ≥ it. | Known start, no overlap, ≥ `available_from`. Permanent role with no stated start → amber only if a blocked window lies in the next 9 months, else green. |
-| `duration` | — | `duration_months` outside `[min, max]`; or null for an internship. | Inside range, or not applicable. |
+| `duration` | — | `duration_months` outside the `[min, max]` range for the listing's `employment` type (§ 1.2.1); or null for an internship. | Inside range, or not applicable (permanent role, or no range for that type). |
 | `graduation` | A hard window (`soft: false`) and no candidate graduation date falls inside `[from, to]`. The agent sets `soft: false` only when the JD words it as mandatory ("must", "only", "required"); "penultimate year", "graduating in 2028", "ideally" are `soft: true`. | Same, but `soft: true`. |
 | `other` | An `other` entry with `status: red`. | An `other` entry with `status: amber` (its `question` is required). | No entries. | No requirement, or a candidate date falls inside. |
 | `language` | A `required` language the candidate lacks; or ≥2 CEFR steps below the required level; or **any** gap when the required level is C1 or above (fluent/C2/native — a fluency bar is tested in interviews, so B2 vs. C1 is a wall, not a grey zone). | A `required` language 1 step below a required level of B2 or lower. | All required languages met; `required: false` languages never block. |
 | `work_auth` | Country not covered by `work_authorisation` AND (`requires_existing_right` OR `sponsorship = not_offered` OR `below_sponsorship_salary_floor`). | Country not covered and `sponsorship` is `offered` or `unknown`; or country is CH for an "EU" candidate. | Country covered (or `REMOTE-EU` with EU authorisation). |
+
+#### 1.2.1 Duration ranges per employment type
+
+Internships, graduate programmes and fixed-term contracts run for very different lengths, so one range for all of them flags every 18–24-month graduate programme as amber when the range was set for internships. `duration_months` therefore takes either form:
+
+```yaml
+duration_months: { min: 3, max: 12 }          # one range for every type (the original form)
+
+duration_months:                               # a range per type
+  default: { min: 3, max: 12 }                 # the types not listed below
+  internship: { min: 3, max: 6 }
+  graduate_programme: { min: 12, max: 24 }
+```
+
+The type is the JD's `employment` fact (the same field `start_date` reads). Keys that can carry their own range: `internship`, `graduate_programme`, `fixed_term`, `working_student`. A type without its own range uses `default`; without `default`, a top-level `min` / `max` (so `{ min: 2, max: 12, graduate_programme: { max: 24 } }` also works); with neither, that type's length is not checked. A missing bound in a range means no bound on that side. A `permanent` role is never length-checked. The amber reason names the type whose range applied (`30 months is outside your accepted range for a graduate programme (12–24 months)`). Executable source: `durationRangeFor()` in `scripts/lib/eligibility.mjs`.
 
 **Level ladder** (CEFR steps): `basic`=A2(2), `conversational`=B1(3), `professional`/`business`=B2(4), `fluent`=C1(5), `C2`=6, `native`=7; A1=1, A2=2, B1=3, B2=4, C1=5. A candidate's `native` meets any requirement.
 

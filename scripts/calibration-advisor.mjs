@@ -7,8 +7,9 @@
  * applies it deterministically (scripts/lib/calibration.mjs). But nothing ever
  * tells the user whether that calibration still matches reality. This advisor
  * mines data/score-history.tsv (every scouting evaluation) and, when available,
- * the outcome funnel in data/applications.md, and SURFACES where the calibration
- * looks off:
+ * the application outcomes (scripts/outcomes.mjs: status log + tracker, gated
+ * per docs/scoring-statistical-design.md § 3.7), and SURFACES where the
+ * calibration looks off:
  *
  *   • brand bonuses that are inert (the company's mean Want is in the top
  *     verdict row without them) or misdirected (its mean Want stays in the
@@ -17,19 +18,24 @@
  *     (candidates to add),
  *   • rubric dimensions pinned at a ceiling/floor (no discriminating signal),
  *   • comp targets that sit above (or below) what the landscape actually pays,
- *   • archetypes the verdict grid says to apply to that never convert, or
- *     vice-versa (each application's Score cell `W.. E..` vs its status).
+ *   • archetypes the verdict grid says to apply to that never progress, or
+ *     vice-versa, and Ease bands that rank outcomes the wrong way round (both
+ *     from the one outcomes analysis, never from the tracker's status text).
  *
  * Scoring model: v2 (docs/scoring-v2.md) — Want / Ease / verdict; blocked
  * (eligibility red) rows never enter a score claim.
  *
- * It is strictly READ-ONLY and SUGGEST-ONLY. It never writes user/* — it prints
- * concrete edits the user can choose to apply, keeping personalization in the
- * user layer where it belongs.
+ * It is SUGGEST-ONLY. It never writes user/* — it prints concrete edits the
+ * user can choose to apply, keeping personalization in the user layer where it
+ * belongs. Its one write: each gated suggestion is posted to the user's
+ * Messages (data/agent-messages.jsonl), keyed by its stable id so a re-run
+ * never repeats one that is open or dismissed. `--no-post` skips that.
  *
  * Usage:
  *   node scripts/calibration-advisor.mjs            # human-readable summary
  *   node scripts/calibration-advisor.mjs --json     # structured JSON to stdout
+ *   node scripts/calibration-advisor.mjs --no-post  # don't post suggestions to Messages
+ *   node scripts/calibration-advisor.mjs --root <data root> --today YYYY-MM-DD
  *   node scripts/calibration-advisor.mjs --score-history path.tsv --profile path.yml
  *                                                   # override input paths
  *
@@ -42,11 +48,16 @@ import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
 
 import { parseScoreHistory } from './lib/targeting-core.mjs'
-import { parseAppRow, normalizeStatus } from './lib/tracker-core.mjs'
-import { analyzeCalibration } from './lib/calibration-advisor.mjs'
+import { analyzeCalibration, advisoryToSuggestion } from './lib/calibration-advisor.mjs'
 import { VERDICT_LABELS } from './lib/score-bands.mjs'
+import { dataRootFor } from './lib/data-root.mjs'
+import { loadOutcomeInputs } from './lib/outcome-inputs.mjs'
+import { analyzeApplicationOutcomes } from './lib/outcome-stats.mjs'
+import { todayLocal } from './lib/status-ledger.mjs'
+import { postFromSuggestion } from './lib/messages-core.mjs'
+import { messagesPathFor, postMessage } from './lib/messages-store.mjs'
 
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+const REPO = dirname(dirname(fileURLToPath(import.meta.url)))
 
 /* ───── CLI args ─────────────────────────────────────────────────── */
 const args = process.argv.slice(2)
@@ -56,15 +67,16 @@ const argVal = (flag) => {
   return i !== -1 && args[i + 1] !== undefined ? args[i + 1] : null
 }
 
+// The data root (private/, through the same resolution as outcomes.mjs).
+const ROOT = argVal('--root') || dataRootFor(REPO)
+const TODAY = argVal('--today') || todayLocal()
+const POST = !args.includes('--no-post')
+
 const SCORE_HISTORY =
   argVal('--score-history') || join(ROOT, 'data/score-history.tsv')
 const PROFILE_YML = argVal('--profile') || firstExisting([
   join(ROOT, 'user/profile.yml'),
   join(ROOT, 'data/profile.yml'),
-])
-const APPS_FILE = argVal('--applications') || firstExisting([
-  join(ROOT, 'data/applications.md'),
-  join(ROOT, 'applications.md'),
 ])
 
 function firstExisting(paths) {
@@ -109,27 +121,33 @@ function loadProfile(path) {
   return { calibration: cal, weights }
 }
 
-/* ───── Read outcomes out of data/applications.md ────────────────────
+/* ───── Outcomes: the one source (scripts/outcomes.mjs) ──────────────
  *
- * We reuse tracker-core's row parser (handles both the 9- and 10-column
- * layouts) and status normalizer, so the advisor's outcome join matches the
- * rest of the pipeline. The raw Score cell is passed through; the lib parses
- * it with tracker-core parseScoreCell (`W8.3 E5.6`; legacy `7.4/10` cells are
- * excluded from score claims). Returns [] when the file is absent — the
- * advisor then simply skips the score→outcome calibration check.
+ * Status log + tracker + score-history (+ the optional materials index),
+ * joined and classified by outcome-stats, gates included
+ * (docs/scoring-statistical-design.md § 3.7). The advisor never reads the
+ * tracker's status text itself. No applications → null (the score→outcome
+ * checks are skipped).
  */
-function loadOutcomes(path) {
-  if (!path || !existsSync(path)) return []
-  const text = readFileSync(path, 'utf8')
-  const out = []
-  for (const line of text.split('\n')) {
-    const row = parseAppRow(line)
-    if (!row) continue
-    // tracker-core.normalizeStatus returns { status: 'Rejected'|... } (canonical,
-    // capitalized); the advisor's outcome join wants a bare lowercase token.
-    const norm = normalizeStatus(row.status || '')
-    const status = (norm?.status || '').toLowerCase()
-    out.push({ company: row.company, role: row.role, status, score: row.score })
+function loadOutcomes() {
+  const inputs = loadOutcomeInputs(ROOT, { today: TODAY, profileFile: PROFILE_YML })
+  if (!inputs.applications.length) return null
+  return analyzeApplicationOutcomes(inputs)
+}
+
+/* ───── Messages: post each gated suggestion (keyed, so repeats are no-ops) ── */
+function postSuggestions(suggestions) {
+  const file = messagesPathFor(ROOT)
+  const out = { posted: 0, existing: 0, failed: 0 }
+  for (const s of suggestions) {
+    try {
+      const r = postMessage(file, postFromSuggestion(advisoryToSuggestion(s)))
+      if (r.posted) out.posted++
+      else out.existing++
+    } catch (e) {
+      out.failed++
+      process.stderr.write(`⚠️  Could not post "${s.id}" to Messages: ${e.message}\n`)
+    }
   }
   return out
 }
@@ -141,9 +159,12 @@ function main() {
   }
   const rows = parseScoreHistory(readFileSync(SCORE_HISTORY, 'utf8'))
   const { calibration, weights } = loadProfile(PROFILE_YML)
-  const outcomes = loadOutcomes(APPS_FILE)
+  const outcomes = loadOutcomes()
 
   const report = analyzeCalibration(rows, { calibration, outcomes, weights })
+  if (!report.error && POST && report.suggestions.length) {
+    report.messages = postSuggestions(report.suggestions)
+  }
 
   if (asJson) {
     process.stdout.write(JSON.stringify(report, null, 2) + '\n')
@@ -177,7 +198,7 @@ function printSummary(r) {
   line()
   line(`  Scored roles:      ${m.evaluated}  (${m.dateRange.from || '?'} → ${m.dateRange.to || '?'})${m.blocked ? `  · ${m.blocked} blocked by eligibility (not scored, excluded)` : ''}`)
   line(`  Calibration set:   ${m.calibrationConfigured ? 'yes' : 'no (brand/growth bonuses not configured)'}`)
-  line(`  Outcomes joined:   ${m.outcomesAvailable ? 'yes (applications.md)' : 'no — apply to roles to unlock score→outcome checks'}`)
+  line(`  Outcomes joined:   ${m.outcomesAvailable ? 'yes (status log + applications.md, as scripts/outcomes.mjs)' : 'no — apply to roles to unlock score→outcome checks'}`)
   line()
 
   // ── Rubric dimension health ──
@@ -234,17 +255,31 @@ function printSummary(r) {
       for (const a of flags) {
         const where = `typically ${VERDICT_LABELS[a.typicalVerdict] ?? a.typicalVerdict} (Want ${a.avgWant} · Ease ${a.avgEase})`
         const desc = a.flag === 'high-score-no-convert'
-          ? `${where} but 0/${a.applied} converted`
-          : `${where} yet converts ${a.convertRate}%`
+          ? `${where} but 0/${a.applied} progressed`
+          : `${where} yet progresses ${a.convertRate}%`
         line(`    ⚠  ${pad(a.archetype, 24)} ${desc}  [n=${a.applied}, ${a.confidence}]`)
       }
       line()
     }
     const ex = so.excluded || {}
-    if (ex.legacy || ex.unscored) {
-      line(`    (excluded from score→outcome: ${ex.legacy || 0} legacy (v1 Overall) Score cells — an Overall can't be placed on the Want × Ease grid — and ${ex.unscored || 0} applications with no score)`)
+    if (ex.unscored || ex.pending || ex.withdrawn) {
+      line(`    (excluded from score→outcome: ${ex.unscored || 0} resolved without a score, ${ex.pending || 0} pending, ${ex.withdrawn || 0} withdrawn)`)
       line()
     }
+  }
+
+  // ── Ease vs outcomes (outcome-stats' check, gates included) ──
+  const eo = d.easeOutcome
+  if (eo?.available && eo.comparisons.length) {
+    line('  EASE VS OUTCOMES')
+    for (const c of eo.comparisons) {
+      const name = c.kind === 'high-no-progress' ? 'high never progresses' : `${c.higher} vs ${c.lower}`
+      const short = c.status === 'insufficient'
+        ? ` (resolved: ${c.shortfall.map(x => `${x.band} ${x.n}`).join(', ')}; ${c.shortfall[0].gate} needed per band)`
+        : ''
+      line(`    ${pad(name, 24)} ${c.status}${short}`)
+    }
+    line()
   }
 
   // ── Suggestions ──
@@ -271,7 +306,11 @@ function printSummary(r) {
       line(`     n:    ${s.sampleSize} observation(s) · ${s.confidence} confidence (gate ${s.gate})`)
     })
     line()
-    line('  Nothing was written. Apply the edits you agree with to your user/* files.')
+    line('  Nothing in user/* was changed. Apply the edits you agree with yourself.')
+    const msg = r.messages
+    if (msg) {
+      line(`  Messages: ${msg.posted} new suggestion(s) posted, ${msg.existing} already there (open or dismissed)${msg.failed ? `, ${msg.failed} failed` : ''}.`)
+    }
     line()
   }
 

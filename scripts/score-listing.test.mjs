@@ -106,3 +106,30 @@ test('scoreListing: a red listing the profile scores through keeps verdict block
   assert.equal(scored.priority, null)
   assert.ok(Number.isFinite(scored.want.score) && Number.isFinite(scored.ease.score))
 })
+
+// ─── duration ranges per role type ──────────────────────────────────────────
+
+test('scoreListing: a graduate programme inside its own duration range carries no amber Ease penalty', async () => {
+  const run = (duration_months) => scoreListing({
+    company: 'Nimbus Robotics', role_archetype: 'Strategy Analyst', city: 'Lyon', country: 'FR',
+    comp: { base: 38000 },
+    tax_override: { rate: 0.25, source: 'test' },
+    col_override: { baseline_eur: 1500, source: 'test' },
+    eligibility_facts: { employment: 'graduate_programme', duration_months: 18, country: 'FR' },
+    eligibility_profile: { duration_months },
+    scoring_weights: {},
+    prior: false,
+    judgment_scores: {
+      growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7,
+      best_cities: 7, work_life_balance: 7,
+      skills_match: 7, experience_bar: 7, competition: 6,
+    },
+  })
+  const single = await run({ min: 3, max: 12 })
+  const perType = await run({ min: 3, max: 12, graduate_programme: { min: 12, max: 24 } })
+  assert.equal(single.eligibility.status, 'amber')
+  assert.equal(single.ease.amber_penalty, 0.5)
+  assert.equal(perType.eligibility.status, 'green')
+  assert.equal(perType.ease.amber_penalty, 0)
+  assert.equal(perType.ease.score, Math.round((single.ease.score + 0.5) * 100) / 100)
+})

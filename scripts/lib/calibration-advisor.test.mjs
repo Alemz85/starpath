@@ -14,11 +14,14 @@ import {
   buildSuggestions,
   partitionSuggestions,
   analyzeCalibration,
+  advisoryToSuggestion,
   wantRow,
   resolvedWeights,
   rowIsIntern,
 } from './calibration-advisor.mjs'
-import { GATES } from './scoring-stats.mjs'
+import { GATES, OUTCOME_GATES } from './scoring-stats.mjs'
+import { analyzeApplicationOutcomes } from './outcome-stats.mjs'
+import { postFromSuggestion, buildPost, MAX_TITLE } from './messages-core.mjs'
 import { parseScoreHistory } from './targeting-core.mjs'
 import { historyTsv } from './testing/score-history-fixture.mjs'
 import { WANT_HIGH, WANT_MID } from './score-bands.mjs'
@@ -273,28 +276,47 @@ test('compReality excludes internship rows (their salary term is 0 in Want)', ()
   assert.equal(c.status, 'aligned')
 })
 
-/* ───── scoreOutcomeCalibration ──────────────────────────────────── */
+/* ───── scoreOutcomeCalibration (outcomes from outcome-stats) ─────── */
 
-const apps = (n, { archetype = 'Growth Analytics', score, status, role = 'Analyst' } = {}) => {
+const TODAY = '2026-10-20'
+const pick = (v, i) => (typeof v === 'function' ? v(i) : v)
+const STATUS_OF = { progressed: 'Interview', 'progressed-then-rejected': 'Rejected', rejected: 'Rejected', 'no-response': 'Applied', pending: 'Applied', withdrawn: 'Discarded' }
+
+// n applications of one archetype through the real outcomes path: score-history
+// rows, tracker rows and status-log moves → analyzeApplicationOutcomes.
+const sent = (n, { archetype = 'Growth Analytics', want = 8.4, ease = 7.2, outcome = 'rejected', role = 'Analyst', scored = true } = {}) => {
   const companies = Array.from({ length: n }, (_, i) => `Wingtip ${String.fromCharCode(65 + i)}`)
-  const rows = parse(...companies.map(c => ({ archetype, company: c, role })))
-  const outcomes = companies.map((c, i) => ({
-    company: c, role,
-    status: typeof status === 'function' ? status(i) : status,
-    score: typeof score === 'function' ? score(i) : score,
-  }))
-  return { rows, outcomes }
+  const rows = scored
+    ? parse(...companies.map((company, i) => ({ archetype, company, role, want: pick(want, i), ease: pick(ease, i) })))
+    : []
+  const applications = []
+  const ledger = []
+  companies.forEach((company, i) => {
+    const num = i + 1
+    const o = pick(outcome, i)
+    const date = o === 'pending' ? '2026-10-15' : '2026-09-01'
+    applications.push({ num, date, company, role, status: STATUS_OF[o], notes: '' })
+    const mv = (to, from, d) => ledger.push({ num, company, role, to, from, date: d, stage: '', source: 'app', note: '' })
+    mv('Applied', 'Evaluated', date)
+    if (o.startsWith('progressed')) mv('Interview', 'Applied', '2026-09-10')
+    if (o === 'progressed-then-rejected') mv('Rejected', 'Interview', '2026-09-20')
+    if (o === 'rejected') mv('Rejected', 'Applied', '2026-09-10')
+    if (o === 'withdrawn') mv('Discarded', 'Applied', '2026-09-10')
+  })
+  return { rows, outcomes: analyzeApplicationOutcomes({ applications, ledger, scores: rows, today: TODAY }) }
 }
 
 test('scoreOutcomeCalibration is unavailable with no outcomes', () => {
-  const r = scoreOutcomeCalibration(repeat(3), [])
-  assert.equal(r.available, false)
-  assert.deepEqual(r.excluded, { legacy: 0, unscored: 0 })
+  for (const none of [null, undefined, { records: [] }]) {
+    const r = scoreOutcomeCalibration(none)
+    assert.equal(r.available, false)
+    assert.deepEqual(r.excluded, { unscored: 0, pending: 0, withdrawn: 0 })
+  }
 })
 
-test('scoreOutcomeCalibration flags high-score-no-convert from the Score cells', () => {
-  const { rows, outcomes } = apps(3, { score: 'W8.4 E7.2', status: 'rejected' })
-  const r = scoreOutcomeCalibration(rows, outcomes)
+test('scoreOutcomeCalibration flags high-score-no-convert from the score-history Want / Ease', () => {
+  const { outcomes } = sent(3, { outcome: (i) => (i === 0 ? 'no-response' : 'rejected') })
+  const r = scoreOutcomeCalibration(outcomes)
   assert.equal(r.available, true)
   const a = r.archetypes.find(x => x.archetype === 'Growth Analytics')
   assert.equal(a.typicalVerdict, 'go')
@@ -304,80 +326,47 @@ test('scoreOutcomeCalibration flags high-score-no-convert from the Score cells',
   assert.equal(a.avgPriority, Math.round(Math.sqrt(8.4 * 7.2) * 100) / 100)
   assert.equal(a.verdicts.go, 3)
   assert.equal(a.actionableShare, 100)
-  assert.equal(a.positive, 0)
+  assert.deepEqual([a.applied, a.positive, a.rejected, a.noResponse, a.negative], [3, 0, 2, 1, 3])
 })
 
 test('scoreOutcomeCalibration flags low-score-converts (typical verdict not actionable)', () => {
-  const { rows, outcomes } = apps(3, {
-    score: 'W6.0 E6.0',
-    status: (i) => (i < 2 ? 'interview' : 'rejected'),
-  })
-  const a = scoreOutcomeCalibration(rows, outcomes).archetypes[0]
+  const { outcomes } = sent(3, { want: 6.0, ease: 6.0, outcome: (i) => (i < 2 ? 'progressed' : 'rejected') })
+  const a = scoreOutcomeCalibration(outcomes).archetypes[0]
   assert.equal(a.typicalVerdict, 'skip')
   assert.equal(a.flag, 'low-score-converts')
-  assert.ok(a.convertRate >= 50)
+  assert.equal(a.convertRate, 67)
 })
 
-test('scoreOutcomeCalibration accepts the display form of the cell (W8.3 · E5.6)', () => {
-  const { rows, outcomes } = apps(3, { score: 'W8.3 · E5.6', status: 'rejected' })
-  const a = scoreOutcomeCalibration(rows, outcomes).archetypes[0]
-  assert.equal(a.typicalVerdict, 'stretch')
-  assert.equal(a.flag, 'high-score-no-convert')
+test('scoreOutcomeCalibration reads the history, not the status cell: an interview later rejected progressed', () => {
+  const { outcomes } = sent(3, { outcome: 'progressed-then-rejected' })
+  const a = scoreOutcomeCalibration(outcomes).archetypes[0]
+  assert.equal(a.positive, 3)
+  assert.equal(a.flag, null)
 })
 
-test('scoreOutcomeCalibration excludes legacy X.X/10 cells and says so', () => {
-  const { rows, outcomes } = apps(5, {
-    score: (i) => (i < 3 ? 'W8.4 E7.2' : '7.9/10'),
-    status: 'rejected',
-  })
-  const r = scoreOutcomeCalibration(rows, outcomes)
-  assert.equal(r.excluded.legacy, 2)
-  const a = r.archetypes[0]
-  assert.equal(a.applied, 3) // only the v2-scored applications
-  assert.equal(a.excluded.legacy, 2)
-})
-
-test('scoreOutcomeCalibration: an all-legacy archetype drops out of the table', () => {
-  const { rows, outcomes } = apps(4, { score: '8.0/10', status: 'rejected' })
-  const r = scoreOutcomeCalibration(rows, outcomes)
-  assert.equal(r.available, true)
-  assert.equal(r.archetypes.length, 0)
-  assert.equal(r.excluded.legacy, 4)
-})
-
-test('scoreOutcomeCalibration falls back to the score-history Want/Ease for an empty cell', () => {
-  const companies = ['Wingtip A', 'Wingtip B', 'Wingtip C']
-  const rows = parse(...companies.map(c => ({ archetype: 'Ops', company: c, role: 'Coord', ...WANT_TOP })))
-  const outcomes = companies.map(c => ({ company: c, role: 'Coord', status: 'rejected', score: '' }))
-  const a = scoreOutcomeCalibration(rows, outcomes).archetypes[0]
-  assert.equal(a.applied, 3)
-  assert.equal(a.avgWant, rows[0].want)
-  assert.equal(a.avgEase, rows[0].ease)
+test('scoreOutcomeCalibration leaves pending and withdrawn applications out and counts them', () => {
+  const { outcomes } = sent(6, { outcome: (i) => ['rejected', 'rejected', 'rejected', 'pending', 'pending', 'withdrawn'][i] })
+  const r = scoreOutcomeCalibration(outcomes)
+  assert.deepEqual(r.excluded, { unscored: 0, pending: 2, withdrawn: 1 })
+  assert.equal(r.archetypes[0].applied, 3)
 })
 
 test('scoreOutcomeCalibration counts unscored applications as excluded', () => {
-  const outcomes = [{ company: 'Unknown Co', role: 'Analyst', status: 'rejected', score: 'N/A' }]
-  const r = scoreOutcomeCalibration([], outcomes)
+  const { outcomes } = sent(3, { scored: false })
+  const r = scoreOutcomeCalibration(outcomes)
   assert.equal(r.available, true)
-  assert.equal(r.excluded.unscored, 1)
-})
-
-test('scoreOutcomeCalibration ignores pre-application statuses (evaluated)', () => {
-  const { rows, outcomes } = apps(3, { score: 'W8.4 E7.2', status: 'evaluated' })
-  assert.equal(scoreOutcomeCalibration(rows, outcomes).available, false)
+  assert.equal(r.excluded.unscored, 3)
+  assert.equal(r.archetypes.length, 0)
 })
 
 test('scoreOutcomeCalibration respects minApplied threshold', () => {
-  const { rows, outcomes } = apps(2, { score: 'W8.4 E7.2', status: 'rejected' })
-  assert.equal(scoreOutcomeCalibration(rows, outcomes).archetypes.length, 0)
+  const { outcomes } = sent(2)
+  assert.equal(scoreOutcomeCalibration(outcomes).archetypes.length, 0)
 })
 
-test('scoreOutcomeCalibration joins on an explicit archetype field when present', () => {
-  const outcomes = Array.from({ length: 3 }, () => ({ archetype: 'Design', status: 'rejected', score: 'W7.0 E7.5' }))
-  const r = scoreOutcomeCalibration([], outcomes)
-  const d = r.archetypes.find(a => a.archetype === 'Design')
-  assert.equal(d.applied, 3)
-  assert.equal(d.typicalVerdict, 'solid')
+test('scoreOutcomeCalibration normalizes the archetype it groups on', () => {
+  const { outcomes } = sent(3, { archetype: 'Strategy/Ops' })
+  assert.equal(scoreOutcomeCalibration(outcomes).archetypes[0].archetype, 'Strategy / Ops')
 })
 
 /* ───── buildSuggestions ─────────────────────────────────────────── */
@@ -498,12 +487,39 @@ test('analyzeCalibration threads the user weights into the dimension diagnostics
 })
 
 test('analyzeCalibration integrates outcomes when provided', () => {
-  // 8 applications = the § 3.4 gate for a conversion claim.
-  const { rows, outcomes } = apps(8, { archetype: 'Tech Sales', score: 'W8.4 E7.2', status: 'rejected' })
+  // 8 resolved applications = the § 3.4 gate for a conversion claim.
+  const { rows, outcomes } = sent(8, { archetype: 'Tech Sales' })
   const out = analyzeCalibration(rows, { outcomes })
   assert.equal(out.metadata.outcomesAvailable, true)
-  const has = out.suggestions.some(s => /Tech Sales/.test(s.action) && /0\/8 applications converted/.test(s.action))
+  const has = out.suggestions.find(s => /Tech Sales/.test(s.action) && /0\/8 resolved applications progressed/.test(s.action))
   assert.ok(has, 'expected a high-score-no-convert suggestion for Tech Sales')
+  assert.equal(has.id, 'calibrate:archetype-no-convert:tech sales')
+})
+
+test('analyzeCalibration carries the outcomes Ease check and its confirmed gaps', () => {
+  // 8 high-Ease applications, none progressed, 4 in each half: a § 3.7 gap.
+  const { rows, outcomes } = sent(8, { archetype: 'Tech Sales' })
+  const out = analyzeCalibration(rows, { outcomes })
+  const eo = out.diagnostics.easeOutcome
+  assert.equal(eo.available, true)
+  assert.deepEqual(eo.comparisons, outcomes.easeCheck.comparisons)
+  assert.equal(eo.counts.resolved, 8)
+  const gap = out.suggestions.find(s => s.id === 'outcomes:ease:high-no-progress')
+  assert.ok(gap, 'the outcomes gap is a calibrate suggestion too')
+  assert.equal(gap.source, 'outcomes')
+  assert.equal(gap.action, outcomes.suggestions[0].title)
+  assert.equal(gap.sampleSize, 8)
+  assert.equal(gap.gate, OUTCOME_GATES.minResolved)
+  assert.equal(gap.confidence, 'low')
+})
+
+test('analyzeCalibration: an Ease band under its gate stays insufficient, never a suggestion', () => {
+  const { rows, outcomes } = sent(7, { archetype: 'Tech Sales' })
+  const out = analyzeCalibration(rows, { outcomes })
+  assert.equal(out.diagnostics.easeOutcome.comparisons.find(c => c.kind === 'high-no-progress').status, 'insufficient')
+  assert.equal(out.suggestions.some(s => s.source === 'outcomes'), false)
+  assert.equal(out.suggestions.some(s => /Tech Sales/.test(s.action)), false)
+  assert.equal(out.insufficientData.some(s => /Tech Sales/.test(s.action)), true)
 })
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -575,7 +591,7 @@ test('buildSuggestions returns a plain sorted array with the stable fields', () 
   const arr = buildSuggestions(diag)
   assert.ok(Array.isArray(arr))
   assert.deepEqual(arr, partitionSuggestions(diag).suggestions)
-  for (const k of ['target', 'action', 'reasoning', 'severity', 'edit', 'sampleSize', 'gate', 'confidence']) {
+  for (const k of ['id', 'target', 'action', 'reasoning', 'severity', 'edit', 'sampleSize', 'gate', 'confidence']) {
     assert.ok(k in arr[0], `suggestion lost field: ${k}`)
   }
 })
@@ -602,9 +618,9 @@ test('dimensionSignal and compReality carry a confidence tier at every size', ()
   assert.equal(compReality(repeat(20, { salary_adj_city: 3 })).confidence, 'low')
 })
 
-test('scoreOutcomeCalibration tiers each archetype by its v2-scored applied count', () => {
-  const { rows, outcomes } = apps(4, { archetype: 'Field Ops', score: 'W8.4 E7.2', status: 'rejected' })
-  const r = scoreOutcomeCalibration(rows, outcomes)
+test('scoreOutcomeCalibration tiers each archetype by its resolved, scored count', () => {
+  const { outcomes } = sent(4, { archetype: 'Field Ops' })
+  const r = scoreOutcomeCalibration(outcomes)
   assert.equal(r.archetypes[0].applied, 4)
   assert.equal(r.archetypes[0].confidence, 'insufficient') // gate is 8
 })
@@ -631,7 +647,7 @@ test('analyzeCalibration keeps every top-level field', () => {
   for (const k of ['evaluated', 'blocked', 'calibrationConfigured', 'outcomesAvailable', 'dateRange', 'analysisDate', 'weights']) {
     assert.ok(k in out.metadata, `metadata lost field: ${k}`)
   }
-  for (const k of ['brandBonusDrift', 'brandBonusCandidates', 'dimensionSignal', 'compReality', 'scoreOutcome']) {
+  for (const k of ['brandBonusDrift', 'brandBonusCandidates', 'dimensionSignal', 'compReality', 'scoreOutcome', 'easeOutcome']) {
     assert.ok(k in out.diagnostics, `diagnostics lost field: ${k}`)
   }
 })
@@ -647,4 +663,62 @@ test('no advisory ever carries an insufficient confidence tier', () => {
   assert.equal(p.suggestions.length, 0)
   assert.equal(p.insufficientData.length, 4)
   for (const s of p.suggestions) assert.notEqual(s.confidence, 'insufficient')
+})
+
+/* ───── Stable ids and Messages ──────────────────────────────────── */
+
+const everyAdvisory = (scale = 1) => ({
+  brandBonusDrift: [
+    driftEntry({ roles: 6 * scale }),
+    driftEntry({ company: 'Northwind Analytics', avgWant: 9, avgWantUnaided: 9, verdict: 'inert', roles: 6 * scale }),
+  ],
+  brandBonusCandidates: [{ company: 'Litware Systems', roles: 5 * scale, avgWant: 8.6, avgEase: 7.1 }],
+  dimensionSignal: [
+    { key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'want', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 * scale },
+    { key: 'competition', label: 'Competition', group: 'ease', rollup: 'ease', weight: 0.3, status: 'pinned-floor', mean: 1.6, floorShare: 90, count: 40 * scale },
+  ],
+  compReality: { status: 'targets-above-market', mean: 3.5, lowShare: 60, count: 40 * scale },
+  scoreOutcome: { available: true, archetypes: [
+    { archetype: 'Ops', applied: 9 * scale, positive: 0, negative: 9 * scale, convertRate: 0, avgWant: 8.4, avgEase: 7.2, typicalVerdict: 'go', flag: 'high-score-no-convert' },
+    { archetype: 'Field Sales', applied: 9 * scale, positive: 6 * scale, negative: 3 * scale, convertRate: 67, avgWant: 6.0, avgEase: 6.0, typicalVerdict: 'skip', flag: 'low-score-converts' },
+  ] },
+})
+
+test('every advisory carries a unique id that does not move with its counts', () => {
+  const a = partitionSuggestions(everyAdvisory(1)).suggestions
+  const b = partitionSuggestions(everyAdvisory(2)).suggestions
+  assert.equal(a.length, 8)
+  const ids = a.map(s => s.id)
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique')
+  assert.deepEqual(b.map(s => s.id).sort(), [...ids].sort(), 'ids are stable across runs')
+  for (const id of ids) {
+    assert.match(id, /^calibrate:[a-z-]+(:.+)?$/)
+    assert.doesNotMatch(id, /\d/, 'no counts in an id')
+  }
+  assert.ok(ids.includes('calibrate:brand-misdirected:tailspin toys'))
+  assert.ok(ids.includes('calibrate:comp-above-market'))
+})
+
+test('advisoryToSuggestion → postFromSuggestion: a keyed calibrate suggestion that never applies anything', () => {
+  const [s] = partitionSuggestions(driftDiag(6)).suggestions
+  const input = postFromSuggestion(advisoryToSuggestion(s))
+  assert.equal(input.source, 'calibrate')
+  assert.equal(input.kind, 'suggestion')
+  assert.equal(input.key, s.id)
+  assert.equal(input.title, s.action)
+  assert.match(input.body, /Suggested edit/)
+  assert.ok(input.body.includes(s.edit))
+  assert.match(input.body, /6 observations, low confidence \(gate 4\)/)
+  assert.match(input.body, /Nothing was changed/)
+  assert.deepEqual(input.links, ['user/profile.yml'])
+  // buildPost accepts it as is.
+  const rec = buildPost(input, { id: 'm-20261020-abcd1234', now: new Date('2026-10-20T00:00:00Z') })
+  assert.equal(rec.key, s.id)
+})
+
+test('advisoryToSuggestion cuts an over-long title to the Messages limit', () => {
+  const s = { id: 'calibrate:x', action: 'A'.repeat(MAX_TITLE + 50), reasoning: 'r', edit: 'e', target: 'user/profile.yml', sampleSize: 4, gate: 4, confidence: 'low' }
+  const t = advisoryToSuggestion(s).title
+  assert.equal(t.length, MAX_TITLE)
+  assert.ok(t.endsWith('…'))
 })

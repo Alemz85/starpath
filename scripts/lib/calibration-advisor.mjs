@@ -27,7 +27,8 @@
 //
 // Everything here is PURE: no I/O, no mutation of inputs, no globals. It takes
 // already-parsed rows (via targeting-core's parseScoreHistory), an optional
-// outcomes array (parsed from applications.md by the CLI), the calibration
+// outcomes result (scripts/lib/outcome-stats.mjs analyzeApplicationOutcomes,
+// read by the CLI through outcome-inputs.mjs), the calibration
 // object (the same shape calibration.mjs consumes) and the optional
 // `scoring.want_weights` / `ease_weights` from user/profile.yml. The thin
 // file/CLI wrapper lives in scripts/calibration-advisor.mjs.
@@ -51,8 +52,8 @@ import {
   WANT_HIGH, WANT_MID, DREAM_WANT_FLOOR, WANT_DIMS, VERDICT_LABELS,
 } from './score-bands.mjs'
 import { applyBrandCalibration, isDreamCompany, wantPreference } from './calibration.mjs'
-import { parseScoreCell } from './tracker-core.mjs'
-import { GATES, confidenceTier, describeSample } from './scoring-stats.mjs'
+import { GATES, OUTCOME_GATES, confidenceTier, describeSample } from './scoring-stats.mjs'
+import { MAX_TITLE } from './messages-core.mjs'
 
 /* ───── small stats helpers (kept local so the lib is import-light) ───────── */
 const round1 = (n) => Math.round(n * 10) / 10
@@ -355,95 +356,74 @@ export function compReality(rows, { minRows = 5 } = {}) {
   return { count: vals.length, internsExcluded, mean: m, median: med, lowShare, highShare, status, confidence }
 }
 
-/* ───── 5. Score → outcome calibration (needs applications.md outcomes) ───────
+/* ───── 5. Score → outcome calibration (from scripts/outcomes.mjs) ──────────
  *
- * The ultimate calibration test: do the verdicts actually convert? Each
- * application's own Score cell (`W8.3 E5.6`, parsed by tracker-core
- * parseScoreCell) places it on the verdict grid; its status says what the
- * market did. Per archetype, the applications' mean Want and Ease replayed
- * through assignVerdict give the archetype's TYPICAL verdict. Two mis-rankings:
+ * The ultimate calibration test: do the verdicts actually convert? The
+ * outcomes come from ONE place, scripts/lib/outcome-stats.mjs
+ * (analyzeApplicationOutcomes): every application that reached the market,
+ * classified on its status-log history (progressed / rejected / no-response /
+ * pending / withdrawn, docs/scoring-statistical-design.md § 3.7), with the
+ * latest score-history Want / Ease joined on its application key. This module
+ * never reads status text itself.
+ *
+ * Per archetype, the RESOLVED applications (progressed + rejected +
+ * no-response; pending and withdrawn are not answers) give a conversion rate
+ * (progressed / resolved), and their mean Want and Ease replayed through
+ * assignVerdict give the archetype's TYPICAL verdict. Two mis-rankings:
  *
  *   (a) HIGH-SCORE, NO-CONVERT — the typical verdict is actionable (go /
- *       stretch / solid: the grid says apply) but none of the applications got a
- *       positive response. The rubric is over-crediting something the market
+ *       stretch / solid: the grid says apply) but none of the applications
+ *       progressed. The rubric is over-crediting something the market
  *       disagrees with.
  *   (b) LOW-SCORE, CONVERTS — the typical verdict is NOT actionable (thin /
- *       growth / skip) yet ≥ 50% of the applications converted. The rubric is
- *       missing a real strength.
+ *       growth / skip) yet ≥ 50% of the applications progressed. The rubric
+ *       is missing a real strength.
  *
- * `outcomes` is an array of { archetype?, company, role, status, score? } where
- * status is already normalized to the canonical lowercase set (applied/
- * responded/interview/offer/rejected/discarded/...) and score is the raw Score
- * cell. applications.md rows don't carry an archetype, so we join on
- * company+role back to the score rows (latest match).
+ * `applied` is the resolved, scored count (the claim's n). Unscored
+ * applications (no score-history row) are counted in `excluded.unscored`,
+ * pending / withdrawn ones in `excluded.pending` / `excluded.withdrawn`.
  *
- * Score source, in order: the Score cell when it is a v2 `W.. E..` cell; the
- * matched score-history row's Want / Ease when the cell is empty or unparseable.
- * LEGACY `X.X/10` cells (v1 Overall) are EXCLUDED: an Overall has no Want / Ease
- * split, so it can't be placed on the verdict grid, and it isn't on Priority's
- * scale either (a v1 weighted mean of CF/AF vs. √(Want·Ease)). They are counted
- * in `excluded.legacy` instead, never folded into a claim.
+ * The Ease-band check (easeCheck: does a higher Ease band progress at least
+ * as often?) is outcome-stats' own; easeOutcome() below passes its
+ * comparisons and confirmed gaps through unchanged, so calibrate and
+ * `outcomes.mjs` can never disagree.
  */
-const POSITIVE = new Set(['responded', 'interview', 'offer'])
-const NEGATIVE = new Set(['rejected', 'discarded'])
-const APPLIED_ISH = new Set(['applied', 'responded', 'interview', 'offer', 'rejected', 'discarded'])
-
-function matchHistoryRow(outcome, rows) {
-  const co = companyKey(outcome.company)
-  const ro = companyKey(outcome.role)
-  if (!co) return null
-  let best = null
-  for (const r of rows) {
-    if (companyKey(r.company) !== co || companyKey(r.role) !== ro) continue
-    if (!best || String(r.date || '') >= String(best.date || '')) best = r
-  }
-  return best
-}
-
-function outcomeScore(outcome, match) {
-  const cell = parseScoreCell(outcome.score)
-  if (cell && 'want' in cell) return { want: cell.want, ease: cell.ease, source: 'cell' }
-  if (cell && 'legacy' in cell) return { legacy: cell.legacy }
-  if (match && isScored(match)) return { want: match.want, ease: match.ease, source: 'history' }
-  return null
-}
+const RESOLVED = new Set(['progressed', 'rejected', 'no-response'])
 
 const emptyVerdicts = () => ({ go: 0, stretch: 0, solid: 0, thin: 0, growth: 0, skip: 0 })
 
-export function scoreOutcomeCalibration(rows, outcomes = [], { minApplied = 3 } = {}) {
-  const excluded = { legacy: 0, unscored: 0 }
-  if (!outcomes || outcomes.length === 0) return { available: false, archetypes: [], excluded }
+/**
+ * @param {object|null} outcomes  analyzeApplicationOutcomes() result (or null)
+ */
+export function scoreOutcomeCalibration(outcomes, { minApplied = 3 } = {}) {
+  const excluded = { unscored: 0, pending: 0, withdrawn: 0 }
+  const records = outcomes?.records ?? []
+  if (records.length === 0) return { available: false, archetypes: [], excluded }
 
   const funnel = new Map()
-  let anyApplied = false
-  for (const o of outcomes) {
-    const status = String(o.status || '').toLowerCase()
-    if (!APPLIED_ISH.has(status)) continue // only count things that reached the market
-    anyApplied = true
-    const match = matchHistoryRow(o, rows)
-    const a = o.archetype ? normalizeArchetype(o.archetype)
-      : match ? normalizeArchetype(match.archetype) : 'Unknown'
+  for (const r of records) {
+    if (r.outcome === 'pending' || r.outcome === 'withdrawn') { excluded[r.outcome]++; continue }
+    if (!RESOLVED.has(r.outcome)) continue
+    const a = !r.archetype || r.archetype === 'unknown' ? 'Unknown' : normalizeArchetype(r.archetype)
     if (!funnel.has(a)) {
-      funnel.set(a, { applied: 0, positive: 0, negative: 0, wants: [], eases: [], prios: [],
-        verdicts: emptyVerdicts(), legacy: 0, unscored: 0 })
+      funnel.set(a, { applied: 0, positive: 0, rejected: 0, noResponse: 0, wants: [], eases: [], prios: [],
+        verdicts: emptyVerdicts(), unscored: 0 })
     }
     const f = funnel.get(a)
-    const score = outcomeScore(o, match)
-    if (!score) { f.unscored++; excluded.unscored++; continue }
-    if ('legacy' in score) { f.legacy++; excluded.legacy++; continue }
+    if (!Number.isFinite(r.want) || !Number.isFinite(r.ease)) { f.unscored++; excluded.unscored++; continue }
     f.applied++
-    f.wants.push(score.want)
-    f.eases.push(score.ease)
-    const p = computePriority(score.want, score.ease)
+    f.wants.push(r.want)
+    f.eases.push(r.ease)
+    const p = computePriority(r.want, r.ease)
     if (p != null) f.prios.push(p)
     // Blocked listings are never promoted to applications.md, so the grid is
     // read with eligibility green.
-    const v = assignVerdict({ want: score.want, ease: score.ease, eligibility: 'green' }).verdict
+    const v = assignVerdict({ want: r.want, ease: r.ease, eligibility: 'green' }).verdict
     if (v in f.verdicts) f.verdicts[v]++
-    if (POSITIVE.has(status)) f.positive++
-    else if (NEGATIVE.has(status)) f.negative++
+    if (r.outcome === 'progressed') f.positive++
+    else if (r.outcome === 'rejected') f.rejected++
+    else f.noResponse++
   }
-  if (!anyApplied) return { available: false, archetypes: [], excluded }
 
   const archetypes = []
   for (const [arch, f] of funnel.entries()) {
@@ -460,7 +440,9 @@ export function scoreOutcomeCalibration(rows, outcomes = [], { minApplied = 3 } 
       archetype: arch,
       applied: f.applied,
       positive: f.positive,
-      negative: f.negative,
+      negative: f.rejected + f.noResponse,
+      rejected: f.rejected,
+      noResponse: f.noResponse,
       convertRate,
       avgWant,
       avgEase,
@@ -468,11 +450,11 @@ export function scoreOutcomeCalibration(rows, outcomes = [], { minApplied = 3 } 
       typicalVerdict,
       verdicts: f.verdicts,
       actionableShare: Math.round((actionable / f.applied) * 100),
-      excluded: { legacy: f.legacy, unscored: f.unscored },
+      excluded: { unscored: f.unscored },
       flag,
-      // The n is `applied` (v2-scored applications only); gate 8, because
+      // The n is `applied` (resolved, scored applications); gate 8, because
       // "0 of n converted" is only remarkable once 0 is unlikely under a
-      // healthy conversion rate.
+      // healthy conversion rate (OUTCOME_GATES.minResolved is the same 8).
       confidence: confidenceTier(f.applied, GATES.calibrationMinApplied),
     })
   }
@@ -480,9 +462,26 @@ export function scoreOutcomeCalibration(rows, outcomes = [], { minApplied = 3 } 
   return { available: true, archetypes, excluded }
 }
 
+/**
+ * The Ease-vs-outcome check, as outcome-stats computed it: every comparison
+ * with its status (insufficient / agrees / within-resolution /
+ * not-persistent / gap) and the suggestions for confirmed gaps only.
+ */
+export function easeOutcome(outcomes) {
+  if (!outcomes?.records?.length) return { available: false, comparisons: [], suggestions: [] }
+  return {
+    available: true,
+    counts: outcomes.overall?.counts ?? null,
+    comparisons: outcomes.easeCheck?.comparisons ?? [],
+    suggestions: outcomes.suggestions ?? [],
+  }
+}
+
 /* ───── Suggestions — turn the diagnostics into concrete user/* edits ─────────
  *
- * Each suggestion is { target, action, reasoning, severity, edit } where:
+ * Each suggestion is { id, target, action, reasoning, severity, edit } where:
+ *   - id       = a stable key (kind + subject, never counts), so a repeat run
+ *                can be recognised (the Messages inbox dedupes on it)
  *   - target   = which user file the edit lands in (user/profile.yml etc.)
  *   - action   = one-line imperative the UI shows
  *   - reasoning= why the evidence supports it
@@ -530,6 +529,7 @@ export function partitionSuggestions(diag) {
   for (const d of diag.brandBonusDrift || []) {
     if (d.verdict === 'misdirected') {
       s.push({
+        id: `calibrate:brand-misdirected:${companyKey(d.company)}`,
         sampleSize: d.roles,
         gate: GATES.calibrationMinCompanyRoles,
         target: 'user/profile.yml',
@@ -540,6 +540,7 @@ export function partitionSuggestions(diag) {
       })
     } else if (d.verdict === 'inert' && d.kind === 'dream') {
       s.push({
+        id: `calibrate:dream-floor-inert:${companyKey(d.company)}`,
         sampleSize: d.roles,
         gate: GATES.calibrationMinCompanyRoles,
         target: 'user/profile.yml',
@@ -553,6 +554,7 @@ export function partitionSuggestions(diag) {
 
   for (const c of (diag.brandBonusCandidates || []).slice(0, 5)) {
     s.push({
+      id: `calibrate:brand-candidate:${companyKey(c.company)}`,
       sampleSize: c.roles,
       gate: GATES.calibrationMinCompanyRoles,
       target: 'user/profile.yml',
@@ -569,6 +571,7 @@ export function partitionSuggestions(diag) {
     const rollup = d.rollup === 'ease' ? 'Ease' : 'Want'
     if (d.status === 'pinned-ceiling') {
       s.push({
+        id: `calibrate:dim-ceiling:${d.key}`,
         sampleSize: d.count,
         gate: GATES.calibrationMinDimRows,
         target: hint ? 'user/profile.yml' : 'user/_profile.md',
@@ -581,6 +584,7 @@ export function partitionSuggestions(diag) {
       })
     } else {
       s.push({
+        id: `calibrate:dim-floor:${d.key}`,
         sampleSize: d.count,
         gate: GATES.calibrationMinDimRows,
         target: 'user/_profile.md',
@@ -595,6 +599,7 @@ export function partitionSuggestions(diag) {
   const comp = diag.compReality
   if (comp?.status === 'targets-above-market') {
     s.push({
+      id: 'calibrate:comp-above-market',
       sampleSize: comp.count,
       gate: GATES.calibrationMinCompRows,
       target: 'user/profile.yml',
@@ -605,6 +610,7 @@ export function partitionSuggestions(diag) {
     })
   } else if (comp?.status === 'targets-below-market') {
     s.push({
+      id: 'calibrate:comp-below-market',
       sampleSize: comp.count,
       gate: GATES.calibrationMinCompRows,
       target: 'user/profile.yml',
@@ -619,16 +625,18 @@ export function partitionSuggestions(diag) {
     const scoreText = `Want ${fmtW(a.avgWant)} · Ease ${fmtW(a.avgEase)}`
     if (a.flag === 'high-score-no-convert') {
       s.push({
+        id: `calibrate:archetype-no-convert:${companyKey(a.archetype)}`,
         sampleSize: a.applied,
         gate: GATES.calibrationMinApplied,
         target: 'user/_profile.md',
-        action: `"${a.archetype}" lands in ${vLabel(a.typicalVerdict)} on average (${scoreText}) but 0/${a.applied} applications converted`,
-        reasoning: `The verdict grid says to apply to this archetype, yet the market keeps rejecting your applications to it. The scoring is over-crediting something — a gap the rubric isn't capturing (seniority, location reality, a missing must-have) that probably belongs in Ease.`,
+        action: `"${a.archetype}" lands in ${vLabel(a.typicalVerdict)} on average (${scoreText}) but 0/${a.applied} resolved applications progressed`,
+        reasoning: `The verdict grid says to apply to this archetype, yet none of your resolved applications to it got past a rejection or silence. The scoring is over-crediting something — a gap the rubric isn't capturing (seniority, location reality, a missing must-have) that probably belongs in Ease.`,
         severity: 'high',
         edit: `In user/_profile.md, add a gap check for "${a.archetype}" (most likely on Experience bar or Competition), or re-examine which dimension is inflating it.`,
       })
     } else if (a.flag === 'low-score-converts') {
       s.push({
+        id: `calibrate:archetype-converts:${companyKey(a.archetype)}`,
         sampleSize: a.applied,
         gate: GATES.calibrationMinApplied,
         target: 'user/_profile.md',
@@ -638,6 +646,27 @@ export function partitionSuggestions(diag) {
         edit: `In user/_profile.md, re-anchor the dimension that's under-scoring "${a.archetype}" (or raise its weight under scoring.want_weights / ease_weights in user/profile.yml).`,
       })
     }
+  }
+
+  // Ease vs outcomes: outcome-stats' confirmed gaps, unchanged (same id, same
+  // text), so calibrate and outcomes.mjs say one thing. A gap only exists
+  // once every band it compares clears OUTCOME_GATES.minResolved.
+  for (const g of diag.easeOutcome?.suggestions || []) {
+    const ev = g.evidence ?? {}
+    const n = ev.kind === 'high-no-progress'
+      ? ev.counts?.n ?? 0
+      : Math.min(ev.lowerCounts?.n ?? 0, ev.higherCounts?.n ?? 0)
+    s.push({
+      id: g.id,
+      source: 'outcomes',
+      sampleSize: n,
+      gate: OUTCOME_GATES.minResolved,
+      target: g.target ?? 'user/profile.yml',
+      action: g.title,
+      reasoning: g.body,
+      severity: 'high',
+      edit: 'Compare the applications behind it (node scripts/outcomes.mjs --chat, the why-table), then adjust scoring.ease_weights in user/profile.yml or the archetype framing in user/_profile.md if they share a cause.',
+    })
   }
 
   const order = { high: 0, medium: 1, low: 2 }
@@ -664,8 +693,31 @@ export function partitionSuggestions(diag) {
   }
 }
 
+/* ───── Messages — an advisory as an inbox suggestion ───────────────────────
+ *
+ * The CLI posts each gated advisory to the user's Messages
+ * (messages-core postFromSuggestion → messages-store postMessage). This is the
+ * suggestion shape postFromSuggestion takes: the stable `id` becomes the
+ * dedupe key, so a re-run never repeats a message that is open or that the
+ * user dismissed. Only `suggestions` are posted, never `insufficientData`, and
+ * the body only describes the edit: nothing is applied.
+ */
+export function advisoryToSuggestion(a) {
+  const title = a.action.length > MAX_TITLE ? `${a.action.slice(0, MAX_TITLE - 1).trimEnd()}…` : a.action
+  const body = [
+    a.reasoning,
+    `**Suggested edit** (\`${a.target}\`): ${a.edit}`,
+    `Evidence: ${a.sampleSize} observations, ${a.confidence} confidence (gate ${a.gate}). Nothing was changed; apply it yourself if you agree.`,
+  ].join('\n\n')
+  return { id: a.id, kind: 'suggestion', title, body, target: a.target }
+}
+
 /* ───── Top-level analysis object (consumed by the CLI/mode) ──────────────── */
-export function analyzeCalibration(rows, { calibration = {}, outcomes = [], weights, opts = {} } = {}) {
+/**
+ * `outcomes` is the analyzeApplicationOutcomes() result
+ * (scripts/lib/outcome-stats.mjs), or null when there are none.
+ */
+export function analyzeCalibration(rows, { calibration = {}, outcomes = null, weights, opts = {} } = {}) {
   if (!rows || rows.length === 0) {
     return { error: 'No scouting evaluations found in score-history.tsv. Evaluate some roles first — calibration feedback needs a score history to mine.' }
   }
@@ -682,9 +734,10 @@ export function analyzeCalibration(rows, { calibration = {}, outcomes = [], weig
     brandBonusCandidates: brandBonusCandidates(scored, calibration, opts),
     dimensionSignal: dimensionSignal(scored, { ...opts, weights }),
     compReality: compReality(scored, opts),
-    // All rows for the archetype join (any evaluation names the archetype);
-    // the scores themselves come from each application's Score cell.
-    scoreOutcome: scoreOutcomeCalibration(rows, outcomes, opts),
+    // Both outcome checks read the one outcomes result (status-log based,
+    // § 3.7), never the tracker's status text.
+    scoreOutcome: scoreOutcomeCalibration(outcomes, opts),
+    easeOutcome: easeOutcome(outcomes),
   }
 
   const { suggestions, insufficientData } = partitionSuggestions(diag)
@@ -711,6 +764,7 @@ export function analyzeCalibration(rows, { calibration = {}, outcomes = [], weig
           dimRows: GATES.calibrationMinDimRows,
           compRows: GATES.calibrationMinCompRows,
           applied: GATES.calibrationMinApplied,
+          outcomeResolved: OUTCOME_GATES.minResolved,
         },
         wantRows: { mid: WANT_MID, high: WANT_HIGH },
       },
