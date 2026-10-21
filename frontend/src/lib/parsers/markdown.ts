@@ -44,8 +44,8 @@ function tableDataCells(md: string): string[][] {
 // ─── Scouting tracker ─────────────────────────────────────────────────────────
 
 // 12-column v2 table, mapped BY HEADER NAME (docs/scoring-v2.md §8.2):
-//   | # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
-// Want / Ease are bare numbers (`8.25`), `—` when blocked.
+//   | # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
+// Match / Ease are bare numbers (`8.25`), `—` when blocked.
 export function parseScouting(md: string): ScoutingEntry[] {
   const rows = parseMarkdownTable(md)
   return rows.flatMap(row => {
@@ -63,7 +63,7 @@ export function parseScouting(md: string): ScoutingEntry[] {
       role:          row['Role'] ?? '',
       // A red row's cells are "—" unless the profile scores through that
       // wall (score_through_red); then the numbers are real and kept.
-      want:          scoreNum(row['Want']),
+      match:         scoreNum(row['Match'] ?? row['Want']),   // Want: the pre-rename header
       ease:          scoreNum(row['Ease']),
       tier,
       eligibility:   elig.status,
@@ -83,7 +83,7 @@ export function parseScouting(md: string): ScoutingEntry[] {
   })
 }
 
-/** A Want / Ease cell: `8.25` (a stray `/10` tolerated) → number; `—`, empty
+/** A Match / Ease cell: `8.25` (a stray `/10` tolerated) → number; `—`, empty
  *  or anything non-numeric → null. Never 0 for a missing score. */
 function scoreNum(cell: string | undefined): number | null {
   const m = (cell ?? '').replace(/\*\*/g, '').trim().match(/^(\d+(?:\.\d+)?)/)

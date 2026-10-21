@@ -17,7 +17,7 @@ import { toCompanySlug } from '@/components/shared/CompanyLink'
 import { DeadlineRow } from '@/components/shared/DeadlineRow'
 import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
 import { TOP_LIST_DEFS, TopListCard, buildTopList } from '@/components/shared/TopListCard'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { reportSummary } from '@/components/reports/reportFacts'
 import { Button, Chip, Panel, ScoreNumber, StatusChip, TierChip } from '@/components/ui'
 import { KIND_TONE } from '@/components/messages/MessageCard'
@@ -132,7 +132,7 @@ export function ListingBlockCard({ company, role, label }: { company: string; ro
 
   const name = evaluation?.company ?? scout?.company ?? company
   const title = evaluation?.role ?? scout?.role ?? role
-  const want = evaluation?.want ?? scout?.want ?? null
+  const match = evaluation?.match ?? scout?.match ?? null
   const ease = evaluation?.ease ?? scout?.ease ?? null
   const eligibility = evaluation?.eligibility ?? scout?.eligibility ?? null
   const reason = scout?.eligibilityReason || null
@@ -152,7 +152,7 @@ export function ListingBlockCard({ company, role, label }: { company: string; ro
         </div>
 
         <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <WantEase want={want} ease={ease} blockedReason={blocked ? (reason ?? 'Blocked') : undefined} decimals={1} />
+          <MatchEase match={match} ease={ease} blockedReason={blocked ? (reason ?? 'Blocked') : undefined} decimals={1} />
           <span className="flex-1" />
           <VerdictChip verdict={evaluation?.verdict ?? null} />
           <EligibilityChip status={eligibility} reason={reason} />
@@ -243,7 +243,7 @@ export function ReportBlockCard({ company, role, label }: { company: string; rol
         </div>
 
         <div className="mt-3 grid grid-cols-3 gap-2">
-          <ScoreTile label="Want" value={blocked ? null : evaluation?.want ?? null} />
+          <ScoreTile label="Match" value={blocked ? null : evaluation?.match ?? null} />
           <ScoreTile label="Ease" value={blocked ? null : evaluation?.ease ?? null} />
           <div className="rounded border border-border-default/60 bg-bg-panel/50 px-2.5 py-2">
             <p className="label">Eligibility</p>
@@ -319,7 +319,7 @@ export function CompanyBlockCard({ company, label }: { company: string; label?: 
                 title={`Open the report for ${row.role}`}
               >
                 <span className="flex-1 min-w-0 text-body text-text-1 truncate">{row.role}</span>
-                <WantEase want={row.want} ease={row.ease} size="sm" bare decimals={1} className="shrink-0" />
+                <MatchEase match={row.match} ease={row.ease} size="sm" bare decimals={1} className="shrink-0" />
                 <span className="w-[76px] shrink-0 flex justify-end">
                   {row.application
                     ? <StatusChip status={row.application.status} />

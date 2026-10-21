@@ -1,8 +1,8 @@
 // Unit tests for the scoring calibration — scripts/lib/calibration.mjs applies
 // the user's data-driven Brand / Growth / Competition adjustments before
 // the rollups (Brand perception corrections only, onboarding ±1, referral
-// bonus), the liked-company Want bonus, and answers the dream / revisit lookups
-// that drive the Want floor and the Blocked note. Company names are fictional. test-all.mjs pins a few of these end-to-end through
+// bonus), the liked-company Match bonus, and answers the dream / revisit lookups
+// that drive the Match floor and the Blocked note. Company names are fictional. test-all.mjs pins a few of these end-to-end through
 // score-listing.mjs; this suite tests each function directly so the
 // rules (wish lists never move Brand, stacking, clamps) can't drift.
 //
@@ -16,9 +16,9 @@ import {
   applyReferralAdjustment,
   isDreamCompany,
   isRevisitCompany,
-  wantPreference,
+  matchPreference,
 } from './calibration.mjs'
-import { PREFERRED_COMPANY_WANT_BONUS } from './score-bands.mjs'
+import { PREFERRED_COMPANY_MATCH_BONUS } from './score-bands.mjs'
 
 // ─── Brand calibration ────────────────────────────────────────────────────────
 
@@ -53,14 +53,14 @@ test('applyBrandCalibration: extra bonuses stack and clamp at 10', () => {
   assert.equal(stacked.adjustments.length, 2)
 })
 
-// ─── Want preference ─────────────────────────────────────────────────────────
+// ─── Match preference ─────────────────────────────────────────────────────────
 
-test('wantPreference: lower-tier dream adds the preference bonus; dream companies get the floor instead', () => {
+test('matchPreference: lower-tier dream adds the preference bonus; dream companies get the floor instead', () => {
   const cal = { dream_companies: ['Northwind'], lower_tier_dream_companies: ['Contoso', 'Northwind'], brand_affinity_companies: ['Fabrikam'] }
-  assert.deepEqual(wantPreference('contoso', cal), { bonus: PREFERRED_COMPANY_WANT_BONUS, source: 'lower-tier dream company' })
-  assert.deepEqual(wantPreference('Northwind', cal), { bonus: 0, source: null })
-  assert.deepEqual(wantPreference('Fabrikam', cal), { bonus: 0, source: null })
-  assert.deepEqual(wantPreference('Acme', undefined), { bonus: 0, source: null })
+  assert.deepEqual(matchPreference('contoso', cal), { bonus: PREFERRED_COMPANY_MATCH_BONUS, source: 'lower-tier dream company' })
+  assert.deepEqual(matchPreference('Northwind', cal), { bonus: 0, source: null })
+  assert.deepEqual(matchPreference('Fabrikam', cal), { bonus: 0, source: null })
+  assert.deepEqual(matchPreference('Acme', undefined), { bonus: 0, source: null })
 })
 
 // ─── Growth calibration ───────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ test('applyReferralAdjustment clamps to 10', () => {
 test('isDreamCompany: case-insensitive match on dream_companies only', () => {
   const cal = { dream_companies: ['Northwind'], lower_tier_dream_companies: ['Contoso'] }
   assert.equal(isDreamCompany(' northwind ', cal), true)
-  assert.equal(isDreamCompany('Contoso', cal), false)          // lower tier doesn't get the Want floor
+  assert.equal(isDreamCompany('Contoso', cal), false)          // lower tier doesn't get the Match floor
   assert.equal(isDreamCompany('Northwind', {}), false)
   assert.equal(isDreamCompany('Northwind', undefined), false)
 })

@@ -146,44 +146,46 @@ export function roleMatchStrict(a, b) {
 /* ───── Scalar field parsers ─────────────────────────────────────── */
 
 // Score cell forms in applications.md (docs/scoring-v2.md §8.3):
-//   v2      "W8.3 E5.6"   (Want + Ease; blocked listings are never promoted)
+//   v2      "M8.3 E5.6"   (Match + Ease; blocked listings are never promoted;
+//                          the pre-rename "W8.3 E5.6" still parses)
 //   legacy  "7.4/10"      (v1 Overall; existing rows stay valid and display as-is)
-const V2_CELL_RE = /^W\s*(\d+(?:\.\d+)?)\s*[ ·\/,]?\s*E\s*(\d+(?:\.\d+)?)$/i;
+const V2_CELL_RE = /^[MW]\s*(\d+(?:\.\d+)?)\s*[ ·\/,]?\s*E\s*(\d+(?:\.\d+)?)$/i;
 const LEGACY_CELL_RE = /^(\d+(?:\.\d+)?)(?:\s*\/\s*10)?$/;
 
 /**
  * Parse an applications.md Score cell (or tracker-additions score column).
- *   "W8.3 E5.6" → { want: 8.3, ease: 5.6 }
+ *   "M8.3 E5.6" → { match: 8.3, ease: 5.6 }
  *   "7.4/10"    → { legacy: 7.4 }
  *   anything else ("N/A", "—", "", garbage) → null
- * Tolerates bold markers and a few separators ("W8.3 · E5.6", "W8.3/E5.6").
+ * Tolerates bold markers, a few separators ("M8.3 · E5.6", "M8.3/E5.6") and
+ * the pre-rename W prefix ("W8.3 E5.6", when Match was called Want).
  * Mirrored by the frontend's applications parser.
  */
 export function parseScoreCell(cell) {
   const s = String(cell ?? '').replace(/\*\*/g, '').trim();
   if (!s) return null;
   const v2 = s.match(V2_CELL_RE);
-  if (v2) return { want: parseFloat(v2[1]), ease: parseFloat(v2[2]) };
+  if (v2) return { match: parseFloat(v2[1]), ease: parseFloat(v2[2]) };
   const legacy = s.match(LEGACY_CELL_RE);
   if (legacy) return { legacy: parseFloat(legacy[1]) };
   return null;
 }
 
-/** Canonical v2 cell text: formatScoreCell(8.3, 5.6) → "W8.3 E5.6". */
-export function formatScoreCell(want, ease) {
-  return `W${Number(want)} E${Number(ease)}`;
+/** Canonical v2 cell text: formatScoreCell(8.3, 5.6) → "M8.3 E5.6". */
+export function formatScoreCell(match, ease) {
+  return `M${Number(match)} E${Number(ease)}`;
 }
 
-/** Human display of a score cell: "W8.3 · E5.6" for v2, "7.4/10" for legacy, raw text otherwise. */
+/** Human display of a score cell: "M8.3 · E5.6" for v2, "7.4/10" for legacy, raw text otherwise. */
 export function displayScoreCell(cell) {
   const p = parseScoreCell(cell);
   if (!p) return String(cell ?? '').trim();
   if ('legacy' in p) return `${p.legacy}/10`;
-  return `W${p.want} · E${p.ease}`;
+  return `M${p.match} · E${p.ease}`;
 }
 
 /**
- * Sort key for "higher wins" comparisons: Priority = round(sqrt(want × ease), 2)
+ * Sort key for "higher wins" comparisons: Priority = round(sqrt(match × ease), 2)
  * for v2 cells (spec §5), the legacy number for legacy cells, null when the
  * cell is unparseable.
  */
@@ -191,7 +193,7 @@ export function scoreCellPriority(cell) {
   const p = parseScoreCell(cell);
   if (!p) return null;
   if ('legacy' in p) return p.legacy;
-  return Math.round(Math.sqrt(p.want * p.ease) * 100) / 100;
+  return Math.round(Math.sqrt(p.match * p.ease) * 100) / 100;
 }
 
 /**
@@ -206,21 +208,21 @@ export function compareScoreCells(a, b) {
   if (pa === null) return -1;
   if (pb === null) return 1;
   if (pa !== pb) return pa - pb;
-  const v2a = 'want' in parseScoreCell(a);
-  const v2b = 'want' in parseScoreCell(b);
+  const v2a = 'match' in parseScoreCell(a);
+  const v2b = 'match' in parseScoreCell(b);
   if (v2a === v2b) return 0;
   return v2a ? 1 : -1;
 }
 
 /**
- * Re-eval annotation for the Notes cell: "(W 7.1→8.3, E 5→5.6)" when both
- * cells are v2, otherwise "(7.4/10→W8.3 · E5.6)"-style old→new display.
+ * Re-eval annotation for the Notes cell: "(M 7.1→8.3, E 5→5.6)" when both
+ * cells are v2, otherwise "(7.4/10→M8.3 · E5.6)"-style old→new display.
  */
 export function describeReEval(oldCell, newCell) {
   const o = parseScoreCell(oldCell);
   const n = parseScoreCell(newCell);
-  if (o && n && 'want' in o && 'want' in n) {
-    return `(W ${o.want}→${n.want}, E ${o.ease}→${n.ease})`;
+  if (o && n && 'match' in o && 'match' in n) {
+    return `(M ${o.match}→${n.match}, E ${o.ease}→${n.ease})`;
   }
   return `(${displayScoreCell(oldCell)}→${displayScoreCell(newCell)})`;
 }
@@ -309,8 +311,8 @@ export function normalizeStatus(raw) {
 export function tierForScoreCell(cell, status) {
   if (String(status || '').toLowerCase() === 'skip') return 4;
   const p = parseScoreCell(cell);
-  if (!p || !('want' in p)) return null;
-  const { tier } = verdictFromCells({ want: p.want, ease: p.ease, eligibility: 'green' });
+  if (!p || !('match' in p)) return null;
+  const { tier } = verdictFromCells({ match: p.match, ease: p.ease, eligibility: 'green' });
   return Number(tier.slice(1));
 }
 
@@ -396,7 +398,7 @@ export function serializeAppRow(cells) {
 
 /**
  * Parse one tracker-additions TSV (or pipe-delimited markdown row) into a
- * normalized addition. The score column is a v2 `W8.3 E5.6` cell (legacy
+ * normalized addition. The score column is a v2 `M8.3 E5.6` cell (legacy
  * `X.X/10` still accepted). Handles the canonical 10-col TSV, the legacy 9-col and
  * 8-col forms, and a pipe-delimited fallback. Tolerates the historical
  * status/score column swap via a value-shape heuristic. Returns null (and
@@ -433,7 +435,7 @@ export function parseTsvAddition(content, filename = 'addition', warn = console.
     // emitted (score, status). Disambiguate by value shape.
     const col4 = parts[4].trim();
     const col5 = parts[5].trim();
-    const looksScore = (v) => /^W\s*\d/i.test(v) || /^\d+\.?\d*\/\d+$/.test(v) || v === 'N/A' || v === 'DUP';
+    const looksScore = (v) => /^[MW]\s*\d/i.test(v) || /^\d+\.?\d*\/\d+$/.test(v) || v === 'N/A' || v === 'DUP';
     const looksStatus = (v) => /^(evaluated|applied|responded|interview|offer|rejected|discarded|skip|evaluada|aplicado|respondido|entrevista|oferta|rechazado|descartado|no aplicar|cerrada|duplicado|repost|condicional|hold|monitor)/i.test(v);
 
     let statusCol, scoreCol;
@@ -460,14 +462,14 @@ export function parseTsvAddition(content, filename = 'addition', warn = console.
     return null;
   }
 
-  // Score validation: a v2 "W.. E.." cell, a legacy "X.X/10" cell, or the
+  // Score validation: a v2 "M.. E.." cell, a legacy "X.X/10" cell, or the
   // N/A / DUP sentinels. Anything else (a "—" blocked marker, a v1-era
   // shape error) would poison the higher-wins comparison, so skip it loudly.
   const parsedScore = parseScoreCell(addition.score);
-  if (parsedScore && 'want' in parsedScore) {
-    addition.score = formatScoreCell(parsedScore.want, parsedScore.ease); // canonical spelling
+  if (parsedScore && 'match' in parsedScore) {
+    addition.score = formatScoreCell(parsedScore.match, parsedScore.ease); // canonical spelling
   } else if (!parsedScore && !['N/A', 'DUP'].includes(String(addition.score).trim())) {
-    warn(`⚠️  Skipping ${filename}: unparseable score "${addition.score}" (expected "W8.3 E5.6" or legacy "7.4/10")`);
+    warn(`⚠️  Skipping ${filename}: unparseable score "${addition.score}" (expected "M8.3 E5.6" or legacy "7.4/10")`);
     return null;
   }
 
@@ -479,7 +481,7 @@ export function parseTsvAddition(content, filename = 'addition', warn = console.
 
 /**
  * Validate an applications.md Score cell. Returns an error string, or null when
- * the cell is acceptable: a v2 "W8.3 E5.6" (both in [1,10]), a legacy
+ * the cell is acceptable: a v2 "M8.3 E5.6" (both in [1,10]), a legacy
  * "X.X/10", or the N/A / DUP sentinels. A "—" is invalid here — blocked
  * listings are never promoted into applications.md.
  */
@@ -487,9 +489,9 @@ export function validateScoreCell(cell) {
   const s = String(cell ?? '').replace(/\*\*/g, '').trim();
   if (s === 'N/A' || s === 'DUP') return null;
   const p = parseScoreCell(s);
-  if (!p) return `invalid score format "${cell}" (expected "W8.3 E5.6" or legacy "7.4/10")`;
-  if ('want' in p && (p.want < 1 || p.want > 10 || p.ease < 1 || p.ease > 10)) {
-    return `score "${cell}" out of range (Want/Ease must be 1-10)`;
+  if (!p) return `invalid score format "${cell}" (expected "M8.3 E5.6" or legacy "7.4/10")`;
+  if ('match' in p && (p.match < 1 || p.match > 10 || p.ease < 1 || p.ease > 10)) {
+    return `score "${cell}" out of range (Match/Ease must be 1-10)`;
   }
   return null;
 }
@@ -498,14 +500,14 @@ export function validateScoreCell(cell) {
 
 /**
  * When a listing that is already in applications.md gets re-scored, its row
- * should show the new Want/Ease and link the new report instead of keeping a
+ * should show the new Match/Ease and link the new report instead of keeping a
  * stale score. Matching is deliberately strict — same company key AND
  * (identical normalized role OR roleMatchStrict) — because a loose match would
  * rewrite a different application at the same company (e.g. a student event
  * next to a graduate role).
  *
  *   lines    applications.md split on '\n'
- *   updates  [{ company, role, want, ease, report }]; want/ease numbers, or
+ *   updates  [{ company, role, match, ease, report }]; match/ease numbers, or
  *            null for a Blocked re-eval (the row is then left untouched —
  *            blocked listings are never promoted, and its score stays as a
  *            record of the earlier evaluation). report '—' keeps the old link.
@@ -520,7 +522,7 @@ export function refreshApplicationRows(lines, updates) {
   const changed = [];
   const matched = [];
   for (const u of updates) {
-    if (!Number.isFinite(u.want) || !Number.isFinite(u.ease)) continue;
+    if (!Number.isFinite(u.match) || !Number.isFinite(u.ease)) continue;
     const key = companyKey(u.company);
     const roleKey = normalizeRoleForIndex(u.role);
     for (let i = 0; i < out.length; i++) {
@@ -528,7 +530,7 @@ export function refreshApplicationRows(lines, updates) {
       if (!row || companyKey(row.company) !== key) continue;
       if (normalizeRoleForIndex(row.role) !== roleKey && !roleMatchStrict(row.role, u.role)) continue;
       matched.push({ num: row.num, update: u });
-      const to = formatScoreCell(u.want, u.ease);
+      const to = formatScoreCell(u.match, u.ease);
       const from = row.score;
       row.cells[row.cols.score] = to;
       if (u.report && u.report !== '—') row.cells[row.cols.report] = u.report;

@@ -67,11 +67,11 @@ test('merge-scouting: adds v2 rows, blocked rows keep "—", hints derive from t
     const rows = scoutingRows(root);
     assert.equal(rows.length, 3);
     const nimbus = rows.find((r) => r.company === 'Nimbus Robotics');
-    assert.equal(nimbus.want, '8.5');
+    assert.equal(nimbus.match, '8.5');
     assert.equal(nimbus.hint, 'READY');
     assert.equal(nimbus.report, '[#1](reports/tier-1/Nimbus.md)');
     const contoso = rows.find((r) => r.company === 'Contoso Labs');
-    assert.equal(contoso.want, '—');
+    assert.equal(contoso.match, '—');
     assert.equal(contoso.ease, '—');
     assert.equal(contoso.tier, 'T4');
     assert.equal(contoso.hint, '');
@@ -85,7 +85,7 @@ test('merge-scouting: adds v2 rows, blocked rows keep "—", hints derive from t
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('merge-scouting: a red listing the profile scored through keeps its Want / Ease (still T4, no hint)', () => {
+test('merge-scouting: a red listing the profile scored through keeps its Match / Ease (still T4, no hint)', () => {
   const root = makeRoot();
   try {
     addScouting(root, '004-scored.tsv', '4', '2026-06-20', 'Nimbus Robotics', 'Data Intern', '8.5', '7.8', 'T4', 'red: starts during the study term', '—', 'n/d', 'READY', 'scored through');
@@ -95,9 +95,9 @@ test('merge-scouting: a red listing the profile scored through keeps its Want / 
     const rows = scoutingRows(root);
     assert.equal(rows.length, 1, 'the half-scored row is skipped');
     const r = rows[0];
-    assert.deepEqual([r.want, r.ease, r.tier, r.hint, r.eligibilityStatus], ['8.5', '7.8', 'T4', '', 'red']);
-    assert.match(out, /needs both Want and Ease/);
-    assert.equal(run('verify-pipeline.mjs', [], root).out.includes('must have both Want and Ease'), false);
+    assert.deepEqual([r.match, r.ease, r.tier, r.hint, r.eligibilityStatus], ['8.5', '7.8', 'T4', '', 'red']);
+    assert.match(out, /needs both Match and Ease/);
+    assert.equal(run('verify-pipeline.mjs', [], root).out.includes('must have both Match and Ease'), false);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -125,7 +125,7 @@ test('merge-scouting: a re-scored listing that is already an application refresh
     assert.equal(code, 0, out);
     const apps = appRows(root);
     const applied = apps.find((r) => r.num === 7);
-    assert.equal(applied.score, 'W8.5 E7.5');
+    assert.equal(applied.score, 'M8.5 E7.5');
     assert.equal(applied.report, '[4](reports/tier-1/Nimbus Robotics - Strategy Analyst.md)');
     assert.equal(apps.find((r) => r.num === 8).score, 'N/A'); // sibling application untouched
     const row = scoutingRows(root).find((r) => r.company === 'Nimbus Robotics');
@@ -149,10 +149,10 @@ test('merge-scouting: parallel re-scores that share a number each update their o
     const ai = rows.find((r) => r.num === 7);
     const ve = rows.find((r) => r.num === 8);
     assert.equal(ai.role, 'Intern Applied AI Consulting (Italy)');
-    assert.equal(ai.want, '8');
+    assert.equal(ai.match, '8');
     assert.match(ai.report, /^\[7\]\(reports\/tier-2\/Nimbus Robotics - Intern Applied AI Consulting Italy\.md\)$/);
     assert.equal(ve.role, 'Associate Value Engineer');
-    assert.equal(ve.want, '8');
+    assert.equal(ve.match, '8');
     assert.match(ve.report, /^\[8\]/);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -173,14 +173,14 @@ test('merge-scouting: sibling listings at one company get their own rows, never 
     assert.equal(rows.length, 4, out);
     const original = rows.find((r) => r.num === 12);
     assert.equal(original.role, 'Associate Consultant Intern, Summer 2027 – Lyon, France (m/f/d)', 'the boilerplate variant re-evaluates #12');
-    assert.equal(original.want, '7.9');
+    assert.equal(original.match, '7.9');
     assert.ok(rows.some((r) => r.role.startsWith('Product Management Intern')));
     assert.ok(rows.some((r) => r.role.startsWith('Global Markets Intern')));
     assert.ok(rows.some((r) => r.role.startsWith('Associate Consultant, Launch Program')));
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('merge-scouting: a newer evaluation replaces the row (even lower) and notes W/E movement; stale ones are skipped', () => {
+test('merge-scouting: a newer evaluation replaces the row (even lower) and notes M/E movement; stale ones are skipped', () => {
   const root = makeRoot();
   try {
     addScouting(root, '001-nimbus.tsv', ...GO);
@@ -193,11 +193,11 @@ test('merge-scouting: a newer evaluation replaces the row (even lower) and notes
     let rows = scoutingRows(root);
     assert.equal(rows.length, 1);
     assert.equal(rows[0].num, 1); // keeps the original entry number
-    assert.equal(rows[0].want, '7.2');
+    assert.equal(rows[0].match, '7.2');
     assert.equal(rows[0].tier, 'T2');
     assert.equal(rows[0].deadline, '2026-07-15'); // survives a re-eval that omits it
-    assert.equal(rows[0].hint, ''); // W7.2 E6 is `thin`: no READY/MONITOR hint
-    assert.match(rows[0].notes, /^Re-eval \(W 8\.5→7\.2, E 7\.5→6\)\. second look$/);
+    assert.equal(rows[0].hint, ''); // M7.2 E6 is `thin`: no READY/MONITOR hint
+    assert.match(rows[0].notes, /^Re-eval \(M 8\.5→7\.2, E 7\.5→6\)\. second look$/);
 
     // older than the existing row → skipped, row untouched
     addScouting(root, '011-nimbus.tsv', '11', '2026-06-01', 'Nimbus Robotics', 'Strategy Analyst', '9', '9', 'T1', 'green', '[#11](reports/Nimbus3.md)', 'n/d', '', 'stale');
@@ -205,7 +205,7 @@ test('merge-scouting: a newer evaluation replaces the row (even lower) and notes
     assert.equal(r.code, 0, r.out);
     rows = scoutingRows(root);
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].want, '7.2');
+    assert.equal(rows[0].match, '7.2');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -234,7 +234,7 @@ test('merge-scouting: refuses to append under a pre-v2 scouting.md header', () =
 
 /* ───── promote-to-applications ──────────────────────────────────── */
 
-test('promote: copies Want/Ease into a "W.. E.." score cell, tier + eligibility into Notes, tags the scouting row', () => {
+test('promote: copies Match/Ease into a "M.. E.." score cell, tier + eligibility into Notes, tags the scouting row', () => {
   const root = makeRoot();
   try {
     addScouting(root, '003-fabrikam.tsv', ...STRETCH);
@@ -243,7 +243,7 @@ test('promote: copies Want/Ease into a "W.. E.." score cell, tier + eligibility 
     assert.equal(code, 0, out);
     const apps = appRows(root);
     assert.equal(apps.length, 1);
-    assert.equal(apps[0].score, 'W8.25 E5.6');
+    assert.equal(apps[0].score, 'M8.25 E5.6');
     assert.equal(apps[0].status, 'Evaluated');
     assert.equal(apps[0].report, '[#3](reports/tier-2/Fabrikam.md)');
     assert.match(apps[0].notes, /^Promoted from scouting #3 \(T2, amber: start date not stated\)\./);
@@ -271,47 +271,47 @@ const APP_HEADER = APPLICATIONS_SCAFFOLD;
 const appsWith = (root, ...lines) => writeFileSync(join(root, 'data/applications.md'), APP_HEADER + lines.join('\n') + '\n');
 const addTracker = (root, file, ...cols) => writeFileSync(join(root, 'batch/tracker-additions', file), tsv(...cols));
 
-test('merge-tracker: v2 addition adds a W/E row and rewrites a flat report path via the verdict grid', () => {
+test('merge-tracker: v2 addition adds a M/E row and rewrites a flat report path via the verdict grid', () => {
   const root = makeRoot();
   try {
-    addTracker(root, '7-nimbus.tsv', '7', '2026-06-22', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'W8.5 E7.5', '❌', '2026-07-15', '[#7](reports/Nimbus.md)', 'fresh');
+    addTracker(root, '7-nimbus.tsv', '7', '2026-06-22', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'M8.5 E7.5', '❌', '2026-07-15', '[#7](reports/Nimbus.md)', 'fresh');
     const { code, out } = run('merge-tracker.mjs', [], root);
     assert.equal(code, 0, out);
     const apps = appRows(root);
     assert.equal(apps.length, 1);
-    assert.equal(apps[0].score, 'W8.5 E7.5');
+    assert.equal(apps[0].score, 'M8.5 E7.5');
     assert.equal(apps[0].report, '[#7](reports/tier-1/Nimbus.md)');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test('merge-tracker: higher Priority replaces (with a W/E re-eval note), lower is skipped, v2 beats legacy on a tie', () => {
+test('merge-tracker: higher Priority replaces (with a M/E re-eval note), lower is skipped, v2 beats legacy on a tie', () => {
   const root = makeRoot();
   try {
     appsWith(root,
-      '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | W7 E6 | Applied | ✅ | n/d | [#1](reports/tier-2/N.md) | orig |',
+      '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | M7 E6 | Applied | ✅ | n/d | [#1](reports/tier-2/N.md) | orig |',
       '| 2 | 2026-06-01 | Contoso Labs | Data Analyst Programme | 6/10 | Evaluated | ❌ | n/d | [#2](reports/tier-3/C.md) | legacy |',
     );
-    // 1: W8.5 E7.5 (priority 7.98) > W7 E6 (6.48) → update, status preserved
-    addTracker(root, '10-nimbus.tsv', '10', '2026-06-22', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'W8.5 E7.5', '❌', 'n/d', '[#10](reports/tier-1/N2.md)', 'better');
-    // 2: W9 E4 (priority 6.0) ties legacy 6/10 → v2 wins
-    addTracker(root, '11-contoso.tsv', '11', '2026-06-22', 'Contoso Labs', 'Data Analyst Programme', 'Evaluated', 'W9 E4', '❌', 'n/d', '[#11](reports/tier-3/C2.md)', 'tie');
+    // 1: M8.5 E7.5 (priority 7.98) > M7 E6 (6.48) → update, status preserved
+    addTracker(root, '10-nimbus.tsv', '10', '2026-06-22', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'M8.5 E7.5', '❌', 'n/d', '[#10](reports/tier-1/N2.md)', 'better');
+    // 2: M9 E4 (priority 6.0) ties legacy 6/10 → v2 wins
+    addTracker(root, '11-contoso.tsv', '11', '2026-06-22', 'Contoso Labs', 'Data Analyst Programme', 'Evaluated', 'M9 E4', '❌', 'n/d', '[#11](reports/tier-3/C2.md)', 'tie');
     let r = run('merge-tracker.mjs', [], root);
     assert.equal(r.code, 0, r.out);
     let apps = appRows(root);
     const nimbus = apps.find((a) => a.num === 1);
-    assert.equal(nimbus.score, 'W8.5 E7.5');
+    assert.equal(nimbus.score, 'M8.5 E7.5');
     assert.equal(nimbus.status, 'Applied');
-    assert.match(nimbus.notes, /^Re-eval 2026-06-22 \(W 7→8\.5, E 6→7\.5\)\. better/);
+    assert.match(nimbus.notes, /^Re-eval 2026-06-22 \(M 7→8\.5, E 6→7\.5\)\. better/);
     const contoso = apps.find((a) => a.num === 2);
-    assert.equal(contoso.score, 'W9 E4');
-    assert.match(contoso.notes, /\(6\/10→W9 · E4\)/);
+    assert.equal(contoso.score, 'M9 E4');
+    assert.match(contoso.notes, /\(6\/10→M9 · E4\)/);
 
     // lower than the stored → skipped
-    addTracker(root, '12-nimbus.tsv', '12', '2026-06-23', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'W6 E6', '❌', 'n/d', '[#12](reports/tier-4/N3.md)', 'worse');
+    addTracker(root, '12-nimbus.tsv', '12', '2026-06-23', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'M6 E6', '❌', 'n/d', '[#12](reports/tier-4/N3.md)', 'worse');
     r = run('merge-tracker.mjs', [], root);
     assert.equal(r.code, 0, r.out);
     apps = appRows(root);
-    assert.equal(apps.find((a) => a.num === 1).score, 'W8.5 E7.5');
+    assert.equal(apps.find((a) => a.num === 1).score, 'M8.5 E7.5');
     assert.equal(apps.length, 2);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
@@ -320,8 +320,8 @@ test('dedup-tracker: keeps the highest-Priority duplicate and the most advanced 
   const root = makeRoot();
   try {
     appsWith(root,
-      '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst Intern | W7 E6 | Applied | ✅ | n/d | [#1](reports/tier-2/N.md) |  |',
-      '| 2 | 2026-06-10 | Nimbus Robotics | Strategy Analyst Intern | W8.5 E7.5 | Evaluated | ❌ | n/d | [#2](reports/tier-1/N.md) |  |',
+      '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst Intern | M7 E6 | Applied | ✅ | n/d | [#1](reports/tier-2/N.md) |  |',
+      '| 2 | 2026-06-10 | Nimbus Robotics | Strategy Analyst Intern | M8.5 E7.5 | Evaluated | ❌ | n/d | [#2](reports/tier-1/N.md) |  |',
       '| 3 | 2026-06-10 | Contoso Labs | Ops Analyst | 7.4/10 | Evaluated | ❌ | n/d | [#3](reports/tier-2/C.md) |  |',
     );
     const { code, out } = run('dedup-tracker.mjs', [], root);
@@ -341,7 +341,7 @@ test('verify-pipeline: a clean v2 tree passes, using the Deadline-aware report c
     addScouting(root, '001-nimbus.tsv', ...GO);
     addScouting(root, '002-contoso.tsv', ...BLOCKED);
     assert.equal(run('merge-scouting.mjs', [], root).code, 0);
-    appsWith(root, '| 1 | 2026-06-22 | Nimbus Robotics | Strategy Analyst | W8.5 E7.5 | Evaluated | ❌ | 2026-07-15 | [#1](reports/tier-1/Nimbus.md) | ok |');
+    appsWith(root, '| 1 | 2026-06-22 | Nimbus Robotics | Strategy Analyst | M8.5 E7.5 | Evaluated | ❌ | 2026-07-15 | [#1](reports/tier-1/Nimbus.md) | ok |');
     writeFileSync(join(root, 'data/score-history.tsv'), SCORE_HISTORY_HEADER + '\n');
     const { code, out } = run('verify-pipeline.mjs', [], root);
     assert.equal(code, 0, out);
@@ -355,15 +355,15 @@ test('verify-pipeline: flags a broken application report link (not the deadline 
   const root = makeRoot();
   try {
     appsWith(root,
-      '| 1 | 2026-06-22 | Nimbus Robotics | Strategy Analyst | W8.5 E7.5 | Evaluated | ❌ | 2026-07-15 | [#1](reports/tier-1/Missing.md) | ok |',
+      '| 1 | 2026-06-22 | Nimbus Robotics | Strategy Analyst | M8.5 E7.5 | Evaluated | ❌ | 2026-07-15 | [#1](reports/tier-1/Missing.md) | ok |',
       '| 2 | 2026-06-22 | Contoso Labs | Analyst | 8.5 | Evaluated | ❌ | n/d | — |  |',
-      '| 3 | 2026-06-22 | Fabrikam Energy | Analyst | W11 E5 | Evaluated | ❌ | n/d | — |  |',
+      '| 3 | 2026-06-22 | Fabrikam Energy | Analyst | M11 E5 | Evaluated | ❌ | n/d | — |  |',
       '| 4 | 2026-06-22 | Tailspin Toys | Analyst | — | Evaluated | ❌ | n/d | — |  |',
     );
     const { code, out } = run('verify-pipeline.mjs', [], root);
     assert.equal(code, 1);
     assert.match(out, /#1: Report not found: reports\/tier-1\/Missing\.md/);
-    assert.match(out, /#3: score "W11 E5" out of range/);
+    assert.match(out, /#3: score "M11 E5" out of range/);
     assert.match(out, /#4: invalid score format/);
     assert.doesNotMatch(out, /#2:/); // bare legacy number is accepted
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -412,8 +412,8 @@ test('parse-batch-result: prints Priority + verdict; a blocked listing prints "-
   const root = makeRoot();
   try {
     const ev = (resultText) => JSON.stringify({ type: 'result', is_error: false, duration_ms: 10, num_turns: 2, total_cost_usd: 0.1, usage: { input_tokens: 1, output_tokens: 2 }, result: resultText });
-    writeFileSync(join(root, 'ok.log'), ev('```json\n{"want": 8.25, "ease": 5.6, "eligibility": "amber", "verdict": "stretch", "tier": "T2", "score": 6.8}\n```'));
-    writeFileSync(join(root, 'blocked.log'), ev('```json\n{"want": null, "ease": null, "eligibility": "red", "verdict": "blocked", "tier": "T4", "score": null}\n```'));
+    writeFileSync(join(root, 'ok.log'), ev('```json\n{"match": 8.25, "ease": 5.6, "eligibility": "amber", "verdict": "stretch", "tier": "T2", "score": 6.8}\n```'));
+    writeFileSync(join(root, 'blocked.log'), ev('```json\n{"match": null, "ease": null, "eligibility": "red", "verdict": "blocked", "tier": "T4", "score": null}\n```'));
     const ok = spawnSync('node', [join(SCRIPTS, 'parse-batch-result.mjs'), join(root, 'ok.log')], { encoding: 'utf-8' }).stdout.trim().split('\t');
     assert.equal(ok.length, 13);
     assert.equal(ok[0], 'completed');
@@ -496,7 +496,7 @@ test('merge-tracker: new rows get an origin row in the status log; applications.
   const root = makeRoot();
   try {
     linkProfile(root);
-    addTracker(root, '7-nimbus.tsv', '7', '2026-06-22', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'W8.5 E7.5', '❌', 'n/d', '[#7](reports/tier-1/N.md)', 'fresh');
+    addTracker(root, '7-nimbus.tsv', '7', '2026-06-22', 'Nimbus Robotics', 'Strategy Analyst', 'Evaluated', 'M8.5 E7.5', '❌', 'n/d', '[#7](reports/tier-1/N.md)', 'fresh');
     const { code, out } = run('merge-tracker.mjs', [], root);
     assert.equal(code, 0, out);
     assert.ok(lstatSync(join(root, 'data/applications.md')).isSymbolicLink());
@@ -521,7 +521,7 @@ const ledgerRows = (root) => {
 test('normalize-statuses: rewrites through the profile link, logs the change, leaves no lock', () => {
   const root = makeRoot();
   try {
-    appsWith(root, '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | W7 E6 | **Applied** | ✅ | n/d | [#1](reports/tier-2/N.md) |  |');
+    appsWith(root, '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | M7 E6 | **Applied** | ✅ | n/d | [#1](reports/tier-2/N.md) |  |');
     linkProfile(root);
     const { code, out } = run('normalize-statuses.mjs', [], root);
     assert.equal(code, 0, out);
@@ -536,7 +536,7 @@ test('normalize-statuses: rewrites through the profile link, logs the change, le
 test('normalize-statuses: waits for the tracker lock, then writes', async () => {
   const root = makeRoot();
   try {
-    appsWith(root, '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | W7 E6 | **Applied** | ✅ | n/d | [#1](reports/tier-2/N.md) |  |');
+    appsWith(root, '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | M7 E6 | **Applied** | ✅ | n/d | [#1](reports/tier-2/N.md) |  |');
     const lock = acquireLockSync(lockPathForTest(root), { label: 'test holder' });
     let finished = false;
     const child = spawn('node', [join(SCRIPTS, 'normalize-statuses.mjs')], { env: { ...process.env, CAREER_OPS_ROOT: root } });
@@ -555,8 +555,8 @@ test('dedup-tracker: a promoted status is logged; applications.md stays a link',
   const root = makeRoot();
   try {
     appsWith(root,
-      '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst Intern | W7 E6 | Applied | ✅ | n/d | [#1](reports/tier-2/N.md) |  |',
-      '| 2 | 2026-06-10 | Nimbus Robotics | Strategy Analyst Intern | W8.5 E7.5 | Evaluated | ❌ | n/d | [#2](reports/tier-1/N.md) |  |',
+      '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst Intern | M7 E6 | Applied | ✅ | n/d | [#1](reports/tier-2/N.md) |  |',
+      '| 2 | 2026-06-10 | Nimbus Robotics | Strategy Analyst Intern | M8.5 E7.5 | Evaluated | ❌ | n/d | [#2](reports/tier-1/N.md) |  |',
     );
     linkProfile(root);
     const { code, out } = run('dedup-tracker.mjs', [], root);
@@ -589,8 +589,8 @@ test('promote: writes through the profile links, gives the new row an origin ent
 test('company keys: two different non-Latin companies stay two applications in merge-tracker', () => {
   const root = makeRoot();
   try {
-    addTracker(root, '1-a.tsv', '1', '2026-06-22', 'Северный Ветер', 'Analyst', 'Evaluated', 'W7 E7', '❌', 'n/d', '[#1](reports/tier-2/A.md)', '');
-    addTracker(root, '2-b.tsv', '2', '2026-06-22', 'Полярная Звезда', 'Analyst', 'Evaluated', 'W7 E7', '❌', 'n/d', '[#2](reports/tier-2/B.md)', '');
+    addTracker(root, '1-a.tsv', '1', '2026-06-22', 'Северный Ветер', 'Analyst', 'Evaluated', 'M7 E7', '❌', 'n/d', '[#1](reports/tier-2/A.md)', '');
+    addTracker(root, '2-b.tsv', '2', '2026-06-22', 'Полярная Звезда', 'Analyst', 'Evaluated', 'M7 E7', '❌', 'n/d', '[#2](reports/tier-2/B.md)', '');
     assert.equal(run('merge-tracker.mjs', [], root).code, 0);
     assert.equal(appRows(root).length, 2, 'two different non-Latin companies are two applications');
     const index = read(root, 'data/dedup-index.tsv');
@@ -602,8 +602,8 @@ test('verify-pipeline: two different non-Latin companies with the same role are 
   const root = makeRoot();
   try {
     appsWith(root,
-      '| 1 | 2026-06-01 | Северный Ветер | Analyst | W7 E6 | Applied | ❌ | n/d | — |  |',
-      '| 2 | 2026-06-02 | Полярная Звезда | Analyst | W7 E6 | Applied | ❌ | n/d | — |  |',
+      '| 1 | 2026-06-01 | Северный Ветер | Analyst | M7 E6 | Applied | ❌ | n/d | — |  |',
+      '| 2 | 2026-06-02 | Полярная Звезда | Analyst | M7 E6 | Applied | ❌ | n/d | — |  |',
     );
     const { out } = run('verify-pipeline.mjs', [], root);
     assert.ok(!/Possible duplicates/.test(out), out);

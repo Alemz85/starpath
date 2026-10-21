@@ -302,9 +302,9 @@ export function hookSource(research = {}, report = {}) {
  *
  * @param {object} input
  *   - company   {string}
- *   - roles     {Array}   [{ role, score, want, ease, scoreLabel, source }] — pipeline roles at
+ *   - roles     {Array}   [{ role, score, match, ease, scoreLabel, source }] — pipeline roles at
  *                         this company (network-core roleInfo; score = Priority, a sort key;
- *                         scoreLabel = "W8.3 · E5.6" for display)
+ *                         scoreLabel = "M8.3 · E5.6" for display)
  *   - paths     {Array}   ranked referral paths (network-core pathsForCompany().contacts)
  *   - threads   {Array}   classified outreach threads (companyThreads())
  *   - research  {object}  { exists, state?, ageDays?, valid?, path? }

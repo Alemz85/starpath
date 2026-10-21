@@ -1,14 +1,14 @@
 // calibration-advisor.mjs — pure calibration-feedback math (scoring v2).
 //
 // The scoring engine reads calibration from user/profile.yml + user/_profile.md
-// (brand-bonus lists, dream companies, Want / Ease weights, comp targets) and
+// (brand-bonus lists, dream companies, Match / Ease weights, comp targets) and
 // applies it deterministically in scripts/lib/calibration.mjs and
 // scripts/lib/score-bands.mjs. But the user has no feedback loop telling them
 // whether that calibration still matches reality. They flagged some company as
-// a dream company (Want floored at 8.0) once, months ago — is that floor still
-// doing anything? Is a liked-company Want bonus or a Brand correction firing on
-// companies whose Want sits in the top verdict row without it (inert), or on
-// companies whose Want stays in the bottom row even with it, so every verdict
+// a dream company (Match floored at 8.0) once, months ago — is that floor still
+// doing anything? Is a liked-company Match bonus or a Brand correction firing on
+// companies whose Match sits in the top verdict row without it (inert), or on
+// companies whose Match stays in the bottom row even with it, so every verdict
 // is Skip (the bonus is misdirected)? Is a rubric dimension pinned at the
 // ceiling on every eval (it carries no discriminating signal, so its weight is
 // wasted)? Are the user's comp targets above what the landscape pays? Do the
@@ -20,9 +20,9 @@
 // concrete, *suggested* edits to user/* (never applied automatically; the caller
 // shows them and the user decides).
 //
-// Scoring model: v2 (docs/scoring-v2.md). Every claim is stated on Want and/or
+// Scoring model: v2 (docs/scoring-v2.md). Every claim is stated on Match and/or
 // Ease (never an Overall); band boundaries are the verdict grid's own
-// (WANT_MID / WANT_HIGH, assignVerdict), imported from score-bands.mjs. Blocked
+// (MATCH_MID / MATCH_HIGH, assignVerdict), imported from score-bands.mjs. Blocked
 // rows (eligibility red) carry no scores and never enter any score claim here.
 //
 // Everything here is PURE: no I/O, no mutation of inputs, no globals. It takes
@@ -30,14 +30,14 @@
 // outcomes result (scripts/lib/outcome-stats.mjs analyzeApplicationOutcomes,
 // read by the CLI through outcome-inputs.mjs), the calibration
 // object (the same shape calibration.mjs consumes) and the optional
-// `scoring.want_weights` / `ease_weights` from user/profile.yml. The thin
+// `scoring.match_weights` / `ease_weights` from user/profile.yml. The thin
 // file/CLI wrapper lives in scripts/calibration-advisor.mjs.
 //
 // STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.4.
 //
 // The advisor produces two kinds of output and they are held to different
 // standards. A DIAGNOSTIC describes the log ("this company's roles average
-// Want 5.8 over 3 evals") and may be shown with its n at any sample size. An
+// Match 5.8 over 3 evals") and may be shown with its n at any sample size. An
 // ADVISORY asks the user to change calibration, which silently alters every
 // future score — so it is gated. Every advisory carries `sampleSize`, `gate`,
 // and `confidence`; an advisory under its gate is not softened or hedged, it
@@ -48,10 +48,10 @@ import {
   normalizeArchetype, DIMENSIONS, isScored, isBlocked, scoredRows, isActionable, ACTIONABLE_VERDICTS,
 } from './targeting-core.mjs'
 import {
-  rollupWant, rollupEase, assignVerdict, computePriority,
-  WANT_HIGH, WANT_MID, DREAM_WANT_FLOOR, WANT_DIMS, VERDICT_LABELS,
+  rollupMatch, rollupEase, assignVerdict, computePriority,
+  MATCH_HIGH, MATCH_MID, DREAM_MATCH_FLOOR, MATCH_DIMS, VERDICT_LABELS,
 } from './score-bands.mjs'
-import { applyBrandCalibration, isDreamCompany, wantPreference } from './calibration.mjs'
+import { applyBrandCalibration, isDreamCompany, matchPreference } from './calibration.mjs'
 import { GATES, OUTCOME_GATES, confidenceTier, describeSample } from './scoring-stats.mjs'
 import { MAX_TITLE } from './messages-core.mjs'
 
@@ -75,19 +75,19 @@ const companyKey = (s) => String(s || '').trim().toLowerCase()
 const fmtW = (n) => (Number.isFinite(n) ? n.toFixed(1) : 'n/a')
 
 /**
- * Which verdict-grid ROW a Want value falls in (docs/scoring-v2.md §4): 'high'
- * (≥ WANT_HIGH: go / stretch / growth), 'mid' (WANT_MID–WANT_HIGH: solid / thin
- * / skip), 'low' (< WANT_MID: skip whatever the Ease). The boundaries are the
+ * Which verdict-grid ROW a Match value falls in (docs/scoring-v2.md §4): 'high'
+ * (≥ MATCH_HIGH: go / stretch / growth), 'mid' (MATCH_MID–MATCH_HIGH: solid / thin
+ * / skip), 'low' (< MATCH_MID: skip whatever the Ease). The boundaries are the
  * engine's constants, not new cut-offs.
  */
-export function wantRow(want) {
-  if (!Number.isFinite(want)) return null
-  return want >= WANT_HIGH ? 'high' : want >= WANT_MID ? 'mid' : 'low'
+export function matchRow(match) {
+  if (!Number.isFinite(match)) return null
+  return match >= MATCH_HIGH ? 'high' : match >= MATCH_MID ? 'mid' : 'low'
 }
 
 /**
- * The engine's resolved Want / Ease weights for a `scoring` block
- * ({ want, ease } or { want_weights, ease_weights }). Read off the rollups
+ * The engine's resolved Match / Ease weights for a `scoring` block
+ * ({ match, ease } or { match_weights, ease_weights }). Read off the rollups
  * themselves so the default-merge rules are never re-implemented here.
  */
 export function resolvedWeights(weights = {}) {
@@ -95,12 +95,12 @@ export function resolvedWeights(weights = {}) {
     best_cities: 5, salary_adj_city: 5, work_life_balance: 5,
     skills_match: 5, experience_bar: 5, competition: 5 }
   return {
-    want: rollupWant(neutral, { weights: weights?.want ?? weights?.want_weights }).weights,
+    match: rollupMatch(neutral, { weights: weights?.match ?? weights?.match_weights }).weights,
     ease: rollupEase(neutral, { weights: weights?.ease ?? weights?.ease_weights }).weights,
   }
 }
 
-const wantWeightsOf = (weights) => weights?.want ?? weights?.want_weights
+const matchWeightsOf = (weights) => weights?.match ?? weights?.match_weights
 
 // Reading: score-history has no is_intern column; `employment_type` is the
 // closest stored fact. Stipend-type contracts (internship, working student)
@@ -125,8 +125,8 @@ export function brandLists(calibration = {}) {
 
 /** Every company the calibration currently favours in the SCORE, flattened
  *  with its source list — so we can check each one against the evidence.
- *  Brand is a CV signal, so wish lists act on Want: dream companies through
- *  the Want floor, lower-tier dream companies through the preference bonus.
+ *  Brand is a CV signal, so wish lists act on Match: dream companies through
+ *  the Match floor, lower-tier dream companies through the preference bonus.
  *  `extra_brand_bonuses` are the only Brand corrections. The affinity list
  *  (CEMS partners) has no score effect any more, so it is not audited here. */
 function configuredBonusCompanies(calibration = {}) {
@@ -142,53 +142,53 @@ function configuredBonusCompanies(calibration = {}) {
 
 /**
  * What the calibration does for this company, asked of calibration.mjs
- * itself: { kind: 'dream' } (Want floor) or
+ * itself: { kind: 'dream' } (Match floor) or
  * { kind: 'additive', brandBonus, preference } (extra Brand bonuses and the
- * lower-tier Want preference), or null.
+ * lower-tier Match preference), or null.
  */
 function brandEffect(company, calibration) {
   if (isDreamCompany(company, calibration)) return { kind: 'dream' }
   const { adjustments } = applyBrandCalibration(5, company, calibration)
   const brandBonus = adjustments.reduce((a, b) => a + (Number(b.value) || 0), 0)
-  const preference = wantPreference(company, calibration).bonus
+  const preference = matchPreference(company, calibration).bonus
   if (!brandBonus && !preference) return null
   return { kind: 'additive', brandBonus, preference }
 }
 
 /**
- * The row's Want with the company's calibration taken out, by replaying the
+ * The row's Match with the company's calibration taken out, by replaying the
  * engine on the row's stored dims WITHOUT the effect (current weights):
- *   dream:    rollupWant with dream: false — the Want floor removed. Exact.
+ *   dream:    rollupMatch with dream: false — the Match floor removed. Exact.
  *   additive: preference 0, and Brand lowered by any extra Brand bonus
  *             (clamped at 1). If the company was added to a list after the
  *             row was scored this can over-subtract slightly.
- * Falls back to the stored Want when a Want dimension is missing.
+ * Falls back to the stored Match when a Match dimension is missing.
  */
-function unaidedWant(row, effect, weights) {
+function unaidedMatch(row, effect, weights) {
   const dims = {}
-  for (const k of WANT_DIMS) dims[k] = row[k]
-  if (!WANT_DIMS.every(k => Number.isFinite(dims[k]))) return row.want
-  const opts = { weights: wantWeightsOf(weights), is_intern: rowIsIntern(row), preference: 0 }
-  if (effect.kind === 'dream') return rollupWant(dims, { ...opts, dream: false }).score
-  return rollupWant({ ...dims, brand_value: Math.max(1, dims.brand_value - (effect.brandBonus || 0)) }, opts).score
+  for (const k of MATCH_DIMS) dims[k] = row[k]
+  if (!MATCH_DIMS.every(k => Number.isFinite(dims[k]))) return row.match
+  const opts = { weights: matchWeightsOf(weights), is_intern: rowIsIntern(row), preference: 0 }
+  if (effect.kind === 'dream') return rollupMatch(dims, { ...opts, dream: false }).score
+  return rollupMatch({ ...dims, brand_value: Math.max(1, dims.brand_value - (effect.brandBonus || 0)) }, opts).score
 }
 
-/* ───── 1. Brand-bonus drift (on Want) ────────────────────────────────────────
+/* ───── 1. Brand-bonus drift (on Match) ────────────────────────────────────────
  *
- * Brand only feeds Want, so a brand bonus is judged on the company's mean Want
- * against the verdict grid's Want rows (WANT_MID 6.5 / WANT_HIGH 8.0). Two
+ * Brand only feeds Match, so a brand bonus is judged on the company's mean Match
+ * against the verdict grid's Match rows (MATCH_MID 6.5 / MATCH_HIGH 8.0). Two
  * failure modes, both detectable from the scores its companies actually earned:
  *
- *   (a) INERT — the company's mean Want, with the bonus taken out by an engine
+ *   (a) INERT — the company's mean Match, with the bonus taken out by an engine
  *       replay, is already in the top row (≥ 8.0). The bonus never changes a
  *       verdict row. Not harmful, but noise the user can clean up — and an inert
  *       *dream* floor hides whether the role is genuinely strong.
- *   (b) MISDIRECTED — even WITH the bonus the company's mean Want is in the
+ *   (b) MISDIRECTED — even WITH the bonus the company's mean Match is in the
  *       bottom row (< 6.5), where every verdict is Skip whatever the Ease. The
  *       user keeps spending evaluation effort on a "favorite" the landscape
  *       isn't rewarding. Worth a re-think.
  *
- * Only scored, non-blocked rows count (a blocked row has no Want). We need at
+ * Only scored, non-blocked rows count (a blocked row has no Match). We need at
  * least `minRoles` of them for a company before describing its bonus; the
  * advisory gate (GATES.calibrationMinCompanyRoles) is applied later.
  */
@@ -221,12 +221,12 @@ export function brandBonusDrift(rows, calibration = {}, { minRoles = 2, weights 
     if (!grp || grp.rows.length < minRoles) continue // not enough evidence
     const effect = brandEffect(cfg.company, calibration)
     if (!effect) continue
-    const wants = grp.rows.map(r => r.want)
-    const avgWant = round2(mean(wants))
-    const avgWantUnaided = round2(mean(grp.rows.map(r => unaidedWant(r, effect, weights))))
+    const matchScores = grp.rows.map(r => r.match)
+    const avgMatch = round2(mean(matchScores))
+    const avgMatchUnaided = round2(mean(grp.rows.map(r => unaidedMatch(r, effect, weights))))
     const avgEase = round2(mean(grp.rows.map(r => r.ease)))
-    const row = wantRow(avgWant)
-    const rowUnaided = wantRow(avgWantUnaided)
+    const row = matchRow(avgMatch)
+    const rowUnaided = matchRow(avgMatchUnaided)
 
     let verdict = null
     if (rowUnaided === 'high') verdict = 'inert'
@@ -239,53 +239,53 @@ export function brandBonusDrift(rows, calibration = {}, { minRoles = 2, weights 
       sources: cfg.sources,
       kind,
       roles: grp.rows.length,
-      avgWant,
-      avgWantUnaided,
+      avgMatch,
+      avgMatchUnaided,
       avgEase,
-      wantRow: row,
-      wantRowUnaided: rowUnaided,
+      matchRow: row,
+      matchRowUnaided: rowUnaided,
       verdict,
       // The n is `roles`; this is its tier against the advisory gate.
       confidence: confidenceTier(grp.rows.length, GATES.calibrationMinCompanyRoles),
     })
   }
-  return out.sort((a, b) => a.avgWant - b.avgWant)
+  return out.sort((a, b) => a.avgMatch - b.avgMatch)
 }
 
 /* ───── 2. Brand-bonus candidates (companies earning a bonus they don't have) ─
  *
  * The mirror of drift: companies the user is NOT giving any brand bonus, yet
- * whose scored roles' mean Want sits in the top verdict row (≥ WANT_HIGH) across
+ * whose scored roles' mean Match sits in the top verdict row (≥ MATCH_HIGH) across
  * several evaluations. Their Brand already reflects how recruiters read them;
  * these are only candidates for lower_tier_dream_companies if the candidate
- * also wants to work there (a preference, +0.25 Want).
+ * also wants to work there (a preference, +0.25 Match).
  */
-export function brandBonusCandidates(rows, calibration = {}, { minRoles = 3, minWant = WANT_HIGH } = {}) {
+export function brandBonusCandidates(rows, calibration = {}, { minRoles = 3, minMatch = MATCH_HIGH } = {}) {
   const configured = new Set(configuredBonusCompanies(calibration).map(c => companyKey(c.company)))
   const byCompany = new Map()
   for (const r of rows) {
     if (!r.company || !isScored(r)) continue
     const key = companyKey(r.company)
     if (configured.has(key)) continue // already credited
-    if (!byCompany.has(key)) byCompany.set(key, { name: r.company.trim(), wants: [], eases: [] })
-    byCompany.get(key).wants.push(r.want)
+    if (!byCompany.has(key)) byCompany.set(key, { name: r.company.trim(), matchScores: [], eases: [] })
+    byCompany.get(key).matchScores.push(r.match)
     byCompany.get(key).eases.push(r.ease)
   }
   const out = []
   for (const grp of byCompany.values()) {
-    if (grp.wants.length < minRoles) continue
-    const avgWant = round2(mean(grp.wants))
-    if (avgWant < minWant) continue
+    if (grp.matchScores.length < minRoles) continue
+    const avgMatch = round2(mean(grp.matchScores))
+    if (avgMatch < minMatch) continue
     out.push({
       company: grp.name,
-      roles: grp.wants.length,
-      avgWant,
+      roles: grp.matchScores.length,
+      avgMatch,
       avgEase: round2(mean(grp.eases)),
-      wantRow: wantRow(avgWant),
-      confidence: confidenceTier(grp.wants.length, GATES.calibrationMinCompanyRoles),
+      matchRow: matchRow(avgMatch),
+      confidence: confidenceTier(grp.matchScores.length, GATES.calibrationMinCompanyRoles),
     })
   }
-  return out.sort((a, b) => b.avgWant - a.avgWant || b.roles - a.roles)
+  return out.sort((a, b) => b.avgMatch - a.avgMatch || b.roles - a.roles)
 }
 
 /* ───── 3. Dimension signal health (extreme clustering) ───────────────────────
@@ -297,7 +297,7 @@ export function brandBonusCandidates(rows, calibration = {}, { minRoles = 3, min
  * everything 1-3). We flag a dimension when its spread (stdev) is tiny AND it's
  * pinned near a ceiling or floor. Covers the ten v2 dimensions; blocked rows
  * have no dimensions and are skipped. Each entry carries the dimension's
- * current rollup weight (motivators: scoring.want_weights; Ease stages:
+ * current rollup weight (motivators: scoring.match_weights; Ease stages:
  * scoring.ease_weights; hygiene factors are step terms with no weight → null).
  */
 export function dimensionSignal(rows, { minRows = 5, lowStdev = 0.8, weights } = {}) {
@@ -305,7 +305,7 @@ export function dimensionSignal(rows, { minRows = 5, lowStdev = 0.8, weights } =
   const w = resolvedWeights(weights)
   return DIMENSIONS.map(({ key, label, group, rollup }) => {
     const vals = finite(scored.map(r => r[key]))
-    const weight = group === 'motivator' ? w.want[key] : group === 'ease' ? w.ease[key] : null
+    const weight = group === 'motivator' ? w.match[key] : group === 'ease' ? w.ease[key] : null
     // `count` is the n of this dimension; `confidence` tiers it against the
     // per-dim advisory gate (20 — a share claim from fewer observations has a
     // confidence interval wide enough to contain "not pinned at all").
@@ -328,7 +328,7 @@ export function dimensionSignal(rows, { minRows = 5, lowStdev = 0.8, weights } =
 /* ───── 4. Comp-target reality check ──────────────────────────────────────────
  *
  * salary_adj_city is the per-role savings-power score (1-10, from
- * score-bands.savingsToBaseScore), a Want hygiene factor. If it's chronically
+ * score-bands.savingsToBaseScore), a Match hygiene factor. If it's chronically
  * low across the landscape, the user's comp expectations sit above what the
  * roles they evaluate actually pay (for their target cities) — a calibration
  * signal to either widen the comp band, shift cities, or accept that the target
@@ -337,7 +337,7 @@ export function dimensionSignal(rows, { minRows = 5, lowStdev = 0.8, weights } =
  *
  * Reading: internship / working-student rows are excluded. The engine gives
  * their salary term 0 (stipends are not salaries), so their salary score never
- * moves Want and says nothing about the candidate's comp targets.
+ * moves Match and says nothing about the candidate's comp targets.
  */
 export function compReality(rows, { minRows = 5 } = {}) {
   const pool = rows.filter(r => !isBlocked(r))
@@ -363,12 +363,12 @@ export function compReality(rows, { minRows = 5 } = {}) {
  * (analyzeApplicationOutcomes): every application that reached the market,
  * classified on its status-log history (progressed / rejected / no-response /
  * pending / withdrawn, docs/scoring-statistical-design.md § 3.7), with the
- * latest score-history Want / Ease joined on its application key. This module
+ * latest score-history Match / Ease joined on its application key. This module
  * never reads status text itself.
  *
  * Per archetype, the RESOLVED applications (progressed + rejected +
  * no-response; pending and withdrawn are not answers) give a conversion rate
- * (progressed / resolved), and their mean Want and Ease replayed through
+ * (progressed / resolved), and their mean Match and Ease replayed through
  * assignVerdict give the archetype's TYPICAL verdict. Two mis-rankings:
  *
  *   (a) HIGH-SCORE, NO-CONVERT — the typical verdict is actionable (go /
@@ -406,19 +406,19 @@ export function scoreOutcomeCalibration(outcomes, { minApplied = 3 } = {}) {
     if (!RESOLVED.has(r.outcome)) continue
     const a = !r.archetype || r.archetype === 'unknown' ? 'Unknown' : normalizeArchetype(r.archetype)
     if (!funnel.has(a)) {
-      funnel.set(a, { applied: 0, positive: 0, rejected: 0, noResponse: 0, wants: [], eases: [], prios: [],
+      funnel.set(a, { applied: 0, positive: 0, rejected: 0, noResponse: 0, matchScores: [], eases: [], prios: [],
         verdicts: emptyVerdicts(), unscored: 0 })
     }
     const f = funnel.get(a)
-    if (!Number.isFinite(r.want) || !Number.isFinite(r.ease)) { f.unscored++; excluded.unscored++; continue }
+    if (!Number.isFinite(r.match) || !Number.isFinite(r.ease)) { f.unscored++; excluded.unscored++; continue }
     f.applied++
-    f.wants.push(r.want)
+    f.matchScores.push(r.match)
     f.eases.push(r.ease)
-    const p = computePriority(r.want, r.ease)
+    const p = computePriority(r.match, r.ease)
     if (p != null) f.prios.push(p)
     // Blocked listings are never promoted to applications.md, so the grid is
     // read with eligibility green.
-    const v = assignVerdict({ want: r.want, ease: r.ease, eligibility: 'green' }).verdict
+    const v = assignVerdict({ match: r.match, ease: r.ease, eligibility: 'green' }).verdict
     if (v in f.verdicts) f.verdicts[v]++
     if (r.outcome === 'progressed') f.positive++
     else if (r.outcome === 'rejected') f.rejected++
@@ -428,9 +428,9 @@ export function scoreOutcomeCalibration(outcomes, { minApplied = 3 } = {}) {
   const archetypes = []
   for (const [arch, f] of funnel.entries()) {
     if (f.applied < minApplied) continue
-    const avgWant = round2(mean(f.wants))
+    const avgMatch = round2(mean(f.matchScores))
     const avgEase = round2(mean(f.eases))
-    const typicalVerdict = assignVerdict({ want: avgWant, ease: avgEase, eligibility: 'green' }).verdict
+    const typicalVerdict = assignVerdict({ match: avgMatch, ease: avgEase, eligibility: 'green' }).verdict
     const actionable = ACTIONABLE_VERDICTS.reduce((s, v) => s + f.verdicts[v], 0)
     const convertRate = Math.round((f.positive / f.applied) * 100)
     let flag = null
@@ -444,7 +444,7 @@ export function scoreOutcomeCalibration(outcomes, { minApplied = 3 } = {}) {
       rejected: f.rejected,
       noResponse: f.noResponse,
       convertRate,
-      avgWant,
+      avgMatch,
       avgEase,
       avgPriority: round2(mean(f.prios)),
       typicalVerdict,
@@ -507,7 +507,7 @@ const vLabel = (v) => VERDICT_LABELS[v] ?? v
 
 function weightHint(d) {
   if (d.group === 'motivator') {
-    return `down-weight it via scoring.want_weights.${d.key} in user/profile.yml (currently ${d.weight})`
+    return `down-weight it via scoring.match_weights.${d.key} in user/profile.yml (currently ${d.weight})`
   }
   if (d.group === 'ease') {
     return `down-weight it via scoring.ease_weights.${d.key} in user/profile.yml (currently ${d.weight})`
@@ -533,8 +533,8 @@ export function partitionSuggestions(diag) {
         sampleSize: d.roles,
         gate: GATES.calibrationMinCompanyRoles,
         target: 'user/profile.yml',
-        action: `Reconsider the brand bonus on "${d.company}" — its roles average Want ${fmtW(d.avgWant)} even with it, below ${WANT_MID.toFixed(1)}, across ${d.roles} evals`,
-        reasoning: `"${d.company}" is in ${d.source}, but even with the bonus its mean Want sits in the bottom verdict row (< ${WANT_MID.toFixed(1)}), where every verdict is Skip whatever the Ease. The bonus is propping up a company the landscape isn't rewarding for you.`,
+        action: `Reconsider the brand bonus on "${d.company}" — its roles average Match ${fmtW(d.avgMatch)} even with it, below ${MATCH_MID.toFixed(1)}, across ${d.roles} evals`,
+        reasoning: `"${d.company}" is in ${d.source}, but even with the bonus its mean Match sits in the bottom verdict row (< ${MATCH_MID.toFixed(1)}), where every verdict is Skip whatever the Ease. The bonus is propping up a company the landscape isn't rewarding for you.`,
         severity: 'medium',
         edit: `Remove "${d.company}" from ${d.source}, or move it to a lower bonus tier.`,
       })
@@ -544,10 +544,10 @@ export function partitionSuggestions(diag) {
         sampleSize: d.roles,
         gate: GATES.calibrationMinCompanyRoles,
         target: 'user/profile.yml',
-        action: `"${d.company}" averages Want ${fmtW(d.avgWantUnaided)} without the dream floor — its Want floor (${DREAM_WANT_FLOOR.toFixed(1)}) never bites`,
-        reasoning: `The dream floor (Want → ${DREAM_WANT_FLOOR.toFixed(1)}) only matters for roles whose Want would fall below the top verdict row. "${d.company}" clears ${WANT_HIGH.toFixed(1)} on its own across ${d.roles} evals, so the floor is cosmetic and hides whether a specific role is genuinely strong.`,
+        action: `"${d.company}" averages Match ${fmtW(d.avgMatchUnaided)} without the dream floor — its Match floor (${DREAM_MATCH_FLOOR.toFixed(1)}) never bites`,
+        reasoning: `The dream floor (Match → ${DREAM_MATCH_FLOOR.toFixed(1)}) only matters for roles whose Match would fall below the top verdict row. "${d.company}" clears ${MATCH_HIGH.toFixed(1)} on its own across ${d.roles} evals, so the floor is cosmetic and hides whether a specific role is genuinely strong.`,
         severity: 'low',
-        edit: `Optional: drop "${d.company}" from dream_companies (its roles reach the top Want row without the floor), or keep it as an intentional priority signal.`,
+        edit: `Optional: drop "${d.company}" from dream_companies (its roles reach the top Match row without the floor), or keep it as an intentional priority signal.`,
       })
     }
   }
@@ -558,17 +558,17 @@ export function partitionSuggestions(diag) {
       sampleSize: c.roles,
       gate: GATES.calibrationMinCompanyRoles,
       target: 'user/profile.yml',
-      action: `Consider adding "${c.company}" to a brand-bonus list — ${c.roles} evals averaging Want ${fmtW(c.avgWant)} · Ease ${fmtW(c.avgEase)}`,
-      reasoning: `"${c.company}" consistently produces roles in the top Want row (≥ ${WANT_HIGH.toFixed(1)}) for you but carries no brand bonus. Crediting it would correctly prioritize it in borderline scoring.`,
+      action: `Consider adding "${c.company}" to a brand-bonus list — ${c.roles} evals averaging Match ${fmtW(c.avgMatch)} · Ease ${fmtW(c.avgEase)}`,
+      reasoning: `"${c.company}" consistently produces roles in the top Match row (≥ ${MATCH_HIGH.toFixed(1)}) for you but carries no brand bonus. Crediting it would correctly prioritize it in borderline scoring.`,
       severity: 'low',
-      edit: `If you also want "${c.company}" as a company, add it to lower_tier_dream_companies (+0.25 Want) in user/profile.yml. Its Brand already reflects how recruiters read it.`,
+      edit: `If you also want "${c.company}" as a company, add it to lower_tier_dream_companies (+0.25 Match) in user/profile.yml. Its Brand already reflects how recruiters read it.`,
     })
   }
 
   for (const d of diag.dimensionSignal || []) {
     if (d.status !== 'pinned-ceiling' && d.status !== 'pinned-floor') continue
     const hint = weightHint(d)
-    const rollup = d.rollup === 'ease' ? 'Ease' : 'Want'
+    const rollup = d.rollup === 'ease' ? 'Ease' : 'Match'
     if (d.status === 'pinned-ceiling') {
       s.push({
         id: `calibrate:dim-ceiling:${d.key}`,
@@ -580,7 +580,7 @@ export function partitionSuggestions(diag) {
         severity: 'medium',
         edit: hint
           ? `Tighten the "${d.label}" anchor in user/_profile.md (what a 5 vs a 9 means), or ${hint} if it's not a real differentiator.`
-          : `In user/_profile.md, tighten the "${d.label}" anchor (what a 5 vs a 9 means); it is a hygiene factor, so it only nudges Want once it's good.`,
+          : `In user/_profile.md, tighten the "${d.label}" anchor (what a 5 vs a 9 means); it is a hygiene factor, so it only nudges Match once it's good.`,
       })
     } else {
       s.push({
@@ -604,7 +604,7 @@ export function partitionSuggestions(diag) {
       gate: GATES.calibrationMinCompRows,
       target: 'user/profile.yml',
       action: `Salary scores chronically low (mean ${comp.mean}, ${comp.lowShare}% ≤4) — your comp targets sit above this landscape`,
-      reasoning: `salary_adj_city is the savings-power score for the cities you target, and a Want hygiene factor: a score under 5 pulls Want down, under 3 vetoes it. A persistently low average means the roles you evaluate rarely meet your comp expectations — the targets, the city mix, or the seniority band may be misaligned with the market you're searching.`,
+      reasoning: `salary_adj_city is the savings-power score for the cities you target, and a Match hygiene factor: a score under 5 pulls Match down, under 3 vetoes it. A persistently low average means the roles you evaluate rarely meet your comp expectations — the targets, the city mix, or the seniority band may be misaligned with the market you're searching.`,
       severity: 'high',
       edit: `In user/profile.yml, revisit the salary range / preferred_cities, or accept a lower comp band for this segment.`,
     })
@@ -615,14 +615,14 @@ export function partitionSuggestions(diag) {
       gate: GATES.calibrationMinCompRows,
       target: 'user/profile.yml',
       action: `Salary scores maxed out (mean ${comp.mean}) — your comp floor is set so low it never bites`,
-      reasoning: `Nearly every role clears your comp expectation, so the salary hygiene term is a flat +0.25 on Want and isn't differentiating roles. You may be under-asking for the market you're in.`,
+      reasoning: `Nearly every role clears your comp expectation, so the salary hygiene term is a flat +0.25 on Match and isn't differentiating roles. You may be under-asking for the market you're in.`,
       severity: 'low',
       edit: `In user/profile.yml, consider raising the salary range to reflect the market — comp is currently a non-factor in your scores.`,
     })
   }
 
   for (const a of (diag.scoreOutcome?.archetypes || [])) {
-    const scoreText = `Want ${fmtW(a.avgWant)} · Ease ${fmtW(a.avgEase)}`
+    const scoreText = `Match ${fmtW(a.avgMatch)} · Ease ${fmtW(a.avgEase)}`
     if (a.flag === 'high-score-no-convert') {
       s.push({
         id: `calibrate:archetype-no-convert:${companyKey(a.archetype)}`,
@@ -641,9 +641,9 @@ export function partitionSuggestions(diag) {
         gate: GATES.calibrationMinApplied,
         target: 'user/_profile.md',
         action: `"${a.archetype}" lands in ${vLabel(a.typicalVerdict)} on average (${scoreText}) yet converts ${a.convertRate}% (${a.positive}/${a.applied})`,
-        reasoning: `The market responds well to this archetype but the grid doesn't call it actionable. A real strength isn't being credited — worth finding which dimension is unfairly dragging its Want or Ease.`,
+        reasoning: `The market responds well to this archetype but the grid doesn't call it actionable. A real strength isn't being credited — worth finding which dimension is unfairly dragging its Match or Ease.`,
         severity: 'high',
-        edit: `In user/_profile.md, re-anchor the dimension that's under-scoring "${a.archetype}" (or raise its weight under scoring.want_weights / ease_weights in user/profile.yml).`,
+        edit: `In user/_profile.md, re-anchor the dimension that's under-scoring "${a.archetype}" (or raise its weight under scoring.match_weights / ease_weights in user/profile.yml).`,
       })
     }
   }
@@ -725,7 +725,7 @@ export function analyzeCalibration(rows, { calibration = {}, outcomes = null, we
   const blocked = rows.filter(isBlocked).length
   if (scored.length === 0) {
     return {
-      error: `No scored (non-blocked) rows with Want and Ease in score-history.tsv${blocked ? ` (${blocked} blocked by eligibility)` : ''}.`,
+      error: `No scored (non-blocked) rows with Match and Ease in score-history.tsv${blocked ? ` (${blocked} blocked by eligibility)` : ''}.`,
     }
   }
 
@@ -766,7 +766,7 @@ export function analyzeCalibration(rows, { calibration = {}, outcomes = null, we
           applied: GATES.calibrationMinApplied,
           outcomeResolved: OUTCOME_GATES.minResolved,
         },
-        wantRows: { mid: WANT_MID, high: WANT_HIGH },
+        matchRows: { mid: MATCH_MID, high: MATCH_HIGH },
       },
     },
     diagnostics: diag,

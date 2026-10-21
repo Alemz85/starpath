@@ -18,6 +18,6 @@ Si el usuario pide actualizar un estado, editar la fila correspondiente.
 Mostrar también estadísticas:
 - Total de aplicaciones
 - Por estado
-- Want y Ease promedio (celdas Score `W8.3 E5.6`; las celdas legacy `X.X/10` se muestran tal cual y no entran en el promedio)
+- Match y Ease promedio (celdas Score `M8.3 E5.6`; las celdas legacy `X.X/10` se muestran tal cual y no entran en el promedio)
 - % con PDF generado
 - % con report generado

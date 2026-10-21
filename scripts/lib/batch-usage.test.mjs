@@ -21,7 +21,7 @@ const RESULT_EVENT = {
   is_error: false,
   duration_ms: 184223,
   num_turns: 41,
-  result: 'Done.\n```json\n{\n  "status": "completed",\n  "want": 8.25,\n  "ease": 5.6,\n  "eligibility": "amber",\n  "verdict": "stretch",\n  "tier": "T2",\n  "score": 6.8\n}\n```',
+  result: 'Done.\n```json\n{\n  "status": "completed",\n  "match": 8.25,\n  "ease": 5.6,\n  "eligibility": "amber",\n  "verdict": "stretch",\n  "tier": "T2",\n  "score": 6.8\n}\n```',
   total_cost_usd: 0.8123,
   usage: {
     input_tokens: 1200,
@@ -90,7 +90,7 @@ test('prefers the result-event score over stray matches in raw content', () => {
 
 const BLOCKED_EVENT = {
   ...RESULT_EVENT,
-  result: 'Done.\n```json\n{"status": "completed", "want": null, "ease": null, "eligibility": "red", "verdict": "blocked", "tier": "T4", "score": null}\n```',
+  result: 'Done.\n```json\n{"status": "completed", "match": null, "ease": null, "eligibility": "red", "verdict": "blocked", "tier": "T4", "score": null}\n```',
 }
 
 test('a blocked listing has a null score but a blocked verdict', () => {

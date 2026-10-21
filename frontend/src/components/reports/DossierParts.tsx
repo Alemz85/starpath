@@ -47,10 +47,10 @@ export function JobFacts({ facts, className }: { facts: JobFact[]; className?: s
 // of the score's ladder colour, the number sits at stat size beside its
 // label, and a ten-segment meter under both fills to the score (partial last
 // segment for decimals). The two tiles stack in the summary card's left third.
-// Want and Ease each get their own tile and their own ladder colour; there is
+// Match and Ease each get their own tile and their own ladder colour; there is
 // never a combined tile.
 
-export function ScoreTile({ label, hint, value }: { label: string; hint: string; value: number | null | undefined }) {
+export function ScoreTile({ label, value }: { label: string; value: number | null | undefined }) {
   const n = typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.min(10, value) : null
   const color = n != null ? scoreColor(n) : NEUTRAL_SCORE_COLOR
   return (
@@ -63,10 +63,7 @@ export function ScoreTile({ label, hint, value }: { label: string; hint: string;
       title={`${label} ${n != null ? n.toFixed(2) : '—'} / 10`}
     >
       <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0 flex flex-col">
-          <span className="text-body font-medium text-text-1">{label}</span>
-          <span className="text-label text-text-3 truncate">{hint}</span>
-        </div>
+        <span className="min-w-0 text-body font-medium text-text-1">{label}</span>
         <div className="shrink-0 flex items-baseline gap-1">
           <ScoreNumber value={n} size="lg" decimals={2} />
           <span className="text-micro text-text-4">/10</span>
@@ -99,8 +96,8 @@ function ScoreMeter({ value, color, className }: { value: number | null; color: 
 // no TL;DR line the Recommendation's opening paragraph stands in, labelled as
 // such; when it has neither, the card says so rather than writing one.
 
-export function SummaryCard({ want, ease, blockedReason, summary }: {
-  want: number | null
+export function SummaryCard({ match, ease, blockedReason, summary }: {
+  match: number | null
   ease: number | null
   blockedReason: string | null
   summary: ReportSummary | null
@@ -115,8 +112,8 @@ export function SummaryCard({ want, ease, blockedReason, summary }: {
           </div>
         ) : (
           <div className="flex flex-col gap-2.5">
-            <ScoreTile label="Want" hint="Do I want it?" value={want} />
-            <ScoreTile label="Ease" hint="Could I get it?" value={ease} />
+            <ScoreTile label="Match" value={match} />
+            <ScoreTile label="Ease" value={ease} />
           </div>
         )}
       </div>

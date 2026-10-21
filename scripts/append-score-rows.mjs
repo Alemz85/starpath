@@ -10,7 +10,7 @@
  *
  *   { "score_history":  { "date": "2026-10-21", "archetype": "…", …any of the 29 columns by name… },
  *     "report_summary": { "date": "…", "company": "…", "role": "…", "archetype": "…", "tier": "T2",
- *                         "want": 7.5, "ease": 6, "eligibility": "green", "key_gaps": "—", "verdict": "stretch" } }
+ *                         "match": 7.5, "ease": 6, "eligibility": "green", "key_gaps": "—", "verdict": "stretch" } }
  *
  * Either key may be omitted. Columns not given are written empty; tabs and
  * newlines inside a value become spaces. The score_history column order and

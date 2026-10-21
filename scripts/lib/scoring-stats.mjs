@@ -7,7 +7,7 @@
 // constant here without changing the doc (or vice-versa) that is a defect —
 // scoring-stats.test.mjs pins the values so the drift is caught.
 //
-// Scoring model: v2 (docs/scoring-v2.md §9): Want and Ease each have their own
+// Scoring model: v2 (docs/scoring-v2.md §9): Match and Ease each have their own
 // floor; Priority has one too, for the surfaces that sort on it.
 //
 // Why this file exists: a score is an LLM judgment on a coarse ordinal rubric.
@@ -20,13 +20,13 @@
 /* ───── 1. Rubric geometry (docs § 1) ─────────────────────────────────────── */
 //
 // Scoring v2 (docs/scoring-v2.md) has no Overall. A listing carries two
-// independent numbers, Want and Ease, plus Priority = √(Want·Ease) as a sort
+// independent numbers, Match and Ease, plus Priority = √(Match·Ease) as a sort
 // key. Each gets its own noise floor, derived from the smallest move one
 // integer re-judgment of one dimension produces in that rollup.
 
-/** Want: one motivator moving one integer step at the default equal weights
- *  (4 motivators) moves the motivator mean, and so Want, by 1/4. */
-export const WANT_DIM_STEP = 0.25
+/** Match: one motivator moving one integer step at the default equal weights
+ *  (4 motivators) moves the motivator mean, and so Match, by 1/4. */
+export const MATCH_DIM_STEP = 0.25
 
 /** Ease: one step on a 0.35-weight stage of the weighted geometric mean, near
  *  the middle of the scale (stage ≈ 6, Ease ≈ 6): 6 × ((7/6)^0.35 − 1) ≈ 0.33,
@@ -34,11 +34,11 @@ export const WANT_DIM_STEP = 0.25
 export const EASE_DIM_STEP = 0.32
 
 /**
- * WANT_NOISE_FLOOR — the minimum detectable Want difference (spec §9).
- * One motivator re-judged one step moves Want by 0.25; the floor is that,
+ * MATCH_NOISE_FLOOR — the minimum detectable Match difference (spec §9).
+ * One motivator re-judged one step moves Match by 0.25; the floor is that,
  * rounded up, so no single motivator wobble can clear it.
  */
-export const WANT_NOISE_FLOOR = 0.30
+export const MATCH_NOISE_FLOOR = 0.30
 
 /**
  * EASE_NOISE_FLOOR — the minimum detectable Ease difference (spec §9).
@@ -48,20 +48,20 @@ export const WANT_NOISE_FLOOR = 0.30
 export const EASE_NOISE_FLOOR = 0.35
 
 /**
- * PRIORITY_NOISE_FLOOR — Priority = √(Want·Ease). A one-step Want wobble moves
+ * PRIORITY_NOISE_FLOOR — Priority = √(Match·Ease). A one-step Match wobble moves
  * it by ≈ ½·√(E/W)·0.25 ≈ 0.13, a one-step Ease wobble by ≈ 0.16; 0.30 is
  * conservatively above both and below most two-dimension moves.
  */
 export const PRIORITY_NOISE_FLOOR = 0.30
 
-/** Floor per metric, for surfaces that classify Want, Ease and Priority. */
+/** Floor per metric, for surfaces that classify Match, Ease and Priority. */
 export const NOISE_FLOORS = Object.freeze({
-  want: WANT_NOISE_FLOOR,
+  match: MATCH_NOISE_FLOOR,
   ease: EASE_NOISE_FLOOR,
   priority: PRIORITY_NOISE_FLOOR,
 })
 
-/** @returns {number} the noise floor for 'want' | 'ease' | 'priority' (Priority's floor for anything else). */
+/** @returns {number} the noise floor for 'match' | 'ease' | 'priority' (Priority's floor for anything else). */
 export function noiseFloorFor(metric) {
   return NOISE_FLOORS[metric] ?? PRIORITY_NOISE_FLOOR
 }
@@ -118,7 +118,7 @@ export const GATES = Object.freeze({
 
   /** score-trend corpus verdict: ≥10 scored evals in EACH calendar window.
    *  No single evaluation may move a window mean by more than its noise floor:
-   *  a single extreme role deviates by up to ≈3.0 Want (3.0/k ≤ 0.30) or
+   *  a single extreme role deviates by up to ≈3.0 Match (3.0/k ≤ 0.30) or
    *  ≈3.5 Ease (3.5/k ≤ 0.35), and both give k ≥ 10. */
   trendMinPerWindowForVerdict: 10,
 
@@ -231,8 +231,8 @@ export function describeSample(n, gate) {
 /* ───── 5. Movement classification (docs § 1 + § 4) ───────────────────────── */
 
 /**
- * Classify a signed Want / Ease / Priority delta against a noise floor. Pass
- * `metric` ('want' | 'ease' | 'priority') to use that metric's floor, or an
+ * Classify a signed Match / Ease / Priority delta against a noise floor. Pass
+ * `metric` ('match' | 'ease' | 'priority') to use that metric's floor, or an
  * explicit `floor`; the default is the Priority floor.
  *
  * Returns 'within-noise' for |Δ| < floor — a first-class reported outcome, NOT

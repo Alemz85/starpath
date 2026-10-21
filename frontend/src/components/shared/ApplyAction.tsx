@@ -38,8 +38,8 @@ export function ApplyAction({ company, role, scoreEntry, size = 'md' }: Props) {
         await promote({
           company,
           role,
-          // Score cell is written as `W8.3 E5.6` (scoring v2 §8.3).
-          want: scoreEntry?.want ?? null,
+          // Score cell is written as `M8.3 E5.6` (scoring v2 §8.3).
+          match: scoreEntry?.match ?? null,
           ease: scoreEntry?.ease ?? null,
           tier: scoreEntry?.tier ?? 'T4',
         })

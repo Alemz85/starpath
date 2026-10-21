@@ -112,7 +112,7 @@ test('--input reads the JSON from a file inside the checkout, and refuses one ou
   }
 })
 
-test('scoreListing: a red listing the profile scores through keeps verdict blocked but gets Want / Ease', async () => {
+test('scoreListing: a red listing the profile scores through keeps verdict blocked but gets Match / Ease', async () => {
   const base = {
     company: 'Lumen Freight', role_archetype: 'Business Analyst', city: 'Lyon', country: 'FR',
     comp: { base: 30000 }, comp_source: 'estimate',
@@ -127,13 +127,13 @@ test('scoreListing: a red listing the profile scores through keeps verdict block
   const profile = { languages: [{ language: 'Spanish', level: 'B2' }], work_authorisation: ['EU'] }
   const blocked = await scoreListing({ ...base, eligibility_profile: profile })
   assert.equal(blocked.verdict, 'blocked')
-  assert.equal(blocked.want, null)
+  assert.equal(blocked.match, null)
 
   const scored = await scoreListing({ ...base, eligibility_profile: { ...profile, score_through_red: { languages: ['Spanish'] } } })
   assert.equal(scored.verdict, 'blocked')
   assert.equal(scored.tier, 'T4')
   assert.equal(scored.priority, null)
-  assert.ok(Number.isFinite(scored.want.score) && Number.isFinite(scored.ease.score))
+  assert.ok(Number.isFinite(scored.match.score) && Number.isFinite(scored.ease.score))
 })
 
 // ─── duration ranges per role type ──────────────────────────────────────────

@@ -41,13 +41,13 @@ Rotational / early-careers programs often have **non-obvious titles** where the 
 
 ## Dream Companies — Always Prioritize
 
-These get an automatic brand bonus regardless of archetype match. If a posting from this list shows up, flag it "worth a look" even when Want lands only 6.5–8.0.
+These get an automatic brand bonus regardless of archetype match. If a posting from this list shows up, flag it "worth a look" even when Match lands only 6.5–8.0.
 
 | Company | Target functions | Why |
 |---------|------------------|-----|
 | **[Company]** | [Functions you'd take there] | [One sentence — why this company specifically. Network reason, brand reason, mission reason.] |
 
-> Keep this list short — 1 to 3 companies you'd genuinely change cities for. Mirror them in `user/profile.yml` → `calibration.dream_companies`: the scorer gives them Brand Value 10 and a Want floor of 8.0. A dream company whose listing is Blocked by eligibility comes back flagged `Revisit next cycle:`.
+> Keep this list short — 1 to 3 companies you'd genuinely change cities for. Mirror them in `user/profile.yml` → `calibration.dream_companies`: the scorer gives them Brand Value 10 and a Match floor of 8.0. A dream company whose listing is Blocked by eligibility comes back flagged `Revisit next cycle:`.
 
 ### Dream Company Report Depth
 
@@ -192,4 +192,4 @@ If the city is not listed, fall back to the global scale above. If salary is not
 
 ## Scoring Weights (optional)
 
-Want averages four motivators (Growth / Mobility, Optionality / Exit, Brand Value, Role content); Ease is a weighted geometric mean of Skills Match, Experience bar and Competition. To weight them differently for your stage, set `scoring.want_weights` / `scoring.ease_weights` in `user/profile.yml` (defaults: equal motivators; Ease 0.35 / 0.35 / 0.30). The math lives in `scripts/score-listing.mjs`; only the weights are yours.
+Match averages four motivators (Growth / Mobility, Optionality / Exit, Brand Value, Role content); Ease is a weighted geometric mean of Skills Match, Experience bar and Competition. To weight them differently for your stage, set `scoring.match_weights` / `scoring.ease_weights` in `user/profile.yml` (defaults: equal motivators; Ease 0.35 / 0.35 / 0.30). The math lives in `scripts/score-listing.mjs`; only the weights are yours.

@@ -214,13 +214,13 @@ test('cleanCity rejects a leaked numeric score (column-shift guard)', () => {
 function fixtureRows() {
   return [
     // Data Analyst: two FT, decent savings-power, one with a disclosed FT salary.
-    { archetype: 'Data Analyst', salary_adj_city: 7, want: 7.0, ease: 6, employment_type: 'full-time', location: 'Dublin', best_cities: 'Dublin', salary_raw: '€42K', date: '2026-01-01' },
-    { archetype: 'Data Analyst', salary_adj_city: 8, want: 7.5, ease: 6, employment_type: 'full-time', location: 'Dublin', best_cities: 'Dublin', salary_raw: '€48K', date: '2026-01-02' },
-    { archetype: 'Data Analyst', salary_adj_city: 6, want: 6.5, ease: 6, employment_type: 'internship', location: 'Dublin', best_cities: 'Dublin', salary_raw: '€1,600/mo', date: '2026-01-03' },
+    { archetype: 'Data Analyst', salary_adj_city: 7, match: 7.0, ease: 6, employment_type: 'full-time', location: 'Dublin', best_cities: 'Dublin', salary_raw: '€42K', date: '2026-01-01' },
+    { archetype: 'Data Analyst', salary_adj_city: 8, match: 7.5, ease: 6, employment_type: 'full-time', location: 'Dublin', best_cities: 'Dublin', salary_raw: '€48K', date: '2026-01-02' },
+    { archetype: 'Data Analyst', salary_adj_city: 6, match: 6.5, ease: 6, employment_type: 'internship', location: 'Dublin', best_cities: 'Dublin', salary_raw: '€1,600/mo', date: '2026-01-03' },
     // Strategy & Operations: weak savings-power, two comp-floor non-intern roles.
-    { archetype: 'Strategy & Operations', salary_adj_city: 3, want: 6.0, ease: 6, employment_type: 'full-time', location: 'Barcelona', best_cities: 'Barcelona', salary_raw: 'undisclosed', date: '2026-01-04' },
-    { archetype: 'Strategy & Operations', salary_adj_city: 4, want: 6.2, ease: 6, employment_type: 'full-time', location: 'Barcelona', best_cities: 'Barcelona', salary_raw: 'n/d', date: '2026-01-05' },
-    { archetype: 'Strategy & Operations', salary_adj_city: 3, want: 5.8, ease: 6, employment_type: 'internship', location: 'Barcelona', best_cities: 'Barcelona', salary_raw: '€750/mo', date: '2026-01-06' },
+    { archetype: 'Strategy & Operations', salary_adj_city: 3, match: 6.0, ease: 6, employment_type: 'full-time', location: 'Barcelona', best_cities: 'Barcelona', salary_raw: 'undisclosed', date: '2026-01-04' },
+    { archetype: 'Strategy & Operations', salary_adj_city: 4, match: 6.2, ease: 6, employment_type: 'full-time', location: 'Barcelona', best_cities: 'Barcelona', salary_raw: 'n/d', date: '2026-01-05' },
+    { archetype: 'Strategy & Operations', salary_adj_city: 3, match: 5.8, ease: 6, employment_type: 'internship', location: 'Barcelona', best_cities: 'Barcelona', salary_raw: '€750/mo', date: '2026-01-06' },
   ]
 }
 
@@ -250,8 +250,8 @@ test('benchmarkByArchetype ranks by median savings-power and surfaces anchors', 
 
 test('benchmarkByArchetype drops sub-minRoles groups', () => {
   const rows = [
-    { archetype: 'X', salary_adj_city: 5, want: 6, ease: 6, employment_type: 'full-time', location: 'Milan', salary_raw: 'n/d' },
-    { archetype: 'X', salary_adj_city: 6, want: 6, ease: 6, employment_type: 'full-time', location: 'Milan', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: 5, match: 6, ease: 6, employment_type: 'full-time', location: 'Milan', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: 6, match: 6, ease: 6, employment_type: 'full-time', location: 'Milan', salary_raw: 'n/d' },
   ]
   assert.equal(benchmarkByArchetype(enrichRows(rows), { minRoles: 3 }).length, 0)
 })
@@ -259,7 +259,7 @@ test('benchmarkByArchetype drops sub-minRoles groups', () => {
 test('benchmarkByCity groups by clean city and skips cityless rows', () => {
   const rows = [
     ...fixtureRows(),
-    { archetype: 'Data Analyst', salary_adj_city: 9, want: 8, ease: 6, employment_type: 'full-time', location: 'Remote', best_cities: 'n/d', salary_raw: 'n/d' },
+    { archetype: 'Data Analyst', salary_adj_city: 9, match: 8, ease: 6, employment_type: 'full-time', location: 'Remote', best_cities: 'n/d', salary_raw: 'n/d' },
   ]
   const out = benchmarkByCity(enrichRows(rows), { minRoles: 3 })
   const cities = out.map((c) => c.label)
@@ -311,8 +311,8 @@ test('targetDrift reports aligned when the band brackets the disclosed FT median
 
 test('targetDrift returns null drift with too few FT anchors', () => {
   const rows = [
-    { archetype: 'X', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: '€42K' },
-    { archetype: 'X', salary_adj_city: 6, want: 6, ease: 6, employment_type: 'internship', location: 'Dublin', salary_raw: '€1,600/mo' },
+    { archetype: 'X', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: '€42K' },
+    { archetype: 'X', salary_adj_city: 6, match: 6, ease: 6, employment_type: 'internship', location: 'Dublin', salary_raw: '€1,600/mo' },
   ]
   const { drift, anchorsTotal } = targetDrift(enrichRows(rows), parseCompTarget({ target_range: '€30K-55K' }))
   assert.equal(anchorsTotal, 2)   // both anchors counted
@@ -340,7 +340,7 @@ test('fmtK formats annual EUR compactly and handles nullish', () => {
 
 /* ───── compFloorRisks ──────────────────────────────────────────────────────── */
 
-test('compFloorRisks surfaces only NON-intern roles whose Salary hygiene term costs Want', () => {
+test('compFloorRisks surfaces only NON-intern roles whose Salary hygiene term costs Match', () => {
   const risks = compFloorRisks(enrichRows(fixtureRows()))
   // The two S&O FT roles (adj 3 & 4) qualify; the adj-3 INTERN does not.
   assert.equal(risks.length, 2)
@@ -348,11 +348,11 @@ test('compFloorRisks surfaces only NON-intern roles whose Salary hygiene term co
   assert.ok(risks.every((r) => r.salaryAdj <= 4))
   // Sorted weakest comp first.
   assert.equal(risks[0].salaryAdj, 3)
-  // v2 fields: the engine's hygiene term, the veto flag, Want · Ease + verdict.
-  assert.equal(risks[0].wantPenalty, hygieneTerm(3))
+  // v2 fields: the engine's hygiene term, the veto flag, Match · Ease + verdict.
+  assert.equal(risks[0].matchPenalty, hygieneTerm(3))
   assert.equal(risks[0].vetoed, false, 'adj 3 is not below the veto line')
-  assert.equal(risks[1].wantPenalty, hygieneTerm(4))
-  assert.equal(risks[0].want, 6.0)
+  assert.equal(risks[1].matchPenalty, hygieneTerm(4))
+  assert.equal(risks[0].match, 6.0)
   assert.equal(risks[0].ease, 6)
   assert.ok(!('overall' in risks[0]))
 })
@@ -397,9 +397,9 @@ test('benchmarkComp assembles a full bundle from a real-shaped landscape', () =>
 
 test('benchmarkComp threads a custom gbpToEur through to anchors', () => {
   const rows = [
-    { archetype: 'Data Analyst', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: 'London', salary_raw: '£50K' },
-    { archetype: 'Data Analyst', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: 'London', salary_raw: '£50K' },
-    { archetype: 'Data Analyst', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: 'London', salary_raw: '£50K' },
+    { archetype: 'Data Analyst', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: 'London', salary_raw: '£50K' },
+    { archetype: 'Data Analyst', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: 'London', salary_raw: '£50K' },
+    { archetype: 'Data Analyst', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: 'London', salary_raw: '£50K' },
   ]
   const out = benchmarkComp(rows, { target_range: '€30K-42K' }, { minRoles: 3, gbpToEur: 1.0 })
   // £50K at rate 1.0 → €50K FT median → above the €42K ceiling.
@@ -495,13 +495,13 @@ test('cleanCity rejects leading-digit token (column-shift guard)', () => {
 test('benchmarkByArchetype tie-breaks equal-median groups by count (more rows first)', () => {
   // Two archetypes, both adj median 6, but different counts.
   const rows = [
-    { archetype: 'Alpha', salary_adj_city: 6, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'Alpha', salary_adj_city: 6, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'Alpha', salary_adj_city: 6, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'Beta', salary_adj_city: 6, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'Beta', salary_adj_city: 6, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'Beta', salary_adj_city: 6, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'Beta', salary_adj_city: 6, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'Alpha', salary_adj_city: 6, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'Alpha', salary_adj_city: 6, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'Alpha', salary_adj_city: 6, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'Beta', salary_adj_city: 6, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'Beta', salary_adj_city: 6, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'Beta', salary_adj_city: 6, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'Beta', salary_adj_city: 6, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
   ]
   const out = benchmarkByArchetype(enrichRows(rows), { minRoles: 3 })
   // Both median 6 → count tie-break: Beta (4) before Alpha (3).
@@ -514,9 +514,9 @@ test('benchmarkByArchetype tie-breaks equal-median groups by count (more rows fi
 test('benchmarkByCity uses best_cities when location is empty or missing', () => {
   const rows = [
     // No location — city should come from best_cities.
-    { archetype: 'X', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: '', best_cities: 'Vienna', salary_raw: 'n/d' },
-    { archetype: 'X', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: '', best_cities: 'Vienna', salary_raw: 'n/d' },
-    { archetype: 'X', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: '', best_cities: 'Vienna', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: '', best_cities: 'Vienna', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: '', best_cities: 'Vienna', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: '', best_cities: 'Vienna', salary_raw: 'n/d' },
   ]
   const out = benchmarkByCity(enrichRows(rows), { minRoles: 3 })
   assert.equal(out.length, 1)
@@ -568,10 +568,10 @@ test('targetDrift: no target low or high → drift remains null', () => {
 test('targetDrift: "other" employment type is tracked but does not influence FT verdict', () => {
   const rows = [
     // FT anchors.
-    { archetype: 'X', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: '€40K' },
-    { archetype: 'X', salary_adj_city: 7, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: '€50K' },
+    { archetype: 'X', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: '€40K' },
+    { archetype: 'X', salary_adj_city: 7, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: '€50K' },
     // "Other" type (e.g. consulting, advisory) — goes into other bucket.
-    { archetype: 'X', salary_adj_city: 9, want: 9, ease: 6, employment_type: 'advisory', location: 'Dublin', salary_raw: '€200K' },
+    { archetype: 'X', salary_adj_city: 9, match: 9, ease: 6, employment_type: 'advisory', location: 'Dublin', salary_raw: '€200K' },
   ]
   const e = enrichRows(rows)
   const { byType, drift } = targetDrift(e, parseCompTarget({ target_range: '€38K-55K' }))
@@ -623,9 +623,9 @@ test('compFloorRisks respects the limit parameter', () => {
 
 test('compFloorRisks excludes rows with non-finite salary_adj_city', () => {
   const rows = [
-    { archetype: 'X', salary_adj_city: NaN, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'X', salary_adj_city: null, want: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
-    { archetype: 'X', salary_adj_city: 3, want: 6, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: NaN, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: null, match: 7, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'X', salary_adj_city: 3, match: 6, ease: 6, employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
   ]
   const risks = compFloorRisks(enrichRows(rows))
   assert.equal(risks.length, 1)
@@ -678,7 +678,7 @@ test('isCompWeak / isCompStrong mirror hygieneTerm (no restated thresholds)', ()
   assert.equal(COMP_STRONG_MIN, 8)
 })
 
-test('compStrongShare counts rows earning the Salary Want bonus (adj ≥ 8)', () => {
+test('compStrongShare counts rows earning the Salary Match bonus (adj ≥ 8)', () => {
   const out = benchmarkByArchetype(enrichRows(fixtureRows()), { minRoles: 3 })
   const da = out.find((g) => g.label === 'Data Analyst') // adj 7, 8, 6
   assert.equal(da.compStrongShare, 33)
@@ -687,7 +687,7 @@ test('compStrongShare counts rows earning the Salary Want bonus (adj ≥ 8)', ()
 
 test('compFloorRisks flags the salary veto below HYGIENE_VETO_BELOW', () => {
   const rows = [
-    { archetype: 'X', company: 'Fabrikam Labs', role: 'Analyst', salary_adj_city: 2, want: 5, ease: 6, verdict: 'skip', employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
+    { archetype: 'X', company: 'Fabrikam Labs', role: 'Analyst', salary_adj_city: 2, match: 5, ease: 6, verdict: 'skip', employment_type: 'full-time', location: 'Dublin', salary_raw: 'n/d' },
   ]
   const [r] = compFloorRisks(enrichRows(rows))
   assert.ok(2 < HYGIENE_VETO_BELOW)
@@ -731,10 +731,10 @@ test('benchmarkComp (v2 rows): Blocked rows excluded from the proxy, kept as anc
   assert.equal(da.count, 3)
   assert.equal(da.anchorCount, 3)
   assert.equal(da.blockedAnchorCount, 1)
-  // Floor risk: the adj-4 scored row, with its real Want/Ease/verdict.
+  // Floor risk: the adj-4 scored row, with its real Match/Ease/verdict.
   assert.equal(out.floorRisks.length, 1)
   assert.equal(out.floorRisks[0].company, 'Fabrikam Labs')
-  assert.ok(Number.isFinite(out.floorRisks[0].want))
+  assert.ok(Number.isFinite(out.floorRisks[0].match))
   assert.ok(out.floorRisks[0].verdict)
 })
 

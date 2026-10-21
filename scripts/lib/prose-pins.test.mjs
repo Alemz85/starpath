@@ -30,8 +30,8 @@ test('scriptPaths reports the line and skips globs, placeholders and foreign pat
   ])
 })
 
-test('labelsOf reads both labels of the Want · Ease line, in order', () => {
-  assert.deepEqual(labelsOf('**Date:** x\n**Want:** 1/10 · **Ease:** 2/10\n**URL:** y'), ['Date', 'Want', 'Ease', 'URL'])
+test('labelsOf reads both labels of the Match · Ease line, in order', () => {
+  assert.deepEqual(labelsOf('**Date:** x\n**Match:** 1/10 · **Ease:** 2/10\n**URL:** y'), ['Date', 'Match', 'Ease', 'URL'])
 })
 
 test('headerLabels reads the first report template and refuses a file without one', () => {
@@ -41,8 +41,8 @@ test('headerLabels reads the first report template and refuses a file without on
 })
 
 test('sharedHeaderLabels reads the block under "Standard report block format"', () => {
-  const doc = '```markdown\n**Early:** x\n```\n### Standard report block format\n\n```markdown\n**Want:** 1 · **Ease:** 2\n**URL:** u\n```'
-  assert.deepEqual(sharedHeaderLabels(doc), ['Want', 'Ease', 'URL'])
+  const doc = '```markdown\n**Early:** x\n```\n### Standard report block format\n\n```markdown\n**Match:** 1 · **Ease:** 2\n**URL:** u\n```'
+  assert.deepEqual(sharedHeaderLabels(doc), ['Match', 'Ease', 'URL'])
   assert.throws(() => sharedHeaderLabels('nothing'))
 })
 

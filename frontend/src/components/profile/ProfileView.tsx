@@ -119,7 +119,7 @@ function Sparkline({ values }: { values: number[] }) {
   const last = pts[pts.length - 1]
 
   return (
-    <div className="w-full" aria-label={`Want trend over last ${values.length} evaluations`}>
+    <div className="w-full" aria-label={`Match trend over last ${values.length} evaluations`}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="w-full h-12 overflow-visible"
@@ -201,9 +201,9 @@ export function ProfileView() {
     const byTier = (t: string) => scoreHistory.filter(e => e.tier === t).length
     const t1 = byTier('T1'); const t2 = byTier('T2')
     const t3 = byTier('T3'); const t4 = byTier('T4')
-    // Mean Want over scored rows (blocked rows carry no scores).
-    const wants = scoreHistory.map(e => e.want).filter((w): w is number => w != null && Number.isFinite(w))
-    const avg = wants.length > 0 ? wants.reduce((s, w) => s + w, 0) / wants.length : 0
+    // Mean Match over scored rows (blocked rows carry no scores).
+    const matchScores = scoreHistory.map(e => e.match).filter((w): w is number => w != null && Number.isFinite(w))
+    const avg = matchScores.length > 0 ? matchScores.reduce((s, w) => s + w, 0) / matchScores.length : 0
     const applied    = applications.filter(a => ['Applied','Responded','Interview','Offer'].includes(a.status)).length
     const interviews = applications.filter(a => ['Interview','Offer'].includes(a.status)).length
     const streak = computeStreak(scoreHistory)
@@ -212,7 +212,7 @@ export function ProfileView() {
 
   const heatWeeks = useMemo(() => buildHeatmap(scoreHistory), [scoreHistory])
   const sparkValues = useMemo(() =>
-    [...scoreHistory].filter(e => e.want != null).sort((a, b) => a.date.localeCompare(b.date)).slice(-20).map(e => e.want as number),
+    [...scoreHistory].filter(e => e.match != null).sort((a, b) => a.date.localeCompare(b.date)).slice(-20).map(e => e.match as number),
     [scoreHistory])
   const badgeList = useMemo(() => badges(scoreHistory, applications), [scoreHistory, applications])
   const highlights = useMemo(() => buildHighlights(scoreHistory), [scoreHistory])
@@ -291,7 +291,7 @@ export function ProfileView() {
                         </>
                       )}
                       {stats.applied === 0 && stats.avg > 0 && (
-                        <>Average Want <span className="text-text-1 font-medium">{stats.avg.toFixed(1)}</span>.</>
+                        <>Average Match <span className="text-text-1 font-medium">{stats.avg.toFixed(1)}</span>.</>
                       )}
                     </p>
                   ) : (
@@ -373,9 +373,9 @@ export function ProfileView() {
                 </div>
               </Panel>
 
-              {/* ── Want trend + Tier breakdown ── */}
+              {/* ── Match trend + Tier breakdown ── */}
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Panel title="Want trend" meta={sparkValues.length > 1 ? `Last ${sparkValues.length} evaluations` : undefined}>
+                <Panel title="Match trend" meta={sparkValues.length > 1 ? `Last ${sparkValues.length} evaluations` : undefined}>
                   <Sparkline values={sparkValues} />
                 </Panel>
 

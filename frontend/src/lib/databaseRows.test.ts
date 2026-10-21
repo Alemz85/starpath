@@ -26,8 +26,8 @@ function filters(overrides: Partial<DbFilters> = {}): DbFilters {
     eligibilities: new Set(),
     employmentTypes: new Set(),
     liveness: new Set<Liveness>(['active']),
-    wantMin: 0,
-    wantMax: 10,
+    matchMin: 0,
+    matchMax: 10,
     easeMin: 0,
     easeMax: 10,
     ...overrides,
@@ -59,8 +59,8 @@ test('livenessOf defaults unseen listings to active, else maps via livenessKey',
 
 test('dedupeEntities: a same-day re-score (later row) wins over the earlier run', () => {
   const out = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Lyon', date: '2026-10-20', want: 7.4, ease: 6.62 }),
-    makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Lyon', date: '2026-10-20', want: 7.4, ease: 6.05 }),
+    makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Lyon', date: '2026-10-20', match: 7.4, ease: 6.62 }),
+    makeScoreEntry({ company: 'Acme', role: 'Analyst', location: 'Lyon', date: '2026-10-20', match: 7.4, ease: 6.05 }),
   ])
   assert.equal(out.length, 1)
   assert.equal(out[0].ease, 6.05)
@@ -68,11 +68,11 @@ test('dedupeEntities: a same-day re-score (later row) wins over the earlier run'
 
 test('dedupeEntities keeps the latest evaluation per (company, role, city)', () => {
   const out = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-01-01', want: 5, ease: 5 }),
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-03-01', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-01-01', match: 5, ease: 5 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-03-01', match: 8, ease: 8 }),
   ])
   assert.equal(out.length, 1)
-  assert.equal(out[0].want, 8)  // newer row wins
+  assert.equal(out[0].match, 8)  // newer row wins
 })
 
 test('dedupeEntities treats different cities of the same role as distinct entities', () => {
@@ -124,8 +124,8 @@ test('buildActedKeys collects only engaged statuses, keyed + lowercased', () => 
 
 test('filterAndGroupEntities drops unevaluated rows unless showClosed', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'A', want: 7, ease: 7 }),
-    makeScoreEntry({ company: 'Acme', role: 'B', want: null }),
+    makeScoreEntry({ company: 'Acme', role: 'A', match: 7, ease: 7 }),
+    makeScoreEntry({ company: 'Acme', role: 'B', match: null }),
   ])
   assert.equal(filterAndGroupEntities(entities, ctx()).length, 1)
   assert.equal(filterAndGroupEntities(entities, ctx({ showClosed: true })).length, 2)
@@ -133,9 +133,9 @@ test('filterAndGroupEntities drops unevaluated rows unless showClosed', () => {
 
 test('filterAndGroupEntities sorts groups by Priority desc', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Low', role: 'r', want: 4.5, ease: 4.5 }),
-    makeScoreEntry({ company: 'High', role: 'r', want: 9.1, ease: 9.1 }),
-    makeScoreEntry({ company: 'Mid', role: 'r', want: 7, ease: 7 }),
+    makeScoreEntry({ company: 'Low', role: 'r', match: 4.5, ease: 4.5 }),
+    makeScoreEntry({ company: 'High', role: 'r', match: 9.1, ease: 9.1 }),
+    makeScoreEntry({ company: 'Mid', role: 'r', match: 7, ease: 7 }),
   ])
   assert.deepEqual(
     filterAndGroupEntities(entities, ctx({ showClosed: true })).map(r => r.company),
@@ -145,9 +145,9 @@ test('filterAndGroupEntities sorts groups by Priority desc', () => {
 
 test('filterAndGroupEntities applies the company + tier facets', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'a', want: 8, ease: 8, tier: 'T2' }),
-    makeScoreEntry({ company: 'Acme', role: 'b', want: 8, ease: 8, tier: 'T3' }),
-    makeScoreEntry({ company: 'Globex', role: 'c', want: 8, ease: 8, tier: 'T2' }),
+    makeScoreEntry({ company: 'Acme', role: 'a', match: 8, ease: 8, tier: 'T2' }),
+    makeScoreEntry({ company: 'Acme', role: 'b', match: 8, ease: 8, tier: 'T3' }),
+    makeScoreEntry({ company: 'Globex', role: 'c', match: 8, ease: 8, tier: 'T2' }),
   ])
   const byCompany = filterAndGroupEntities(entities, ctx({ filters: filters({ companies: new Set(['Acme']) }) }))
   assert.deepEqual(byCompany.map(r => r.role).sort(), ['a', 'b'])
@@ -157,8 +157,8 @@ test('filterAndGroupEntities applies the company + tier facets', () => {
 
 test('filterAndGroupEntities honours the untapped-only lens', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Globex', role: 'Analyst', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'Analyst', match: 8, ease: 8 }),
   ])
   const acted = buildActedKeys([makeApplication({ company: 'Acme', role: 'Engineer', status: 'Applied' })])
   const out = filterAndGroupEntities(entities, ctx({ untappedOnly: true, actedKeys: acted }))
@@ -166,7 +166,7 @@ test('filterAndGroupEntities honours the untapped-only lens', () => {
 })
 
 test('filterAndGroupEntities hides a group whose only liveness state is filtered out', () => {
-  const entities = dedupeEntities([makeScoreEntry({ company: 'Acme', role: 'Engineer', want: 8, ease: 8 })])
+  const entities = dedupeEntities([makeScoreEntry({ company: 'Acme', role: 'Engineer', match: 8, ease: 8 })])
   const closedMap = { [livenessKey('Acme', 'Engineer')]: 'closed' as Liveness }
   // Default filter is {active} → the closed group is hidden…
   assert.equal(filterAndGroupEntities(entities, ctx({ liveness: closedMap })).length, 0)
@@ -183,8 +183,8 @@ test('filterAndGroupEntities hides a group whose only liveness state is filtered
 test('filterAndGroupEntities groups same-role cities and picks the best ACTIVE sibling as primary', () => {
   // Two cities of one role: Paris scores higher but is closed; Berlin is active.
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer Berlin', location: 'Berlin', want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Acme', role: 'Engineer Paris', location: 'Paris', want: 9, ease: 9 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer Berlin', location: 'Berlin', match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer Paris', location: 'Paris', match: 9, ease: 9 }),
   ])
   const liveness = {
     [livenessKey('Acme', 'Engineer Berlin')]: 'active' as Liveness,
@@ -203,8 +203,8 @@ test('filterAndGroupEntities groups same-role cities and picks the best ACTIVE s
 
 test('filterAndGroupEntities falls back to the most-recent sibling when none are active', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer Berlin', location: 'Berlin', want: 9, ease: 9, date: '2026-01-01' }),
-    makeScoreEntry({ company: 'Acme', role: 'Engineer Paris', location: 'Paris', want: 6, ease: 6, date: '2026-05-01' }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer Berlin', location: 'Berlin', match: 9, ease: 9, date: '2026-01-01' }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer Paris', location: 'Paris', match: 6, ease: 6, date: '2026-05-01' }),
   ])
   const liveness = {
     [livenessKey('Acme', 'Engineer Berlin')]: 'closed' as Liveness,
@@ -222,8 +222,8 @@ test('filterAndGroupEntities falls back to the most-recent sibling when none are
 
 test('computeFacetCounts ignores a dimension\'s own selection but applies the others', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'a', want: 8, ease: 8, tier: 'T1' }),
-    makeScoreEntry({ company: 'Globex', role: 'b', want: 8, ease: 8, tier: 'T2' }),
+    makeScoreEntry({ company: 'Acme', role: 'a', match: 8, ease: 8, tier: 'T1' }),
+    makeScoreEntry({ company: 'Globex', role: 'b', match: 8, ease: 8, tier: 'T2' }),
   ])
   const counts = computeFacetCounts(entities, ctx({ filters: filters({ companies: new Set(['Acme']) }) }))
   // Company dimension ignores its own filter → both companies still counted.
@@ -234,27 +234,27 @@ test('computeFacetCounts ignores a dimension\'s own selection but applies the ot
 
 test('computeFacetCounts bumps each city of a multi-listing', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'a', want: 8, ease: 8, tier: 'T2', location: 'Berlin / Paris' }),
+    makeScoreEntry({ company: 'Acme', role: 'a', match: 8, ease: 8, tier: 'T2', location: 'Berlin / Paris' }),
   ])
   const counts = computeFacetCounts(entities, ctx())
   assert.deepEqual(counts.tiers, { T2: 1 })
   assert.deepEqual(counts.locations, { Berlin: 1, Paris: 1 })
 })
 
-test('computeFacetCounts respects the global Want-range and unevaluated-row gates', () => {
+test('computeFacetCounts respects the global Match-range and unevaluated-row gates', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'A', role: 'a', want: 9, ease: 9 }),
-    makeScoreEntry({ company: 'B', role: 'b', want: 6, ease: 6 }),
-    makeScoreEntry({ company: 'C', role: 'c', want: null }),  // zero-score
+    makeScoreEntry({ company: 'A', role: 'a', match: 9, ease: 9 }),
+    makeScoreEntry({ company: 'B', role: 'b', match: 6, ease: 6 }),
+    makeScoreEntry({ company: 'C', role: 'c', match: null }),  // zero-score
   ])
-  const counts = computeFacetCounts(entities, ctx({ filters: filters({ wantMin: 7 }) }))
+  const counts = computeFacetCounts(entities, ctx({ filters: filters({ matchMin: 7 }) }))
   assert.deepEqual(counts.companies, { A: 1 })  // B below range, C zero-score → excluded
 })
 
 test('computeFacetCounts excludes engaged listings under the untapped-only lens', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Globex', role: 'Analyst', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'Analyst', match: 8, ease: 8 }),
   ])
   const acted = buildActedKeys([makeApplication({ company: 'Acme', role: 'Engineer', status: 'Applied' })])
   // Without the lens, both count; with it, the already-applied Acme row drops —
@@ -271,8 +271,8 @@ test('computeFacetCounts excludes engaged listings under the untapped-only lens'
 test('flattenForExport emits the parent then each sibling with a resolved livenessState', () => {
   const grouped = filterAndGroupEntities(
     dedupeEntities([
-      makeScoreEntry({ company: 'Acme', role: 'Engineer Berlin', location: 'Berlin', want: 8, ease: 8 }),
-      makeScoreEntry({ company: 'Acme', role: 'Engineer Paris', location: 'Paris', want: 9, ease: 9 }),
+      makeScoreEntry({ company: 'Acme', role: 'Engineer Berlin', location: 'Berlin', match: 8, ease: 8 }),
+      makeScoreEntry({ company: 'Acme', role: 'Engineer Paris', location: 'Paris', match: 9, ease: 9 }),
     ]),
     ctx(),  // both default-active, filter {active}
   )
@@ -289,10 +289,10 @@ test('dedupeEntities with an empty array returns an empty array', () => {
 })
 
 test('dedupeEntities keeps a single entry unchanged', () => {
-  const e = makeScoreEntry({ company: 'Acme', role: 'Engineer', want: 8, ease: 8 })
+  const e = makeScoreEntry({ company: 'Acme', role: 'Engineer', match: 8, ease: 8 })
   const out = dedupeEntities([e])
   assert.equal(out.length, 1)
-  assert.equal(out[0].want, 8)
+  assert.equal(out[0].match, 8)
 })
 
 test('dedupeEntities: same (company, role) across different cities are distinct entities', () => {
@@ -306,12 +306,12 @@ test('dedupeEntities: same (company, role) across different cities are distinct 
 
 test('dedupeEntities: three evaluations of the same role/city — only the most recent survives', () => {
   const out = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-01-01', want: 5, ease: 5 }),
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-02-01', want: 6, ease: 6 }),
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-05-01', want: 9, ease: 9 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-01-01', match: 5, ease: 5 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-02-01', match: 6, ease: 6 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', date: '2026-05-01', match: 9, ease: 9 }),
   ])
   assert.equal(out.length, 1)
-  assert.equal(out[0].want, 9)
+  assert.equal(out[0].match, 9)
 })
 
 // ─── buildFacetOptions edge cases ────────────────────────────────────────────
@@ -368,9 +368,9 @@ test('buildActedKeys: all engaged statuses are captured', () => {
 
 test('filterAndGroupEntities filters by location (cities)', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Eng Berlin', location: 'Berlin', want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Acme', role: 'Eng Paris',  location: 'Paris',  want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Acme', role: 'Eng London', location: 'London', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Eng Berlin', location: 'Berlin', match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Eng Paris',  location: 'Paris',  match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Eng London', location: 'London', match: 8, ease: 8 }),
   ])
   const out = filterAndGroupEntities(entities, ctx({ filters: filters({ locations: new Set(['Berlin']) }) }))
   assert.equal(out.length, 1)
@@ -379,7 +379,7 @@ test('filterAndGroupEntities filters by location (cities)', () => {
 
 test('filterAndGroupEntities filters a multi-city listing: row visible if ANY city matches', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin / Paris', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin / Paris', match: 8, ease: 8 }),
   ])
   const out = filterAndGroupEntities(entities, ctx({ filters: filters({ locations: new Set(['Paris']) }) }))
   assert.equal(out.length, 1)
@@ -389,8 +389,8 @@ test('filterAndGroupEntities filters a multi-city listing: row visible if ANY ci
 
 test('filterAndGroupEntities filters by archetype via canonicalization', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'a', archetype: 'Data Analyst', want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Globex', role: 'b', archetype: 'Product Manager', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'a', archetype: 'Data Analyst', match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'b', archetype: 'Product Manager', match: 8, ease: 8 }),
   ])
   const out = filterAndGroupEntities(entities, ctx({ filters: filters({ archetypes: new Set(['Data Analyst']) }) }))
   assert.equal(out.length, 1)
@@ -401,8 +401,8 @@ test('filterAndGroupEntities filters by archetype via canonicalization', () => {
 
 test('filterAndGroupEntities filters by employment type', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme',   role: 'a', employment_type: 'Full-time', want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Globex', role: 'b', employment_type: 'Internship', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme',   role: 'a', employment_type: 'Full-time', match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'b', employment_type: 'Internship', match: 8, ease: 8 }),
   ])
   const out = filterAndGroupEntities(entities, ctx({ filters: filters({ employmentTypes: new Set(['Internship']) }) }))
   assert.equal(out.length, 1)
@@ -411,15 +411,15 @@ test('filterAndGroupEntities filters by employment type', () => {
 
 // ─── filterAndGroupEntities: score range filter ───────────────────────────────
 
-test('filterAndGroupEntities applies the Want range gate', () => {
+test('filterAndGroupEntities applies the Match range gate', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'High', role: 'a', want: 9.5, ease: 9.5 }),
-    makeScoreEntry({ company: 'Mid',  role: 'b', want: 7.0, ease: 7.0 }),
-    makeScoreEntry({ company: 'Low',  role: 'c', want: 5.0, ease: 5.0 }),
+    makeScoreEntry({ company: 'High', role: 'a', match: 9.5, ease: 9.5 }),
+    makeScoreEntry({ company: 'Mid',  role: 'b', match: 7.0, ease: 7.0 }),
+    makeScoreEntry({ company: 'Low',  role: 'c', match: 5.0, ease: 5.0 }),
   ])
   const out = filterAndGroupEntities(entities, ctx({
     showClosed: true,
-    filters: filters({ wantMin: 6, wantMax: 8 }),
+    filters: filters({ matchMin: 6, matchMax: 8 }),
   }))
   assert.equal(out.length, 1)
   assert.equal(out[0].company, 'Mid')
@@ -429,8 +429,8 @@ test('filterAndGroupEntities applies the Want range gate', () => {
 
 test('computeFacetCounts counts liveness bucket per entity', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'a', want: 8, ease: 8 }),
-    makeScoreEntry({ company: 'Globex', role: 'b', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'a', match: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Globex', role: 'b', match: 8, ease: 8 }),
   ])
   const liveness = {
     [livenessKey('Acme', 'a')]: 'active' as Liveness,
@@ -448,7 +448,7 @@ test('computeFacetCounts counts liveness bucket per entity', () => {
 
 test('flattenForExport with no siblings emits a single row', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', want: 8, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Engineer', location: 'Berlin', match: 8, ease: 8 }),
   ])
   const grouped = filterAndGroupEntities(entities, ctx())
   const flat = flattenForExport(grouped, {})
@@ -463,8 +463,8 @@ test('flattenForExport with an empty input returns an empty array', () => {
 
 test('flattenForExport preserves a pre-resolved livenessState on a sibling', () => {
   // Build a grouped row where the sibling already carries a livenessState
-  const parent = makeScoreEntry({ company: 'Acme', role: 'Eng Berlin', location: 'Berlin', want: 8, ease: 8 })
-  const sibling = { ...makeScoreEntry({ company: 'Acme', role: 'Eng Paris', location: 'Paris', want: 7, ease: 7 }), livenessState: 'stale' as Liveness }
+  const parent = makeScoreEntry({ company: 'Acme', role: 'Eng Berlin', location: 'Berlin', match: 8, ease: 8 })
+  const sibling = { ...makeScoreEntry({ company: 'Acme', role: 'Eng Paris', location: 'Paris', match: 7, ease: 7 }), livenessState: 'stale' as Liveness }
   const grouped = [{ ...parent, livenessState: 'active' as Liveness, siblings: [sibling] }]
   const flat = flattenForExport(grouped, {})
   assert.equal(flat.length, 2)
@@ -477,7 +477,7 @@ test('flattenForExport preserves a pre-resolved livenessState on a sibling', () 
 
 test('blocked rows are evaluations: shown by default, sorted last, excluded by a range', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'A', role: 'a', want: 7, ease: 7 }),
+    makeScoreEntry({ company: 'A', role: 'a', match: 7, ease: 7 }),
     makeBlockedEntry('German C1 required', { company: 'B', role: 'b' }),
     makeScoreEntry({ company: 'C', role: 'c' }),   // unscored placeholder
   ])
@@ -489,8 +489,8 @@ test('blocked rows are evaluations: shown by default, sorted last, excluded by a
 
 test('verdict and eligibility facets filter rows and count the other dimensions', () => {
   const entities = dedupeEntities([
-    makeScoreEntry({ company: 'Go', role: 'a', want: 9, ease: 8 }),
-    makeScoreEntry({ company: 'Thin', role: 'b', want: 7, ease: 6, eligibility: 'amber', eligibility_flags: 'start_date:amber:x' }),
+    makeScoreEntry({ company: 'Go', role: 'a', match: 9, ease: 8 }),
+    makeScoreEntry({ company: 'Thin', role: 'b', match: 7, ease: 6, eligibility: 'amber', eligibility_flags: 'start_date:amber:x' }),
     makeBlockedEntry('x', { company: 'Red', role: 'c' }),
   ])
   const byVerdict = filterAndGroupEntities(entities, ctx({ filters: filters({ verdicts: new Set(['thin', 'blocked']) }) }))

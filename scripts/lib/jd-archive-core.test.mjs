@@ -53,7 +53,7 @@ test('parseReport reads the title, URL and date; falls back to the file name', (
 test('trackerNumbers maps decoded report paths to row numbers, # prefix allowed', () => {
   const map = trackerNumbers([
     '| 12 | 2026-10-01 | A | B | 8 | 7 | T1 | green | [12](reports/tier-1/Nimbus Robotics - Data Analyst.md) | n/d |',
-    '| 5 | 2026-10-01 | A | B | W8 E7 | Evaluated | ❌ | n/d | [#5](reports/tier-2/Tailspin%20Toys%20-%20Analyst.md) | |',
+    '| 5 | 2026-10-01 | A | B | M8 E7 | Evaluated | ❌ | n/d | [#5](reports/tier-2/Tailspin%20Toys%20-%20Analyst.md) | |',
     '| 6 | x | [6](—) |',
   ]);
   assert.equal(map.get('reports/tier-1/Nimbus Robotics - Data Analyst.md'), 12);

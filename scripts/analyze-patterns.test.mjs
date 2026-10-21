@@ -20,7 +20,7 @@ const report = (company, role, archetype) => `# Scouting: ${company} — ${role}
 
 **Date:** 2026-06-01
 **Location:** Lyon, France hybrid
-${archetype ? `**Archetype:** ${archetype}\n` : ''}**Want:** 8.2/10 · **Ease:** 6.1/10
+${archetype ? `**Archetype:** ${archetype}\n` : ''}**Match:** 8.2/10 · **Ease:** 6.1/10
 **Eligibility:** green
 **Verdict:** Stretch — apply with prep
 **Tier:** T2
@@ -43,7 +43,7 @@ function makeTree() {
     ['4', 'Fabrikam Energy', 'Planning Analyst', 'Applied'],
   ]
   writeFileSync(join(root, 'data/applications.md'), APPLICATIONS_SCAFFOLD + apps.map(([n, c, r, st]) =>
-    `| ${n} | 2026-06-0${n} | ${c} | ${r} | W8.2 E6.1 | ${st} | ❌ | n/d | [${n}](reports/tier-2/${c} - ${r}.md) |  |`).join('\n') + '\n')
+    `| ${n} | 2026-06-0${n} | ${c} | ${r} | M8.2 E6.1 | ${st} | ❌ | n/d | [${n}](reports/tier-2/${c} - ${r}.md) |  |`).join('\n') + '\n')
   // 1-2: archetype in the report header · 3: only in score-history · 4: nowhere
   writeFileSync(join(root, 'reports/tier-2/Nimbus Robotics - Strategy Analyst.md'), report('Nimbus Robotics', 'Strategy Analyst', 'Strategy & Ops'))
   writeFileSync(join(root, 'reports/tier-2/Nimbus Robotics - Ops Analyst.md'), report('Nimbus Robotics', 'Ops Analyst', 'Strategy & Ops'))
@@ -52,7 +52,7 @@ function makeTree() {
   const cols = SCORE_HISTORY_HEADER.split('\t')
   const row = (o) => cols.map((c) => o[c] ?? '').join('\t')
   writeFileSync(join(root, 'data/score-history.tsv'), SCORE_HISTORY_HEADER + '\n' + row({
-    date: '2026-06-03', archetype: 'Data & Analytics', want: '8.2', ease: '6.1', eligibility: 'green', verdict: 'stretch',
+    date: '2026-06-03', archetype: 'Data & Analytics', match: '8.2', ease: '6.1', eligibility: 'green', verdict: 'stretch',
     mode: 'scouting', company: 'Contoso Labs', role: 'Data Analyst', tier: 'T2', source: 'batch',
   }) + '\n')
   return root

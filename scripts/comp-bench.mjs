@@ -10,7 +10,7 @@
  *
  * Two signals, kept distinct (see scripts/lib/comp-bench-core.mjs header):
  *   • the dense savings-power PROXY (salary_adj_city on every scored row — the
- *     Salary hygiene factor of Want), and
+ *     Salary hygiene factor of Match), and
  *   • the sparse disclosed-salary ANCHORS (parsed to annual EUR) for the
  *     euro-denominated target-vs-landscape drift verdict.
  *
@@ -53,9 +53,9 @@ if (args.includes('--help') || args.includes('-h')) {
                               [--score-history PATH] [--profile PATH]
                               [--no-blocked-anchors]
 
-Savings-power proxy (salary_adj_city, the Salary hygiene factor of Want) by
+Savings-power proxy (salary_adj_city, the Salary hygiene factor of Match) by
 archetype and city, disclosed-salary anchors vs. your profile.yml target band,
-and the non-intern roles whose comp costs them Want. Read-only.`)
+and the non-intern roles whose comp costs them Match. Read-only.`)
   process.exit(0)
 }
 const argVal = (flag) => {
@@ -181,13 +181,13 @@ function printSummary(r) {
 
   // Comp-floor risks.
   if (floorRisks.length) {
-    console.log(`COMP-FLOOR DRAG (non-intern roles at savings-power < ${COMP_NEUTRAL_MIN} — Salary costs Want; < ${HYGIENE_VETO_BELOW} caps Want at ${HYGIENE_VETO_CAP.toFixed(1)})`)
+    console.log(`COMP-FLOOR DRAG (non-intern roles at savings-power < ${COMP_NEUTRAL_MIN} — Salary costs Match; < ${HYGIENE_VETO_BELOW} caps Match at ${HYGIENE_VETO_CAP.toFixed(1)})`)
     console.log('-'.repeat(48))
     for (const f of floorRisks.slice(0, 10)) {
       const eur = f.disclosedEur != null ? ` · €${fmtK(f.disclosedEur)}` : ''
-      const we = f.want != null && f.ease != null ? ` · W${f.want} · E${f.ease}` : ''
+      const we = f.match != null && f.ease != null ? ` · M${f.match} · E${f.ease}` : ''
       const veto = f.vetoed ? ' · veto' : ''
-      console.log(`  ${`${f.company} — ${f.role}`.slice(0, 46).padEnd(47)} adj ${f.salaryAdj} (Want ${f.wantPenalty})${veto}${we}${eur}`)
+      console.log(`  ${`${f.company} — ${f.role}`.slice(0, 46).padEnd(47)} adj ${f.salaryAdj} (Match ${f.matchPenalty})${veto}${we}${eur}`)
     }
     console.log('')
   }

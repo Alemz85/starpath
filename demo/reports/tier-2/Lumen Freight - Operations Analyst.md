@@ -3,7 +3,7 @@
 **Date:** 2026-10-09
 **Location:** Lyon, France · four office days
 **Archetype:** Strategy & Operations
-**Want:** 7.13/10 · **Ease:** 8/10
+**Match:** 7.13/10 · **Ease:** 8/10
 **Eligibility:** green
 **Verdict:** Solid — apply
 **Tier:** T2
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 7/10 | A growing freight company where analysts take on more lanes and regions as they prove themselves; there is no formal ladder. |
-| Optionality / Exit (want) | 6/10 | Operations analytics in logistics is useful, but it is mostly valued inside transport and logistics. |
-| Brand Value (want) | 5.5/10 | Little known outside logistics, though Lyon’s logistics employers know it well. |
-| Role content (want) | 8/10 | Mostly the analysis you want: lane profitability, capacity planning and the weekly operations review. |
+| Growth / Mobility (match) | 7/10 | A growing freight company where analysts take on more lanes and regions as they prove themselves; there is no formal ladder. |
+| Optionality / Exit (match) | 6/10 | Operations analytics in logistics is useful, but it is mostly valued inside transport and logistics. |
+| Brand Value (match) | 5.5/10 | Little known outside logistics, though Lyon’s logistics employers know it well. |
+| Role content (match) | 8/10 | Mostly the analysis you want: lane profitability, capacity planning and the weekly operations review. |
 | City (hygiene) | 9/10 | Lyon, your first-choice city. |
 | Salary Adj for City (hygiene) | 6/10 | About €690 a month left after living costs in Lyon. |
 | Work-Life Balance (hygiene) | 8/10 | Regular hours and four office days; the planning team, not the analysts, absorbs the operational peaks. |
-| **Want (rollup)** | **7.13/10** | Held up by the work and the city, pulled down by a modest name |
+| **Match (rollup)** | **7.13/10** | Held up by the work and the city, pulled down by a modest name |
 | Skills Match (ease) | 8/10 | SQL, Excel modelling and a dashboard tool are all on your CV. |
 | Experience bar (ease) | 8/10 | They want a first internship and some interest in logistics, which your capstone shows. |
 | Competition (ease) | 8/10 | A smaller employer hiring locally, and your Lyon school is well known to them. |

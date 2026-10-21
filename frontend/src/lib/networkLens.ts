@@ -40,13 +40,13 @@ export interface NetworkContact {
 
 export interface RoleRef {
   role: string
-  /** Priority (√(Want·Ease)) for a v2 row, the legacy X.X/10 number for an
+  /** Priority (√(Match·Ease)) for a v2 row, the legacy X.X/10 number for an
    *  old applications.md cell. A sort key only — display `scoreLabel` or the
-   *  Want · Ease pair, never this number. */
+   *  Match · Ease pair, never this number. */
   score: number
-  want?: number | null
+  match?: number | null
   ease?: number | null
-  /** "W8.3 · E5.6" (v2) or "7.4/10" (legacy), '' when unscored. */
+  /** "M8.3 · E5.6" (v2) or "7.4/10" (legacy), '' when unscored. */
   scoreLabel?: string
   source: 'application' | 'scouting'
 }
@@ -93,7 +93,7 @@ export interface NetworkGap {
   companyKey: string
   /** Best role's Priority (sort key only). */
   topScore: number
-  /** Best role's display label ("W8.3 · E5.6"), '' when unscored. */
+  /** Best role's display label ("M8.3 · E5.6"), '' when unscored. */
   topScoreLabel?: string
   roles: RoleRef[]
 }
@@ -159,8 +159,8 @@ const APPLY_WORTHY = new Set(['go', 'stretch', 'solid'])
  *  old threshold. */
 export function gapIsApplyWorthy(g: NetworkGap, threshold: number = GAP_SCORE_THRESHOLD): boolean {
   const top = g.roles[0]
-  if (top && top.want != null && top.ease != null) {
-    const v = assignVerdict({ want: top.want, ease: top.ease, eligibility: 'green' })
+  if (top && top.match != null && top.ease != null) {
+    const v = assignVerdict({ match: top.match, ease: top.ease, eligibility: 'green' })
     return v != null && APPLY_WORTHY.has(v.verdict)
   }
   return g.topScore >= threshold

@@ -6,7 +6,7 @@ import { useWriteGate } from '@/store/dataRoot'
 import { CompanyLogo } from '@/components/shared/CompanyLogo'
 import { FilesStrip } from '@/components/shared/FilesStrip'
 import { StatusDropdown } from '@/components/shared/ApplyAction'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { Button, ScoreNumber, StatusChip } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { parseScoreCell } from '@/lib/scoreBands'
@@ -32,7 +32,7 @@ export function shortDate(iso: string): string {
 
 /**
  * One application as the Applying board shows it: logo, company and role,
- * Want · Ease, the date cue, the rejection line, and a footer with the stage,
+ * Match · Ease, the date cue, the rejection line, and a footer with the stage,
  * files and report.
  *
  * The board passes every handler. Anywhere else (a chat card) leaves the
@@ -109,8 +109,8 @@ export function ApplicationCard({
       </div>
 
       <div className="flex items-center justify-between mt-2 gap-2 min-h-5">
-        {score && 'want' in score
-          ? <WantEase want={score.want} ease={score.ease} size="sm" decimals={1} />
+        {score && 'match' in score
+          ? <MatchEase match={score.match} ease={score.ease} size="sm" decimals={1} />
           : <ScoreNumber value={score && 'legacy' in score ? score.legacy : null} size="sm" />}
         {cue && <DateCueLabel cue={cue} emphasize={app.status === 'Evaluated'} />}
       </div>

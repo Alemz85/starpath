@@ -6,7 +6,7 @@ The CV (`user/cv.md`) is the one asset that goes out with every application, yet
 
 1. **Keyword gaps** — in-demand terms that appear across many evaluated roles but never in the CV.
 2. **Weak proof points** — achievement bullets with no quantified outcome (the proof-point weakness recruiters notice first).
-3. **Dimension drag** — the scoring dimensions that systematically hold the user's Want or Ease down, flagged **CV-fixable** (Skills Match) vs. **targeting-only** (everything else).
+3. **Dimension drag** — the scoring dimensions that systematically hold the user's Match or Ease down, flagged **CV-fixable** (Skills Match) vs. **targeting-only** (everything else).
 
 **How this differs from neighboring tools:**
 - `scripts/ats-coverage.mjs` checks the CV against **one** JD. This checks it against the **whole landscape**.

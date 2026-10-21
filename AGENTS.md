@@ -72,7 +72,7 @@ Then get to know the user (superpower, what excites or drains them, deal-breaker
 
 ## Skill Modes
 
-One evaluation mode (`scouting`); per-listing follow-ups (Tailor CV, Prep Application, Draft Application) are separate skills the user triggers. **The scoring model is `docs/scoring-v2.md`**: an eligibility gate (green / amber / red — red = Blocked, logged with its reason, no score), then **Want** and **Ease** (1–10); the Want × Ease grid gives the verdict (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`) and the storage tier. No Overall; Priority (√(Want × Ease)) is a sort key only. Executable source of truth: `scripts/score-listing.mjs` (`scripts/lib/eligibility.mjs` + `scripts/lib/score-bands.mjs`). Mode files live in `modes/`.
+One evaluation mode (`scouting`); per-listing follow-ups (Tailor CV, Prep Application, Draft Application) are separate skills the user triggers. **The scoring model is `docs/scoring-v2.md`**: an eligibility gate (green / amber / red — red = Blocked, logged with its reason, no score), then **Match** and **Ease** (1–10); the Match × Ease grid gives the verdict (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`) and the storage tier. No Overall; Priority (√(Match × Ease)) is a sort key only. Executable source of truth: `scripts/score-listing.mjs` (`scripts/lib/eligibility.mjs` + `scripts/lib/score-bands.mjs`). Mode files live in `modes/`.
 
 | If the user… | Mode |
 |--------------|------|
@@ -125,13 +125,13 @@ One evaluation mode (`scouting`); per-listing follow-ups (Tailor CV, Prep Applic
 
 1. **NEVER edit applications.md to ADD entries**, and never create a second entry for an existing company+role. Write one TSV per evaluation to `batch/tracker-additions/` and let `node scripts/merge-tracker.mjs` merge it; **run it after each batch of evaluations**. You MAY edit existing rows' notes. **Status changes go only through `node scripts/set-status.mjs <num> <status>`** (the app uses the same path): it locks, writes atomically and logs to `status-log.tsv`.
 2. Scouting observations go to `data/scouting.md` with a Tier (`T1`–`T4`) instead of a status: write 12-column TSVs to `batch/scouting-additions/` (`modes/scouting.md` § Tracker Entry), run `node scripts/merge-scouting.mjs`, promote `go` hits (T1) with `node scripts/promote-to-applications.mjs <num>`.
-3. Every report includes `**URL:**` in the header (after the Want · Ease / Eligibility / Verdict / Tier lines).
+3. Every report includes `**URL:**` in the header (after the Match · Ease / Eligibility / Verdict / Tier lines).
 4. Health: `node scripts/verify-pipeline.mjs` · `normalize-statuses.mjs` · `dedup-tracker.mjs`. After a manual edit to scouting.md or applications.md, `node scripts/rebuild-dedup-index.mjs`.
 
 ### TSV Format for Tracker Additions
 
 ```
-{num}\t{date}\t{company}\t{role}\t{status}\tW{want} E{ease}\t{pdf_emoji}\t{deadline}\t[{num}](reports/tier-{N}/{num}-{slug}-{date}.md)\t{note}
+{num}\t{date}\t{company}\t{role}\t{status}\tM{match} E{ease}\t{pdf_emoji}\t{deadline}\t[{num}](reports/tier-{N}/{num}-{slug}-{date}.md)\t{note}
 ```
 
 Status comes BEFORE score in the TSV (`merge-tracker.mjs` swaps them for `applications.md`). The tier `N` comes from `scripts/score-listing.mjs`, never by hand. Column details: `docs/REPO-GUIDE.md` § Tracker TSV.
@@ -142,7 +142,7 @@ Source of truth: `templates/states.yml`. Statuses are `Evaluated` · `Applied` �
 
 ## Scoring Analytics
 
-Every surface derived from `data/score-history.tsv` (`peer-rank`, `score-trend`, `calibration-advisor`, `positioning`'s trajectory) obeys `docs/scoring-statistical-design.md`: separate noise floors for Want (0.30) and Ease (0.35), per-surface minimum-information gates, and confidence tiers stated with each claim's `n`. Thresholds live in `scripts/lib/scoring-stats.mjs`; never restate them inline. A new score-derived analytic declares its gates in the doc first. Application-outcome stats (`scripts/outcomes.mjs`) follow § 3.7 of the same doc; their gates are `OUTCOME_GATES`.
+Every surface derived from `data/score-history.tsv` (`peer-rank`, `score-trend`, `calibration-advisor`, `positioning`'s trajectory) obeys `docs/scoring-statistical-design.md`: separate noise floors for Match (0.30) and Ease (0.35), per-surface minimum-information gates, and confidence tiers stated with each claim's `n`. Thresholds live in `scripts/lib/scoring-stats.mjs`; never restate them inline. A new score-derived analytic declares its gates in the doc first. Application-outcome stats (`scripts/outcomes.mjs`) follow § 3.7 of the same doc; their gates are `OUTCOME_GATES`.
 
 ## Frontend Design System (MANDATORY)
 

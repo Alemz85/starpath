@@ -19,11 +19,11 @@ export interface DimensionRow {
 }
 
 /** The v2 `## Dimensional scoring` table, split by its row tags
- *  (docs/scoring-v2.md §8.5): `(want)` motivators, `(hygiene)` factors, the
- *  `Want (rollup)` row, `(ease)` dimensions, the `Ease (rollup)` row, and
+ *  (docs/scoring-v2.md §8.5): `(match)` motivators, `(hygiene)` factors, the
+ *  `Match (rollup)` row, `(ease)` dimensions, the `Ease (rollup)` row, and
  *  `(context)` rows. */
 export interface ParsedDimensions {
-  want: { rollup: string; reasoning: string; motivators: DimensionRow[]; hygiene: DimensionRow[] }
+  match: { rollup: string; reasoning: string; motivators: DimensionRow[]; hygiene: DimensionRow[] }
   ease: { rollup: string; reasoning: string; rows: DimensionRow[] }
   context: { rows: DimensionRow[] }
 }
@@ -31,7 +31,7 @@ export interface ParsedDimensions {
 // Header metadata: keep contextual fields (Date / Mode / Location /
 // Archetype / Verification) and drop the duplicated ones — URL has its own
 // pill, Posted is a job fact (parseReportPosted + pickPostedDate, shown by
-// ReportSlideOver), Want / Ease / Eligibility / Verdict / Tier are parsed by
+// ReportSlideOver), Match / Ease / Eligibility / Verdict / Tier are parsed by
 // parseReportHeader and rendered in the hero. Verification is kept because
 // batch-mode reports need a visible "unconfirmed" caveat — see ReportMeta —
 // and Posting check because a "suspect" posting (hidden or instruction-like
@@ -69,13 +69,13 @@ export function extractMetadata(text: string): {
 
 // ─── v2 report header (spec §8.5) ────────────────────────────────────────────
 //
-//   **Want:** 8.25/10 · **Ease:** 5.6/10
+//   **Match:** 8.25/10 · **Ease:** 5.6/10
 //   **Eligibility:** amber — start date not stated
 //   **Verdict:** Stretch — apply with prep
 //   **Tier:** T2
 
 export interface ReportHeader {
-  want: number | null
+  match: number | null
   ease: number | null
   eligibility: Eligibility | null
   /** Text after the status (`— start date not stated`), dash stripped. */
@@ -112,7 +112,8 @@ function splitDash(v: string): [string, string] {
 }
 
 export function parseReportHeader(md: string): ReportHeader {
-  const want = leadingNumber(headerValue(md, 'Want'))
+  // `**Want:**` is the pre-rename spelling of `**Match:**` (reports written before it).
+  const match = leadingNumber(headerValue(md, 'Match') ?? headerValue(md, 'Want'))
   const ease = leadingNumber(headerValue(md, 'Ease'))
   const eligRaw = headerValue(md, 'Eligibility') ?? ''
   const [eligHead, eligReason] = splitDash(eligRaw)
@@ -124,7 +125,7 @@ export function parseReportHeader(md: string): ReportHeader {
     ?? null
   const tier = normalizeTier(headerValue(md, 'Tier'))
   return {
-    want: eligibility === 'red' ? null : want,
+    match: eligibility === 'red' ? null : match,
     ease: eligibility === 'red' ? null : ease,
     eligibility,
     eligibilityReason: eligibility ? eligReason : '',
@@ -214,7 +215,7 @@ export function splitEligibility(md: string): { eligibility: ParsedEligibility |
 // Split the markdown around the "## Dimensional scoring" section, parse the
 // table inside it, and group the rows by their v2 tag. Rows are routed by tag
 // first; an untagged dimension row falls back to its position (before the
-// Want rollup → a Want motivator; after it → an Ease dimension; after the
+// Match rollup → a Match motivator; after it → an Ease dimension; after the
 // Ease rollup → context). The rollup arithmetic text is kept as `reasoning`.
 export function parseDimensionalScoring(md: string): {
   before: string
@@ -243,34 +244,34 @@ export function parseDimensionalScoring(md: string): {
   const rows = tableLines.slice(1).map(parseRow).filter(Boolean) as Array<NonNullable<ReturnType<typeof parseRow>>>
 
   const dims: ParsedDimensions = {
-    want:    { rollup: '', reasoning: '', motivators: [], hygiene: [] },
+    match:    { rollup: '', reasoning: '', motivators: [], hygiene: [] },
     ease:    { rollup: '', reasoning: '', rows: [] },
     context: { rows: [] },
   }
 
-  type Phase = 'want' | 'ease' | 'post'
-  let phase: Phase = 'want'
+  type Phase = 'match' | 'ease' | 'post'
+  let phase: Phase = 'match'
 
   for (const row of rows) {
     const labelLower = row.label.toLowerCase()
     const r: DimensionRow = { label: row.label, score: row.score, reasoning: row.reasoning }
 
-    if (row.tag === 'rollup' || ((labelLower === 'want' || labelLower === 'ease') && !row.tag)) {
-      if (labelLower.startsWith('want')) { dims.want.rollup = row.score; dims.want.reasoning = row.reasoning; phase = 'ease'; continue }
+    if (row.tag === 'rollup' || ((labelLower === 'match' || labelLower === 'ease') && !row.tag)) {
+      if (labelLower.startsWith('match')) { dims.match.rollup = row.score; dims.match.reasoning = row.reasoning; phase = 'ease'; continue }
       if (labelLower.startsWith('ease')) { dims.ease.rollup = row.score; dims.ease.reasoning = row.reasoning; phase = 'post'; continue }
     }
-    if (row.tag === 'want')    { dims.want.motivators.push(r); continue }
-    if (row.tag === 'hygiene') { dims.want.hygiene.push(r); continue }
+    if (row.tag === 'match')    { dims.match.motivators.push(r); continue }
+    if (row.tag === 'hygiene') { dims.match.hygiene.push(r); continue }
     if (row.tag === 'ease')    { dims.ease.rows.push(r); continue }
     if (row.tag === 'context' || phase === 'post') { dims.context.rows.push(r); continue }
-    if (phase === 'want') dims.want.motivators.push(r)
+    if (phase === 'match') dims.match.motivators.push(r)
     else dims.ease.rows.push(r)
   }
 
   // Sanity: if we found no group rows at all, abort and fall back.
   if (
-    !dims.want.rollup && !dims.ease.rollup &&
-    dims.want.motivators.length === 0 && dims.want.hygiene.length === 0 &&
+    !dims.match.rollup && !dims.ease.rollup &&
+    dims.match.motivators.length === 0 && dims.match.hygiene.length === 0 &&
     dims.ease.rows.length === 0 && dims.context.rows.length === 0
   ) {
     return { before: md, dims: null, after: '' }
@@ -356,7 +357,7 @@ export function splitPeerBlock(md: string): { found: boolean; rest: string } {
   return { found: true, rest }
 }
 
-export type RowTag = 'want' | 'hygiene' | 'ease' | 'rollup' | 'context'
+export type RowTag = 'match' | 'hygiene' | 'ease' | 'rollup' | 'context'
 
 export function parseRow(line: string): { label: string; score: string; reasoning: string; tag: RowTag | null } | null {
   // "| a | b | c |" → ['', ' a ', ' b ', ' c ', ''] → ['a','b','c']
@@ -368,10 +369,13 @@ export function parseRow(line: string): { label: string; score: string; reasonin
   score = score.replace(/^\*\*(.+)\*\*$/, '$1').trim()
   // Strip "/10" suffix
   score = score.replace(/\s*\/\s*\d+\s*$/, '').trim()
-  // Detect and strip the trailing parenthetical tag (spec §8.5 exact tags)
-  const tagRe = /\s*\(\s*(want|hygiene|ease|rollup|context)\s*\)\s*$/i
+  // Detect and strip the trailing parenthetical tag (spec §8.5 exact tags;
+  // `(want)` is the pre-rename spelling of `(match)`)
+  const tagRe = /\s*\(\s*(match|want|hygiene|ease|rollup|context)\s*\)\s*$/i
   const tagMatch = label.match(tagRe)
-  const tag = tagMatch ? (tagMatch[1].toLowerCase() as RowTag) : null
-  const cleanLabel = label.replace(tagRe, '').trim()
+  const rawTag = tagMatch ? tagMatch[1].toLowerCase() : null
+  const tag = rawTag === 'want' ? 'match' : (rawTag as RowTag | null)
+  let cleanLabel = label.replace(tagRe, '').trim()
+  if ((tag === 'rollup' || tag === null) && /^want$/i.test(cleanLabel)) cleanLabel = 'Match'
   return { label: cleanLabel, score, reasoning, tag }
 }

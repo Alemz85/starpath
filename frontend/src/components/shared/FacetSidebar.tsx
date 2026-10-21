@@ -23,8 +23,8 @@ export interface FacetFilters {
   employmentTypes: Set<string>
   liveness: Set<Liveness>
   /** Per-axis ranges — v2 has no Overall. */
-  wantMin: number
-  wantMax: number
+  matchMin: number
+  matchMax: number
   easeMin: number
   easeMax: number
 }
@@ -40,8 +40,8 @@ export const EMPTY_FILTERS: FacetFilters = {
   eligibilities: new Set(),
   employmentTypes: new Set(),
   liveness: new Set<Liveness>(['active']),
-  wantMin: 0,
-  wantMax: 10,
+  matchMin: 0,
+  matchMax: 10,
   easeMin: 0,
   easeMax: 10,
 }
@@ -58,7 +58,7 @@ export function hasActiveFilters(f: FacetFilters): boolean {
     f.eligibilities.size > 0 ||
     f.employmentTypes.size > 0 ||
     f.liveness.size !== 1 || !f.liveness.has('active') ||
-    rangeOn(f.wantMin, f.wantMax) ||
+    rangeOn(f.matchMin, f.matchMax) ||
     rangeOn(f.easeMin, f.easeMax)
   )
 }
@@ -107,7 +107,7 @@ export function FacetSidebar({ filters, onChange, options, counts }: FacetSideba
     filters.companies.size + filters.locations.size + filters.archetypes.size +
     filters.tiers.size + filters.verdicts.size + filters.eligibilities.size +
     filters.employmentTypes.size +
-    (rangeOn(filters.wantMin, filters.wantMax) ? 1 : 0) +
+    (rangeOn(filters.matchMin, filters.matchMax) ? 1 : 0) +
     (rangeOn(filters.easeMin, filters.easeMax) ? 1 : 0)
 
   return (
@@ -195,10 +195,10 @@ export function FacetSidebar({ filters, onChange, options, counts }: FacetSideba
           onToggle={v => toggle('employmentTypes', v)}
         />
         <ScoreRangeGroup
-          label="Want range"
-          min={filters.wantMin}
-          max={filters.wantMax}
-          onChange={(min, max) => onChange({ ...filters, wantMin: min, wantMax: max })}
+          label="Match range"
+          min={filters.matchMin}
+          max={filters.matchMax}
+          onChange={(min, max) => onChange({ ...filters, matchMin: min, matchMax: max })}
         />
         <ScoreRangeGroup
           label="Ease range"
@@ -322,7 +322,7 @@ function FacetGroup({
   )
 }
 
-// A narrowed range keeps scored rows only — a blocked listing has no Want or
+// A narrowed range keeps scored rows only — a blocked listing has no Match or
 // Ease to range over (lib/databaseRows § inRanges).
 function ScoreRangeGroup({ label, min, max, onChange }: { label: string; min: number; max: number; onChange: (min: number, max: number) => void }) {
   const [expanded, setExpanded] = useState(true)

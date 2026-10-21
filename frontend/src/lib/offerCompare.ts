@@ -3,9 +3,9 @@
 // This is a faithful TypeScript port of `scripts/lib/offer-compare.mjs` (the
 // backend `compare-offers` engine) PLUS the savings band from
 // `scripts/lib/score-bands.mjs` it depends on. Scoring v2: the `fit` factor
-// is the role's WANT (lib/scoreBands mirrors the §2 formula) — an offer has
-// already cleared the Ease funnel, so the open question is how much you want
-// it. The v1 CF/AF rollup copies are retired. The lane requires the GUI
+// is the role's MATCH (lib/scoreBands mirrors the §2 formula) — an offer has
+// already cleared the Ease funnel, so the open question is how well it
+// matches. The v1 CF/AF rollup copies are retired. The lane requires the GUI
 // mirror the backend logic in a tested
 // `frontend/src/lib/` module rather than shelling out — so the Offer-comparison
 // view computes the exact same weighted ranking, tradeoffs, and recommendation
@@ -18,7 +18,7 @@
 // company, city, school, or comp target is hardcoded here; weights and factor
 // scores flow in from the caller, sourced from the user's data at use time.
 
-import { computeWant, type WantDims, type WantOptions } from './scoreBands'
+import { computeMatch, type MatchDims, type MatchOptions } from './scoreBands'
 
 /* ───── Canonical savings band (ported from score-bands.mjs) ────── */
 
@@ -52,7 +52,7 @@ export const FACTORS: readonly Factor[] = ['comp', 'fit', 'growth', 'brand', 'lo
 
 export const FACTOR_LABELS: Record<Factor, string> = {
   comp: 'Compensation',
-  fit: 'Fit (Want)',
+  fit: 'Fit (Match)',
   growth: 'Growth / Mobility',
   brand: 'Brand Value',
   location: 'Location',
@@ -64,7 +64,7 @@ export const FACTOR_LABELS: Record<Factor, string> = {
 // the backend mode (modes/ofertas.md) uses.
 export const FACTOR_HELP: Record<Factor, string> = {
   comp: 'Cost-of-living-adjusted savings power — what the take-home leaves after a comfortable life in that city.',
-  fit: 'How much you want this role — its scouting Want score. Prefills from the evaluation if the role was scored.',
+  fit: 'How well this role matches you — its scouting Match score. Prefills from the evaluation if the role was scored.',
   growth: 'Does it lead somewhere — promotion velocity, skill compounding, internal mobility.',
   brand: 'Signalling value on your CV for the next move.',
   location: 'How well the location fits your preferences — top-preference city + no visa friction scores high.',
@@ -104,18 +104,18 @@ export function compFactorFromSavings(
 }
 
 /**
- * Derive the `fit` factor (1-10) from a scouting evaluation. v2: fit = Want
+ * Derive the `fit` factor (1-10) from a scouting evaluation. v2: fit = Match
  * (spec §2) — no re-derivation when the evaluation already carries it; when
- * only the dimensions are known, the Want formula is replayed at the default
+ * only the dimensions are known, the Match formula is replayed at the default
  * weights. Ease is deliberately not part of fit: an offer in hand has already
  * cleared the hiring funnel Ease measures.
  */
 export function fitFactorFromScores(
-  scores: { want?: number | null; dims?: WantDims | null },
-  context: WantOptions = {},
-): { score: number; source: 'want' | 'replay' | 'neutral' } {
-  if (scores.want != null && Number.isFinite(scores.want)) return { score: clampFit(scores.want), source: 'want' }
-  if (scores.dims) return { score: clampFit(computeWant(scores.dims, context).score), source: 'replay' }
+  scores: { match?: number | null; dims?: MatchDims | null },
+  context: MatchOptions = {},
+): { score: number; source: 'match' | 'replay' | 'neutral' } {
+  if (scores.match != null && Number.isFinite(scores.match)) return { score: clampFit(scores.match), source: 'match' }
+  if (scores.dims) return { score: clampFit(computeMatch(scores.dims, context).score), source: 'replay' }
   return { score: 5, source: 'neutral' }
 }
 

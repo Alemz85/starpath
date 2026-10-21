@@ -17,8 +17,8 @@ function fixtureRoot() {
     '',
     '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
     '|---|------|---------|------|-------|--------|-----|----------|--------|-------|',
-    '| 1 | 2026-09-01 | Nimbus Robotics | Data Analyst | W7.3 E7.4 | Rejected | ✅ | n/d | [1](reports/tier-2/1-nimbus-2026-09-01.md) | via portal |',
-    '| 2 | 2026-09-05 | Fabrikam | Strategy Associate | W8.4 E4.1 | Evaluated | ❌ | n/d | [2](reports/tier-2/2-fabrikam-2026-09-05.md) |  |',
+    '| 1 | 2026-09-01 | Nimbus Robotics | Data Analyst | M7.3 E7.4 | Rejected | ✅ | n/d | [1](reports/tier-2/1-nimbus-2026-09-01.md) | via portal |',
+    '| 2 | 2026-09-05 | Fabrikam | Strategy Associate | M8.4 E4.1 | Evaluated | ❌ | n/d | [2](reports/tier-2/2-fabrikam-2026-09-05.md) |  |',
   ].join('\n'))
   writeFileSync(join(root, 'data/status-log.tsv'), [
     'num\tdate\tcompany\trole\tfrom\tto\tstage\tsource\tnote\tlogged_at',
@@ -26,7 +26,7 @@ function fixtureRoot() {
     '1\t2026-09-02\tNimbus Robotics\tData Analyst\tApplied\tRejected\t\tapp\t\t2026-09-02T10:00:00Z',
   ].join('\n') + '\n')
   writeFileSync(join(root, 'data/score-history.tsv'), [
-    'date\tarchetype\tease\twant\tverdict\tcompany\trole\tlocation',
+    'date\tarchetype\tease\tmatch\tverdict\tcompany\trole\tlocation',
     '2026-08-30\tdata\t7.4\t7.3\tgo\tNimbus Robotics\tData Analyst\tLyon, France',
   ].join('\n') + '\n')
   writeFileSync(join(root, 'reports/tier-2/1-nimbus-2026-09-01.md'), '| Field | Value |\n|---|---|\n| **Team size** | 40 people |\n')

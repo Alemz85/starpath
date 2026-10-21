@@ -329,14 +329,14 @@ export function parseNetwork(content) {
 /* ───── Parse the pipeline (applications.md + scouting.md) ───────────────────
  * Both files lead with `| num | date | company | role |`, but the score cells
  * differ under scoring v2 (docs/scoring-v2.md §8):
- *   applications.md  col 5 = Score    "W8.3 E5.6" (v2) or "7.4/10" (legacy)
- *   scouting.md      col 5 = Want, col 6 = Ease  (numbers, or "—" when Blocked)
+ *   applications.md  col 5 = Score    "M8.3 E5.6" (v2) or "7.4/10" (legacy)
+ *   scouting.md      col 5 = Match, col 6 = Ease  (numbers, or "—" when Blocked)
  * We only need company + role + a rank key + a display label + a source tag
  * here, so one lenient parser handles both. `score` is the rank key —
- * Priority = round(sqrt(want × ease), 2) for v2 cells, the legacy number for
+ * Priority = round(sqrt(match × ease), 2) for v2 cells, the legacy number for
  * legacy cells — so coverage gaps still sort by how much a referral matters.
- * It is a sort key only; surfaces should show `scoreLabel` ("W8.3 · E5.6").
- * Blocked scouting rows (Want/Ease "—") are not referral targets and are
+ * It is a sort key only; surfaces should show `scoreLabel` ("M8.3 · E5.6").
+ * Blocked scouting rows (Match/Ease "—") are not referral targets and are
  * dropped.
  */
 
@@ -344,28 +344,28 @@ const num = (v) => {
   const m = String(v ?? '').replace(/\*\*/g, '').trim().match(/^(\d+(?:\.\d+)?)(?:\s*\/\s*10)?$/);
   return m ? parseFloat(m[1]) : null;
 };
-const priorityOf = (want, ease) => Math.round(Math.sqrt(want * ease) * 100) / 100;
+const priorityOf = (match, ease) => Math.round(Math.sqrt(match * ease) * 100) / 100;
 
 /**
- * Parse an applications.md Score cell → { score, want, ease, scoreLabel } or null.
- *   "W8.3 E5.6" → { score: 6.81, want: 8.3, ease: 5.6, scoreLabel: 'W8.3 · E5.6' }
- *   "7.4/10"    → { score: 7.4,  want: null, ease: null, scoreLabel: '7.4/10' }
+ * Parse an applications.md Score cell → { score, match, ease, scoreLabel } or null.
+ *   "M8.3 E5.6" → { score: 6.81, match: 8.3, ease: 5.6, scoreLabel: 'M8.3 · E5.6' }
+ *   "7.4/10"    → { score: 7.4,  match: null, ease: null, scoreLabel: '7.4/10' }
  */
 export function parseScoreCellInfo(cell) {
   const s = String(cell ?? '').replace(/\*\*/g, '').trim();
-  const v2 = s.match(/^W\s*(\d+(?:\.\d+)?)\s*[ ·\/,]?\s*E\s*(\d+(?:\.\d+)?)$/i);
+  const v2 = s.match(/^[MW]\s*(\d+(?:\.\d+)?)\s*[ ·\/,]?\s*E\s*(\d+(?:\.\d+)?)$/i);
   if (v2) {
-    const want = parseFloat(v2[1]);
+    const match = parseFloat(v2[1]);
     const ease = parseFloat(v2[2]);
-    return { score: priorityOf(want, ease), want, ease, scoreLabel: `W${want} · E${ease}` };
+    return { score: priorityOf(match, ease), match, ease, scoreLabel: `M${match} · E${ease}` };
   }
   const legacy = num(s);
-  if (legacy !== null) return { score: legacy, want: null, ease: null, scoreLabel: `${legacy}/10` };
+  if (legacy !== null) return { score: legacy, match: null, ease: null, scoreLabel: `${legacy}/10` };
   return null;
 }
 
 /**
- * Parse one pipeline row into { company, companyKey, role, score, want, ease,
+ * Parse one pipeline row into { company, companyKey, role, score, match, ease,
  * scoreLabel, source } or null. `source` is 'application' | 'scouting' and
  * selects which score columns apply (see above).
  */
@@ -385,11 +385,11 @@ export function parsePipelineRow(line, source) {
 
   let info;
   if (source === 'scouting') {
-    const want = num(parts[5]);
+    const match = num(parts[5]);
     const ease = num(parts[6]);
-    if (want !== null && ease !== null) {
-      info = { score: priorityOf(want, ease), want, ease, scoreLabel: `W${want} · E${ease}` };
-    } else if (want !== null && /^T[1-4]$/i.test(parts[6] ?? '')) {
+    if (match !== null && ease !== null) {
+      info = { score: priorityOf(match, ease), match, ease, scoreLabel: `M${match} · E${ease}` };
+    } else if (match !== null && /^T[1-4]$/i.test(parts[6] ?? '')) {
       // Lenient: a pre-v2 row (`… | 7.5/10 | T2 | …`) keeps its single score as
       // the rank key rather than vanishing from the referral lens.
       info = parseScoreCellInfo(parts[5]);
@@ -397,7 +397,7 @@ export function parsePipelineRow(line, source) {
       return null; // Blocked ("—") or malformed: not a referral target
     }
   } else {
-    info = parseScoreCellInfo(parts[5]) ?? { score: 0, want: null, ease: null, scoreLabel: '' };
+    info = parseScoreCellInfo(parts[5]) ?? { score: 0, match: null, ease: null, scoreLabel: '' };
   }
   return { company, companyKey: companyKey(company), role, ...info, source };
 }
@@ -430,7 +430,7 @@ export function parsePipeline(applicationsContent, scoutingContent) {
 
 /** Role summary carried on matches/gaps/paths: rank key + display label. */
 function roleInfo(t) {
-  return { role: t.role, score: t.score, want: t.want ?? null, ease: t.ease ?? null, scoreLabel: t.scoreLabel ?? '', source: t.source };
+  return { role: t.role, score: t.score, match: t.match ?? null, ease: t.ease ?? null, scoreLabel: t.scoreLabel ?? '', source: t.source };
 }
 
 /* ───── The match: network × pipeline ───────────────────────────────────────── */

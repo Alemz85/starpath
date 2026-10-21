@@ -33,28 +33,28 @@
 - [ ] https://example.com/jobs/proseware/customer-analytics-intern-4977 | Proseware | Customer Analytics Intern | relevance 5.2 — matches 1 target keyword (Analytics), freshly posted, in a target city
 
 ## Processed
-- [x] #1 | https://example.com/jobs/contoso/strategy-and-operations-analyst-4417 | Contoso | Strategy & Operations Analyst | W8.5 E7.34 | T1 | go
-- [x] #2 | https://example.com/jobs/wide-world-importers/inside-sales-analyst-2290 | Wide World Importers | Inside Sales Analyst | W5 E7.96 | T4 | skip
-- [x] #3 | https://example.com/jobs/woodgrove-bank/data-and-strategy-graduate-programme-7731 | Woodgrove Bank | Data & Strategy Graduate Programme | W8.25 E6.5 | T2 | stretch
-- [x] #4 | https://example.com/jobs/fourth-coffee/retail-operations-trainee-1185 | Fourth Coffee | Retail Operations Trainee | W3.7 E7.64 | T4 | skip
-- [x] #5 | https://example.com/jobs/trey-research/research-assistant-consumer-insights-3302 | Trey Research | Research Assistant, Consumer Insights | W4.75 E8.01 | T4 | skip
-- [x] #6 | https://example.com/jobs/alpine-ski-house/corporate-strategy-associate-5520 | Alpine Ski House | Corporate Strategy Associate | W9 E4.4 | T3 | growth
+- [x] #1 | https://example.com/jobs/contoso/strategy-and-operations-analyst-4417 | Contoso | Strategy & Operations Analyst | M8.5 E7.34 | T1 | go
+- [x] #2 | https://example.com/jobs/wide-world-importers/inside-sales-analyst-2290 | Wide World Importers | Inside Sales Analyst | M5 E7.96 | T4 | skip
+- [x] #3 | https://example.com/jobs/woodgrove-bank/data-and-strategy-graduate-programme-7731 | Woodgrove Bank | Data & Strategy Graduate Programme | M8.25 E6.5 | T2 | stretch
+- [x] #4 | https://example.com/jobs/fourth-coffee/retail-operations-trainee-1185 | Fourth Coffee | Retail Operations Trainee | M3.7 E7.64 | T4 | skip
+- [x] #5 | https://example.com/jobs/trey-research/research-assistant-consumer-insights-3302 | Trey Research | Research Assistant, Consumer Insights | M4.75 E8.01 | T4 | skip
+- [x] #6 | https://example.com/jobs/alpine-ski-house/corporate-strategy-associate-5520 | Alpine Ski House | Corporate Strategy Associate | M9 E4.4 | T3 | growth
 - [x] #7 | https://example.com/jobs/first-up-consultants/graduate-business-analyst-6014 | First Up Consultants | Graduate Business Analyst | BLOCKED | T4 | work_auth: Not authorised to work in GB: requires an existing right to work in GB, sponsorship not offered
-- [x] #8 | https://example.com/jobs/northwind-analytics/graduate-analyst-programme-1042 | Northwind Analytics | Graduate Analyst Programme | W8.5 E7.63 | T1 | go
-- [x] #9 | https://example.com/jobs/margie-s-travel/customer-success-associate-8840 | Margie's Travel | Customer Success Associate | W5 E8.01 | T4 | skip
-- [x] #10 | https://example.com/jobs/adatum/junior-data-analyst-2716 | Adatum | Junior Data Analyst | W7 E6.33 | T2 | thin
-- [x] #11 | https://example.com/jobs/vanarsdel/business-development-analyst-9113 | VanArsdel | Business Development Analyst | W4.7 E7.64 | T4 | skip
-- [x] #12 | https://example.com/jobs/lucerne-publishing/marketing-operations-coordinator-4471 | Lucerne Publishing | Marketing Operations Coordinator | W5 E7.3 | T4 | skip
-- [x] #13 | https://example.com/jobs/wingtip-labs/product-analyst-3089 | Wingtip Labs | Product Analyst | W8.25 E6.33 | T2 | stretch
+- [x] #8 | https://example.com/jobs/northwind-analytics/graduate-analyst-programme-1042 | Northwind Analytics | Graduate Analyst Programme | M8.5 E7.63 | T1 | go
+- [x] #9 | https://example.com/jobs/margie-s-travel/customer-success-associate-8840 | Margie's Travel | Customer Success Associate | M5 E8.01 | T4 | skip
+- [x] #10 | https://example.com/jobs/adatum/junior-data-analyst-2716 | Adatum | Junior Data Analyst | M7 E6.33 | T2 | thin
+- [x] #11 | https://example.com/jobs/vanarsdel/business-development-analyst-9113 | VanArsdel | Business Development Analyst | M4.7 E7.64 | T4 | skip
+- [x] #12 | https://example.com/jobs/lucerne-publishing/marketing-operations-coordinator-4471 | Lucerne Publishing | Marketing Operations Coordinator | M5 E7.3 | T4 | skip
+- [x] #13 | https://example.com/jobs/wingtip-labs/product-analyst-3089 | Wingtip Labs | Product Analyst | M8.25 E6.33 | T2 | stretch
 - [x] #14 | https://example.com/jobs/fabrikam/junior-category-manager-dach-5306 | Fabrikam | Junior Category Manager, DACH | BLOCKED | T4 | language: German C1 required, you have B1 (2 steps below)
-- [x] #15 | https://example.com/jobs/nimbus-robotics/commercial-excellence-associate-7212 | Nimbus Robotics | Commercial Excellence Associate | W8.5 E4.28 | T3 | growth
-- [x] #16 | https://example.com/jobs/southridge-video/content-operations-analyst-6650 | Southridge Video | Content Operations Analyst | W5.5 E7.69 | T4 | skip
-- [x] #17 | https://example.com/jobs/fabrikam/business-analyst-supply-chain-5381 | Fabrikam | Business Analyst, Supply Chain | W8.25 E6.13 | T2 | stretch
-- [x] #18 | https://example.com/jobs/consolidated-messenger/dispatch-planning-analyst-1974 | Consolidated Messenger | Dispatch Planning Analyst | W4.6 E8.34 | T4 | skip
-- [x] #19 | https://example.com/jobs/city-power-and-light/energy-data-analyst-8127 | City Power & Light | Energy Data Analyst | W7.25 E4.52 | T4 | skip
-- [x] #20 | https://example.com/jobs/lumen-freight/operations-analyst-2547 | Lumen Freight | Operations Analyst | W7.13 E8 | T2 | solid
-- [x] #21 | https://example.com/jobs/relecloud/junior-bi-developer-3765 | Relecloud | Junior BI Developer | W5.5 E6.63 | T4 | skip
-- [x] #22 | https://example.com/jobs/proseware/revenue-operations-analyst-4930 | Proseware | Revenue Operations Analyst | W6.75 E6.33 | T2 | thin
-- [x] #23 | https://example.com/jobs/humongous-insurance/claims-data-analyst-6198 | Humongous Insurance | Claims Data Analyst | W6 E7.69 | T4 | skip
-- [x] #24 | https://example.com/jobs/litware/marketing-analytics-associate-5862 | Litware | Marketing Analytics Associate | W7.25 E7.69 | T2 | solid
-- [x] #25 | https://example.com/jobs/tailspin-toys/pricing-analyst-2204 | Tailspin Toys | Pricing Analyst | W8.5 E8.01 | T1 | go
+- [x] #15 | https://example.com/jobs/nimbus-robotics/commercial-excellence-associate-7212 | Nimbus Robotics | Commercial Excellence Associate | M8.5 E4.28 | T3 | growth
+- [x] #16 | https://example.com/jobs/southridge-video/content-operations-analyst-6650 | Southridge Video | Content Operations Analyst | M5.5 E7.69 | T4 | skip
+- [x] #17 | https://example.com/jobs/fabrikam/business-analyst-supply-chain-5381 | Fabrikam | Business Analyst, Supply Chain | M8.25 E6.13 | T2 | stretch
+- [x] #18 | https://example.com/jobs/consolidated-messenger/dispatch-planning-analyst-1974 | Consolidated Messenger | Dispatch Planning Analyst | M4.6 E8.34 | T4 | skip
+- [x] #19 | https://example.com/jobs/city-power-and-light/energy-data-analyst-8127 | City Power & Light | Energy Data Analyst | M7.25 E4.52 | T4 | skip
+- [x] #20 | https://example.com/jobs/lumen-freight/operations-analyst-2547 | Lumen Freight | Operations Analyst | M7.13 E8 | T2 | solid
+- [x] #21 | https://example.com/jobs/relecloud/junior-bi-developer-3765 | Relecloud | Junior BI Developer | M5.5 E6.63 | T4 | skip
+- [x] #22 | https://example.com/jobs/proseware/revenue-operations-analyst-4930 | Proseware | Revenue Operations Analyst | M6.75 E6.33 | T2 | thin
+- [x] #23 | https://example.com/jobs/humongous-insurance/claims-data-analyst-6198 | Humongous Insurance | Claims Data Analyst | M6 E7.69 | T4 | skip
+- [x] #24 | https://example.com/jobs/litware/marketing-analytics-associate-5862 | Litware | Marketing Analytics Associate | M7.25 E7.69 | T2 | solid
+- [x] #25 | https://example.com/jobs/tailspin-toys/pricing-analyst-2204 | Tailspin Toys | Pricing Analyst | M8.5 E8.01 | T1 | go

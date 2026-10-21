@@ -11,14 +11,14 @@
 // Companion to lib/companyStats.ts (snapshot aggregates); this module owns
 // the *time* axis the snapshot collapses away.
 //
-// Scoring v2: a trajectory is computed on ONE metric at a time — Want or
+// Scoring v2: a trajectory is computed on ONE metric at a time — Match or
 // Ease (docs/scoring-v2.md §9: trend claims are stated on each separately).
 // Blocked rows carry no scores and never join a trajectory.
 
 import type { ScoreEntry, ApplicationEntry, AppStatus } from '@/types'
 import { isBlocked, isScored, parseScoreCell } from './scoreBands'
 
-export type TrajectoryMetric = 'want' | 'ease'
+export type TrajectoryMetric = 'match' | 'ease'
 
 // ─── Score trajectory ─────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ export type TrajectoryDirection = 'improving' | 'declining' | 'steady' | 'flat'
 
 export interface TrajectoryPoint {
   date: string
-  /** The trajectory metric's value (Want or Ease) at this evaluation. */
+  /** The trajectory metric's value (Match or Ease) at this evaluation. */
   score: number
   role: string
 }
@@ -71,13 +71,13 @@ function leastSquaresSlope(ys: number[]): number {
 }
 
 /**
- * Want (default) or Ease trajectory across a company's evaluations. Only
+ * Match (default) or Ease trajectory across a company's evaluations. Only
  * scored rows count — blocked / unscored rows carry no trend signal.
  * Ties on date keep input order stable (the store already feeds newest-first;
  * we re-sort ascending here so the regression and sparkline read left→right
  * as oldest→newest).
  */
-export function computeScoreTrajectory(history: ScoreEntry[], metric: TrajectoryMetric = 'want'): ScoreTrajectory {
+export function computeScoreTrajectory(history: ScoreEntry[], metric: TrajectoryMetric = 'match'): ScoreTrajectory {
   const points: TrajectoryPoint[] = history
     .filter(isScored)
     .map(e => ({ date: e.date, score: e[metric] as number, role: e.role }))
@@ -161,8 +161,8 @@ export interface TimelineEvent {
   date: string
   kind: TimelineKind
   role: string
-  /** Want / Ease for the row; null when blocked / unscored / not parseable. */
-  want: number | null
+  /** Match / Ease for the row; null when blocked / unscored / not parseable. */
+  match: number | null
   ease: number | null
   /** A legacy `X.X/10` application Score cell, shown as-is (spec §8.3). */
   legacyScore: number | null
@@ -192,7 +192,7 @@ export function buildEngagementTimeline(
       date: e.date,
       kind: 'evaluation',
       role: e.role,
-      want: isScored(e) ? e.want : null,
+      match: isScored(e) ? e.match : null,
       ease: isScored(e) ? e.ease : null,
       legacyScore: null,
       blocked: isBlocked(e),
@@ -207,13 +207,13 @@ export function buildEngagementTimeline(
   for (const a of applications) {
     const key = `${a.date}::${a.role.trim().toLowerCase()}`
     if (a.status === 'Evaluated' && evalKeys.has(key)) continue
-    // Application Score cell: `W8.3 E5.6` (v2) or a legacy `X.X/10`; `—` → none.
+    // Application Score cell: `M8.3 E5.6` (v2) or a legacy `X.X/10`; `—` → none.
     const cell = parseScoreCell(a.score)
     events.push({
       date: a.date,
       kind: 'application',
       role: a.role,
-      want: cell && 'want' in cell ? cell.want : null,
+      match: cell && 'match' in cell ? cell.match : null,
       ease: cell && 'ease' in cell ? cell.ease : null,
       legacyScore: cell && 'legacy' in cell && cell.legacy > 0 ? cell.legacy : null,
       blocked: false,

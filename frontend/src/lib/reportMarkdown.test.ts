@@ -7,13 +7,13 @@ import {
 
 // A representative v2 evaluation report (docs/scoring-v2.md §8.5): header
 // lines, the Eligibility block, the dimensional table with its exact
-// (want) / (hygiene) / (rollup) / (ease) / (context) tags, then a trailing
+// (match) / (hygiene) / (rollup) / (ease) / (context) tags, then a trailing
 // section. Fictional company, placeholder location.
 const REPORT = `# Acme — Analyst
 
 **Date:** 2026-10-01
 **Mode:** scouting
-**Want:** 8.25/10 · **Ease:** 5.6/10
+**Match:** 8.25/10 · **Ease:** 5.6/10
 **Eligibility:** amber — start date not stated
 **Verdict:** Stretch — apply with prep
 **Tier:** T2
@@ -36,14 +36,14 @@ const REPORT = `# Acme — Analyst
 
 | Dimension | Score | Reasoning |
 |---|---|---|
-| Growth / Mobility (want) | 8/10 | rotation programme |
-| Optionality / Exit (want) | 8/10 | portable skills |
-| Brand Value (want) | 9/10 | top-tier brand |
-| Role content (want) | 7/10 | analytical core |
+| Growth / Mobility (match) | 8/10 | rotation programme |
+| Optionality / Exit (match) | 8/10 | portable skills |
+| Brand Value (match) | 9/10 | top-tier brand |
+| Role content (match) | 7/10 | analytical core |
 | City (hygiene) | 8/10 | preferred city |
 | Salary Adj for City (hygiene) | 6/10 | ≈ baseline |
 | Work-Life Balance (hygiene) | 6/10 | standard |
-| **Want (rollup)** | **8.25/10** | M 8.0 + hygiene +0.25 |
+| **Match (rollup)** | **8.25/10** | M 8.0 + hygiene +0.25 |
 | Skills Match (ease) | 8/10 | strong overlap |
 | Experience bar (ease) | 6/10 | 1 year preferred |
 | Competition (ease) | 5/10 | selective brand |
@@ -58,12 +58,12 @@ Great role.
 // ─── parseRow ────────────────────────────────────────────────────────────────
 
 test('parseRow splits cells, strips whole-cell bold, the /10 suffix, and the tag', () => {
-  const r = parseRow('| **Want (rollup)** | **8.25/10** | M 8.0 |')
-  assert.deepEqual(r, { label: 'Want', score: '8.25', reasoning: 'M 8.0', tag: 'rollup' })
+  const r = parseRow('| **Match (rollup)** | **8.25/10** | M 8.0 |')
+  assert.deepEqual(r, { label: 'Match', score: '8.25', reasoning: 'M 8.0', tag: 'rollup' })
 })
 
 test('parseRow keeps inline emphasis inside a cell (only whole-cell bold is stripped)', () => {
-  const r = parseRow('| Brand **value** (want) | 9/10 | the **brand** matters |')
+  const r = parseRow('| Brand **value** (match) | 9/10 | the **brand** matters |')
   assert.equal(r?.label, 'Brand **value**')
   assert.equal(r?.reasoning, 'the **brand** matters')
 })
@@ -78,7 +78,7 @@ test('parseRow returns null for a row with fewer than two cells', () => {
 })
 
 test('parseRow detects each v2 tag case-insensitively', () => {
-  assert.equal(parseRow('| X (want) | 7 |')?.tag, 'want')
+  assert.equal(parseRow('| X (match) | 7 |')?.tag, 'match')
   assert.equal(parseRow('| X (HYGIENE) | 7 |')?.tag, 'hygiene')
   assert.equal(parseRow('| X (ease) | 7 |')?.tag, 'ease')
   assert.equal(parseRow('| X (rollup) | 7 |')?.tag, 'rollup')
@@ -88,9 +88,9 @@ test('parseRow detects each v2 tag case-insensitively', () => {
 
 // ─── parseReportHeader ───────────────────────────────────────────────────────
 
-test('parseReportHeader reads Want, Ease, Eligibility, Verdict and Tier', () => {
+test('parseReportHeader reads Match, Ease, Eligibility, Verdict and Tier', () => {
   assert.deepEqual(parseReportHeader(REPORT), {
-    want: 8.25, ease: 5.6,
+    match: 8.25, ease: 5.6,
     eligibility: 'amber', eligibilityReason: 'start date not stated',
     verdict: 'stretch', verdictAction: 'apply with prep',
     tier: 'T2',
@@ -107,8 +107,8 @@ test('parseReportHeader maps every verdict label back to its key', () => {
 })
 
 test('parseReportHeader: a red header is blocked with no scores', () => {
-  const h = parseReportHeader('**Want:** —\n**Eligibility:** red — German C1 required\n**Verdict:** Blocked\n**Tier:** T4')
-  assert.equal(h.want, null)
+  const h = parseReportHeader('**Match:** —\n**Eligibility:** red — German C1 required\n**Verdict:** Blocked\n**Tier:** T4')
+  assert.equal(h.match, null)
   assert.equal(h.ease, null)
   assert.equal(h.eligibility, 'red')
   assert.equal(h.eligibilityReason, 'German C1 required')
@@ -117,7 +117,7 @@ test('parseReportHeader: a red header is blocked with no scores', () => {
 
 test('parseReportHeader on a header-less body returns all-null', () => {
   const h = parseReportHeader('# Title\n\nprose')
-  assert.equal(h.want, null)
+  assert.equal(h.match, null)
   assert.equal(h.verdict, null)
   assert.equal(h.tier, null)
 })
@@ -160,12 +160,12 @@ test('splitEligibility is a no-op without the section', () => {
 test('parseDimensionalScoring groups rows by the v2 tags', () => {
   const { dims, before, after } = parseDimensionalScoring(REPORT)
   assert.ok(dims)
-  assert.deepEqual(dims!.want.motivators.map(r => r.label),
+  assert.deepEqual(dims!.match.motivators.map(r => r.label),
     ['Growth / Mobility', 'Optionality / Exit', 'Brand Value', 'Role content'])
-  assert.deepEqual(dims!.want.hygiene.map(r => r.label),
+  assert.deepEqual(dims!.match.hygiene.map(r => r.label),
     ['City', 'Salary Adj for City', 'Work-Life Balance'])
-  assert.equal(dims!.want.rollup, '8.25')
-  assert.equal(dims!.want.reasoning, 'M 8.0 + hygiene +0.25')
+  assert.equal(dims!.match.rollup, '8.25')
+  assert.equal(dims!.match.reasoning, 'M 8.0 + hygiene +0.25')
   assert.deepEqual(dims!.ease.rows.map(r => r.label), ['Skills Match', 'Experience bar', 'Competition'])
   assert.equal(dims!.ease.rollup, '5.6')
   assert.deepEqual(dims!.context.rows.map(r => r.label), ['Best-fit Early-career Roles'])
@@ -180,14 +180,14 @@ test('parseDimensionalScoring: a tag wins over position', () => {
 | Dim | Score | Why |
 |---|---|---|
 | Skills Match (ease) | 8/10 | listed first |
-| Growth / Mobility (want) | 7/10 | after it |
-| **Want (rollup)** | **7/10** | |
+| Growth / Mobility (match) | 7/10 | after it |
+| **Match (rollup)** | **7/10** | |
 | City (hygiene) | 9/10 | after the rollup |
 `
   const { dims } = parseDimensionalScoring(md)
   assert.deepEqual(dims!.ease.rows.map(r => r.label), ['Skills Match'])
-  assert.deepEqual(dims!.want.motivators.map(r => r.label), ['Growth / Mobility'])
-  assert.deepEqual(dims!.want.hygiene.map(r => r.label), ['City'])
+  assert.deepEqual(dims!.match.motivators.map(r => r.label), ['Growth / Mobility'])
+  assert.deepEqual(dims!.match.hygiene.map(r => r.label), ['City'])
 })
 
 test('parseDimensionalScoring: untagged rows fall back to their position', () => {
@@ -195,14 +195,14 @@ test('parseDimensionalScoring: untagged rows fall back to their position', () =>
 
 | Dim | Score | Why |
 |---|---|---|
-| Growth | 8/10 | before the Want rollup |
-| Want (rollup) | 8/10 | |
+| Growth | 8/10 | before the Match rollup |
+| Match (rollup) | 8/10 | |
 | Skills | 7/10 | before the Ease rollup |
 | Ease (rollup) | 7/10 | |
 | Notes | text | after both |
 `
   const { dims } = parseDimensionalScoring(md)
-  assert.deepEqual(dims!.want.motivators.map(r => r.label), ['Growth'])
+  assert.deepEqual(dims!.match.motivators.map(r => r.label), ['Growth'])
   assert.deepEqual(dims!.ease.rows.map(r => r.label), ['Skills'])
   assert.deepEqual(dims!.context.rows.map(r => r.label), ['Notes'])
 })
@@ -254,7 +254,7 @@ test('extractMetadata keeps the contextual fields and drops the score header lin
   assert.deepEqual(meta.map(m => m.key), ['Date', 'Mode', 'Location'])
   assert.equal(meta.find(m => m.key === 'Location')?.value, 'City, Country')
   assert.ok(rest.includes('# Acme — Analyst'))
-  for (const dropped of ['**Want:**', '**Eligibility:**', '**Verdict:**', '**Tier:**', '**URL:**']) {
+  for (const dropped of ['**Match:**', '**Eligibility:**', '**Verdict:**', '**Tier:**', '**URL:**']) {
     assert.ok(!rest.includes(dropped), `${dropped} consumed`)
   }
 })
@@ -373,7 +373,7 @@ const COMPACT_T3_REPORT = `# Gap & Growth: Acme — Analyst
 **URL:** https://jobs.example.com/acme/123
 **Location:** City, Country hybrid
 **Archetype:** Strategy & Ops
-**Want:** 8.5/10 · **Ease:** 4.5/10
+**Match:** 8.5/10 · **Ease:** 4.5/10
 **Eligibility:** green
 **Verdict:** Growth target — close the gap first
 **Tier:** T3
@@ -383,14 +383,14 @@ const COMPACT_T3_REPORT = `# Gap & Growth: Acme — Analyst
 
 | Dimension | Score | Reasoning |
 |---|---|---|
-| Growth / Mobility (want) | 8/10 | cohort program |
-| Optionality / Exit (want) | 9/10 | portable |
-| Brand Value (want) | 9/10 | strong brand |
-| Role content (want) | 8/10 | no quota language |
+| Growth / Mobility (match) | 8/10 | cohort program |
+| Optionality / Exit (match) | 9/10 | portable |
+| Brand Value (match) | 9/10 | strong brand |
+| Role content (match) | 8/10 | no quota language |
 | City (hygiene) | 6/10 | non-preferred city |
 | Salary Adj for City (hygiene) | 6/10 | ≈ city baseline |
 | Work-Life Balance (hygiene) | 6/10 | standard |
-| **Want (rollup)** | **8.5/10** | M 8.5 |
+| **Match (rollup)** | **8.5/10** | M 8.5 |
 | Skills Match (ease) | 7/10 | required covered |
 | Experience bar (ease) | 3/10 | "2+ years" wall, quoted from JD |
 | Competition (ease) | 6/10 | mid pool |
@@ -416,13 +416,13 @@ test('compact T3 report: header metadata still parses (kept fields only)', () =>
   assert.equal(h.eligibilityReason, '')
 })
 
-test('compact T3 report: dimensional table parses with full Want / Ease / context grouping', () => {
+test('compact T3 report: dimensional table parses with full Match / Ease / context grouping', () => {
   const { dims, after } = parseDimensionalScoring(COMPACT_T3_REPORT)
   assert.ok(dims)
-  assert.equal(dims!.want.rollup, '8.5')
+  assert.equal(dims!.match.rollup, '8.5')
   assert.equal(dims!.ease.rollup, '4.5')
-  assert.equal(dims!.want.motivators.length, 4)
-  assert.equal(dims!.want.hygiene.length, 3)
+  assert.equal(dims!.match.motivators.length, 4)
+  assert.equal(dims!.match.hygiene.length, 3)
   assert.deepEqual(dims!.ease.rows.map(r => r.label), ['Skills Match', 'Experience bar', 'Competition'])
   assert.equal(dims!.context.rows.length, 0)
   assert.ok(after.includes('## Gaps and opportunities'))
@@ -452,4 +452,32 @@ test('extractMetadata keeps the Posting check line so a suspect posting stays vi
   const { meta } = extractMetadata(md)
   assert.deepEqual(meta.map(m => m.key), ['Date', 'Verification', 'Posting check'])
   assert.equal(meta[2].value, 'suspect — hidden text, instruction-shaped lines')
+})
+
+test('a report written before Want was renamed Match still parses', () => {
+  const md = [
+    '**Want:** 8.5/10 · **Ease:** 7.34/10',
+    '**Eligibility:** green',
+    '**Verdict:** Go — apply now',
+    '**Tier:** T1',
+    '',
+    '## Dimensional scoring',
+    '| Dimension | Score | Reasoning |',
+    '|-----------|-------|-----------|',
+    '| Growth / Mobility (want) | 8/10 | A named step up |',
+    '| City (hygiene) | 8/10 | Second on the list |',
+    '| **Want (rollup)** | **8.5/10** | Carried by the work |',
+    '| Skills Match (ease) | 8/10 | Covered |',
+    '| **Ease (rollup)** | **7.34/10** | Clean skills fit |',
+  ].join('\n')
+  assert.equal(parseReportHeader(md).match, 8.5)
+  const { dims } = parseDimensionalScoring(md)
+  assert.ok(dims)
+  assert.deepEqual(dims.match.motivators.map(r => r.label), ['Growth / Mobility'])
+  assert.equal(dims.match.rollup, '8.5')
+  assert.deepEqual(dims.ease.rows.map(r => r.label), ['Skills Match'])
+  assert.equal(parseRow('| **Want (rollup)** | **8.5/10** | x |')?.label, 'Match')
+  const untagged = parseDimensionalScoring('## Dimensional scoring\n| Dimension | Score | Reasoning |\n|---|---|---|\n| Growth | 8/10 | x |\n| **Want** | **8/10** | x |\n| Skills | 7/10 | x |\n').dims
+  assert.equal(untagged?.match.rollup, '8')
+  assert.deepEqual(untagged?.ease.rows.map(r => r.label), ['Skills'])
 })

@@ -283,9 +283,9 @@ const fixture = {
     { num: 4, date: '2026-08-01', company: 'Contoso', role: 'Ops Analyst', from: '', to: 'Applied', stage: '', source: 'backfill', note: 'seeded from applications.md' },
   ],
   scores: [
-    { date: '2026-08-20', company: 'Nimbus Robotics', role: 'Data Analyst', ease: 5.2, want: 7.1, verdict: 'solid', archetype: 'data', location: 'Lyon, France' },
-    { date: '2026-08-30', company: 'Nimbus Robotics', role: 'Data Analyst', ease: 7.4, want: 7.3, verdict: 'go', archetype: 'data', location: 'Lyon, France' },
-    { date: '2026-09-10', company: 'Fabrikam', role: 'Strategy Associate', ease: 4.1, want: 8.4, verdict: 'growth', archetype: 'strategy', location: 'Remote' },
+    { date: '2026-08-20', company: 'Nimbus Robotics', role: 'Data Analyst', ease: 5.2, match: 7.1, verdict: 'solid', archetype: 'data', location: 'Lyon, France' },
+    { date: '2026-08-30', company: 'Nimbus Robotics', role: 'Data Analyst', ease: 7.4, match: 7.3, verdict: 'go', archetype: 'data', location: 'Lyon, France' },
+    { date: '2026-09-10', company: 'Fabrikam', role: 'Strategy Associate', ease: 4.1, match: 8.4, verdict: 'growth', archetype: 'strategy', location: 'Remote' },
   ],
   materials: [
     { company: 'Nimbus Robotics', role: 'Data Analyst (m/f/d)', app_num: '1', sent: '2026-09-01', materials: 'cv', notes: '' },

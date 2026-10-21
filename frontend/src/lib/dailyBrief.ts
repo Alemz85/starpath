@@ -29,7 +29,7 @@ export interface BriefItem {
   urgency: number
   sortKey: number
   /** Passthrough for the renderer. Scoring v2: listing items carry
-   *  want / ease / priority / verdict / scoreLabel ("W8.3 · E5.6"); the `sub`
+   *  match / ease / priority / verdict / scoreLabel ("M8.3 · E5.6"); the `sub`
    *  line already renders them, and Priority is a sort key only. */
   meta: Record<string, unknown>
 }

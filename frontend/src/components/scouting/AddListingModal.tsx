@@ -21,7 +21,7 @@ import { useSpawnsStore } from '@/store/spawns'
 import { useWriteGate } from '@/store/dataRoot'
 import { claudeEvalArgsResolved, refreshCvSummary, scoreOnlyEvalPrompt, sweepBatchWork } from '@/lib/evalSpawn'
 import { ipc } from '@/lib/ipc'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { blockedReason, isBlocked } from '@/lib/scoreBands'
 import { Button } from '@/components/ui'
 import { guessCompanyFromUrl, isValidHttpUrl, normalizeUrl } from '@/lib/listingUrl'
@@ -490,8 +490,8 @@ export function AddListingModal() {
                 <div className="space-y-0.5">
                   <span className="text-text-1 font-medium">Already in the Database</span>
                   <span className="text-text-3"> · {duplicate.company} · {duplicate.role}</span>
-                  {(duplicate.want != null || isBlocked(duplicate)) && (
-                    <span className="text-text-3"> · <WantEase want={duplicate.want} ease={duplicate.ease} size="sm" blockedReason={isBlocked(duplicate) ? blockedReason(duplicate) : null} /></span>
+                  {(duplicate.match != null || isBlocked(duplicate)) && (
+                    <span className="text-text-3"> · <MatchEase match={duplicate.match} ease={duplicate.ease} size="sm" blockedReason={isBlocked(duplicate) ? blockedReason(duplicate) : null} /></span>
                   )}
                   <br />
                   <span className="text-text-3">

@@ -3,7 +3,7 @@
 **Date:** 2026-10-19
 **Location:** Porto, Portugal · hybrid
 **Archetype:** Marketing Analytics
-**Want:** 7.25/10 · **Ease:** 7.69/10
+**Match:** 7.25/10 · **Ease:** 7.69/10
 **Eligibility:** green
 **Verdict:** Solid — apply
 **Tier:** T2
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 7/10 | A mid-sized software company with a growing marketing analytics team; promotions are performance-based. |
-| Optionality / Exit (want) | 7/10 | Marketing analytics skills are portable across most consumer and software companies. |
-| Brand Value (want) | 6/10 | Known in the European software market, little beyond it. |
-| Role content (want) | 8/10 | Mostly campaign measurement, attribution and customer segmentation, with some dashboard upkeep. |
+| Growth / Mobility (match) | 7/10 | A mid-sized software company with a growing marketing analytics team; promotions are performance-based. |
+| Optionality / Exit (match) | 7/10 | Marketing analytics skills are portable across most consumer and software companies. |
+| Brand Value (match) | 6/10 | Known in the European software market, little beyond it. |
+| Role content (match) | 8/10 | Mostly campaign measurement, attribution and customer segmentation, with some dashboard upkeep. |
 | City (hygiene) | 7/10 | Porto is on your list, near the bottom; hybrid. |
 | Salary Adj for City (hygiene) | 6.5/10 | About €530 a month left after living costs in Porto. |
 | Work-Life Balance (hygiene) | 8/10 | A 35-hour week with flexible hours. |
-| **Want (rollup)** | **7.25/10** | Steady work with nothing that stands out |
+| **Match (rollup)** | **7.25/10** | Steady work with nothing that stands out |
 | Skills Match (ease) | 8/10 | SQL, Python and segmentation are covered; attribution modelling would be new. |
 | Experience bar (ease) | 8/10 | An entry-level role, and your internship is enough. |
 | Competition (ease) | 7/10 | A modest pool for a Porto role; Portuguese is a plus they mention, and yours is basic. |

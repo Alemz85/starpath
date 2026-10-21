@@ -3,7 +3,7 @@
 **Date:** 2026-09-11
 **Location:** Brussels, Belgium · hybrid, two office days
 **Archetype:** Graduate / Rotational Programme
-**Want:** 8.25/10 · **Ease:** 6.5/10
+**Match:** 8.25/10 · **Ease:** 6.5/10
 **Eligibility:** green
 **Verdict:** Stretch — apply with prep
 **Tier:** T2
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 10/10 | A two-year programme with four rotations, formal training weeks and a guaranteed role at the end. |
-| Optionality / Exit (want) | 8/10 | A bank’s data and strategy programme travels well into consulting, fintech and other banks. |
-| Brand Value (want) | 8/10 | One of the best-known banks in Benelux, recognised by recruiters across Europe. |
-| Role content (want) | 7/10 | Mostly analysis, but two of the four rotations sit in operations teams with a reporting focus. |
+| Growth / Mobility (match) | 10/10 | A two-year programme with four rotations, formal training weeks and a guaranteed role at the end. |
+| Optionality / Exit (match) | 8/10 | A bank’s data and strategy programme travels well into consulting, fintech and other banks. |
+| Brand Value (match) | 8/10 | One of the best-known banks in Benelux, recognised by recruiters across Europe. |
+| Role content (match) | 7/10 | Mostly analysis, but two of the four rotations sit in operations teams with a reporting focus. |
 | City (hygiene) | 7/10 | Brussels is on your list, lower down; the programme is hybrid. |
 | Salary Adj for City (hygiene) | 6.5/10 | About €770 a month left after living costs in Brussels. |
 | Work-Life Balance (hygiene) | 6/10 | Normal banking hours, with longer weeks during the training blocks. |
-| **Want (rollup)** | **8.25/10** | Carried by the programme structure and the brand |
+| **Match (rollup)** | **8.25/10** | Carried by the programme structure and the brand |
 | Skills Match (ease) | 8/10 | Python, SQL and statistics are covered; they would like some exposure to credit risk, which you don’t have. |
 | Experience bar (ease) | 8/10 | Built for recent master’s graduates, and you fit the profile. |
 | Competition (ease) | 4/10 | A big-name graduate scheme with thousands of applicants for about fifteen seats, and they prefer candidates with a finance internship, which you don’t have. |

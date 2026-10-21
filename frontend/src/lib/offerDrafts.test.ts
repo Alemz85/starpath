@@ -59,7 +59,7 @@ test('draftFromScoreEntry maps evaluation dims to the right factors', () => {
     entry({
       company: 'Stripe',
       role: 'BizOps',
-      want: 8.4,
+      match: 8.4,
       ease: 6,
       growth_mobility: 9,
       brand_value: 10,
@@ -67,7 +67,7 @@ test('draftFromScoreEntry maps evaluation dims to the right factors', () => {
     }),
   )
   assert.equal(d.label, 'Stripe — BizOps')
-  assert.equal(d.scores.fit, 8) // Want 8.4 → rounded 8
+  assert.equal(d.scores.fit, 8) // Match 8.4 → rounded 8
   assert.equal(d.scores.growth, 9)
   assert.equal(d.scores.brand, 10)
   assert.equal(d.scores.comp, 6)
@@ -81,7 +81,7 @@ test('draftFromScoreEntry maps evaluation dims to the right factors', () => {
 test('draftFromScoreEntry survives blocked/unscored rows with missing dims (no out-of-range)', () => {
   // A legacy score-history row with zeros must not produce a 0 factor that
   // would make compareOffers throw — clampFactor floors it to neutral/1.
-  const d = draftFromScoreEntry(entry({ want: null, growth_mobility: null, brand_value: null, salary_adj_city: null }))
+  const d = draftFromScoreEntry(entry({ match: null, growth_mobility: null, brand_value: null, salary_adj_city: null }))
   for (const f of ['comp', 'fit', 'growth', 'brand', 'location', 'risk'] as const) {
     assert.ok(d.scores[f] >= 1 && d.scores[f] <= 10)
   }
@@ -103,16 +103,16 @@ test('scoreEntryKey prefers url, falls back to company|role (case-insensitive)',
 
 test('pickableRoles dedups by entity, keeps latest, ranks by Priority desc', () => {
   const rows = [
-    entry({ company: 'Acme', role: 'Analyst', want: 7, ease: 7, date: '2026-01-01' }),
-    entry({ company: 'Acme', role: 'Analyst', want: 8.5, ease: 8.5, date: '2026-05-01' }), // newer, same entity
-    entry({ company: 'Beta', role: 'PM', want: 9.1, ease: 9.1, date: '2026-03-01' }),
-    entry({ company: '', role: 'orphan', want: 9.9, ease: 9.9 }), // dropped: no company
+    entry({ company: 'Acme', role: 'Analyst', match: 7, ease: 7, date: '2026-01-01' }),
+    entry({ company: 'Acme', role: 'Analyst', match: 8.5, ease: 8.5, date: '2026-05-01' }), // newer, same entity
+    entry({ company: 'Beta', role: 'PM', match: 9.1, ease: 9.1, date: '2026-03-01' }),
+    entry({ company: '', role: 'orphan', match: 9.9, ease: 9.9 }), // dropped: no company
   ]
   const picks = pickableRoles(rows)
   assert.equal(picks.length, 2)
   // Beta (9.1) ranks above Acme; Acme uses the NEWER evaluation (8.5, not 7).
   assert.deepEqual(picks.map((p) => p.company), ['Beta', 'Acme'])
-  assert.equal(picks[1].want, 8.5)
+  assert.equal(picks[1].match, 8.5)
   assert.equal(picks[1].priority, 8.5)
 })
 

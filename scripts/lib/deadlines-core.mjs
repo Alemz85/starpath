@@ -178,24 +178,24 @@ export function parseApplicationsDeadlines(content) {
   return entries;
 }
 
-/** True for a Blocked scouting row: red eligibility or no Want/Ease. */
+/** True for a Blocked scouting row: red eligibility or no Match/Ease. */
 function isBlockedScoutingRow(row) {
-  return row.eligibilityStatus === 'red' || row.wantNum === null || row.easeNum === null;
+  return row.eligibilityStatus === 'red' || row.matchNum === null || row.easeNum === null;
 }
 
-/** "W8.3 · E5.6" display label for a scouting row. */
+/** "M8.3 · E5.6" display label for a scouting row. */
 function scoreLabelOf(row) {
-  return `W${row.wantNum} · E${row.easeNum}`;
+  return `M${row.matchNum} · E${row.easeNum}`;
 }
 
 /**
  * Parse all rows from scouting.md content and return deadline entries for
  * T1 and T2 rows only (T3/T4 are not actionable). Blocked rows (red
- * eligibility, Want/Ease "—") are skipped — a closing date on a role you
+ * eligibility, Match/Ease "—") are skipped — a closing date on a role you
  * can't take is noise (blocked rows are T4 anyway; this guards hand-edits).
  *
  * Each entry:
- *   { source: 'scouting', num, company, role, tier, want, ease, scoreLabel, deadline, parsed }
+ *   { source: 'scouting', num, company, role, tier, match, ease, scoreLabel, deadline, parsed }
  *
  * Rows with Deadline = n/d are excluded (no deadline data to track).
  */
@@ -220,7 +220,7 @@ export function parseScoutingDeadlines(content) {
       company: row.company,
       role: row.role,
       tier,
-      want: row.wantNum,
+      match: row.matchNum,
       ease: row.easeNum,
       scoreLabel: scoreLabelOf(row),
       deadline,

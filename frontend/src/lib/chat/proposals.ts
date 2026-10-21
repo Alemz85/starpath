@@ -62,11 +62,11 @@ export interface ApplyProposal {
   kind: 'apply'
   company: string
   role: string
-  /** Canonical v2 Score cell `W8.3 E5.6` (docs/scoring-v2.md §8.3), absent
+  /** Canonical v2 Score cell `M8.3 E5.6` (docs/scoring-v2.md §8.3), absent
    *  when no score was given. */
   score?: string
-  /** Numeric Want / Ease of `score`, for `upsertApplicationRow`. */
-  want?: number
+  /** Numeric Match / Ease of `score`, for `upsertApplicationRow`. */
+  match?: number
   ease?: number
   status?: AppStatus
   deadline?: string
@@ -95,10 +95,11 @@ export const MAX_FIELD_CHARS = 200
 export const MAX_NOTES_CHARS = 500
 export const MAX_URL_CHARS = 2000
 
-// v2 Score cell (docs/scoring-v2.md §8.3): `W8.3 E5.6` — Want then Ease,
+// v2 Score cell (docs/scoring-v2.md §8.3): `M8.3 E5.6` — Match then Ease,
 // one decimal optional. The v1 `X.X/10` form is NOT accepted for a write:
-// new applications.md rows always carry the W/E form.
-const SCORE_RE = /^W\s*(\d{1,2}(?:\.\d{1,2})?)\s+E\s*(\d{1,2}(?:\.\d{1,2})?)$/i
+// new applications.md rows always carry the M/E form (the pre-rename W/E
+// form, from when Match was called Want, still parses).
+const SCORE_RE = /^[MW]\s*(\d{1,2}(?:\.\d{1,2})?)\s+E\s*(\d{1,2}(?:\.\d{1,2})?)$/i
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const HTTP_URL_RE = /^https?:\/\/[^\s|]+$/i
 
@@ -142,19 +143,19 @@ export function optionalText(raw: unknown, field: string, max: number): FieldRes
   return { ok: true, value }
 }
 
-/** `W8.3 E5.6` (the tracker's v2 Score format), each 1–10 inclusive. */
-function parseScore(raw: unknown): FieldResult<{ score: string; want: number; ease: number } | undefined> {
+/** `M8.3 E5.6` (the tracker's v2 Score format), each 1–10 inclusive. */
+function parseScore(raw: unknown): FieldResult<{ score: string; match: number; ease: number } | undefined> {
   if (raw === undefined || raw === null || raw === '') return { ok: true, value: undefined }
-  if (typeof raw !== 'string') return { ok: false, reason: 'score must be a string like "W8.3 E5.6"' }
-  const match = raw.trim().match(SCORE_RE)
-  if (!match) return { ok: false, reason: 'score must look like "W8.3 E5.6" (Want, then Ease)' }
-  const want = Number(match[1])
-  const ease = Number(match[2])
+  if (typeof raw !== 'string') return { ok: false, reason: 'score must be a string like "M8.3 E5.6"' }
+  const m = raw.trim().match(SCORE_RE)
+  if (!m) return { ok: false, reason: 'score must look like "M8.3 E5.6" (Match, then Ease)' }
+  const match = Number(m[1])
+  const ease = Number(m[2])
   const inRange = (n: number) => Number.isFinite(n) && n >= 1 && n <= 10
-  if (!inRange(want) || !inRange(ease)) {
-    return { ok: false, reason: 'Want and Ease must each be between 1 and 10' }
+  if (!inRange(match) || !inRange(ease)) {
+    return { ok: false, reason: 'Match and Ease must each be between 1 and 10' }
   }
-  return { ok: true, value: { score: formatScoreCell(want, ease), want, ease } }
+  return { ok: true, value: { score: formatScoreCell(match, ease), match, ease } }
 }
 
 /** `YYYY-MM-DD` (a real calendar date), `Rolling`, or `n/d`. */
@@ -254,7 +255,7 @@ export function validateProposal(
   const proposal: ApplyProposal = { kind: 'apply', company: company.value, role: role.value }
   if (score.value) {
     proposal.score = score.value.score
-    proposal.want = score.value.want
+    proposal.match = score.value.match
     proposal.ease = score.value.ease
   }
   if (status.value) proposal.status = status.value
@@ -266,13 +267,13 @@ export function validateProposal(
 
 // ─── Presentation helpers ─────────────────────────────────────────────────────
 
-/** Storage tier from the Want × Ease verdict grid (docs/scoring-v2.md §4) —
- *  the same replay `electron/db/sync.ts` › deriveAppTier uses for a W/E cell.
+/** Storage tier from the Match × Ease verdict grid (docs/scoring-v2.md §4) —
+ *  the same replay `electron/db/sync.ts` › deriveAppTier uses for a M/E cell.
  *  Only used to pick the `reports/tier-N/` folder in the placeholder report
  *  link that `upsertApplicationRow` writes for a brand-new row. */
 export function tierForProposal(proposal: ApplyProposal): string {
   if (proposal.status === 'SKIP') return 'T4'
-  return assignVerdict({ want: proposal.want, ease: proposal.ease })?.tier ?? 'T4'
+  return assignVerdict({ match: proposal.match, ease: proposal.ease })?.tier ?? 'T4'
 }
 
 export interface ProposalSummary {

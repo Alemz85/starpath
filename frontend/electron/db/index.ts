@@ -207,8 +207,8 @@ export function queryPipeline() {
 }
 
 // Reports listing joined with the latest matching score_history row, so the
-// frontend can render the tier/verdict badge and the Want · Ease pair without
-// a second pass. Blocked rows carry NULL want/ease/priority — the renderer
+// frontend can render the tier/verdict badge and the Match · Ease pair without
+// a second pass. Blocked rows carry NULL match/ease/priority — the renderer
 // shows their eligibility reason instead (docs/scoring-v2.md §1.3).
 export function queryReports(f: ReportFilters = {}) {
   const where: string[] = []
@@ -230,20 +230,20 @@ export function queryReports(f: ReportFilters = {}) {
   // Most rows hit (1); (2) only fires when reports_index.url is empty.
   const sql = `
     WITH ranked_by_url AS (
-      SELECT url, want, ease, priority, verdict, eligibility, eligibility_flags,
+      SELECT url, match, ease, priority, verdict, eligibility, eligibility_flags,
              ROW_NUMBER() OVER (PARTITION BY url ORDER BY date DESC, id DESC) AS rn
       FROM score_history
       WHERE url <> ''
     ),
     score_by_url AS (
-      SELECT url, want, ease, priority, verdict, eligibility, eligibility_flags
+      SELECT url, match, ease, priority, verdict, eligibility, eligibility_flags
       FROM ranked_by_url
       WHERE rn = 1
     ),
     fallback AS (
       SELECT
         r.path,
-        s.want,
+        s.match,
         s.ease,
         s.priority,
         s.verdict,
@@ -273,7 +273,7 @@ export function queryReports(f: ReportFilters = {}) {
       r.tier     AS tier,
       r.url      AS url,
       r.mtime    AS mtime,
-      CASE WHEN u.url IS NOT NULL THEN u.want              ELSE f.want              END AS want,
+      CASE WHEN u.url IS NOT NULL THEN u.match              ELSE f.match              END AS match,
       CASE WHEN u.url IS NOT NULL THEN u.ease              ELSE f.ease              END AS ease,
       CASE WHEN u.url IS NOT NULL THEN u.priority          ELSE f.priority          END AS priority,
       CASE WHEN u.url IS NOT NULL THEN u.verdict           ELSE f.verdict           END AS verdict,
@@ -298,7 +298,7 @@ export function queryApplicationsWithScores() {
     )
     SELECT
       a.*,
-      s.want        AS sh_want,
+      s.match        AS sh_match,
       s.ease        AS sh_ease,
       s.priority    AS priority,
       s.verdict     AS verdict,
@@ -314,13 +314,13 @@ export function queryApplicationsWithScores() {
 
 // Pre-aggregated trends. Buckets by full date and by archetype, plus tier,
 // verdict and eligibility histograms. Score averages are over SCORED rows
-// only — blocked (red) rows have no Want/Ease and are excluded from every
+// only — blocked (red) rows have no Match/Ease and are excluded from every
 // score average, but they are counted in the eligibility distribution
 // (docs/scoring-v2.md §9).
 const TREND_COLUMNS = `
       COUNT(*)                                                    AS count,
       SUM(CASE WHEN eligibility = 'red' THEN 1 ELSE 0 END)        AS blocked,
-      AVG(CASE WHEN eligibility = 'red' THEN NULL ELSE want END)  AS avg_want,
+      AVG(CASE WHEN eligibility = 'red' THEN NULL ELSE match END)  AS avg_match,
       AVG(CASE WHEN eligibility = 'red' THEN NULL ELSE ease END)  AS avg_ease,
       AVG(CASE WHEN eligibility = 'red' THEN NULL ELSE priority END) AS avg_priority,
       AVG(skills_match)      AS avg_skills_match,

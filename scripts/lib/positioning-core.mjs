@@ -1,5 +1,5 @@
 // positioning-core.mjs — corpus-level positioning synthesis over
-// data/score-history.tsv (scoring v2: eligibility gate, Want, Ease, verdict).
+// data/score-history.tsv (scoring v2: eligibility gate, Match, Ease, verdict).
 //
 // Two pure libs operate at different altitudes:
 //
@@ -49,7 +49,7 @@ import {
   isBlocked,
 } from './targeting-core.mjs'
 import {
-  rollupWant,
+  rollupMatch,
   rollupEase,
   assignVerdict,
   computePriority,
@@ -84,18 +84,18 @@ export const CONSTRAINT_KIND_LABELS = Object.freeze({
   experience_wall:   'Experience wall',
   hygiene_veto:      'Hygiene veto',
   role_content_veto: 'Role-content veto',
-  low_want:          'Want below the next verdict row',
+  low_match:          'Match below the next verdict row',
   low_ease:          'Ease below the next verdict column',
   amber:             'Amber eligibility check',
 })
 
 const kindLabel = (k) => CONSTRAINT_KIND_LABELS[k] ?? k
 
-// Weights come from user/profile.yml `scoring:` (want_weights / ease_weights),
-// passed as { want, ease } — the shape explain-score's context takes.
+// Weights come from user/profile.yml `scoring:` (match_weights / ease_weights),
+// passed as { match, ease } — the shape explain-score's context takes.
 function normWeights(weights) {
   if (!weights) return undefined
-  return { want: weights.want ?? weights.want_weights, ease: weights.ease ?? weights.ease_weights }
+  return { match: weights.match ?? weights.match_weights ?? weights.want_weights, ease: weights.ease ?? weights.ease_weights }
 }
 
 /* ───── Ease trajectory (the canary) ────────────────────────────────────────
@@ -161,9 +161,9 @@ export function easeTrajectory(rows) {
  *
  * For each archetype with ≥ minRoles SCORED (non-blocked) evaluations, the mean
  * of each of the ten v2 dimensions — the "typical role" in that archetype, the
- * input we replay through the engine below. The Want / Ease / verdict
+ * input we replay through the engine below. The Match / Ease / verdict
  * aggregates are read from targeting-core.archetypePerformance (means of the
- * STORED Want / Ease, the verdict mix, the actionable share, the blocked count)
+ * STORED Match / Ease, the verdict mix, the actionable share, the blocked count)
  * rather than recomputed.
  *
  * Sort: actionable share (go + stretch + solid) first, then mean Priority (a
@@ -196,8 +196,8 @@ export function archetypeFingerprints(rows, { minRoles = 3 } = {}) {
       archetype,
       count: group.length,
       dims,
-      avgWant: p ? p.avgWant : NaN,
-      medianWant: p ? p.medianWant : NaN,
+      avgMatch: p ? p.avgMatch : NaN,
+      medianMatch: p ? p.medianMatch : NaN,
       avgEase: p ? p.avgEase : NaN,
       medianEase: p ? p.medianEase : NaN,
       avgPriority: p ? p.avgPriority : NaN,
@@ -220,9 +220,9 @@ export function archetypeFingerprints(rows, { minRoles = 3 } = {}) {
 
 /* ───── Replay the engine on an archetype's average fingerprint ─────────────
  *
- * The averaged dims are fractional (e.g. Experience bar 5.7). rollupWant /
+ * The averaged dims are fractional (e.g. Experience bar 5.7). rollupMatch /
  * rollupEase accept fractional dims, so we feed the raw averages through the
- * canonical Want / Ease / verdict math, then ask explain-score for the binding
+ * canonical Match / Ease / verdict math, then ask explain-score for the binding
  * constraint and the cheapest cell-crossing lever.
  *
  * Replay reading (documented, not engine rules):
@@ -231,10 +231,10 @@ export function archetypeFingerprints(rows, { minRoles = 3 } = {}) {
  *   • dream false — a blend of companies is not a dream company.
  *   • is_intern when ≥ 50% of the archetype's scored rows are internships /
  *     working-student roles (the engine then ignores the salary term).
- *   • weights = the caller's scoring.want_weights / ease_weights.
+ *   • weights = the caller's scoring.match_weights / ease_weights.
  *
- * The replayed `want` / `ease` are the typical role's, so they can differ from
- * the fingerprint's `avgWant` / `avgEase` (the means of the stored scores):
+ * The replayed `match` / `ease` are the typical role's, so they can differ from
+ * the fingerprint's `avgMatch` / `avgEase` (the means of the stored scores):
  * a mean of rollups is not the rollup of means once a veto or the
  * experience wall fires on some rows.
  */
@@ -248,9 +248,9 @@ export function archetypeLever(fingerprint, { weights } = {}) {
   }
   const w = normWeights(weights)
   const isIntern = (fingerprint.internShare ?? 0) >= 50
-  const want = rollupWant(dims, { weights: w?.want, is_intern: isIntern }).score
+  const match = rollupMatch(dims, { weights: w?.match, is_intern: isIntern }).score
   const ease = rollupEase(dims, { weights: w?.ease }).score
-  const { verdict, tier } = assignVerdict({ want, ease, eligibility: 'green' })
+  const { verdict, tier } = assignVerdict({ match, ease, eligibility: 'green' })
   const explanation = explainScore({
     dims,
     eligibility: { status: 'green', amber_count: 0, checks: [] },
@@ -259,9 +259,9 @@ export function archetypeLever(fingerprint, { weights } = {}) {
   return {
     archetype: fingerprint.archetype,
     count: fingerprint.count,
-    want,
+    match,
     ease,
-    priority: computePriority(want, ease),
+    priority: computePriority(match, ease),
     verdict,
     verdictLabel: VERDICT_LABELS[verdict] ?? verdict,
     tier,
@@ -374,9 +374,9 @@ export function listingConstraints(rows, { weights, calibration } = {}) {
  * blocker — the one fix with cross-archetype leverage. This is the headline
  * finding the positioning mode is built around.
  *
- * Keying: `low_want` / `low_ease` say "the rollup is below the next verdict
+ * Keying: `low_match` / `low_ease` say "the rollup is below the next verdict
  * threshold"; the dimension they carry is only the weakest motivator / Ease
- * stage (an arbitrary pick on a tie), so they are keyed by the rollup ('Want' /
+ * stage (an arbitrary pick on a tie), so they are keyed by the rollup ('Match' /
  * 'Ease', the engine's own label) and the weakest dimension goes into `on`.
  * Every other kind names its dimension (experience wall, vetoes) or its
  * eligibility check, and is keyed by that.
@@ -389,7 +389,7 @@ export function listingConstraints(rows, { weights, calibration } = {}) {
  *   lever    — the most common cheapest-lever dimension across archetypes, with
  *              how many archetypes that single lift re-cells and its avg lift
  */
-const ROLLUP_KINDS = new Set(['low_want', 'low_ease'])
+const ROLLUP_KINDS = new Set(['low_match', 'low_ease'])
 
 export function systemicConstraint(levers) {
   const constraintTally = new Map()
@@ -493,7 +493,7 @@ export function easeCanary(fingerprints) {
  * The mode reads judgments off this rather than re-deriving math from the TSV.
  *
  *   opts.minRoles     archetypes need ≥ this many scored rows (default 3)
- *   opts.weights      { want, ease } from user/profile.yml scoring.*
+ *   opts.weights      { match, ease } from user/profile.yml scoring.*
  *   opts.calibration  user/profile.yml calibration (dream_companies, for the
  *                     per-listing replay)
  */
@@ -505,7 +505,7 @@ export function positioningIntel(rows, { minRoles = 3, weights, calibration } = 
   const blocked = rows.filter(isBlocked).length
   if (scored.length === 0) {
     return {
-      error: `No scored (non-blocked) rows with Want and Ease in score-history.tsv${blocked ? ` (${blocked} blocked by eligibility)` : ''}.`,
+      error: `No scored (non-blocked) rows with Match and Ease in score-history.tsv${blocked ? ` (${blocked} blocked by eligibility)` : ''}.`,
       eligibility: eligibilityBreakdown(rows),
     }
   }

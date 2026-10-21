@@ -3,7 +3,7 @@
 **Date:** 2026-09-21
 **Location:** Vienna, Austria · on-site
 **Archetype:** Business / Data Analyst
-**Want:** 7/10 · **Ease:** 6.33/10
+**Match:** 7/10 · **Ease:** 6.33/10
 **Eligibility:** green
 **Verdict:** If pipeline thin — apply only if your pipeline is thin
 **Tier:** T2
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 6/10 | Growth depends on the team; the posting describes the job but no path beyond it. |
-| Optionality / Exit (want) | 7/10 | Reporting and SQL skills transfer, though the domain is narrow. |
-| Brand Value (want) | 6/10 | A solid mid-sized employer, known in Austria. |
-| Role content (want) | 8/10 | Mostly SQL reporting and ad-hoc analysis for the sales team. |
+| Growth / Mobility (match) | 6/10 | Growth depends on the team; the posting describes the job but no path beyond it. |
+| Optionality / Exit (match) | 7/10 | Reporting and SQL skills transfer, though the domain is narrow. |
+| Brand Value (match) | 6/10 | A solid mid-sized employer, known in Austria. |
+| Role content (match) | 8/10 | Mostly SQL reporting and ad-hoc analysis for the sales team. |
 | City (hygiene) | 8/10 | Vienna is second on your list. |
 | Salary Adj for City (hygiene) | 6/10 | About €640 a month left after living costs in Vienna. |
 | Work-Life Balance (hygiene) | 7/10 | Standard hours, nothing unusual either way. |
-| **Want (rollup)** | **7/10** | Fair across the board, with nothing that makes it stand out |
+| **Match (rollup)** | **7/10** | Fair across the board, with nothing that makes it stand out |
 | Skills Match (ease) | 7/10 | SQL and Excel are covered; they want their BI platform’s scripting language, which you haven’t used. |
 | Experience bar (ease) | 6/10 | They would like a year of reporting experience, and you have a six-month internship. |
 | Competition (ease) | 6/10 | One seat with a moderate pool. |

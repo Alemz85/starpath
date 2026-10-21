@@ -15,7 +15,7 @@
 # your machine.
 
 # Default evaluation mode for pasted JDs / URLs / auto-pipeline.
-#   scouting  — lightweight landscape mapping (eligibility gate + Want +
+#   scouting  — lightweight landscape mapping (eligibility gate + Match +
 #               Ease, no PDF per listing). Use when you're mapping the
 #               market, not actively applying.
 #   applying  — full A-H oferta evaluation with tailored PDF, ready to
@@ -46,7 +46,7 @@ target_roles:
 
   # Dream companies — the 1-3 companies you'd take a foot-in-the-door
   # role at. List the same names under `calibration.dream_companies`
-  # (below) — that's what the scorer reads: Brand Value 10 and a Want
+  # (below) — that's what the scorer reads: Brand Value 10 and a Match
   # floor of 8.0, regardless of function match.
   dream_companies:
     - name: "Google"
@@ -135,5 +135,5 @@ calibration:
 
 # Optional scoring weights (defaults shown — delete to use them).
 # scoring:
-#   want_weights: { growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1 }
+#   match_weights: { growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1 }
 #   ease_weights: { skills_match: 0.35, experience_bar: 0.35, competition: 0.30 }

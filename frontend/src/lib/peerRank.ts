@@ -15,16 +15,16 @@
 //   2. Dimension averages are computed over the OTHER peers (excluding this
 //      entity), so "vs peer avg" means "vs the rest of the cohort" rather
 //      than an average that includes the score being explained. The same
-//      applies to the Want / Ease peer averages.
+//      applies to the Match / Ease peer averages.
 // Rank / percentile / minPeers / the ±1.5 outlier threshold / the rank-label
 // bands / the same-company exclusion for comparables all mirror the script.
 // (Minor: a dimension cell of 0 is read as "not scored" — v2 rubric dims are
 // 1–10, so a 0 can only be a legacy placeholder, never a real judgment.)
 //
 // Scoring v2 (docs/scoring-v2.md §5, §9): peers are ranked on PRIORITY
-// (sqrt(Want × Ease)) — the sort key, never a headline score. The listing's
-// Want and its Ease are ALSO each placed among the same peers — two separate
-// claims, never combined (mirrors the script's `want` / `ease` blocks). The
+// (sqrt(Match × Ease)) — the sort key, never a headline score. The listing's
+// Match and its Ease are ALSO each placed among the same peers — two separate
+// claims, never combined (mirrors the script's `match` / `ease` blocks). The
 // dimension outliers run over all ten v2 dimensions, the script's
 // targeting-core DIMENSIONS (salary_adj_city included: it is script-computed,
 // not a lever, but "salary for the city sits 2 below peers" is still a true
@@ -88,11 +88,11 @@ export interface PeerDimDelta {
   confidence: ConfidenceTier
 }
 
-/** Where the listing's Want (or its Ease) sits among the same peers — the
- *  twin of the script's `want` / `ease` blocks. One claim per metric; Want
+/** Where the listing's Match (or its Ease) sits among the same peers — the
+ *  twin of the script's `match` / `ease` blocks. One claim per metric; Match
  *  and Ease are never combined into one placement. */
 export interface PeerPlacement {
-  /** This entity's Want (or Ease). */
+  /** This entity's Match (or Ease). */
   value: number
   /** Mean of the OTHER peers' values (2 decimals). */
   peerAvg: number
@@ -103,7 +103,7 @@ export interface PeerPlacement {
   /** 1 = top. Ties rank below. */
   rankPosition: number
   /** Peers carrying this metric, INCLUDING this entity. Can be smaller than
-   *  `nPeers` when a peer row has a Priority but no stored Want / Ease. */
+   *  `nPeers` when a peer row has a Priority but no stored Match / Ease. */
   peerN: number
   /** Tier over `peerN` with the peer gate. */
   confidence: ConfidenceTier
@@ -112,7 +112,7 @@ export interface PeerPlacement {
 export interface PeerComparable {
   company: string
   role: string
-  want: number | null
+  match: number | null
   ease: number | null
   /** Sort key the comparables were matched on. */
   priority: number
@@ -134,9 +134,9 @@ export interface PeerContext {
   rankLabel: string
   /** This entity's Priority (the rank key, echoed for the renderer). */
   priority: number
-  /** Where this entity's Want sits among the same peers; null when the
-   *  entity (or every peer) has no Want. */
-  want: PeerPlacement | null
+  /** Where this entity's Match sits among the same peers; null when the
+   *  entity (or every peer) has no Match. */
+  match: PeerPlacement | null
   /** Where this entity's Ease sits among the same peers; null likewise. */
   ease: PeerPlacement | null
   /** The OTHER peers' Priorities — feeds the distribution strip. */
@@ -271,8 +271,8 @@ export function peerContext(
   const percentile = Math.round((beats / nPeers) * 100)
   const rankPosition = nPeers - beats
 
-  // Want and Ease, each placed among the same peers — separate claims.
-  const metricPlacement = (metric: 'want' | 'ease'): PeerPlacement | null => {
+  // Match and Ease, each placed among the same peers — separate claims.
+  const metricPlacement = (metric: 'match' | 'ease'): PeerPlacement | null => {
     const value = entry[metric]
     if (!finite(value)) return null
     const vals = others.map(o => o[metric]).filter(finite)
@@ -310,7 +310,7 @@ export function peerContext(
     .map(o => ({
       company:  o.company,
       role:     o.role,
-      want:     o.want,
+      match:     o.match,
       ease:     o.ease,
       priority: Number(pr(o).toFixed(2)),
       verdict:  verdictOf(o),
@@ -329,7 +329,7 @@ export function peerContext(
     percentile,
     rankLabel: rankLabel(percentile, rankPosition, nPeers),
     priority: selfPriority,
-    want: metricPlacement('want'),
+    match: metricPlacement('match'),
     ease: metricPlacement('ease'),
     peerPriorities: others.map(pr),
     deltas,

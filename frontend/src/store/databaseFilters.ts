@@ -26,7 +26,7 @@ interface DatabaseFiltersState {
   reset: () => void
 }
 
-const TOKEN_PREFIX_RE = /^(company|role|archetype|tier|verdict|eligibility|elig|location|type|min-want|minwant|min-ease|minease|liveness):/i
+const TOKEN_PREFIX_RE = /^(company|role|archetype|tier|verdict|eligibility|elig|location|type|min-match|minmatch|min-ease|minease|liveness):/i
 
 export const useDatabaseFilters = create<DatabaseFiltersState>((set) => ({
   filters:    EMPTY_FILTERS,

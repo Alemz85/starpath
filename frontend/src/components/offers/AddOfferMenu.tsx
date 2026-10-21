@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, FilePlus2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { PickableRole } from '@/lib/offerDrafts'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 
 interface AddOfferMenuProps {
   roles: PickableRole[]
@@ -117,7 +117,7 @@ export function AddOfferMenu({ roles, usedKeys, onPickRole, onAddBlank }: AddOff
                         )}
                         title={used ? 'Already in this comparison' : `Prefill ${r.company} — ${r.role}`}
                       >
-                        <WantEase want={r.want} ease={r.ease} size="sm" className="shrink-0" />
+                        <MatchEase match={r.match} ease={r.ease} size="sm" className="shrink-0" />
                         <span className="min-w-0 flex-1 flex items-baseline gap-1.5">
                           <span className="text-body text-text-1 truncate shrink-0 max-w-[55%]">{r.company}</span>
                           <span className="text-label text-text-4 truncate">{r.role || '—'}</span>

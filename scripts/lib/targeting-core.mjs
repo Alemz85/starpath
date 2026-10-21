@@ -8,7 +8,7 @@
 //
 // What IS rich from day one is data/score-history.tsv: every scouting
 // evaluation logs an archetype, the eligibility gate result, the ten v2
-// dimensions, Want, Ease, Priority and the verdict (docs/scoring-v2.md §8.1).
+// dimensions, Match, Ease, Priority and the verdict (docs/scoring-v2.md §8.1).
 // That landscape tells the user where they're consistently finding actionable
 // matches (verdict go / stretch / solid), which dimension keeps dragging scores
 // down (a *targeting* blocker, distinct from an *outcome* blocker), which
@@ -59,7 +59,7 @@ const HEADER_FALLBACK = SCORE_HISTORY_HEADER.split('\t')
 
 /** The numeric score-history columns (spec §8.1). */
 export const NUMERIC_COLUMNS = Object.freeze([
-  ...EASE_DIMS, 'ease', ...MOTIVATOR_DIMS, ...HYGIENE_DIMS, 'want', 'priority',
+  ...EASE_DIMS, 'ease', ...MOTIVATOR_DIMS, ...HYGIENE_DIMS, 'match', 'priority',
 ])
 
 /** Verdicts that count as "worth applying to" for share metrics. */
@@ -91,10 +91,10 @@ export function parseEligibilityFlags(cell) {
  * Adds:
  *   eligibility       'green' | 'amber' | 'red' | '' (lower-cased)
  *   eligibilityFlags  parsed eligibility_flags
- *   verdict           the stored verdict, or derived from want/ease/eligibility
+ *   verdict           the stored verdict, or derived from match/ease/eligibility
  *                     through assignVerdict when the cell is empty
  *   tier              stored, else from the verdict
- *   priority          stored, else √(want·ease) when both are finite
+ *   priority          stored, else √(match·ease) when both are finite
  *   blocked           true for eligibility red / verdict blocked
  */
 export function parseScoreHistory(tsvText) {
@@ -102,7 +102,8 @@ export function parseScoreHistory(tsvText) {
   const lines = tsvText.split('\n').filter(l => l.trim().length > 0)
   if (lines.length === 0) return []
 
-  const first = lines[0].split('\t').map(c => c.trim())
+  // `want` is the pre-rename name of the `match` column (files not yet migrated).
+  const first = lines[0].split('\t').map(c => c.trim()).map(c => (c === 'want' ? 'match' : c))
   const hasHeader = first[0] === 'date' && first.includes('archetype')
   const header = hasHeader ? first : HEADER_FALLBACK
   const dataLines = hasHeader ? lines.slice(1) : lines
@@ -123,16 +124,16 @@ export function parseScoreHistory(tsvText) {
     row.verdict = String(row.verdict ?? '').trim().toLowerCase()
     if (!VERDICT_ORDER.includes(row.verdict)) {
       if (row.eligibility === 'red') row.verdict = 'blocked'
-      else if (Number.isFinite(row.want) && Number.isFinite(row.ease)) {
-        row.verdict = assignVerdict({ want: row.want, ease: row.ease, eligibility: row.eligibility || 'green' }).verdict
+      else if (Number.isFinite(row.match) && Number.isFinite(row.ease)) {
+        row.verdict = assignVerdict({ match: row.match, ease: row.ease, eligibility: row.eligibility || 'green' }).verdict
       } else row.verdict = ''
     }
     row.blocked = row.verdict === 'blocked' || row.eligibility === 'red'
     if (row.blocked) {
       // Spec §8.1: a Blocked row has no scores, whatever the cells hold.
-      row.want = NaN; row.ease = NaN; row.priority = NaN
+      row.match = NaN; row.ease = NaN; row.priority = NaN
     } else if (!Number.isFinite(row.priority)) {
-      const p = computePriority(row.want, row.ease)
+      const p = computePriority(row.match, row.ease)
       row.priority = p == null ? NaN : p
     }
     if (!/^T[1-4]$/.test(row.tier ?? '') && row.verdict) row.tier = VERDICT_TIERS[row.verdict] ?? row.tier
@@ -152,12 +153,12 @@ export function isBlocked(row) {
   return row?.blocked === true || row?.verdict === 'blocked' || row?.eligibility === 'red'
 }
 
-/** True when the row carries a finite Want and Ease (and isn't Blocked). */
+/** True when the row carries a finite Match and Ease (and isn't Blocked). */
 export function isScored(row) {
-  return !isBlocked(row) && Number.isFinite(row?.want) && Number.isFinite(row?.ease)
+  return !isBlocked(row) && Number.isFinite(row?.match) && Number.isFinite(row?.ease)
 }
 
-/** The rows score analytics may use: non-blocked, finite Want and Ease. */
+/** The rows score analytics may use: non-blocked, finite Match and Ease. */
 export function scoredRows(rows) {
   return (rows || []).filter(isScored)
 }
@@ -183,16 +184,16 @@ function emptyVerdicts() {
 }
 
 /* ───── The ten v2 dimensions ────────────────────────────────────────────── */
-// group: 'motivator' | 'hygiene' (both feed Want) | 'ease'.
+// group: 'motivator' | 'hygiene' (both feed Match) | 'ease'.
 export const DIMENSIONS = Object.freeze([
-  ...MOTIVATOR_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'motivator', rollup: 'want' })),
-  ...HYGIENE_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'hygiene', rollup: 'want' })),
+  ...MOTIVATOR_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'motivator', rollup: 'match' })),
+  ...HYGIENE_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'hygiene', rollup: 'match' })),
   ...EASE_DIMS.map(key => ({ key, label: DIM_LABELS[key], group: 'ease', rollup: 'ease' })),
 ].map(Object.freeze))
 
 /* ───── Archetype performance ───────────────────────────────────────────────
  *
- * Per archetype: how many scored roles, average/median Want and Ease, the
+ * Per archetype: how many scored roles, average/median Match and Ease, the
  * verdict mix and the actionable rate. This answers "where is the landscape
  * actually offering me matches worth applying to?". Blocked rows are counted
  * per archetype as `blocked` but never enter the score aggregates.
@@ -200,29 +201,29 @@ export const DIMENSIONS = Object.freeze([
 export function archetypePerformance(rows) {
   const map = new Map()
   const get = (a) => {
-    if (!map.has(a)) map.set(a, { archetype: a, wants: [], eases: [], prios: [], verdicts: emptyVerdicts(), blocked: 0 })
+    if (!map.has(a)) map.set(a, { archetype: a, matchScores: [], eases: [], prios: [], verdicts: emptyVerdicts(), blocked: 0 })
     return map.get(a)
   }
   for (const r of rows) {
     if (isBlocked(r)) { get(r.archetype).blocked++; continue }
     if (!isScored(r)) continue
     const e = get(r.archetype)
-    e.wants.push(r.want)
+    e.matchScores.push(r.match)
     e.eases.push(r.ease)
     if (Number.isFinite(r.priority)) e.prios.push(r.priority)
     if (r.verdict in e.verdicts) e.verdicts[r.verdict]++
   }
-  const total = [...map.values()].reduce((a, e) => a + e.wants.length, 0)
+  const total = [...map.values()].reduce((a, e) => a + e.matchScores.length, 0)
   return [...map.values()]
-    .filter(e => e.wants.length > 0)
+    .filter(e => e.matchScores.length > 0)
     .map(e => {
-      const n = e.wants.length
+      const n = e.matchScores.length
       const actionable = ACTIONABLE_VERDICTS.reduce((a, v) => a + e.verdicts[v], 0)
       return {
         archetype: e.archetype,
         count: n,
-        avgWant: round2(mean(e.wants)),
-        medianWant: round2(median(e.wants)),
+        avgMatch: round2(mean(e.matchScores)),
+        medianMatch: round2(median(e.matchScores)),
         avgEase: round2(mean(e.eases)),
         medianEase: round2(median(e.eases)),
         avgPriority: round2(mean(e.prios)),
@@ -274,13 +275,13 @@ export function landscapeSummary(rows) {
   for (const r of scored) if (r.verdict in verdicts) verdicts[r.verdict]++
   const evaluated = scored.length
   const actionable = ACTIONABLE_VERDICTS.reduce((a, v) => a + verdicts[v], 0)
-  const wants = scored.map(r => r.want)
+  const matchScores = scored.map(r => r.match)
   const eases = scored.map(r => r.ease)
   return {
     evaluated,
     blocked,
-    avgWant: round2(mean(wants)),
-    medianWant: round2(median(wants)),
+    avgMatch: round2(mean(matchScores)),
+    medianMatch: round2(median(matchScores)),
     avgEase: round2(mean(eases)),
     medianEase: round2(median(eases)),
     verdicts,
@@ -414,7 +415,7 @@ export function targetingRecommendations(rows, { minRoles = 4 } = {}) {
   const best = perf[0]
   if (best && best.actionableRate >= 40) {
     recs.push({
-      action: `Lean into "${best.archetype}" — strongest landscape (${best.actionableRate}% go/stretch/solid across ${best.count} roles; avg Want ${best.avgWant}, Ease ${best.avgEase})`,
+      action: `Lean into "${best.archetype}" — strongest landscape (${best.actionableRate}% go/stretch/solid across ${best.count} roles; avg Match ${best.avgMatch}, Ease ${best.avgEase})`,
       reasoning: `This archetype consistently lands in apply-worthy verdict cells, so sourcing more of it raises the quality of what you evaluate.`,
       impact: 'high',
     })
@@ -445,7 +446,7 @@ export function targetingRecommendations(rows, { minRoles = 4 } = {}) {
       salary_adj_city: 'pay vs. cost of living is weak in what you evaluate — check your target cities and comp filters',
       work_life_balance: 'the roles surfacing have poor work-life balance — weight sourcing toward calmer employers',
     }[weakestDim.key] || 'this dimension consistently drags your scores down'
-    const rollup = weakestDim.rollup === 'ease' ? 'Ease' : 'Want'
+    const rollup = weakestDim.rollup === 'ease' ? 'Ease' : 'Match'
     recs.push({
       action: `Address the "${weakestDim.label}" drag (avg ${weakestDim.avg}, low in ${weakestDim.lowShare}% of evals)`,
       reasoning: `${weakestDim.label} is the dimension most often holding your ${rollup} down — ${fixHint}.`,
@@ -484,7 +485,7 @@ export function analyzeScouting(rows, opts = {}) {
   const scored = scoredRows(rows)
   const eligibility = eligibilityBreakdown(rows)
   if (scored.length === 0) {
-    return { error: 'No scored (non-blocked) rows with Want and Ease in score-history.tsv.', eligibility }
+    return { error: 'No scored (non-blocked) rows with Match and Ease in score-history.tsv.', eligibility }
   }
   const dates = rows.map(r => r.date).filter(Boolean).sort()
   return {

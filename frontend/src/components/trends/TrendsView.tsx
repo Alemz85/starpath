@@ -9,7 +9,7 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import {
   Button, Chip, Panel, PageHeader, StatStrip, Stat, type ChipTone,
 } from '@/components/ui'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { ListingsChart } from '@/components/trends/ListingsChart'
 import {
   type TimeRange, type Funnel, type PeriodGranularity,
@@ -37,7 +37,7 @@ export function TrendsView() {
   const listingDates = useDataStore(s => s.listingDates)
   const reportPosted = useDataStore(s => s.reportPosted)
   const [timeRange, setTimeRange] = useState<TimeRange>('all')
-  // null = automatic: weeks when they can carry a Want line, months otherwise.
+  // null = automatic: weeks when they can carry a Match line, months otherwise.
   const [granularityChoice, setGranularityChoice] = useState<PeriodGranularity | null>(null)
 
   // Filter once by time range; everything else derives from this. Computing
@@ -63,26 +63,26 @@ export function TrendsView() {
   )
   const byPeriod = useMemo(() => buildByPeriod(filtered, granularity, periodOpts), [filtered, granularity, periodOpts])
 
-  // Top lists, each ranked on one named axis (Want or Ease, never both folded).
+  // Top lists, each ranked on one named axis (Match or Ease, never both folded).
   const topCompanies  = useMemo(() => buildTopList(filtered, 'companies', TOP_LIMIT), [filtered])
   const topLocations  = useMemo(() => buildTopList(filtered, 'locations', TOP_LIMIT), [filtered])
   const topArchetypes = useMemo(() => buildTopList(filtered, 'archetypes', TOP_LIMIT), [filtered])
 
   const stats = useMemo(() => {
     if (filtered.length === 0) return null
-    // Score averages over SCORED rows only — blocked rows have no Want/Ease
+    // Score averages over SCORED rows only — blocked rows have no Match/Ease
     // and count in the eligibility split instead (docs/scoring-v2.md §9).
     const scored = scoredOnly(filtered)
     return {
       total:   filtered.length,
       blocked: filtered.length - scored.length,
-      avgWant: scored.length ? avg(scored, 'want').toFixed(2) : '—',
+      avgMatch: scored.length ? avg(scored, 'match').toFixed(2) : '—',
       avgEase: scored.length ? avg(scored, 'ease').toFixed(2) : '—',
     }
   }, [filtered])
 
   // Targeting momentum — splits the windowed corpus chronologically into an
-  // earlier vs later half and contrasts their quality (median Want and Ease,
+  // earlier vs later half and contrasts their quality (median Match and Ease,
   // actionable share, per-dimension means). Gated per half (docs § 3.5).
   const momentum = useMemo(() => buildTargetingMomentum(filtered), [filtered])
 
@@ -127,9 +127,9 @@ export function TrendsView() {
           {stats && (
             <StatStrip>
               <Stat value={stats.total} label="Total evaluated" />
-              <Stat value={stats.avgWant} label="Avg Want" />
+              <Stat value={stats.avgMatch} label="Avg Match" />
               <Stat value={stats.avgEase} label="Avg Ease" />
-              <Stat value={stats.blocked} label="Blocked" title="Eligibility red: no Want or Ease, excluded from the averages" />
+              <Stat value={stats.blocked} label="Blocked" title="Eligibility red: no Match or Ease, excluded from the averages" />
             </StatStrip>
           )}
 
@@ -152,7 +152,7 @@ export function TrendsView() {
                 <TopListCard title={TOP_LIST_DEFS.archetypes.title} icon={TOP_LIST_DEFS.archetypes.icon} items={topArchetypes} />
               </div>
 
-              {/* Listings by posting date, wanted vs the rest. */}
+              {/* Listings by posting date, strong matches vs the rest. */}
               {byPeriod.length > 0 && (
                 <ListingsChart
                   buckets={byPeriod}
@@ -190,8 +190,8 @@ export function TrendsView() {
 // ─── Targeting momentum card ─────────────────────────────────────────────────
 //
 // Two stat blocks (earlier half · later half) sit either side of two verdict
-// chips, one per axis, so the headline reads at a glance: "median Want
-// 6.2 → 7.4, improving; Ease steady". Want and Ease each carry their own
+// chips, one per axis, so the headline reads at a glance: "median Match
+// 6.2 → 7.4, improving; Ease steady". Match and Ease each carry their own
 // direction against their own deadband (docs/scoring-v2.md §9). The
 // verdict uses the SEMANTIC tones (success / danger / muted) because "is my
 // targeting getting better or worse" is a state, not a categorical series.
@@ -200,7 +200,7 @@ export function TrendsView() {
 // per-half floor (or on a same-day corpus) the whole verdict layer collapses to
 // a single honest hint instead of asserting a trend on noise.
 
-// `arrow` is the glyph in the chip; the halves' numbers take the shared WantEase colours.
+// `arrow` is the glyph in the chip; the halves' numbers take the shared MatchEase colours.
 const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string; tone: ChipTone }> = {
   improving: { label: 'Improving', arrow: '↑', tone: 'success' },
   declining: { label: 'Declining', arrow: '↓', tone: 'danger' },
@@ -210,8 +210,8 @@ const MOMENTUM_VERDICT: Record<MomentumDirection, { label: string; arrow: string
 const signedTenths = (n: number) => `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(n).toFixed(1)}`
 
 function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
-  const { earlier, recent, wantMedianDelta, easeMedianDelta, applyPctDelta, wantDirection, easeDirection, dimShifts, lowSignal } = momentum
-  const wantVerdict = MOMENTUM_VERDICT[wantDirection]
+  const { earlier, recent, matchMedianDelta, easeMedianDelta, applyPctDelta, matchDirection, easeDirection, dimShifts, lowSignal } = momentum
+  const matchVerdict = MOMENTUM_VERDICT[matchDirection]
   const easeVerdict = MOMENTUM_VERDICT[easeDirection]
   // Lead with the dimensions that actually moved; a flat-everything corpus
   // shows nothing here rather than a row of ±0.0 badges.
@@ -238,9 +238,9 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
           {/* Earlier → direction → later. The two halves use the same metric
               rows; the centre chip carries the direction. */}
           <div className="flex items-stretch gap-3">
-            <HalfBlock title="Earlier" want={earlier.medianWant} ease={earlier.medianEase} from={earlier.dateFrom} to={earlier.dateTo} />
+            <HalfBlock title="Earlier" match={earlier.medianMatch} ease={earlier.medianEase} from={earlier.dateFrom} to={earlier.dateTo} />
             <div className="flex flex-col items-center justify-center gap-2.5 shrink-0 px-1">
-              {([['Want', wantVerdict, wantMedianDelta], ['Ease', easeVerdict, easeMedianDelta]] as const).map(([axis, v, d]) => (
+              {([['Match', matchVerdict, matchMedianDelta], ['Ease', easeVerdict, easeMedianDelta]] as const).map(([axis, v, d]) => (
                 <span key={axis} className="flex flex-col items-center gap-1">
                   <Chip tone={v.tone} size="md">
                     <span aria-hidden>{v.arrow}</span>{axis} {v.label.toLowerCase()}
@@ -251,7 +251,7 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
                 </span>
               ))}
             </div>
-            <HalfBlock title="Later" want={recent.medianWant} ease={recent.medianEase} from={recent.dateFrom} to={recent.dateTo} />
+            <HalfBlock title="Later" match={recent.medianMatch} ease={recent.medianEase} from={recent.dateFrom} to={recent.dateTo} />
           </div>
 
           {/* Actionable share movement (Go / Stretch / Solid), earlier → later. */}
@@ -297,19 +297,19 @@ function TargetingMomentumCard({ momentum }: { momentum: TargetingMomentum }) {
   )
 }
 
-// One half of the momentum comparison: median Want and Ease (the headline
-// pair, via the shared WantEase so each number takes its own ladder colour)
+// One half of the momentum comparison: median Match and Ease (the headline
+// pair, via the shared MatchEase so each number takes its own ladder colour)
 // with the date span beneath. Direction lives in the centre chips only.
 function HalfBlock({
-  title, want, ease, from, to,
+  title, match, ease, from, to,
 }: {
-  title: string; want: number; ease: number; from: string; to: string
+  title: string; match: number; ease: number; from: string; to: string
 }) {
   const span = from && to ? (from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`) : '—'
   return (
     <div className="flex-1 min-w-0 rounded-lg bg-bg-elevated px-3 py-2.5">
       <div className="label mb-1.5">{title} · median</div>
-      <WantEase want={want} ease={ease} />
+      <MatchEase match={match} ease={ease} />
       <div className="text-label tabular-nums text-text-4 mt-1.5 truncate" title={span}>{span}</div>
     </div>
   )

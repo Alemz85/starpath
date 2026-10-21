@@ -8,7 +8,7 @@
  *
  *   data/scan-history.tsv   — every posting the scanners surfaced (first_seen,
  *                             status, scan_dates)
- *   data/score-history.tsv  — every scouting evaluation (Want / Ease / verdict /
+ *   data/score-history.tsv  — every scouting evaluation (Match / Ease / verdict /
  *                             eligibility, keyed by url)
  *
  * New postings are bucketed by verdict (go · stretch+solid · thin+growth ·
@@ -80,11 +80,11 @@ if (asJson) {
 
 // ── human-readable render ──────────────────────────────────────────────────
 const pad = (s, n) => String(s ?? '').padEnd(n).slice(0, n)
-// "W8.3 · E5.6 ★★" for scored rows; blocked rows carry no score (spec §1.3).
+// "M8.3 · E5.6 ★★" for scored rows; blocked rows carry no score (spec §1.3).
 const fmtScore = (it) => {
   if (it.verdict === 'blocked') return '—'
-  if (it.want == null || it.ease == null) return '—'
-  return `W${it.want} · E${it.ease} ${verdictStars(it.verdict)}`.trim()
+  if (it.match == null || it.ease == null) return '—'
+  return `M${it.match} · E${it.ease} ${verdictStars(it.verdict)}`.trim()
 }
 
 const windowLabel =

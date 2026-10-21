@@ -3,7 +3,7 @@
 **Date:** 2026-09-07
 **Location:** Vienna, Austria · hybrid, three office days
 **Archetype:** Strategy & Operations
-**Want:** 8.5/10 · **Ease:** 7.34/10
+**Match:** 8.5/10 · **Ease:** 7.34/10
 **Eligibility:** green
 **Verdict:** Go — apply now
 **Tier:** T1
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 8/10 | A named step from analyst to senior analyst after 18 to 24 months, and analysts rotate across the regional business units. |
-| Optionality / Exit (want) | 8/10 | Operating-model and cost work at a well-known industrial group travels well, both into consulting and into in-house strategy teams. |
-| Brand Value (want) | 7/10 | Recruiters across Central Europe know the name, but it won’t open doors on its own the way a global consultancy would. |
-| Role content (want) | 9/10 | Almost all of it is the work you want: business cases, KPI design and the quarterly review pack for the regional leadership team, with some meeting coordination around the reviews. |
+| Growth / Mobility (match) | 8/10 | A named step from analyst to senior analyst after 18 to 24 months, and analysts rotate across the regional business units. |
+| Optionality / Exit (match) | 8/10 | Operating-model and cost work at a well-known industrial group travels well, both into consulting and into in-house strategy teams. |
+| Brand Value (match) | 7/10 | Recruiters across Central Europe know the name, but it won’t open doors on its own the way a global consultancy would. |
+| Role content (match) | 9/10 | Almost all of it is the work you want: business cases, KPI design and the quarterly review pack for the regional leadership team, with some meeting coordination around the reviews. |
 | City (hygiene) | 8/10 | Vienna is second on your list, and the role is hybrid with three office days. |
 | Salary Adj for City (hygiene) | 7.3/10 | About €870 a month left after living costs in Vienna. |
 | Work-Life Balance (hygiene) | 7/10 | They describe a 40-hour week with heavier weeks around the quarterly reviews; nothing points to a crunch culture. |
-| **Want (rollup)** | **8.5/10** | Carried by the work itself and a company you already rate highly |
+| **Match (rollup)** | **8.5/10** | Carried by the work itself and a company you already rate highly |
 | Skills Match (ease) | 8/10 | Excel modelling, SQL and a dashboard tool are all on your CV. The one gap is the cost-allocation work they mention, which you have only met in coursework. |
 | Experience bar (ease) | 8/10 | They want zero to one year and a relevant internship, which your six months at Adventure Works covers. |
 | Competition (ease) | 6/10 | A recognisable employer with one seat in Vienna, so expect a big pool of business-school graduates, and nothing in the posting gives you a special channel. |

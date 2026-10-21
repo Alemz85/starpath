@@ -1,7 +1,7 @@
 // Unit tests for the scoring explainability layer (explain-score.mjs, v2).
 //
 // These pin the binding constraints, levers, sensitivity and the report text.
-// The lever search replays the canonical engine (rollupWant / rollupEase /
+// The lever search replays the canonical engine (rollupMatch / rollupEase /
 // assignVerdict), so these tests double as a tripwire: if score-bands.mjs
 // moves a threshold, a lever assertion here flips and we notice.
 //
@@ -18,7 +18,7 @@ import {
   DIM_LABELS,
   LEVER_DIMS,
 } from './explain-score.mjs'
-import { rollupWant, rollupEase, assignVerdict } from './score-bands.mjs'
+import { rollupMatch, rollupEase, assignVerdict } from './score-bands.mjs'
 
 // Full v2 dim set with sensible defaults; override what a test cares about.
 const D = (o = {}) => ({
@@ -84,14 +84,14 @@ test('bindingConstraints: hygiene veto names the factor', () => {
   assert.equal(c[0].kind, 'hygiene_veto')
   assert.equal(c[0].dimension, 'work_life_balance')
   assert.equal(c[0].binding, true)
-  assert.match(c[0].message, /caps Want at 5\.0/)
+  assert.match(c[0].message, /caps Match at 5\.0/)
 })
 
 test('bindingConstraints: role-content veto', () => {
   const dims = D({ growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 3, best_cities: 6, experience_bar: 8, competition: 8 })
   const c = bindingConstraints(X(dims))
   assert.equal(c[0].kind, 'role_content_veto')
-  assert.match(c[0].message, /caps Want at 6\.0/)
+  assert.match(c[0].message, /caps Match at 6\.0/)
 })
 
 test('bindingConstraints: low_ease binds a stretch; each amber reports its question and gain', () => {
@@ -117,10 +117,10 @@ test('bindingConstraints: amber `other` entries each become an amber constraint'
   assert.deepEqual(ambers.map(a => a.question), ['Is a non-STEM MSc accepted?', 'Are recent graduates eligible?'])
 })
 
-test('bindingConstraints: low_want / low_ease listed but non-binding when no single threshold helps', () => {
+test('bindingConstraints: low_match / low_ease listed but non-binding when no single threshold helps', () => {
   const dims = D({ growth_mobility: 5, optionality_exit: 5, brand_value: 5, role_content: 5, best_cities: 6, skills_match: 4, experience_bar: 4, competition: 4 })
   const c = bindingConstraints(X(dims))
-  assert.deepEqual(c.map(x => [x.kind, x.binding]), [['low_want', false], ['low_ease', false]])
+  assert.deepEqual(c.map(x => [x.kind, x.binding]), [['low_match', false], ['low_ease', false]])
 })
 
 test('bindingConstraints: a clean go has none', () => {
@@ -136,7 +136,7 @@ test('verdictLevers: smallest single-dim raise, replayed through the engine', ()
   assert.match(l[0].message, /Experience bar 6 → 9 \(\+3\) would move this from Stretch to Go\./)
   // proof by replay: the lever's target really is a go
   const dims = { ...D(), experience_bar: 9 }
-  const v = assignVerdict({ want: rollupWant(dims).score, ease: rollupEase(dims, { amber_count: 1 }).score, eligibility: 'amber' })
+  const v = assignVerdict({ match: rollupMatch(dims).score, ease: rollupEase(dims, { amber_count: 1 }).score, eligibility: 'amber' })
   assert.equal(v.verdict, 'go')
 })
 
@@ -166,12 +166,12 @@ test('verdictLevers: none for go, blocked, or when +4 on any single dim is not e
   assert.deepEqual(verdictLevers(X(null, RED)), [])
   const stuck = D({ growth_mobility: 5, optionality_exit: 5, brand_value: 5, role_content: 5, best_cities: 6, skills_match: 4, experience_bar: 4, competition: 4 })
   assert.deepEqual(verdictLevers(X(stuck)), [])
-  // a bigger search budget finds nothing either (want < 6.5 is skip in every column)
+  // a bigger search budget finds nothing either (match < 6.5 is skip in every column)
   assert.deepEqual(verdictLevers({ ...X(stuck), maxSteps: 4 }), [])
 })
 
 test('verdictLevers: respects context (intern carve-out, dream floor) in the replay', () => {
-  // dream floor puts Want at 8 → ease decides; without dream the same dims are a thin
+  // dream floor puts Match at 8 → ease decides; without dream the same dims are a thin
   const dims = D({ growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7, best_cities: 6, skills_match: 6, experience_bar: 6, competition: 6 })
   assert.equal(explainScore(X(dims)).verdict, 'thin')
   assert.equal(explainScore(X(dims, GREEN, { dream: true })).verdict, 'stretch')
@@ -194,9 +194,9 @@ test('sensitivity: a go sitting exactly on the thresholds is fragile', () => {
 
 test('drivers: motivator lift/drag, hygiene terms, Ease stages', () => {
   const d = drivers(X(D({ work_life_balance: 4 })))
-  assert.equal(d.want.topLift.dimension, 'brand_value')
-  assert.equal(d.want.biggestDrag.dimension, 'role_content')
-  assert.deepEqual(d.want.hygiene[0], { dimension: 'work_life_balance', label: 'Work-Life Balance', value: 4, term: -0.4 })
+  assert.equal(d.match.topLift.dimension, 'brand_value')
+  assert.equal(d.match.biggestDrag.dimension, 'role_content')
+  assert.deepEqual(d.match.hygiene[0], { dimension: 'work_life_balance', label: 'Work-Life Balance', value: 4, term: -0.4 })
   assert.equal(d.ease.topLift.dimension, 'skills_match')
   assert.equal(drivers(X(null, RED)), null)
 })
@@ -206,7 +206,7 @@ test('drivers: motivator lift/drag, hygiene terms, Ease stages', () => {
 test('explainScore: verdict matches the engine, and whyThisScore carries both labels', () => {
   const out = explainScore(X(D(), AMBER1))
   const dims = D()
-  const engine = assignVerdict({ want: rollupWant(dims).score, ease: rollupEase(dims, { amber_count: 1 }).score, eligibility: 'amber' })
+  const engine = assignVerdict({ match: rollupMatch(dims).score, ease: rollupEase(dims, { amber_count: 1 }).score, eligibility: 'amber' })
   assert.equal(out.verdict, engine.verdict)
   assert.equal(out.verdict, 'stretch')
   assert.equal(
@@ -222,7 +222,7 @@ test('explainScore: verdict matches the engine, and whyThisScore carries both la
 test('explainScore: go headline, nothing holding it back', () => {
   const out = explainScore(X(D({ experience_bar: 7, competition: 7 })))
   assert.equal(out.verdict, 'go')
-  assert.match(out.headline, /^Go: Want 8\.25, Ease 7\.33/)
+  assert.match(out.headline, /^Go: Match 8\.25, Ease 7\.33/)
   assert.match(out.whyThisScore, /Holding it back:\*\* Nothing/)
   assert.match(out.whyThisScore, /Closest lever:\*\* None needed/)
 })

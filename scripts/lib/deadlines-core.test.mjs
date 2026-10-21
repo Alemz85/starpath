@@ -167,12 +167,12 @@ const APPS_MD = `# Applications
 
 | # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
 |---|------|---------|------|-------|--------|-----|----------|--------|-------|
-| 1 | 2026-05-01 | Acme | Analyst | W8 E7 | Applied | ✅ | 2026-07-15 | — |  |
+| 1 | 2026-05-01 | Acme | Analyst | M8 E7 | Applied | ✅ | 2026-07-15 | — |  |
 | 2 | 2026-05-05 | Beta | PM | 7.5/10 | Interview | ❌ | Rolling | — |  |
 | 3 | 2026-05-10 | Gamma | Lead | 6.0/10 | Discarded | ❌ | 2026-07-01 | — |  |
 | 4 | 2026-05-12 | Delta | Intern | 7.0/10 | Evaluated | ✅ | n/d | — |  |
 | 5 | 2026-05-15 | Epsilon | SWE | 5.5/10 | SKIP | ❌ | 2026-08-01 | — |  |
-| 6 | 2026-05-20 | Zeta | Ops | W9 E8 | Applied | ✅ | 2026-06-20 | — |  |
+| 6 | 2026-05-20 | Zeta | Ops | M9 E8 | Applied | ✅ | 2026-06-20 | — |  |
 `;
 
 test('parseApplicationsDeadlines: returns entries with known deadlines', () => {
@@ -215,7 +215,7 @@ test('parseApplicationsDeadlines: empty content returns []', () => {
 
 const SCOUTING_MD = `# Scouting
 
-| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
+| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
 |---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|
 | 10 | 2026-06-01 | AlphaT1 | Analyst | 8.5 | 7.5 | T1 | green | — | 2026-07-31 | READY |  |
 | 11 | 2026-06-02 | BetaT2 | PM | 7.5 | 7.3 | T2 | amber: start date not stated | — | Rolling | MONITOR |  |
@@ -236,12 +236,12 @@ test('parseScoutingDeadlines: includes T1 and T2 with known deadlines only', () 
   assert.equal(entries.length, 2);
 });
 
-test('parseScoutingDeadlines: carries want/ease and a W/E display label', () => {
+test('parseScoutingDeadlines: carries match/ease and a M/E display label', () => {
   const entries = parseScoutingDeadlines(SCOUTING_MD);
   const t1 = entries.find(e => e.company === 'AlphaT1');
-  assert.equal(t1.want, 8.5);
+  assert.equal(t1.match, 8.5);
   assert.equal(t1.ease, 7.5);
-  assert.equal(t1.scoreLabel, 'W8.5 · E7.5');
+  assert.equal(t1.scoreLabel, 'M8.5 · E7.5');
 });
 
 test('parseScoutingDeadlines: skips Blocked rows even if hand-edited to T1/T2', () => {

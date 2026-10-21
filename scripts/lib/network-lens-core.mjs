@@ -37,7 +37,7 @@ import { classifyAll } from '../outreach-core.mjs';
 
 /* Companies are ordered by how actionable their recommended play is — the
  * decision ladder's own priority (a live reply beats a due nudge beats an
- * untouched warm path…), then by the best role Priority (√(Want·Ease), a sort
+ * untouched warm path…), then by the best role Priority (√(Match·Ease), a sort
  * key only; display uses each role's `scoreLabel`) at the company, then by
  * name for a stable order. */
 const PLAY_RANK = {
@@ -169,7 +169,7 @@ export function buildNetworkOverview({
     roster: contacts, // parseNetwork's shape: num/name/company/companyKey/title/relationship/degree/via/lastContact/notes
     companies,
     // matcher's shape, already topScore-desc: { company, companyKey, topScore, roles },
-    // plus topScoreLabel ("W8.3 · E5.6") for display; topScore is Priority.
+    // plus topScoreLabel ("M8.3 · E5.6") for display; topScore is Priority.
     gaps: gaps.map((g) => ({ ...g, topScoreLabel: g.roles[0]?.scoreLabel ?? '' })),
     latentLeads: orphanContacts.map(slimLead),
     threads,

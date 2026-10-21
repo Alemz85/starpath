@@ -6,8 +6,8 @@ import type { AgentMessage } from '@/lib/messages'
 /** The message with this id, or null. Exact id only: the agent copies it from
  *  `npm run messages -- list`, so a guess matches nothing. */
 export function findMessageById(messages: readonly AgentMessage[], id: string): AgentMessage | null {
-  const want = id.trim()
-  return messages.find(m => m.id === want) ?? null
+  const wantedId = id.trim()
+  return messages.find(m => m.id === wantedId) ?? null
 }
 
 export const MESSAGE_EXCERPT_CHARS = 220

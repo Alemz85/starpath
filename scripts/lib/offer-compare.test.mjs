@@ -23,7 +23,7 @@ import {
   buildRecommendation,
 } from './offer-compare.mjs'
 import {
-  savingsToBaseScore, rollupWant, rollupEase, assignVerdict,
+  savingsToBaseScore, rollupMatch, rollupEase, assignVerdict,
 } from './score-bands.mjs'
 
 // Convenience: a full, valid factor-score set we can tweak per test.
@@ -50,7 +50,7 @@ test('compFactorFromSavings rejects non-finite inputs', () => {
   assert.throws(() => compFactorFromSavings(3000, undefined), TypeError)
 })
 
-// ─── fit factor: Want through the engine (Ease is display-only) ──────────────
+// ─── fit factor: Match through the engine (Ease is display-only) ──────────────
 
 const V2_DIMS = Object.freeze({
   growth_mobility: 8, optionality_exit: 8, brand_value: 9, role_content: 8,
@@ -58,18 +58,18 @@ const V2_DIMS = Object.freeze({
   skills_match: 8, experience_bar: 6, competition: 5,
 })
 
-test('fitFactorFromDims: score is the replayed Want; Ease + verdict ride along for display', () => {
-  const want = rollupWant(V2_DIMS).score
+test('fitFactorFromDims: score is the replayed Match; Ease + verdict ride along for display', () => {
+  const match = rollupMatch(V2_DIMS).score
   const ease = rollupEase(V2_DIMS).score
   const r = fitFactorFromDims(V2_DIMS)
-  assert.equal(r.score, want)
-  assert.equal(r.want, want)
+  assert.equal(r.score, match)
+  assert.equal(r.match, match)
   assert.equal(r.ease, ease)
-  assert.equal(r.verdict, assignVerdict({ want, ease, eligibility: 'green' }).verdict)
+  assert.equal(r.verdict, assignVerdict({ match, ease, eligibility: 'green' }).verdict)
   assert.equal(r.verdict, 'stretch')
   assert.equal(r.verdictLabel, 'Stretch')
   assert.equal(r.tier, 'T2')
-  assert.equal(r.wantDetail.score, want)
+  assert.equal(r.matchDetail.score, match)
   assert.equal(r.easeDetail.score, ease)
   assert.ok(!('priority' in r))
 })
@@ -84,9 +84,9 @@ test('fitFactorFromDims: Ease-side changes never move the fit score', () => {
   assert.notEqual(wall.verdict, base.verdict, 'verdict (display) does move')
 })
 
-test('fitFactorFromDims threads Want context: a hygiene veto caps Want, interns skip the salary term', () => {
+test('fitFactorFromDims threads Match context: a hygiene veto caps Match, interns skip the salary term', () => {
   const lowSalary = fitFactorFromDims({ ...V2_DIMS, salary_adj_city: 2 })
-  assert.ok(lowSalary.score <= 5.0, 'salary < 3 vetoes Want to ≤ 5.0')
+  assert.ok(lowSalary.score <= 5.0, 'salary < 3 vetoes Match to ≤ 5.0')
   const intern = fitFactorFromDims({ ...V2_DIMS, salary_adj_city: 2 }, { is_intern: true })
   assert.ok(intern.score > 5.0)
 })
@@ -96,46 +96,46 @@ test('fitFactorFromDims rejects a missing v2 dimension (no silent 0)', () => {
   assert.throws(() => fitFactorFromDims(partial), TypeError)
 })
 
-test('fitFactorFromScores: score = Want; ease optional; Blocked has no fit', () => {
-  const r = fitFactorFromScores({ want: 8.25, ease: 7.2 })
+test('fitFactorFromScores: score = Match; ease optional; Blocked has no fit', () => {
+  const r = fitFactorFromScores({ match: 8.25, ease: 7.2 })
   assert.equal(r.score, 8.25)
   assert.equal(r.ease, 7.2)
   assert.equal(r.verdict, 'go')
-  const noEase = fitFactorFromScores({ want: 7.4 })
-  assert.deepEqual(noEase, { score: 7.4, want: 7.4, ease: null, verdict: null, verdictLabel: null, tier: null })
+  const noEase = fitFactorFromScores({ match: 7.4 })
+  assert.deepEqual(noEase, { score: 7.4, match: 7.4, ease: null, verdict: null, verdictLabel: null, tier: null })
   const b = fitFactorFromScores({ eligibility: 'red' })
   assert.equal(b.score, null)
-  assert.equal(b.want, null)
+  assert.equal(b.match, null)
   assert.equal(b.verdict, 'blocked')
   assert.throws(() => fitFactorFromScores({ ease: 8 }), TypeError)
 })
 
-test('resolveOfferFit: dims → replay, want → stored, neither → null', () => {
-  assert.equal(resolveOfferFit({ dims: V2_DIMS }).score, rollupWant(V2_DIMS).score)
-  assert.equal(resolveOfferFit({ want: 7, ease: 4 }).score, 7)
-  assert.equal(resolveOfferFit({ want: 7 }).score, 7)
+test('resolveOfferFit: dims → replay, match → stored, neither → null', () => {
+  assert.equal(resolveOfferFit({ dims: V2_DIMS }).score, rollupMatch(V2_DIMS).score)
+  assert.equal(resolveOfferFit({ match: 7, ease: 4 }).score, 7)
+  assert.equal(resolveOfferFit({ match: 7 }).score, 7)
   assert.equal(resolveOfferFit({ scores: baseScores() }), null)
 })
 
-test('scoreOffer derives fit from Want and passes Ease/verdict through for display', () => {
+test('scoreOffer derives fit from Match and passes Ease/verdict through for display', () => {
   const w = normalizeWeights(DEFAULT_WEIGHTS)
   const { fit, ...rest } = baseScores()
-  const r = scoreOffer({ label: 'Northwind', want: 8.25, ease: 7.2, scores: rest }, w)
+  const r = scoreOffer({ label: 'Northwind', match: 8.25, ease: 7.2, scores: rest }, w)
   assert.equal(r.scores.fit, 8.25)
-  assert.equal(r.want, 8.25)
+  assert.equal(r.match, 8.25)
   assert.equal(r.ease, 7.2)
   assert.equal(r.verdict, 'go')
   assert.equal(r.verdictLabel, 'Go')
-  // A hand-typed fit has no Want/Ease to show.
+  // A hand-typed fit has no Match/Ease to show.
   const manual = scoreOffer({ label: 'Manual', scores: baseScores() }, w)
-  assert.equal(manual.want, null)
+  assert.equal(manual.match, null)
   assert.equal(manual.verdict, null)
 })
 
-test('scoreOffer rejects a hand-typed fit that conflicts with Want', () => {
+test('scoreOffer rejects a hand-typed fit that conflicts with Match', () => {
   const w = normalizeWeights(DEFAULT_WEIGHTS)
-  assert.throws(() => scoreOffer({ label: 'X', want: 8, ease: 3, scores: { ...baseScores(), fit: 5 } }, w), RangeError)
-  const ok = scoreOffer({ label: 'Y', want: 8, ease: 3, scores: { ...baseScores(), fit: 8 } }, w)
+  assert.throws(() => scoreOffer({ label: 'X', match: 8, ease: 3, scores: { ...baseScores(), fit: 5 } }, w), RangeError)
+  const ok = scoreOffer({ label: 'Y', match: 8, ease: 3, scores: { ...baseScores(), fit: 8 } }, w)
   assert.equal(ok.scores.fit, 8)
 })
 
@@ -148,11 +148,11 @@ test('scoreOffer: a Blocked offer needs an explicit fit', () => {
   assert.equal(r.scores.fit, 5)
 })
 
-test('compareOffers ranks on Want: Ease never changes the order', () => {
+test('compareOffers ranks on Match: Ease never changes the order', () => {
   const { fit, ...rest } = baseScores()
   const res = compareOffers([
-    { label: 'Contoso Retail', want: 7.0, ease: 9.5, scores: rest },  // easy, less wanted
-    { label: 'Fabrikam Labs', want: 8.5, ease: 3.0, scores: rest },   // hard, more wanted
+    { label: 'Contoso Retail', match: 7.0, ease: 9.5, scores: rest },  // easy, weaker match
+    { label: 'Fabrikam Labs', match: 8.5, ease: 3.0, scores: rest },   // hard, stronger match
   ])
   assert.equal(res.winner.label, 'Fabrikam Labs')
   assert.equal(res.winner.scores.fit, 8.5)
@@ -160,21 +160,21 @@ test('compareOffers ranks on Want: Ease never changes the order', () => {
   assert.equal(res.runnerUp.verdict, 'solid')
   // Same offers with Ease swapped → identical totals and order.
   const swapped = compareOffers([
-    { label: 'Contoso Retail', want: 7.0, ease: 3.0, scores: rest },
-    { label: 'Fabrikam Labs', want: 8.5, ease: 9.5, scores: rest },
+    { label: 'Contoso Retail', match: 7.0, ease: 3.0, scores: rest },
+    { label: 'Fabrikam Labs', match: 8.5, ease: 9.5, scores: rest },
   ])
   assert.deepEqual(swapped.ranking.map((r) => [r.label, r.total]), res.ranking.map((r) => [r.label, r.total]))
-  // Want-only offers (no Ease) work too.
-  const wantOnly = compareOffers([
-    { label: 'A', want: 6.5, scores: rest },
-    { label: 'B', want: 7.5, scores: rest },
+  // Match-only offers (no Ease) work too.
+  const matchOnly = compareOffers([
+    { label: 'A', match: 6.5, scores: rest },
+    { label: 'B', match: 7.5, scores: rest },
   ])
-  assert.equal(wantOnly.winner.label, 'B')
-  assert.equal(wantOnly.winner.verdict, null)
+  assert.equal(matchOnly.winner.label, 'B')
+  assert.equal(matchOnly.winner.verdict, null)
 })
 
-test('FACTOR_LABELS.fit is Want-only', () => {
-  assert.equal(FACTOR_LABELS.fit, 'Fit (Want)')
+test('FACTOR_LABELS.fit is Match-only', () => {
+  assert.equal(FACTOR_LABELS.fit, 'Fit (Match)')
 })
 
 // ─── normalizeWeights ────────────────────────────────────────────────────────

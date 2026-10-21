@@ -27,7 +27,7 @@ import { reportFileStem, resolveReport } from '@/lib/reportMatch'
 import {
   normalizeEligibility, normalizeTier, parseEligibilityFlags,
 } from '@/lib/scoreBands'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { EligibilityChip } from '@/components/shared/EligibilityChip'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -62,7 +62,7 @@ interface PositioningReportInfo {
 }
 
 // Sort keys for the toolbar's segmented control. `score` sorts by Priority
-// (√(Want × Ease)) — a sort key only, never shown as a number.
+// (√(Match × Ease)) — a sort key only, never shown as a number.
 const SORT_OPTIONS = [
   { field: 'score' as const,   label: 'Priority' },
   { field: 'date' as const,    label: 'Date' },
@@ -314,7 +314,7 @@ export function ReportsView() {
             disabled={!repoPath || !canWrite}
             title={readOnlyTitle ?? (top5Running
               ? 'Stop the run (live log on the Activity tab)'
-              : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-Priority (√(Want × Ease)) entries. Uses Claude tokens; live log on the Activity tab.')}
+              : 'Filter the pipeline → score survivors → write deep reports for the 5 highest-Priority (√(Match × Ease)) entries. Uses Claude tokens; live log on the Activity tab.')}
           >
             {top5Running ? 'Stop' : 'Generate top 5 reports'}
           </Button>
@@ -432,7 +432,7 @@ export function ReportsView() {
                       }
                     }}
                     title={field === 'score'
-                      ? 'Rank by √(Want × Ease); blocked and unscored reports last'
+                      ? 'Rank by √(Match × Ease); blocked and unscored reports last'
                       : undefined}
                     trailing={on
                       ? (sortOrder === 'asc' ? <ArrowUp size={12} aria-hidden /> : <ArrowDown size={12} aria-hidden />)
@@ -595,7 +595,7 @@ export function orphanScoreEntry(r: ReportFile): ScoreEntry {
     skills_match: null, experience_bar: null, competition: null, ease: null,
     growth_mobility: null, optionality_exit: null, brand_value: null, role_content: null,
     best_cities: null, salary_adj_city: null, work_life_balance: null,
-    want: null, priority: null, eligibility: null, eligibility_flags: '', verdict: null,
+    match: null, priority: null, eligibility: null, eligibility_flags: '', verdict: null,
     best_fit_roles: '', mode: 'scouting',
     company: r.company, role: r.role,
     tier: normalizeTier(r.tier) ?? '',
@@ -605,7 +605,7 @@ export function orphanScoreEntry(r: ReportFile): ScoreEntry {
 }
 
 // One 56px list row: logo · company / role · upgrade caption · verdict ·
-// eligibility + Want · Ease · posting link. The main button opens the report slide-over; the
+// eligibility + Match · Ease · posting link. The main button opens the report slide-over; the
 // link button is a sibling so the two never nest.
 function ReportRow({
   report,
@@ -624,7 +624,7 @@ function ReportRow({
   // the resolved score-history entry fills a gap.
   const eligibility = normalizeEligibility(report.eligibility) ?? scoreEntry?.eligibility ?? null
   const blocked = eligibility === 'red' || report.verdict === 'blocked'
-  const want = report.want ?? scoreEntry?.want ?? null
+  const match = report.match ?? scoreEntry?.match ?? null
   const ease = report.ease ?? scoreEntry?.ease ?? null
   const flags = parseEligibilityFlags(report.eligibility_flags ?? scoreEntry?.eligibility_flags ?? '')
   const red = flags.find(f => f.status === 'red')
@@ -645,8 +645,8 @@ function ReportRow({
         </span>
         <span className="w-[150px] shrink-0 flex items-center justify-end gap-1.5 min-w-0">
           <EligibilityChip status={eligibility} reason={red?.reason ?? (amberReasons || null)} compact className="shrink-0" />
-          <WantEase
-            want={want}
+          <MatchEase
+            match={match}
             ease={ease}
             blockedReason={blocked ? (red?.reason || 'Blocked') : null}
             size="sm"

@@ -169,7 +169,7 @@ function printSummary(res, today, totalContacts) {
   }
 }
 
-// Scoring v2: show "W8.3 · E5.6" (network-core's scoreLabel); legacy rows keep
+// Scoring v2: show "M8.3 · E5.6" (network-core's scoreLabel); legacy rows keep
 // their "7.4/10" label. The numeric `score` is Priority, a sort key only.
 function roleScore(r) {
   return r?.scoreLabel || 'unscored';

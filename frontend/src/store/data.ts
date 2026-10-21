@@ -61,8 +61,8 @@ interface DataState {
   promoteToApplication: (args: {
     company: string
     role: string
-    /** Want / Ease written as the `W8.3 E5.6` Score cell (scoring v2 §8.3). */
-    want: number | null
+    /** Match / Ease written as the `M8.3 E5.6` Score cell (scoring v2 §8.3). */
+    match: number | null
     ease: number | null
     tier: string
     reportPath?: string
@@ -129,12 +129,12 @@ export const useDataStore = create<DataState>((set) => ({
   // The three writers below are no-ops in demo mode (read-only data): the
   // controls are disabled there, this is the backstop — main refuses the
   // write too (demo-read-only).
-  promoteToApplication: async ({ company, role, want, ease, tier, reportPath }) => {
+  promoteToApplication: async ({ company, role, match, ease, tier, reportPath }) => {
     if (!canWriteNow()) return
     const path = 'data/applications.md'
     const raw = await ipc.readFile(path) ?? ''
     const next = upsertApplicationRow(raw, {
-      company, role, want, ease, tier, reportPath,
+      company, role, match, ease, tier, reportPath,
     })
     // Only touch disk when something actually changed (the listing was new,
     // or its score/report moved). When it's already tracked and unchanged we
@@ -348,7 +348,7 @@ function toScoutingEntry(row: DbScoutingRow): ScoutingEntry {
     date:          row.date,
     company:       row.company,
     role:          row.role,
-    want:          row.want ?? null,
+    match:          row.match ?? null,
     ease:          row.ease ?? null,
     tier:          normalizeTier(row.tier) ?? 'T4',
     eligibility:   normalizeEligibility(row.eligibility),
@@ -377,7 +377,7 @@ function toScoreEntry(row: DbScoreHistoryRow): ScoreEntry {
     best_cities:       row.best_cities ?? null,
     salary_adj_city:   row.salary_adj_city ?? null,
     work_life_balance: row.work_life_balance ?? null,
-    want:              row.want ?? null,
+    match:              row.match ?? null,
     priority:          row.priority ?? null,
     eligibility:       normalizeEligibility(row.eligibility),
     eligibility_flags: row.eligibility_flags ?? '',
@@ -387,7 +387,7 @@ function toScoreEntry(row: DbScoreHistoryRow): ScoreEntry {
     company:           row.company,
     role:              row.role,
     tier:              normalizeTier(row.tier, {
-      verdict: normalizeVerdict(row.verdict), want: row.want, ease: row.ease,
+      verdict: normalizeVerdict(row.verdict), match: row.match, ease: row.ease,
       eligibility: normalizeEligibility(row.eligibility),
     }),
     source:            row.source,

@@ -5,7 +5,7 @@
 // validation, ranking determinism, tradeoff/decisive-factor analysis, and the
 // close-call vs clear-pick recommendation branches — plus parity assertions that
 // the ported savings band matches the documented canonical values and that the
-// v2 fit factor is the role's Want, so a divergence fails here.
+// v2 fit factor is the role's Match, so a divergence fails here.
 //
 // Runs under the renderer's zero-dep node:test harness (`npm test`).
 
@@ -74,19 +74,19 @@ test('compFactorFromSavings rejects non-finite inputs', () => {
   assert.throws(() => compFactorFromSavings(3000, undefined as unknown as number), TypeError)
 })
 
-// ─── fitFactorFromScores: v2 fit = Want ──────────────────────────────────────
+// ─── fitFactorFromScores: v2 fit = Match ──────────────────────────────────────
 
-test('fitFactorFromScores uses the stored Want verbatim, never re-derived', () => {
-  assert.deepEqual(fitFactorFromScores({ want: 8.25 }), { score: 8.25, source: 'want' })
+test('fitFactorFromScores uses the stored Match verbatim, never re-derived', () => {
+  assert.deepEqual(fitFactorFromScores({ match: 8.25 }), { score: 8.25, source: 'match' })
 })
 
-test('fitFactorFromScores replays the Want formula from dimensions when Want is missing', () => {
+test('fitFactorFromScores replays the Match formula from dimensions when Match is missing', () => {
   const dims = {
     growth_mobility: 8, optionality_exit: 8, brand_value: 9, role_content: 7,
     best_cities: 8, salary_adj_city: 6, work_life_balance: 6,
   }
-  assert.deepEqual(fitFactorFromScores({ want: null, dims }), { score: 8.25, source: 'replay' })
-  // A hygiene veto threads through: WLB 2 caps Want at 5.0.
+  assert.deepEqual(fitFactorFromScores({ match: null, dims }), { score: 8.25, source: 'replay' })
+  // A hygiene veto threads through: WLB 2 caps Match at 5.0.
   assert.equal(fitFactorFromScores({ dims: { ...dims, work_life_balance: 2 } }).score, 5)
 })
 
@@ -264,6 +264,6 @@ test('every factor has a label and help string', () => {
     assert.ok(FACTOR_HELP[f] && FACTOR_HELP[f].length > 0)
   }
   assert.equal(FACTORS.length, 6)
-  // Same label as scripts/lib/offer-compare.mjs: the fit factor is Want only.
-  assert.equal(FACTOR_LABELS.fit, 'Fit (Want)')
+  // Same label as scripts/lib/offer-compare.mjs: the fit factor is Match only.
+  assert.equal(FACTOR_LABELS.fit, 'Fit (Match)')
 })

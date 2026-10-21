@@ -4,7 +4,7 @@
 **Location:** Vienna, Austria · hybrid
 **Archetype:** Strategy & Operations
 **Mode:** scouting (growth target)
-**Want:** 9/10 · **Ease:** 4.4/10
+**Match:** 9/10 · **Ease:** 4.4/10
 **Eligibility:** green
 **Verdict:** Growth target — close the gap first
 **Tier:** T3
@@ -23,14 +23,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 9/10 | A small corporate strategy team reporting to the executive board, with a known track into business-unit leadership. |
-| Optionality / Exit (want) | 9/10 | Corporate strategy at a well-run leisure group leads to consulting, investment portfolio roles and strategy jobs almost anywhere. |
-| Brand Value (want) | 7/10 | A recognised leisure and travel group in the Alps and Central Europe. |
-| Role content (want) | 9/10 | Pure strategy work: market-entry cases, acquisition screening and the annual strategic plan. |
+| Growth / Mobility (match) | 9/10 | A small corporate strategy team reporting to the executive board, with a known track into business-unit leadership. |
+| Optionality / Exit (match) | 9/10 | Corporate strategy at a well-run leisure group leads to consulting, investment portfolio roles and strategy jobs almost anywhere. |
+| Brand Value (match) | 7/10 | A recognised leisure and travel group in the Alps and Central Europe. |
+| Role content (match) | 9/10 | Pure strategy work: market-entry cases, acquisition screening and the annual strategic plan. |
 | City (hygiene) | 8/10 | Vienna is second on your list. |
 | Salary Adj for City (hygiene) | 8/10 | About €1,270 a month left after living costs in Vienna (estimated pay). |
 | Work-Life Balance (hygiene) | 5/10 | Board deadlines and acquisition work mean long weeks at regular intervals. |
-| **Want (rollup)** | **9/10** | Carried by the work and where it leads |
+| **Match (rollup)** | **9/10** | Carried by the work and where it leads |
 | Skills Match (ease) | 7/10 | Your modelling and analysis fit; they want valuation and deal-screening experience you don’t have yet. |
 | Experience bar (ease) | 3/10 | They ask for two to three years in strategy consulting or corporate development. |
 | Competition (ease) | 4/10 | A small, sought-after team that mostly hires from consultancies. |

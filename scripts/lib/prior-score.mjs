@@ -27,7 +27,7 @@ const normUrl = (u) => String(u ?? '').trim().replace(/[?#].*$/, '').replace(/\/
 /**
  * Latest score-history row for the listing: same URL, else same company key +
  * normalized role. Returns null when the listing was never evaluated.
- *   { date, verdict, want, ease, eligibility, blocked, dims: {dim: n|null} }
+ *   { date, verdict, match, ease, eligibility, blocked, dims: {dim: n|null} }
  */
 export function findPrior(rows, { company, role, url } = {}) {
   const u = normUrl(url)
@@ -42,7 +42,7 @@ export function findPrior(rows, { company, role, url } = {}) {
   return {
     date: last.date,
     verdict: last.verdict || null,
-    want: num(last.want),
+    match: num(last.match),
     ease: num(last.ease),
     eligibility: last.eligibility || null,
     blocked: last.eligibility === 'red' || last.verdict === 'blocked',

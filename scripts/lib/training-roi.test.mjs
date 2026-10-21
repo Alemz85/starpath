@@ -1,7 +1,7 @@
 // Unit tests for scripts/lib/training-roi.mjs — the deterministic ROI engine
 // behind the `training` mode. It reuses targeting-core's dimensionDrag /
 // archetypePerformance and replays the scoring engine (rollupEase /
-// rollupWant → assignVerdict) for the projected uplift, so these tests pin the
+// rollupMatch → assignVerdict) for the projected uplift, so these tests pin the
 // training-specific logic: dimension-key normalization (trainable v2 dims
 // only), gap relevance scoring, archetype matching, the projected Ease uplift
 // + verdict changes, effort banding, and the WORTH_IT / TIMEBOX / SKIP tree.
@@ -24,7 +24,7 @@ import {
 } from './training-roi.mjs'
 
 // Healthy base: every dimension 8 except hygiene salary/WLB at 7 (neutral), so
-// Want = 8.25 (motivators 8 + City +0.25) and Ease is set by the Ease dims.
+// Match = 8.25 (motivators 8 + City +0.25) and Ease is set by the Ease dims.
 const HEALTHY = {
   archetype: 'Data Analyst', company: 'Contoso Retail',
   skills_match: 8, experience_bar: 8, competition: 8,
@@ -41,7 +41,7 @@ function many(n, over) {
 
 // A corpus where Experience bar is a clear systemic drag (3 = the experience
 // wall, low in every eval) while every other dimension is healthy (~8).
-// Verdict: growth (Want 8.25, Ease capped at 4.5). Archetype is a dense
+// Verdict: growth (Match 8.25, Ease capped at 4.5). Archetype is a dense
 // "Strategy & Operations" landscape.
 function experienceDragCorpus() {
   return rows(...many(10, { archetype: 'Strategy & Operations', experience_bar: 3 }))
@@ -67,13 +67,13 @@ test('normalizeDimensionKey returns null for unknown or non-trainable tokens', (
   assert.equal(normalizeDimensionKey('blockchain'), null)
   assert.equal(normalizeDimensionKey(''), null)
   assert.equal(normalizeDimensionKey(null), null)
-  // Role-side Want dims belong to the listing, not the candidate.
+  // Role-side Match dims belong to the listing, not the candidate.
   for (const k of ['brand_value', 'growth_mobility', 'optionality_exit', 'best_cities', 'salary_adj_city', 'work_life_balance']) {
     assert.equal(normalizeDimensionKey(k), null, `${k} is not trainable`)
   }
   // Rollups are not dimensions.
   assert.equal(normalizeDimensionKey('ease'), null)
-  assert.equal(normalizeDimensionKey('want'), null)
+  assert.equal(normalizeDimensionKey('match'), null)
 })
 
 test('normalizeDimensionKey: every trainable key round-trips; case/whitespace tolerant', () => {
@@ -144,7 +144,7 @@ test('targetingRelevance matches mapped archetypes against the corpus', () => {
   assert.ok(t.best, 'matched an archetype')
   assert.equal(t.best.archetype, 'Strategy & Operations')
   assert.equal(t.best.count, 10)
-  assert.equal(t.best.avgWant, 8.25)
+  assert.equal(t.best.avgMatch, 8.25)
   assert.equal(t.best.avgEase, 4.5)
   assert.equal(t.landscapeShare, 100)
 })
@@ -181,7 +181,7 @@ test('projectedUplift: lifting experience_bar off the wall moves Ease and verdic
   assert.equal(u.avgEaseBefore, 4.5, 'experience wall caps Ease at 4.5')
   assert.ok(u.avgEaseAfter > 6, `wall removed → Ease > 6, got ${u.avgEaseAfter}`)
   assert.equal(u.easeMovement, 'improving')
-  assert.equal(u.avgWantDelta, 0, 'Want untouched by an Ease-side lift')
+  assert.equal(u.avgMatchDelta, 0, 'Match untouched by an Ease-side lift')
   assert.equal(u.upgrades, 10)
   assert.equal(u.downgrades, 0)
   assert.equal(u.upgradeShare, 100)
@@ -198,13 +198,13 @@ test('projectedUplift: a small lift that changes no verdict is within the Ease n
   assert.equal(u.easeMovement, 'within-noise')
 })
 
-test('projectedUplift: role_content replays Want (the Ease side keeps the stored value)', () => {
-  // role_content 3 trips the role-content veto (Want ≤ 6.0 → skip); lifting
+test('projectedUplift: role_content replays Match (the Ease side keeps the stored value)', () => {
+  // role_content 3 trips the role-content veto (Match ≤ 6.0 → skip); lifting
   // it to 5 clears the veto.
   const corpus = rows(...many(4, { role_content: 3 }))
   assert.equal(corpus[0].verdict, 'skip')
   const u = projectedUplift(corpus, ['role_content'], { lift: 2 })
-  assert.ok(u.avgWantDelta > 1, `Want lifts once the veto clears, got ${u.avgWantDelta}`)
+  assert.ok(u.avgMatchDelta > 1, `Match lifts once the veto clears, got ${u.avgMatchDelta}`)
   assert.equal(u.easeDelta, 0)
   assert.equal(u.upgrades, 4)
   assert.ok(Object.keys(u.transitions).every((k) => k.startsWith('skip→')))
@@ -291,7 +291,7 @@ test('WORTH_IT: closes the systemic drag, matches a real archetype, proportionat
   assert.equal(v.uplift.upgrades, 10)
   assert.ok(v.trace.length >= 4)
   assert.ok(v.trace.some((t) => /Projected: \+1 step on Experience bar/.test(t) && /growth→stretch ×10/.test(t) && /10 into an actionable verdict/.test(t)))
-  assert.ok(v.trace.some((t) => /avg Want 8\.25 · Ease 4\.5/.test(t)))
+  assert.ok(v.trace.some((t) => /avg Match 8\.25 · Ease 4\.5/.test(t)))
   assert.match(v.headline, /Experience bar/)
 })
 
@@ -352,7 +352,7 @@ test('unknown / non-trainable dimension tokens are surfaced, not silently droppe
 })
 
 test('an upgrade that stays non-actionable (skip → thin) does not count as ROI', () => {
-  // Want 6.87 (mid row) with the experience wall: skip. +1 step clears the
+  // Match 6.87 (mid row) with the experience wall: skip. +1 step clears the
   // wall → Ease ~5.5 → thin: a better cell, but not one worth paying for.
   const corpus = rows(...many(6, { archetype: 'Strategy & Operations', experience_bar: 3, competition: 6, skills_match: 7,
     growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7, best_cities: 7 }))

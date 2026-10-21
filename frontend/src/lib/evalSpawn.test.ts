@@ -156,8 +156,8 @@ test('every app eval run gets its own batch id, so runs never share scratch file
   for (const [name, p] of ALL_PROMPTS()) assert.ok(/Batch ID: [a-z0-9-]+-\d{8}-\d{6}\./.test(p), `${name} has a per-run batch id`)
 })
 
-test('the relevance gate tells a red listing the profile scores through to get its Want/Ease', () => {
+test('the relevance gate tells a red listing the profile scores through to get its Match/Ease', () => {
   const p = filterAllPrompt('2026-07-01')
   assert.ok(p.includes('when the gate says `scored: true`'))
-  assert.ok(!p.includes('as Blocked, with its reason and no Want/Ease'), 'the old unconditional wording is gone')
+  assert.ok(!p.includes('as Blocked, with its reason and no Match/Ease'), 'the old unconditional wording is gone')
 })

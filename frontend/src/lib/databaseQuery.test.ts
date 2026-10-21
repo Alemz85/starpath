@@ -24,9 +24,9 @@ test('parseTokenQuery keeps the non-token remainder as free text', () => {
   assert.equal(freeText, 'backend')
 })
 
-test('parseTokenQuery reads the v2 min-want / min-ease floors (both spellings)', () => {
-  assert.equal(parseTokenQuery('min-want:7').tokenFilters.minWant, 7)
-  assert.equal(parseTokenQuery('minwant:7.5').tokenFilters.minWant, 7.5)
+test('parseTokenQuery reads the v2 min-match / min-ease floors (both spellings)', () => {
+  assert.equal(parseTokenQuery('min-match:7').tokenFilters.minMatch, 7)
+  assert.equal(parseTokenQuery('minmatch:7.5').tokenFilters.minMatch, 7.5)
   assert.equal(parseTokenQuery('min-ease:5').tokenFilters.minEase, 5)
   assert.equal(parseTokenQuery('minease:6.5').tokenFilters.minEase, 6.5)
 })
@@ -57,7 +57,7 @@ const entry = makeScoreEntry({
   tier: 'T1',
   location: 'Berlin / Paris',
   employment_type: 'Full-time',
-  want: 8.0,
+  match: 8.0,
   ease: 6.0,
 })
 
@@ -79,22 +79,22 @@ test('matchesTokenQuery: location matches a parsed city', () => {
   assert.equal(matchesTokenQuery(entry, { location: 'madrid' }, ''), false)
 })
 
-test('matchesTokenQuery: min-want / min-ease are per-axis floors', () => {
-  assert.equal(matchesTokenQuery(entry, { minWant: 7 }, ''), true)    // 8.0 ≥ 7
-  assert.equal(matchesTokenQuery(entry, { minWant: 9 }, ''), false)
+test('matchesTokenQuery: min-match / min-ease are per-axis floors', () => {
+  assert.equal(matchesTokenQuery(entry, { minMatch: 7 }, ''), true)    // 8.0 ≥ 7
+  assert.equal(matchesTokenQuery(entry, { minMatch: 9 }, ''), false)
   assert.equal(matchesTokenQuery(entry, { minEase: 6 }, ''), true)    // 6.0 ≥ 6
   assert.equal(matchesTokenQuery(entry, { minEase: 6.5 }, ''), false)
 })
 
 test('matchesTokenQuery: a non-numeric floor is ignored, not catastrophic', () => {
-  // Regression guard: `min-want:x` → parseFloat → NaN must not empty the
+  // Regression guard: `min-match:x` → parseFloat → NaN must not empty the
   // results (or the facet counts) — the shared matcher ignores it.
-  assert.equal(matchesTokenQuery(entry, { minWant: NaN, minEase: NaN }, ''), true)
+  assert.equal(matchesTokenQuery(entry, { minMatch: NaN, minEase: NaN }, ''), true)
 })
 
 test('matchesTokenQuery: a floor excludes a blocked row (it has no scores)', () => {
   const blocked = makeScoreEntry({ eligibility: 'red', verdict: 'blocked' })
-  assert.equal(matchesTokenQuery(blocked, { minWant: 1 }, ''), false)
+  assert.equal(matchesTokenQuery(blocked, { minMatch: 1 }, ''), false)
   assert.equal(matchesTokenQuery(blocked, {}, ''), true)
 })
 
@@ -102,7 +102,7 @@ test('matchesTokenQuery: verdict matches the key or the label; eligibility exact
   assert.equal(matchesTokenQuery(entry, { verdict: 'stretch' }, ''), true)     // 8.0 × 6.0
   assert.equal(matchesTokenQuery(entry, { verdict: 'Stretch' }, ''), true)
   assert.equal(matchesTokenQuery(entry, { verdict: 'go' }, ''), false)
-  const growth = makeScoreEntry({ want: 9, ease: 4 })
+  const growth = makeScoreEntry({ match: 9, ease: 4 })
   assert.equal(matchesTokenQuery(growth, { verdict: 'growth target' }, ''), true)
   assert.equal(matchesTokenQuery(entry, { eligibility: 'GREEN' }, ''), true)
   assert.equal(matchesTokenQuery(entry, { eligibility: 'red' }, ''), false)

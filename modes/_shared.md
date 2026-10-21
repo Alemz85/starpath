@@ -70,12 +70,12 @@ This rule is universal across modes (`scouting`, `interview-prep`, `apply`, `pdf
 There is **one evaluation mode**: `scouting` (defined in `modes/scouting.md`). Every listing gets three things, **in this order**:
 
 1. **Eligibility** — a gate, not a score: `green` / `amber` / `red`, from JD facts vs. the candidate's `eligibility:` block in `user/profile.yml`.
-2. **Want** (1–10) — how much the candidate wants this role.
+2. **Match** (1–10) — how well the role fits what the candidate is after: the work, where it leads, the life around it.
 3. **Ease** (1–10) — how realistic it is to get in.
 
-The **verdict** comes from the Want × Ease grid (§ Verdict grid). A `red` listing is **Blocked**: no Want, no Ease, its reason is shown instead of a score. There is **no Overall** — surfaces that need one sortable number use **Priority**, which is never shown as a headline score.
+The **verdict** comes from the Match × Ease grid (§ Verdict grid). A `red` listing is **Blocked**: no Match, no Ease, its reason is shown instead of a score. There is **no Overall** — surfaces that need one sortable number use **Priority**, which is never shown as a headline score.
 
-**The contract is `docs/scoring-v2.md`; the executable source of truth is `scripts/score-listing.mjs`** (`scripts/lib/eligibility.mjs` + `scripts/lib/score-bands.mjs`). The agent extracts facts and assigns integer judgment scores with evidence; the script computes eligibility, Want, Ease, Priority, verdict and tier. **Never re-derive any of them by hand.** If this file and the script disagree, the script wins and this file has a bug.
+**The contract is `docs/scoring-v2.md`; the executable source of truth is `scripts/score-listing.mjs`** (`scripts/lib/eligibility.mjs` + `scripts/lib/score-bands.mjs`). The agent extracts facts and assigns integer judgment scores with evidence; the script computes eligibility, Match, Ease, Priority, verdict and tier. **Never re-derive any of them by hand.** If this file and the script disagree, the script wins and this file has a bug.
 
 > [!NOTE]
 > **Storage tiers.** `T1`–`T4` and the `reports/tier-{N}/` folders stay the serialization layer (Electron app, SQLite cache, TSV pipelines). The verdict maps to a tier; candidate-facing prose talks in verdicts.
@@ -156,8 +156,8 @@ echo '{ "eligibility_facts": { ... } }' | node scripts/score-listing.mjs --eligi
 
 It reads the candidate's `eligibility:` block from `user/profile.yml` and returns only `{ eligibility }`. **If it says `red`, stop scoring** — no judgment dimensions are needed.
 
-- **red, `scored: true` → Blocked but scored.** When `user/profile.yml` › `eligibility.score_through_red` allows every red check (by check; a language red only for the languages it lists; never for its `except_employment` types), the eligibility result says `scored: true`: the verdict stays `blocked`, tier `T4`, no Priority and no report file, but Want and Ease are scored as usual and written to score-history and the scouting row, so the Database keeps a picture of the market behind walls the candidate may clear later.
-- **red → Blocked.** Verdict `blocked`, tier `T4`, no Want / Ease / Priority, **no report file**. The listing is still logged — a `data/score-history.tsv` row (dimension and score columns empty) and a scouting TSV row whose Eligibility cell carries the reason — so it shows in the app with its reason instead of silently vanishing. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
+- **red, `scored: true` → Blocked but scored.** When `user/profile.yml` › `eligibility.score_through_red` allows every red check (by check; a language red only for the languages it lists; never for its `except_employment` types), the eligibility result says `scored: true`: the verdict stays `blocked`, tier `T4`, no Priority and no report file, but Match and Ease are scored as usual and written to score-history and the scouting row, so the Database keeps a picture of the market behind walls the candidate may clear later.
+- **red → Blocked.** Verdict `blocked`, tier `T4`, no Match / Ease / Priority, **no report file**. The listing is still logged — a `data/score-history.tsv` row (dimension and score columns empty) and a scouting TSV row whose Eligibility cell carries the reason — so it shows in the app with its reason instead of silently vanishing. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
 - **amber → scored normally**, Ease −0.5 per amber check (max −1.0, applied by the script). Every amber `question` goes into the report's `## Eligibility` block.
 - **green → no effect.**
 
@@ -177,7 +177,7 @@ Read the candidate's `work_authorisation` from `user/profile.yml` → `eligibili
 - "We sponsor visas for graduate roles" → `offered`. "Must have unrestricted right to work in X" → `requires_existing_right: true`. Passport / citizenship-grade requirements ("EU citizenship required", security clearance) go in `other[]`.
 - UK internships at established sponsors usually run on the Temporary Worker (Government Authorised Exchange) route → `offered`; at smaller or unclear employers → `unknown`.
 
-### Step 2 — Want
+### Step 2 — Match
 
 #### Motivators (averaged — what makes a role worth wanting)
 
@@ -185,7 +185,7 @@ Read the candidate's `work_authorisation` from `user/profile.yml` → `eligibili
 |-----------|------------------|------|-----|
 | **Growth / Mobility** | Does this role lead somewhere? | Documented multi-level track, mobility across functions, structured mentorship / LDP | Explicitly capped; no promotion, no mobility |
 | **Optionality / Exit** | How good a stepping stone is it? | Skills + brand transfer to top destinations immediately | Locks you into one company's processes |
-| **Brand Value** | Does the name carry weight on a CV — how does a recruiter at another company read it? (Not how much the candidate likes the company: that is Want preference.) | Global top-tier brand, recognized everywhere | No recognition outside one local market |
+| **Brand Value** | Does the name carry weight on a CV — how does a recruiter at another company read it? (Not how much the candidate likes the company: that is Match preference.) | Global top-tier brand, recognized everywhere | No recognition outside one local market |
 | **Role content** | Is the day-to-day work the kind the candidate wants (per the archetypes in `user/_profile.md`)? Absorbs the old sales-pigeonholing signal. | Every day is the target work | None of the target work; the title is misleading |
 
 **Per-step anchors — Growth / Mobility:**
@@ -251,21 +251,21 @@ Read the candidate's `work_authorisation` from `user/profile.yml` → `eligibili
 #### Calibration (applied by the script — pass the `calibration:` block, don't hand-apply)
 
 - **Brand is a CV signal, never preference.** Score it on the tier anchors from how recruiters elsewhere read the name, including in the candidate's target markets. The candidate's own wish lists never move it. Only `extra_brand_bonuses` adjusts it, for a genuine perception gap the tiers miss (a name that carries more weight in the target market than its global tier).
-- **Preference (Want):** `lower_tier_dream_companies` → +0.25 Want; `dream_companies` → the Want floor below. `brand_affinity_companies` (e.g. CEMS partners) have no score effect: their recruiting channel belongs in Competition.
+- **Preference (Match):** `lower_tier_dream_companies` → +0.25 Match; `dream_companies` → the Match floor below. `brand_affinity_companies` (e.g. CEMS partners) have no score effect: their recruiting channel belongs in Competition.
 - **Growth:** structured onboarding / learning path → +1; sink-or-swim → −1.
-- **Dream floor:** `dream_companies` → Want ≥ 8.0 (the vetoes below still win).
+- **Dream floor:** `dream_companies` → Match ≥ 8.0 (the vetoes below still win).
 
-#### Want formula (summary — the script is the source of the math)
+#### Match formula (summary — the script is the source of the math)
 
 ```
-M         = weighted mean of the 4 motivators (user/profile.yml → scoring.want_weights; default equal)
+M         = weighted mean of the 4 motivators (user/profile.yml → scoring.match_weights; default equal)
 penalty   = −0.30 per motivator scoring ≤ 2
 H         = h(City) + h(Salary Adj)* + h(WLB)      * salary term is 0 for interns
 h(x)      = +0.25 (x ≥ 8) · 0 (5–7) · −0.40 (4) · −0.80 (3) · −1.20 (< 3)
 P         = +0.25 for a lower-tier dream company (preference), else 0
-Want      = clamp(M − penalty + H + P, 1, 10); dream floor 8.0
-vetoes    : any hygiene factor < 3 (salary ignored for interns) → Want ≤ 5.0
-            Role content ≤ 3                                     → Want ≤ 6.0
+Match      = clamp(M − penalty + H + P, 1, 10); dream floor 8.0
+vetoes    : any hygiene factor < 3 (salary ignored for interns) → Match ≤ 5.0
+            Role content ≤ 3                                     → Match ≤ 6.0
 ```
 
 #### Salary Adj for City — savings-power rubric
@@ -294,7 +294,7 @@ The math is encoded in `scripts/score-listing.mjs` (and `scripts/lib/score-bands
 
 WebSearch `{company} benefits {city} site:glassdoor.com OR site:levels.fyi` if the posting doesn't surface enough to judge. Apply in 0.1 steps mid-bucket; when it moves the score, say why in plain words in the Comp section (*"generous leave and two office days a week"*).
 
-**Internships** — pass `is_intern: true`; the script halves the city baseline (shared housing assumed) unless the JD states company-provided housing, and the salary hygiene term drops out of Want (stipends are not salaries).
+**Internships** — pass `is_intern: true`; the script halves the city baseline (shared housing assumed) unless the JD states company-provided housing, and the salary hygiene term drops out of Match (stipends are not salaries).
 
 **Poverty-wage discard:** if the script returns `score: 1` (savings < −€400/mo), `modes/pipeline.md` § Step 2c discards the listing before scoring.
 
@@ -426,9 +426,9 @@ Getting hired is a funnel — each stage multiplies the odds — so one weak dim
 
 | | Ease ≥ 7.0 | 5.0 ≤ Ease < 7.0 | Ease < 5.0 |
 |---|---|---|---|
-| **Want ≥ 8.0** | `go` — Go: apply now (T1) | `stretch` — Stretch: apply with prep (T2) | `growth` — Growth target: close the gap first (T3) |
-| **6.5 ≤ Want < 8.0** | `solid` — Solid: apply (T2) | `thin` — Only if your pipeline is thin (T2) | `skip` (T4) |
-| **Want < 6.5** | `skip` — easy, but you wouldn't want it (T4) | `skip` (T4) | `skip` (T4) |
+| **Match ≥ 8.0** | `go` — Go: apply now (T1) | `stretch` — Stretch: apply with prep (T2) | `growth` — Growth target: close the gap first (T3) |
+| **6.5 ≤ Match < 8.0** | `solid` — Solid: apply (T2) | `thin` — Only if your pipeline is thin (T2) | `skip` (T4) |
+| **Match < 6.5** | `skip` — easy, but a weak match (T4) | `skip` (T4) | `skip` (T4) |
 | **Eligibility red** | `blocked` (T4) | | |
 
 Verdict labels: `go` "Go" · `stretch` "Stretch" · `growth` "Growth target" · `solid` "Solid" · `thin` "If pipeline thin" · `skip` "Skip" · `blocked` "Blocked". The script returns `verdict`, `verdict_label`, `tier` and `tier_reason` — use them verbatim.
@@ -441,7 +441,7 @@ Verdict labels: `go` "Go" · `stretch` "Stretch" · `growth` "Growth target" · 
 
 ### Priority (sort key only)
 
-`priority = √(Want × Ease)`, rounded to 2 decimals; `null` when blocked. It exists for sort orders, the batch runner's `--min-score` gate, dedup "higher wins" in the merge scripts, and peer percentiles. **Never render it as the headline score** — reports and UIs show **Want · Ease** plus the eligibility chip.
+`priority = √(Match × Ease)`, rounded to 2 decimals; `null` when blocked. It exists for sort orders, the batch runner's `--min-score` gate, dedup "higher wins" in the merge scripts, and peer percentiles. **Never render it as the headline score** — reports and UIs show **Match · Ease** plus the eligibility chip.
 
 ### Running `score-listing.mjs`
 
@@ -462,7 +462,7 @@ echo '{
 }' | node scripts/score-listing.mjs
 ```
 
-Optional `scoring_weights: { want: {...}, ease: {...} }` overrides `user/profile.yml` → `scoring:`. The output carries `eligibility`, `salary_adj_for_city` (`.summary` is the one-line Salary cell; `.math` is the report's footer line), `calibrated_dims`, `want` / `ease` objects (their `.score` is the number you write everywhere else), `priority`, `verdict`, `verdict_label`, `tier`, `tier_reason` and `explanation`.
+Optional `scoring_weights: { match: {...}, ease: {...} }` overrides `user/profile.yml` → `scoring:`. The output carries `eligibility`, `salary_adj_for_city` (`.summary` is the one-line Salary cell; `.math` is the report's footer line), `calibrated_dims`, `match` / `ease` objects (their `.score` is the number you write everywhere else), `priority`, `verdict`, `verdict_label`, `tier`, `tier_reason` and `explanation`.
 
 ### Reasoning cells
 
@@ -472,7 +472,7 @@ Everything else is judgment (see § Report Voice): one or two plain sentences pe
 
 - **Eligibility rows** (each non-green check): name the posting line behind it in plain words (*"they ask for a June start; your term runs to July"*), or say it's not stated. Every amber carries its recruiter question.
 - **Salary Adj for City:** paste the script's `salary_adj_for_city.summary` (e.g. *"About €150 a month left after living costs in Lyon (estimated pay)"*). The full `salary_adj_for_city.math` chain goes in the report's footer line, never in the cell. When the comp is an estimate, pass `comp_source: "estimate"` so both say so.
-- **Rollup rows** (`**Want (rollup)**`, `**Ease (rollup)**`): the number plus a few plain words (*"carried by brand and the work itself"*, *"held down by the experience ask"*) — never the formula.
+- **Rollup rows** (`**Match (rollup)**`, `**Ease (rollup)**`): the number plus a few plain words (*"carried by brand and the work itself"*, *"held down by the experience ask"*) — never the formula.
 
 **Worked example — Experience bar, a graduate programme that prefers a top-tier prior internship.** Old voice (don't): *"JD lists prior-background preference: 'previous internship at a top-tier…'. Your cv.md § Experience shows a boutique internship (~2mo); no calibration adjustment applies. Net 5."* Advisor voice (do), two defensible readings of the same posting:
 
@@ -501,7 +501,7 @@ Sibling roles still differ on **Skills Match** (different stacks), **Role conten
 **Header** (after the `# Scouting:` / `# Gap & Growth:` title and the Date / Location / Archetype lines), exactly these six lines in this order, then `**Posted:**` and `**Posting check:**` (`modes/scouting.md` § Universal header):
 
 ```markdown
-**Want:** 8.25/10 · **Ease:** 5.6/10
+**Match:** 8.25/10 · **Ease:** 5.6/10
 **Eligibility:** amber — start date not stated
 **Verdict:** Stretch — apply with prep
 **TL;DR:** The role fits on skills; the start date is the open question, so ask first.
@@ -532,14 +532,14 @@ Sibling roles still differ on **Skills Match** (different stacks), **Role conten
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 8/10 | ... |
-| Optionality / Exit (want) | X/10 | ... |
-| Brand Value (want) | X/10 | ... |
-| Role content (want) | X/10 | ... |
+| Growth / Mobility (match) | 8/10 | ... |
+| Optionality / Exit (match) | X/10 | ... |
+| Brand Value (match) | X/10 | ... |
+| Role content (match) | X/10 | ... |
 | City (hygiene) | X/10 | ... |
 | Salary Adj for City (hygiene) | X/10 | {salary_adj_for_city.summary} |
 | Work-Life Balance (hygiene) | X/10 | ... |
-| **Want (rollup)** | **8.25/10** | Carried by brand and the work itself |
+| **Match (rollup)** | **8.25/10** | Carried by brand and the work itself |
 | Skills Match (ease) | X/10 | ... |
 | Experience bar (ease) | X/10 | ... |
 | Competition (ease) | X/10 | ... |
@@ -551,15 +551,15 @@ Sibling roles still differ on **Skills Match** (different stacks), **Role conten
 Salary math: {salary_adj_for_city.math}
 ```
 
-Row order and the `(want)` / `(hygiene)` / `(ease)` / `(context)` tags are fixed — the frontend parser splits the groups on them. Omit the "Ask the recruiter" list when nothing is amber. The `Salary math:` line is the **last line of every report**, plain text, exactly once.
+Row order and the `(match)` / `(hygiene)` / `(ease)` / `(context)` tags are fixed — the frontend parser splits the groups on them. Omit the "Ask the recruiter" list when nothing is amber. The `Salary math:` line is the **last line of every report**, plain text, exactly once.
 
 ### Using the `explanation` object
 
-`scripts/score-listing.mjs` returns `explanation` — `bindingConstraints[]` (kinds `eligibility_red`, `experience_wall`, `hygiene_veto`, `role_content_veto`, `amber`, `low_want`, `low_ease`) and `levers[]` (the smallest single change that moves the verdict to a better cell). **It is not rendered as a section.** Use it to decide what the report leads with: `bindingConstraints[0]` is usually the deciding factor the Recommendation opens with and the first gap, and `levers[0]` is usually the move you recommend (an `amber` lever is a question to ask the recruiter). Translate it into plain words — never write "binding constraint" or "lever" in the report — and never contradict it: if your read differs, the scores are wrong, fix them. When there is no lever, don't invent one.
+`scripts/score-listing.mjs` returns `explanation` — `bindingConstraints[]` (kinds `eligibility_red`, `experience_wall`, `hygiene_veto`, `role_content_veto`, `amber`, `low_match`, `low_ease`) and `levers[]` (the smallest single change that moves the verdict to a better cell). **It is not rendered as a section.** Use it to decide what the report leads with: `bindingConstraints[0]` is usually the deciding factor the Recommendation opens with and the first gap, and `levers[0]` is usually the move you recommend (an `amber` lever is a question to ask the recruiter). Translate it into plain words — never write "binding constraint" or "lever" in the report — and never contradict it: if your read differs, the scores are wrong, fix them. When there is no lever, don't invent one.
 
 ### Comparative Rank Block
 
-Same-archetype peer comparison from `data/score-history.tsv`, computed by `scripts/peer-rank.mjs` (gates and confidence tiers per `docs/scoring-statistical-design.md`). **Primary archetype segment** = the archetype string before the first ` + ` (hybrids are `Primary + Secondary`; `/` stays inside compound names). Peers = rows whose primary segment matches, excluding Blocked rows (empty `want` / `ease`), which are not peers.
+Same-archetype peer comparison from `data/score-history.tsv`, computed by `scripts/peer-rank.mjs` (gates and confidence tiers per `docs/scoring-statistical-design.md`). **Primary archetype segment** = the archetype string before the first ` + ` (hybrids are `Primary + Secondary`; `/` stays inside compound names). Peers = rows whose primary segment matches, excluding Blocked rows (empty `match` / `ease`), which are not peers.
 
 **Drift gate:** if the same hybrid is written both as `X + Y` and `X / Y` in the history (`cut -f2 data/score-history.tsv | tail -n +2 | sort -u`) and the drift touches this primary segment, skip the block and say so in a `## Notes` line naming the variants; if it touches other archetypes only, note it and proceed.
 
@@ -567,14 +567,14 @@ Same-archetype peer comparison from `data/score-history.tsv`, computed by `scrip
 
 ```
 ---
-**Rank vs [Archetype] peers:** Want X.X · Ease X.X — Priority top N% of M roles evaluated
+**Rank vs [Archetype] peers:** Match X.X · Ease X.X — Priority top N% of M roles evaluated
 **Dimension outliers:** Skills Match +X.X above avg · Experience bar −X.X below avg
-**Closest comparables:** [Company A] (W X.X · E X.X) · [Company B] (W X.X · E X.X) · [Company C] (W X.X · E X.X)
+**Closest comparables:** [Company A] (M X.X · E X.X) · [Company B] (M X.X · E X.X) · [Company C] (M X.X · E X.X)
 ```
 
 Outliers are dimensions ≥ 1.5 points from the peer average (positive first); with none, write `**Dimension outliers:** profile close to archetype average`. Comparables are the 3 peers with the closest Priority. The block is informational — it never changes the verdict.
 
-**Outcome stats (optional citation).** You may cite how comparable applications went only from `node scripts/outcomes.mjs --json`, and only a stat whose `sample.sufficient` is `true`: the `overall` entry, or the `slices.archetype` / `slices.easeBand` entry matching this listing. State it with its n, e.g. "3 of 11 comparable applications got past screening (moderate)". When `sufficient` is `false`, or the command is unavailable, say nothing about outcomes. Outcome stats never change a dimension score, Want or Ease. A confirmed gap is the user's call, in `calibrate`. Contract: `docs/scoring-statistical-design.md` § 3.7.
+**Outcome stats (optional citation).** You may cite how comparable applications went only from `node scripts/outcomes.mjs --json`, and only a stat whose `sample.sufficient` is `true`: the `overall` entry, or the `slices.archetype` / `slices.easeBand` entry matching this listing. State it with its n, e.g. "3 of 11 comparable applications got past screening (moderate)". When `sufficient` is `false`, or the command is unavailable, say nothing about outcomes. Outcome stats never change a dimension score, Match or Ease. A confirmed gap is the user's call, in `calibrate`. Contract: `docs/scoring-statistical-design.md` § 3.7.
 
 **A message to the user (optional, rare).** If something only the user can fix blocks this evaluation (the listing needs a login, the rubric needs a profile fact you cannot infer), you may leave one message: `node scripts/messages.mjs post --source eval --kind alert --title "…" --body "…" --link <report path> --key eval:<report number>`. Finish the evaluation as best you can either way, and don't post about gaps the report already records.
 
@@ -582,10 +582,10 @@ Outliers are dimensions ≥ 1.5 points from the peer average (positive first); w
 
 | File | Holds | Merge script | TSV drop folder | Columns |
 |------|-------|--------------|-----------------|---------|
-| `data/scouting.md` | Landscape inventory — every evaluation (including Blocked) lands here | `scripts/merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Want \| Ease \| Tier \| Eligibility \| Report \| Deadline \| Promotion Hint \| Notes` |
+| `data/scouting.md` | Landscape inventory — every evaluation (including Blocked) lands here | `scripts/merge-scouting.mjs` | `batch/scouting-additions/` | `# \| Date \| Company \| Role \| Match \| Ease \| Tier \| Eligibility \| Report \| Deadline \| Promotion Hint \| Notes` |
 | `data/applications.md` | Active applications — entries promoted from scouting | `scripts/merge-tracker.mjs` | `batch/tracker-additions/` | `# \| Date \| Company \| Role \| Score \| Status \| PDF \| Deadline \| Report \| Notes` |
 
-In `data/applications.md` the Score cell for new rows is `W8.3 E5.6` (legacy `X.X/10` cells stay valid). `go` rows flagged `READY` are promoted via `node scripts/promote-to-applications.mjs <num>` (or Apply in the Database UI) with status `Evaluated`. Blocked listings are never promoted.
+In `data/applications.md` the Score cell for new rows is `M8.3 E5.6` (legacy `X.X/10` cells stay valid). `go` rows flagged `READY` are promoted via `node scripts/promote-to-applications.mjs <num>` (or Apply in the Database UI) with status `Evaluated`. Blocked listings are never promoted.
 
 **Row numbers are reserved, not derived.** A scouting row's `{num}` (in the TSV and its report link) is the report number reserved for that listing: the batch runner states it in the task message; with none, run `node scripts/reserve-report-num.mjs` and use what it prints (`--count <N>` claims N at once, one per line, when one run writes several rows). Never compute it from the max in `data/scouting.md` / `data/applications.md`: `scripts/merge-scouting.mjs` keeps a reserved number and releases the claim.
 
@@ -612,13 +612,13 @@ In `data/applications.md` the Score cell for new rows is `W8.3 E5.6` (legacy `X.
 Every evaluation — including skips and Blocked listings — appends one row. Columns, in order:
 
 ```
-date	archetype	skills_match	experience_bar	competition	ease	growth_mobility	optionality_exit	brand_value	role_content	best_cities	salary_adj_city	work_life_balance	want	priority	eligibility	eligibility_flags	verdict	best_fit_roles	mode	company	role	tier	source	location	employment_type	duration	salary_raw	url
+date	archetype	skills_match	experience_bar	competition	ease	growth_mobility	optionality_exit	brand_value	role_content	best_cities	salary_adj_city	work_life_balance	match	priority	eligibility	eligibility_flags	verdict	best_fit_roles	mode	company	role	tier	source	location	employment_type	duration	salary_raw	url
 ```
 
 **Column definitions:**
 - Dimension columns: the values the script actually used — `calibrated_dims[dim].final` where calibration applied (Brand bonuses can make it non-integer), else your judgment integer; `salary_adj_city` as the script returned it.
-- `ease`, `want`, `priority`: the script's numbers (`ease.score`, `want.score`, `priority`), baked in at write time — readers never recompute.
-- **Blocked rows:** every dimension column plus `want`, `ease`, `priority` are **empty** (not 0). Readers treat empty as missing, never as 0.
+- `ease`, `match`, `priority`: the script's numbers (`ease.score`, `match.score`, `priority`), baked in at write time — readers never recompute.
+- **Blocked rows:** every dimension column plus `match`, `ease`, `priority` are **empty** (not 0). Readers treat empty as missing, never as 0.
 - `eligibility`: `green` | `amber` | `red`.
 - `eligibility_flags`: `;`-joined `check:status:reason` for every non-green check (empty when green). Keep `;`, `:` and tabs out of the reason text.
 - `verdict`: the verdict key (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`).

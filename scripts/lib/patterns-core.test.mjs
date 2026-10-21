@@ -13,8 +13,8 @@
 //   extractBlockerType     — soft-gap skip, geo/stack/seniority/onsite/other
 //   computeFunnel          — cumulative furthest-stage semantics + conversion rates
 //   diagnoseFunnel         — weakest-gate selection, min-base gating, tie-break
-//   scoreInfo / scoreStats — v2 "W.. E.." + legacy "X/10" cells via tracker-core,
-//                            verdict from W/E (eligibility green), report fallback
+//   scoreInfo / scoreStats — v2 "M.. E.." + legacy "X/10" cells via tracker-core,
+//                            verdict from M/E (eligibility green), report fallback
 //   enrichEntries          — report resolver injection, notes fallback
 //   computeVerdictFloor    — worst verdict among progressed applications
 //   analyzeOutcomes        — threshold gate, full assembly, funnel-led recs,
@@ -86,7 +86,7 @@ test('classifyOutcome: negative / self_filtered / pending', () => {
 // Current on-disk format carries a Deadline cell between PDF and Report (10-col).
 const SAMPLE_TRACKER = `| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
 |---|------|---------|------|-------|--------|-----|----------|--------|-------|
-| 1 | 2026-06-01 | Northwind Analytics | Data Analyst | W8.3 E5.6 | Applied | ✅ | 2026-06-30 | [1](reports/tier-2/northwind.md) | remote EU |
+| 1 | 2026-06-01 | Northwind Analytics | Data Analyst | M8.3 E5.6 | Applied | ✅ | 2026-06-30 | [1](reports/tier-2/northwind.md) | remote EU |
 | 2 | 2026-06-02 | Contoso Retail | Strategy | 7.4/10 | Interview | ✅ | Rolling | [2](reports/tier-2/contoso.md) | hybrid |
 not a table row
 | x | bad | row | skipped | - | - | - | - | - | - |`;
@@ -96,7 +96,7 @@ test('parseTracker: maps columns and skips header/separator/non-numeric rows', (
   assert.equal(rows.length, 2);
   assert.deepEqual(
     { num: rows[0].num, company: rows[0].company, role: rows[0].role, status: rows[0].status, score: rows[0].score },
-    { num: 1, company: 'Northwind Analytics', role: 'Data Analyst', status: 'Applied', score: 'W8.3 E5.6' }
+    { num: 1, company: 'Northwind Analytics', role: 'Data Analyst', status: 'Applied', score: 'M8.3 E5.6' }
   );
   assert.equal(rows[0].notes, 'remote EU');
   assert.equal(rows[1].company, 'Contoso Retail');
@@ -136,7 +136,7 @@ test('enrichEntries: resolves literal-parenthesis and percent-encoded report lin
 test('parseTracker + enrichEntries: geo-restriction from Notes on a 10-col row', () => {
   const tracker = `| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
 |---|------|---------|------|-------|--------|-----|----------|--------|-------|
-| 1 | 2026-06-01 | Fabrikam Labs | Data Analyst | W6.8 E4.2 | Rejected | ❌ | n/d | [1](reports/tier-3/fabrikam.md) | US only |`;
+| 1 | 2026-06-01 | Fabrikam Labs | Data Analyst | M6.8 E4.2 | Rejected | ❌ | n/d | [1](reports/tier-3/fabrikam.md) | US only |`;
   const enriched = enrichEntries(parseTracker(tracker), null);
   assert.equal(enriched[0].remoteBucket, 'geo-restricted');
 });
@@ -199,7 +199,7 @@ test('extractBlockerType: classifies hard blockers', () => {
 function enrichedFromStatuses(statuses) {
   return statuses.map((status, i) => ({
     num: i + 1, status, normalizedStatus: normalizeStatus(status),
-    outcome: classifyOutcome(status), score: 'W7.5 E7.5', priority: 7.5, want: 7.5, ease: 7.5, verdict: 'solid', report: null,
+    outcome: classifyOutcome(status), score: 'M7.5 E7.5', priority: 7.5, match: 7.5, ease: 7.5, verdict: 'solid', report: null,
     remoteBucket: 'unknown', companySize: 'unknown', date: '2026-06-01', notes: '',
   }));
 }
@@ -300,7 +300,7 @@ test('diagnoseFunnel: impact is high when the weakest rate is very low', () => {
 
 test('enrichEntries: resolves report link via injected loader + notes fallback', () => {
   const entries = [
-    { num: 1, date: '2026-06-01', company: 'Northwind Analytics', role: 'Analyst', score: 'W8.4 E7.2',
+    { num: 1, date: '2026-06-01', company: 'Northwind Analytics', role: 'Analyst', score: 'M8.4 E7.2',
       status: 'Applied', pdf: '✅', report: '[1](reports/tier-2/northwind.md)', notes: 'US only' },
     { num: 2, date: '2026-06-02', company: 'Contoso Retail', role: 'Strat', score: '8/10',
       status: 'Interview', pdf: '✅', report: 'n/a', notes: '' },
@@ -317,9 +317,9 @@ test('enrichEntries: resolves report link via injected loader + notes fallback',
   // entry 2 has no parseable report link → null report
   assert.equal(enriched[1].report, null);
   assert.equal(enriched[1].normalizedStatus, 'interview');
-  // score info: raw cell kept; v2 → W/E/verdict/priority; legacy → label + legacyScore only
-  assert.equal(enriched[0].score, 'W8.4 E7.2');
-  assert.equal(enriched[0].scoreLabel, 'W8.4 · E7.2');
+  // score info: raw cell kept; v2 → M/E/verdict/priority; legacy → label + legacyScore only
+  assert.equal(enriched[0].score, 'M8.4 E7.2');
+  assert.equal(enriched[0].scoreLabel, 'M8.4 · E7.2');
   assert.equal(enriched[0].verdict, 'go');
   assert.equal(enriched[0].priority, 7.78);
   assert.equal(enriched[1].scoreLabel, '8/10');
@@ -330,23 +330,23 @@ test('enrichEntries: resolves report link via injected loader + notes fallback',
 
 /* ───── scoreInfo / scoreStats ───────────────────────────────────────────────*/
 
-test('scoreInfo: v2 cell → Want/Ease/Priority + grid verdict (eligibility green)', () => {
-  assert.deepEqual(scoreInfo('W8.3 E5.6'), {
-    scoreLabel: 'W8.3 · E5.6', priority: 6.82, want: 8.3, ease: 5.6, legacyScore: null, verdict: 'stretch',
+test('scoreInfo: v2 cell → Match/Ease/Priority + grid verdict (eligibility green)', () => {
+  assert.deepEqual(scoreInfo('M8.3 E5.6'), {
+    scoreLabel: 'M8.3 · E5.6', priority: 6.82, match: 8.3, ease: 5.6, legacyScore: null, verdict: 'stretch',
   });
-  assert.equal(scoreInfo('W7.0 E7.5').verdict, 'solid');
-  assert.equal(scoreInfo('W6.0 E9.0').verdict, 'skip');
+  assert.equal(scoreInfo('M7.0 E7.5').verdict, 'solid');
+  assert.equal(scoreInfo('M6.0 E9.0').verdict, 'skip');
 });
 
 test('scoreInfo: legacy cell has no Priority (v1 Overall is off-scale), no verdict without a v2 report', () => {
   assert.deepEqual(scoreInfo('7.4/10'), {
-    scoreLabel: '7.4/10', priority: null, want: null, ease: null, legacyScore: 7.4, verdict: null,
+    scoreLabel: '7.4/10', priority: null, match: null, ease: null, legacyScore: 7.4, verdict: null,
   });
-  // A v2 report header fills Want/Ease (and so the verdict) for a legacy cell.
-  const fromReport = scoreInfo('7.4/10', { scores: { want: 8.2, ease: 7.1 } });
+  // A v2 report header fills Match/Ease (and so the verdict) for a legacy cell.
+  const fromReport = scoreInfo('7.4/10', { scores: { match: 8.2, ease: 7.1 } });
   assert.equal(fromReport.verdict, 'go');
   assert.equal(fromReport.priority, 7.63); // √(8.2 × 7.1) from the v2 report, never the v1 number
-  // A stated verdict alone is used when the report has no Want/Ease.
+  // A stated verdict alone is used when the report has no Match/Ease.
   assert.equal(scoreInfo('7.4/10', { scores: {}, verdict: 'thin' }).verdict, 'thin');
 });
 
@@ -359,14 +359,14 @@ test('scoreInfo: unparseable / empty cells are missing, never 0', () => {
   }
 });
 
-test('scoreStats: Priority / Want / Ease averages, verdict tally, actionableRate', () => {
-  const rows = ['W8.4 E7.2', 'W8.2 E5.5', 'W7.0 E5.5', '7.0/10', 'N/A'].map(c => scoreInfo(c));
+test('scoreStats: Priority / Match / Ease averages, verdict tally, actionableRate', () => {
+  const rows = ['M8.4 E7.2', 'M8.2 E5.5', 'M7.0 E5.5', '7.0/10', 'N/A'].map(c => scoreInfo(c));
   const st = scoreStats(rows);
   assert.equal(st.count, 3);                // legacy + N/A have no Priority
   assert.deepEqual(st.excluded, { legacy: 1, unscored: 1 });
-  assert.equal(st.maxPriority, scoreInfo('W8.4 E7.2').priority);
-  assert.equal(st.wantEaseCount, 3);        // legacy has no W/E
-  assert.equal(st.avgWant, round2((8.4 + 8.2 + 7.0) / 3));
+  assert.equal(st.maxPriority, scoreInfo('M8.4 E7.2').priority);
+  assert.equal(st.matchEaseCount, 3);        // legacy has no M/E
+  assert.equal(st.avgMatch, round2((8.4 + 8.2 + 7.0) / 3));
   assert.equal(st.verdicts.go, 1);
   assert.equal(st.verdicts.stretch, 1);
   assert.equal(st.verdicts.thin, 1);
@@ -415,7 +415,7 @@ test('analyzeOutcomes: empty → error', () => {
 test('analyzeOutcomes: under threshold → guidance error', () => {
   const enriched = enrichEntries(
     parseTracker(`| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
-| 1 | 2026-06-01 | A | R | W7 E7 | Applied | ✅ | n/a | x |
+| 1 | 2026-06-01 | A | R | M7 E7 | Applied | ✅ | n/a | x |
 | 2 | 2026-06-02 | B | R | 7/10 | Applied | ✅ | n/a | x |`),
     null
   );
@@ -428,12 +428,12 @@ test('analyzeOutcomes: under threshold → guidance error', () => {
 test('analyzeOutcomes: full assembly surfaces the conversion funnel + funnel-led rec', () => {
   // 6 applications: a clear response-stage leak (most never respond).
   const tracker = `| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
-| 1 | 2026-06-01 | A | Analyst | W8.4 E7.2 | Applied | ✅ | n/a | remote EU |
-| 2 | 2026-06-02 | B | Analyst | W8.1 E5.5 | Applied | ✅ | n/a | remote EU |
-| 3 | 2026-06-03 | C | Analyst | W7.0 E5.5 | Rejected | ✅ | n/a | remote EU |
+| 1 | 2026-06-01 | A | Analyst | M8.4 E7.2 | Applied | ✅ | n/a | remote EU |
+| 2 | 2026-06-02 | B | Analyst | M8.1 E5.5 | Applied | ✅ | n/a | remote EU |
+| 3 | 2026-06-03 | C | Analyst | M7.0 E5.5 | Rejected | ✅ | n/a | remote EU |
 | 4 | 2026-06-04 | D | Analyst | 7.8/10 | Rejected | ✅ | n/a | remote EU |
-| 5 | 2026-06-05 | E | Analyst | W8.6 E7.4 | Responded | ✅ | n/a | remote EU |
-| 6 | 2026-06-06 | F | Analyst | W7.2 E8.0 | Interview | ✅ | n/a | remote EU |`;
+| 5 | 2026-06-05 | E | Analyst | M8.6 E7.4 | Responded | ✅ | n/a | remote EU |
+| 6 | 2026-06-06 | F | Analyst | M7.2 E8.0 | Interview | ✅ | n/a | remote EU |`;
   const enriched = enrichEntries(parseTracker(tracker), null);
   const r = analyzeOutcomes(enriched, { minThreshold: 5 });
   assert.equal(r.error, undefined);
@@ -456,7 +456,7 @@ test('analyzeOutcomes: full assembly surfaces the conversion funnel + funnel-led
   assert.equal(r.scoreComparison.positive.count, 4);
   assert.equal(r.scoreComparison.negative.count, 1);           // the legacy 7.8 is excluded…
   assert.equal(r.scoreComparison.negative.excluded.legacy, 1);  // …and counted
-  assert.equal(r.scoreComparison.negative.wantEaseCount, 1);
+  assert.equal(r.scoreComparison.negative.matchEaseCount, 1);
   assert.equal(r.scoreComparison.negative.actionableRate, 0);  // the one known verdict is thin
   assert.equal(r.archetypeBreakdown[0].actionableRate, 80);
   assert.equal(r.verdictFloor.lowest, 'solid');               // progressed: go (E), solid (F)
@@ -468,12 +468,12 @@ test('analyzeOutcomes: full assembly surfaces the conversion funnel + funnel-led
 
 test('analyzeOutcomes: verdict-floor and skip-application recommendations', () => {
   const tracker = `| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
-| 1 | 2026-06-01 | A | Analyst | W8.4 E7.2 | Interview | ✅ | n/a | x |
-| 2 | 2026-06-02 | B | Analyst | W8.1 E7.5 | Responded | ✅ | n/a | x |
-| 3 | 2026-06-03 | C | Analyst | W7.4 E7.6 | Offer | ✅ | n/a | x |
-| 4 | 2026-06-04 | D | Analyst | W6.0 E8.0 | Rejected | ✅ | n/a | x |
-| 5 | 2026-06-05 | E | Analyst | W5.5 E6.0 | Applied | ✅ | n/a | x |
-| 6 | 2026-06-06 | F | Analyst | W7.0 E5.5 | Applied | ✅ | n/a | x |`;
+| 1 | 2026-06-01 | A | Analyst | M8.4 E7.2 | Interview | ✅ | n/a | x |
+| 2 | 2026-06-02 | B | Analyst | M8.1 E7.5 | Responded | ✅ | n/a | x |
+| 3 | 2026-06-03 | C | Analyst | M7.4 E7.6 | Offer | ✅ | n/a | x |
+| 4 | 2026-06-04 | D | Analyst | M6.0 E8.0 | Rejected | ✅ | n/a | x |
+| 5 | 2026-06-05 | E | Analyst | M5.5 E6.0 | Applied | ✅ | n/a | x |
+| 6 | 2026-06-06 | F | Analyst | M7.0 E5.5 | Applied | ✅ | n/a | x |`;
   const r = analyzeOutcomes(enrichEntries(parseTracker(tracker), null), { minThreshold: 5 });
   assert.equal(r.verdictFloor.lowest, 'solid');
   assert.equal(r.verdictFloor.belowFloor, 3); // skip, skip, thin
@@ -488,7 +488,7 @@ test('analyzeOutcomes: verdict-floor and skip-application recommendations', () =
 
 
 test('archetypeFromReportHeader: reads the v2 header line, bold or plain; placeholders and blanks are null', () => {
-  assert.equal(archetypeFromReportHeader('# Scouting: Nimbus Robotics — Analyst\n\n**Date:** 2026-06-01\n**Archetype:** Strategy & Ops\n**Want:** 8/10 · **Ease:** 6/10\n'), 'Strategy & Ops')
+  assert.equal(archetypeFromReportHeader('# Scouting: Nimbus Robotics — Analyst\n\n**Date:** 2026-06-01\n**Archetype:** Strategy & Ops\n**Match:** 8/10 · **Ease:** 6/10\n'), 'Strategy & Ops')
   assert.equal(archetypeFromReportHeader('Archetype: Data Analyst'), 'Data Analyst')
   assert.equal(archetypeFromReportHeader('**Archetype:** —'), null)
   assert.equal(archetypeFromReportHeader('**Archetype:** {primary}'), null)

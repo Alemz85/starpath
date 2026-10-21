@@ -11,10 +11,10 @@
  * per docs/scoring-statistical-design.md § 3.7), and SURFACES where the
  * calibration looks off:
  *
- *   • brand bonuses that are inert (the company's mean Want is in the top
- *     verdict row without them) or misdirected (its mean Want stays in the
+ *   • brand bonuses that are inert (the company's mean Match is in the top
+ *     verdict row without them) or misdirected (its mean Match stays in the
  *     bottom row even with them, so every verdict is Skip),
- *   • un-credited companies whose roles keep reaching the top Want row
+ *   • un-credited companies whose roles keep reaching the top Match row
  *     (candidates to add),
  *   • rubric dimensions pinned at a ceiling/floor (no discriminating signal),
  *   • comp targets that sit above (or below) what the landscape actually pays,
@@ -22,7 +22,7 @@
  *     vice-versa, and Ease bands that rank outcomes the wrong way round (both
  *     from the one outcomes analysis, never from the tracker's status text).
  *
- * Scoring model: v2 (docs/scoring-v2.md) — Want / Ease / verdict; blocked
+ * Scoring model: v2 (docs/scoring-v2.md) — Match / Ease / verdict; blocked
  * (eligibility red) rows never enter a score claim.
  *
  * It is SUGGEST-ONLY. It never writes user/* — it prints concrete edits the
@@ -91,7 +91,7 @@ function firstExisting(paths) {
  * historically also under `target_roles.dream_companies` /
  * `profile.dream_companies`. We merge all three sources into the single shape
  * the scorer consumes, so the advisor sees exactly what the scorer sees. The
- * `scoring:` block's want_weights / ease_weights are read the same way
+ * `scoring:` block's match_weights / ease_weights are read the same way
  * score-listing.mjs reads them. Everything is optional — a missing file or
  * block yields an empty calibration and default weights (the advisor still
  * runs the rubric-health and comp checks that don't need them).
@@ -115,7 +115,7 @@ function loadProfile(path) {
   }
   const scoring = doc.scoring || {}
   const weights = {
-    want: scoring.want ?? scoring.want_weights,
+    match: scoring.match ?? scoring.match_weights ?? scoring.want_weights,   // want_weights: pre-rename
     ease: scoring.ease ?? scoring.ease_weights,
   }
   return { calibration: cal, weights }
@@ -215,11 +215,11 @@ function printSummary(r) {
   // ── Brand-bonus drift ──
   const drift = d.brandBonusDrift || []
   if (drift.length) {
-    line(`  BRAND-BONUS DRIFT (mean Want vs the verdict rows: ${m.contract.wantRows.mid.toFixed(1)} / ${m.contract.wantRows.high.toFixed(1)})`)
+    line(`  BRAND-BONUS DRIFT (mean Match vs the verdict rows: ${m.contract.matchRows.mid.toFixed(1)} / ${m.contract.matchRows.high.toFixed(1)})`)
     for (const x of drift) {
       const tag = x.verdict === 'misdirected' ? '✗ misdirected' : '· inert'
-      const unaided = x.avgWantUnaided !== x.avgWant ? ` (${x.avgWantUnaided} without the bonus)` : ''
-      line(`    ${pad(tag, 14)} ${pad(x.company, 22)} Want ${x.avgWant}${unaided} · Ease ${x.avgEase} over ${x.roles}  [${x.source}]  [n=${x.roles}, ${x.confidence}]`)
+      const unaided = x.avgMatchUnaided !== x.avgMatch ? ` (${x.avgMatchUnaided} without the bonus)` : ''
+      line(`    ${pad(tag, 14)} ${pad(x.company, 22)} Match ${x.avgMatch}${unaided} · Ease ${x.avgEase} over ${x.roles}  [${x.source}]  [n=${x.roles}, ${x.confidence}]`)
     }
     line()
   }
@@ -227,9 +227,9 @@ function printSummary(r) {
   // ── Candidates ──
   const cand = (d.brandBonusCandidates || []).slice(0, 5)
   if (cand.length) {
-    line('  UN-CREDITED TOP-WANT COMPANIES (candidates to add)')
+    line('  UN-CREDITED TOP-MATCH COMPANIES (candidates to add)')
     for (const x of cand) {
-      line(`    +  ${pad(x.company, 22)} Want ${x.avgWant} · Ease ${x.avgEase} over ${x.roles} evals  [n=${x.roles}, ${x.confidence}]`)
+      line(`    +  ${pad(x.company, 22)} Match ${x.avgMatch} · Ease ${x.avgEase} over ${x.roles} evals  [n=${x.roles}, ${x.confidence}]`)
     }
     line()
   }
@@ -253,7 +253,7 @@ function printSummary(r) {
     if (flags.length) {
       line('  SCORE → OUTCOME MISMATCH')
       for (const a of flags) {
-        const where = `typically ${VERDICT_LABELS[a.typicalVerdict] ?? a.typicalVerdict} (Want ${a.avgWant} · Ease ${a.avgEase})`
+        const where = `typically ${VERDICT_LABELS[a.typicalVerdict] ?? a.typicalVerdict} (Match ${a.avgMatch} · Ease ${a.avgEase})`
         const desc = a.flag === 'high-score-no-convert'
           ? `${where} but 0/${a.applied} progressed`
           : `${where} yet progresses ${a.convertRate}%`

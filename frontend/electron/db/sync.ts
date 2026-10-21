@@ -79,7 +79,7 @@ function buildTierLookup(db: Database.Database): Map<string, string> {
 //   1. SKIP status → T4
 //   2. the listing's latest score-history tier (the engine's verdict)
 //   3. the report link's `reports/tier-N/` folder
-//   4. a v2 `W.. E..` Score cell replayed through the verdict grid
+//   4. a v2 `M.. E..` Score cell replayed through the verdict grid
 // and stays '' otherwise (a legacy `X.X/10` cell carries no tier on its own).
 function deriveAppTier(
   status: string,
@@ -94,7 +94,7 @@ function deriveAppTier(
   if (stored) return stored
   const fromPath = report.match(/reports\/tier-([1-4])\//)
   if (fromPath) return `T${fromPath[1]}`
-  if (cell && 'want' in cell) return assignVerdict({ want: cell.want, ease: cell.ease })?.tier ?? ''
+  if (cell && 'match' in cell) return assignVerdict({ match: cell.match, ease: cell.ease })?.tier ?? ''
   return ''
 }
 
@@ -115,8 +115,8 @@ export function syncApplications(db: Database.Database, dataPath: string): { cha
   const locLookup = buildLocationLookup(db)
   const tierLookup = buildTierLookup(db)
   const insert = db.prepare(`
-    INSERT INTO applications (num, date, company, role, score_raw, want, ease, legacy_score, status, pdf, deadline, report, notes, tier, entity_id, cities)
-    VALUES (@num, @date, @company, @role, @score_raw, @want, @ease, @legacy_score, @status, @pdf, @deadline, @report, @notes, @tier, @entity_id, @cities)
+    INSERT INTO applications (num, date, company, role, score_raw, match, ease, legacy_score, status, pdf, deadline, report, notes, tier, entity_id, cities)
+    VALUES (@num, @date, @company, @role, @score_raw, @match, @ease, @legacy_score, @status, @pdf, @deadline, @report, @notes, @tier, @entity_id, @cities)
   `)
 
   const tx = db.transaction((entries: typeof rows) => {
@@ -130,7 +130,7 @@ export function syncApplications(db: Database.Database, dataPath: string): { cha
         company: r.company,
         role: r.role,
         score_raw: r.score,
-        want: cell && 'want' in cell ? cell.want : null,
+        match: cell && 'match' in cell ? cell.match : null,
         ease: cell && 'ease' in cell ? cell.ease : null,
         legacy_score: cell && 'legacy' in cell ? cell.legacy : null,
         status: r.status,
@@ -163,8 +163,8 @@ export function syncScouting(db: Database.Database, dataPath: string): { changed
   const rows = parseScouting(text)
   const locLookup = buildLocationLookup(db)
   const insert = db.prepare(`
-    INSERT INTO scouting (num, date, company, role, want, ease, tier, eligibility, eligibility_reason, report, deadline, promotion_hint, notes, entity_id, cities)
-    VALUES (@num, @date, @company, @role, @want, @ease, @tier, @eligibility, @eligibility_reason, @report, @deadline, @promotion_hint, @notes, @entity_id, @cities)
+    INSERT INTO scouting (num, date, company, role, match, ease, tier, eligibility, eligibility_reason, report, deadline, promotion_hint, notes, entity_id, cities)
+    VALUES (@num, @date, @company, @role, @match, @ease, @tier, @eligibility, @eligibility_reason, @report, @deadline, @promotion_hint, @notes, @entity_id, @cities)
   `)
 
   const tx = db.transaction((entries: typeof rows) => {
@@ -176,7 +176,7 @@ export function syncScouting(db: Database.Database, dataPath: string): { changed
         date: r.date,
         company: r.company,
         role: r.role,
-        want: r.want,
+        match: r.match,
         ease: r.ease,
         tier: r.tier,
         eligibility: r.eligibility,
@@ -215,14 +215,14 @@ export function syncScoreHistory(db: Database.Database, dataPath: string): { cha
     INSERT INTO score_history (
       date, archetype, skills_match, experience_bar, competition, ease,
       growth_mobility, optionality_exit, brand_value, role_content,
-      best_cities, salary_adj_city, work_life_balance, want, priority,
+      best_cities, salary_adj_city, work_life_balance, match, priority,
       eligibility, eligibility_flags, verdict, best_fit_roles,
       mode, company, role, tier, source, location, employment_type, duration, salary_raw,
       url
     ) VALUES (
       @date, @archetype, @skills_match, @experience_bar, @competition, @ease,
       @growth_mobility, @optionality_exit, @brand_value, @role_content,
-      @best_cities, @salary_adj_city, @work_life_balance, @want, @priority,
+      @best_cities, @salary_adj_city, @work_life_balance, @match, @priority,
       @eligibility, @eligibility_flags, @verdict, @best_fit_roles,
       @mode, @company, @role, @tier, @source, @location, @employment_type, @duration, @salary_raw,
       @url

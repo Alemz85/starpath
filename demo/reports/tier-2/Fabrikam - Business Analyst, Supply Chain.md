@@ -3,7 +3,7 @@
 **Date:** 2026-10-05
 **Location:** Munich, Germany · hybrid, three office days
 **Archetype:** Business / Data Analyst
-**Want:** 8.25/10 · **Ease:** 6.13/10
+**Match:** 8.25/10 · **Ease:** 6.13/10
 **Eligibility:** amber — German B2 required, you have B1 (1 step below)
 **Verdict:** Stretch — apply with prep
 **Tier:** T2
@@ -25,14 +25,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 8/10 | A large supply-chain organisation with regular internal moves between planning, procurement and logistics teams. |
-| Optionality / Exit (want) | 8/10 | Supply-chain analytics at a well-known manufacturer transfers to almost any industrial or retail employer. |
-| Brand Value (want) | 8/10 | A household name in manufacturing, recognised by recruiters throughout Europe. |
-| Role content (want) | 8/10 | Mostly analysis: inventory models, supplier-performance dashboards and preparation for the monthly planning meeting, with some coordination. |
+| Growth / Mobility (match) | 8/10 | A large supply-chain organisation with regular internal moves between planning, procurement and logistics teams. |
+| Optionality / Exit (match) | 8/10 | Supply-chain analytics at a well-known manufacturer transfers to almost any industrial or retail employer. |
+| Brand Value (match) | 8/10 | A household name in manufacturing, recognised by recruiters throughout Europe. |
+| Role content (match) | 8/10 | Mostly analysis: inventory models, supplier-performance dashboards and preparation for the monthly planning meeting, with some coordination. |
 | City (hygiene) | 8/10 | Munich is third on your list; three office days a week. |
 | Salary Adj for City (hygiene) | 6.3/10 | About €650 a month left after living costs in Munich. |
 | Work-Life Balance (hygiene) | 6/10 | People describe long weeks during the planning cycle. |
-| **Want (rollup)** | **8.25/10** | Carried by the brand and the work |
+| **Match (rollup)** | **8.25/10** | Carried by the brand and the work |
 | Skills Match (ease) | 8/10 | SQL, Python and forecasting are covered; they use a planning system you haven’t worked in. |
 | Experience bar (ease) | 7/10 | They prefer a year of supply-chain exposure, and your capstone forecasting work gets you most of the way. |
 | Competition (ease) | 5/10 | A big employer with a large pool for one seat. |

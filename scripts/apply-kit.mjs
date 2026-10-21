@@ -102,8 +102,8 @@ function normToken(s) {
 //    and role tokens match. We match on normalized company+role so minor casing
 //    or punctuation differences in the query still resolve.
 function resolveReport(co, ro) {
-  const wantCo = normToken(co)
-  const wantRo = normToken(ro)
+  const targetCo = normToken(co)
+  const targetRo = normToken(ro)
   for (let t = 0; t < TIER_DIRS.length; t++) {
     const dir = join(REPORTS_DIR, TIER_DIRS[t])
     if (!existsSync(dir)) continue
@@ -113,9 +113,9 @@ function resolveReport(co, ro) {
       const dash = stem.indexOf(' - ')
       const fileCo = normToken(dash === -1 ? stem : stem.slice(0, dash))
       const fileRo = normToken(dash === -1 ? '' : stem.slice(dash + 3))
-      const coMatch = fileCo === wantCo || (wantCo && fileCo.startsWith(wantCo))
+      const coMatch = fileCo === targetCo || (targetCo && fileCo.startsWith(targetCo))
       // If a role was given, require it to match too; otherwise company-only match.
-      const roMatch = !wantRo || fileRo === wantRo || (fileRo && fileRo.includes(wantRo)) || (wantRo.includes(fileRo) && fileRo.length > 0)
+      const roMatch = !targetRo || fileRo === targetRo || (fileRo && fileRo.includes(targetRo)) || (targetRo.includes(fileRo) && fileRo.length > 0)
       if (coMatch && roMatch) {
         return { exists: true, path: `reports/${TIER_DIRS[t]}/${file}`, tier: t + 1 }
       }
@@ -155,16 +155,16 @@ function resolveCv(co) {
 // 3. Drafted answers: interview-prep/{Company} - {Role}.md (mirrors report naming).
 function resolveAnswers(co, ro) {
   if (!existsSync(PREP_DIR)) return { exists: false }
-  const wantCo = normToken(co)
-  const wantRo = normToken(ro)
+  const targetCo = normToken(co)
+  const targetRo = normToken(ro)
   for (const file of readdirSync(PREP_DIR)) {
     if (!file.endsWith('.md') || file === 'story-bank.md') continue
     const stem = file.replace(/\.md$/, '')
     const dash = stem.indexOf(' - ')
     const fileCo = normToken(dash === -1 ? stem : stem.slice(0, dash))
     const fileRo = normToken(dash === -1 ? '' : stem.slice(dash + 3))
-    const coMatch = fileCo === wantCo || (wantCo && fileCo.startsWith(wantCo))
-    const roMatch = !wantRo || fileRo === wantRo || (fileRo && fileRo.includes(wantRo))
+    const coMatch = fileCo === targetCo || (targetCo && fileCo.startsWith(targetCo))
+    const roMatch = !targetRo || fileRo === targetRo || (fileRo && fileRo.includes(targetRo))
     if (coMatch && roMatch) return { exists: true, path: `interview-prep/${file}` }
   }
   return { exists: false }
@@ -186,9 +186,9 @@ function resolveResearch(co) {
 //    contact records and count contacts + total touches + the most recent touch.
 function resolveOutreach(co) {
   if (!existsSync(OUTREACH_FILE)) return {}
-  const wantCo = normToken(co)
+  const targetCo = normToken(co)
   const rows = collapse(parseLog(read(OUTREACH_FILE)))
-    .filter((r) => normToken(r.company) === wantCo)
+    .filter((r) => normToken(r.company) === targetCo)
   if (rows.length === 0) return {}
   let touches = 0
   let lastTouch = null

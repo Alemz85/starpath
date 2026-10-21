@@ -6,9 +6,9 @@
 // scripts own file reading/writing. Scouting rows are landscape inventory and
 // use a different 12-column shape than applications.md (docs/scoring-v2.md §8.2):
 //
-//   # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes
+//   # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes
 //
-//   Want / Ease  "8.25" / "5.6" (no "/10"), "—" when the listing is Blocked
+//   Match / Ease  "8.25" / "5.6" (no "/10"), "—" when the listing is Blocked
 //   Eligibility  "green" | "amber: <reasons ;-joined>" | "red: <reason>"
 //
 // The v1 shapes (11-column Score/Tier/CF-AF, 10-column legacy) are retired:
@@ -23,8 +23,8 @@ import { normalizeCompany } from './dedup-index.mjs';
 // assignVerdict(); this is a deliberately tiny pure copy so the tracker
 // pipeline can derive tier / promotion hints from the stored cells without
 // importing the engine. Keep in sync with docs/scoring-v2.md §4.
-export const WANT_HIGH = 8.0;
-export const WANT_MID = 6.5;
+export const MATCH_HIGH = 8.0;
+export const MATCH_MID = 6.5;
 export const EASE_HIGH = 7.0;
 export const EASE_MID = 5.0;
 
@@ -35,19 +35,19 @@ export const VERDICT_TIERS = {
 
 /**
  * Verdict + tier from the stored cells.
- *   verdictFromCells({ want, ease, eligibility }) → { verdict, tier }
+ *   verdictFromCells({ match, ease, eligibility }) → { verdict, tier }
  * `eligibility` may be a bare status ("red") or a full cell ("red: …").
- * Red (or a non-numeric want/ease) → blocked / T4.
+ * Red (or a non-numeric match/ease) → blocked / T4.
  */
-export function verdictFromCells({ want, ease, eligibility } = {}) {
-  const w = toNumber(want);
+export function verdictFromCells({ match, ease, eligibility } = {}) {
+  const w = toNumber(match);
   const e = toNumber(ease);
   if (eligibilityStatus(eligibility) === 'red' || w === null || e === null) {
     return { verdict: 'blocked', tier: VERDICT_TIERS.blocked };
   }
   let verdict;
-  if (w >= WANT_HIGH) verdict = e >= EASE_HIGH ? 'go' : e >= EASE_MID ? 'stretch' : 'growth';
-  else if (w >= WANT_MID) verdict = e >= EASE_HIGH ? 'solid' : e >= EASE_MID ? 'thin' : 'skip';
+  if (w >= MATCH_HIGH) verdict = e >= EASE_HIGH ? 'go' : e >= EASE_MID ? 'stretch' : 'growth';
+  else if (w >= MATCH_MID) verdict = e >= EASE_HIGH ? 'solid' : e >= EASE_MID ? 'thin' : 'skip';
   else verdict = 'skip';
   return { verdict, tier: VERDICT_TIERS[verdict] };
 }
@@ -87,14 +87,14 @@ export function normalizePromotionHint(hint, verdict) {
   return clean;
 }
 
-/* ───── Cell parsers (Want / Ease / Eligibility) ─────────────────── */
+/* ───── Cell parsers (Match / Ease / Eligibility) ─────────────────── */
 
 const BLOCKED_CELLS = new Set(['—', '-', '–']);
 
-/** Cell text for a missing (Blocked) Want/Ease. */
+/** Cell text for a missing (Blocked) Match/Ease. */
 export const BLOCKED_CELL = '—';
 
-/** Number from a Want/Ease cell ("8.25", "**8**", "8.25/10"); null for "—"/blank/garbage. */
+/** Number from a Match/Ease cell ("8.25", "**8**", "8.25/10"); null for "—"/blank/garbage. */
 export function toNumber(v) {
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   const s = String(v ?? '').replace(/\*\*/g, '').trim();
@@ -102,7 +102,7 @@ export function toNumber(v) {
   return m ? parseFloat(m[1]) : null;
 }
 
-/** True for a well-formed Want/Ease cell: a number in [1,10] or the "—" blocked marker. */
+/** True for a well-formed Match/Ease cell: a number in [1,10] or the "—" blocked marker. */
 export function isValidScoreCell(v) {
   const s = String(v ?? '').trim();
   if (BLOCKED_CELLS.has(s)) return true;
@@ -229,15 +229,16 @@ export function rewriteReportPathForTier(reportStr, tier) {
  */
 export function scoutingColumns() {
   return {
-    num: 1, date: 2, company: 3, role: 4, want: 5, ease: 6, tier: 7, eligibility: 8,
+    num: 1, date: 2, company: 3, role: 4, match: 5, ease: 6, tier: 7, eligibility: 8,
     report: 9, deadline: 10, hint: 11, notes: 12,
   };
 }
 
-/** True when a table header line is the v2 12-column scouting header. */
+/** True when a table header line is the v2 12-column scouting header (`Want` is
+ *  the pre-rename name of the Match column). */
 export function isV2ScoutingHeader(line) {
   const cells = String(line).split('|').map(s => s.trim().toLowerCase());
-  return cells.length >= 14 && cells[5] === 'want' && cells[6] === 'ease' && cells[8] === 'eligibility';
+  return cells.length >= 14 && (cells[5] === 'match' || cells[5] === 'want') && cells[6] === 'ease' && cells[8] === 'eligibility';
 }
 
 /**
@@ -246,7 +247,7 @@ export function isV2ScoutingHeader(line) {
  * have all 12 columns (v1 rows are not readable by design). `cells`/`cols` are
  * exposed so a caller mutating one field can rewrite the row precisely.
  *
- * `want` / `ease` are the raw cell strings; `wantNum` / `easeNum` the numbers
+ * `match` / `ease` are the raw cell strings; `matchNum` / `easeNum` the numbers
  * (null when blocked). `eligibility` is the raw cell, `eligibilityStatus` its
  * bare status.
  */
@@ -264,9 +265,9 @@ export function parseScoutingRow(line) {
     date: cells[cols.date],
     company: cells[cols.company],
     role: cells[cols.role],
-    want: cells[cols.want],
+    match: cells[cols.match],
     ease: cells[cols.ease],
-    wantNum: toNumber(cells[cols.want]),
+    matchNum: toNumber(cells[cols.match]),
     easeNum: toNumber(cells[cols.ease]),
     tier: cells[cols.tier],
     eligibility: cells[cols.eligibility],
@@ -286,7 +287,7 @@ const cellSafe = (v) => String(v ?? '').replace(/\|/g, '/');
 
 /** Serialize a scouting entry to the canonical 12-column row. */
 export function formatScoutingRow(e) {
-  return `| ${e.num} | ${e.date} | ${e.company} | ${e.role} | ${e.want} | ${e.ease} | ${e.tier} | ${cellSafe(e.eligibility)} | ${e.report} | ${e.deadline || 'n/d'} | ${e.hint} | ${cellSafe(e.notes)} |`;
+  return `| ${e.num} | ${e.date} | ${e.company} | ${e.role} | ${e.match} | ${e.ease} | ${e.tier} | ${cellSafe(e.eligibility)} | ${e.report} | ${e.deadline || 'n/d'} | ${e.hint} | ${cellSafe(e.notes)} |`;
 }
 
 /* ───── TSV additions (merge-scouting input) ─────────────────────── */
@@ -294,11 +295,11 @@ export function formatScoutingRow(e) {
 /**
  * Parse one scouting-additions TSV into a normalized addition. Canonical form
  * is 12 tab-separated columns (docs/scoring-v2.md §8.2):
- *   num date company role want ease tier eligibility report deadline hint notes
- * Trailing empty hint/notes may be absent (≥10 fields accepted). Want/Ease are
+ *   num date company role match ease tier eligibility report deadline hint notes
+ * Trailing empty hint/notes may be absent (≥10 fields accepted). Match/Ease are
  * a number in [1,10] or "—" (blocked); a red eligibility forces the blocked
- * shape (T4, no hint) and keeps Want / Ease only when both are given (the
- * profile's score_through_red). A v1-shaped TSV (e.g. "6.7/10" in the Want
+ * shape (T4, no hint) and keeps Match / Ease only when both are given (the
+ * profile's score_through_red). A v1-shaped TSV (e.g. "6.7/10" in the Match
  * slot) fails validation and is skipped with a warning. Returns null on
  * malformed input.
  */
@@ -324,27 +325,27 @@ export function parseScoutingTsv(content, filename = 'addition', warn = console.
     return null;
   }
   if (!isValidScoreCell(parts[4]) || !isValidScoreCell(parts[5])) {
-    warn(`⚠️  Skipping ${filename}: want/ease must be numbers 1-10 or "—" (got "${parts[4]}" / "${parts[5]}") — v1 Score/CF-AF rows are not supported`);
+    warn(`⚠️  Skipping ${filename}: match/ease must be numbers 1-10 or "—" (got "${parts[4]}" / "${parts[5]}") — v1 Score/CF-AF rows are not supported`);
     return null;
   }
 
   const blockedShape = elig.status === 'red';
-  const wantNum = toNumber(parts[4]);
+  const matchNum = toNumber(parts[4]);
   const easeNum = toNumber(parts[5]);
-  if (!blockedShape && (wantNum === null || easeNum === null)) {
-    warn(`⚠️  Skipping ${filename}: want/ease "—" is only valid for a red (blocked) listing`);
+  if (!blockedShape && (matchNum === null || easeNum === null)) {
+    warn(`⚠️  Skipping ${filename}: match/ease "—" is only valid for a red (blocked) listing`);
     return null;
   }
-  // A blocked row keeps its Want / Ease when the profile's score_through_red
+  // A blocked row keeps its Match / Ease when the profile's score_through_red
   // scored it (both or neither, as verify-pipeline checks): blanking them here
   // used to drop the scores the user asked for on the way into the Database.
-  if (blockedShape && (wantNum === null) !== (easeNum === null)) {
-    warn(`⚠️  Skipping ${filename}: a red (blocked) listing needs both Want and Ease, or "—" for both`);
+  if (blockedShape && (matchNum === null) !== (easeNum === null)) {
+    warn(`⚠️  Skipping ${filename}: a red (blocked) listing needs both Match and Ease, or "—" for both`);
     return null;
   }
 
   // Tier: trust a valid writer-supplied tier, else derive from the grid.
-  const derived = verdictFromCells({ want: wantNum, ease: easeNum, eligibility: elig.status });
+  const derived = verdictFromCells({ match: matchNum, ease: easeNum, eligibility: elig.status });
   const rawTier = String(parts[6] ?? '').trim();
   const tier = blockedShape ? 'T4' : (rawTier ? normalizeTier(rawTier, warn) : derived.tier);
 
@@ -353,7 +354,7 @@ export function parseScoutingTsv(content, filename = 'addition', warn = console.
     date: parts[1],
     company: parts[2],
     role: parts[3],
-    want: wantNum === null ? BLOCKED_CELL : String(wantNum),
+    match: matchNum === null ? BLOCKED_CELL : String(matchNum),
     ease: easeNum === null ? BLOCKED_CELL : String(easeNum),
     tier,
     eligibility: formatEligibilityCell(elig.status, elig.reasons),
@@ -367,12 +368,12 @@ export function parseScoutingTsv(content, filename = 'addition', warn = console.
 /* ───── Re-evaluation merge ──────────────────────────────────────── */
 
 /**
- * Re-eval annotation for the Notes cell: "Re-eval (W 7.1→8.25, E 5→5.6)".
+ * Re-eval annotation for the Notes cell: "Re-eval (M 7.1→8.25, E 5→5.6)".
  * Blocked sides render as "—".
  */
 export function reEvalNote(oldRow, newRow) {
   const c = (v) => (toNumber(v) === null ? BLOCKED_CELL : String(toNumber(v)));
-  return `Re-eval (W ${c(oldRow.want)}→${c(newRow.want)}, E ${c(oldRow.ease)}→${c(newRow.ease)})`;
+  return `Re-eval (M ${c(oldRow.match)}→${c(newRow.match)}, E ${c(oldRow.ease)}→${c(newRow.ease)})`;
 }
 
 /**
@@ -398,7 +399,7 @@ export function buildReEvalRow(existing, addition) {
     date: addition.date,
     company: addition.company,
     role: addition.role,
-    want: addition.want,
+    match: addition.match,
     ease: addition.ease,
     tier: addition.tier,
     eligibility: addition.eligibility,
@@ -415,9 +416,9 @@ export function buildReEvalRow(existing, addition) {
 /**
  * Validate a parsed scouting row against the v2 cell rules. Returns
  * { errors: string[], warnings: string[] } (both empty = clean).
- *   errors   — structurally invalid: bad tier, Want/Ease not a number 1-10 or
+ *   errors   — structurally invalid: bad tier, Match/Ease not a number 1-10 or
  *              "—", eligibility not green|amber|red[: reasons], a red row with
- *              only one of Want/Ease or not T4, a non-red row missing them.
+ *              only one of Match/Ease or not T4, a non-red row missing them.
  *   warnings — tier disagrees with the verdict grid for the stored cells (the
  *              writer may have used a stale grid), or a blocked row carries a
  *              READY/MONITOR hint.
@@ -426,28 +427,28 @@ export function validateScoutingRow(row) {
   const errors = [];
   const warnings = [];
   if (!VALID_TIERS.includes(row.tier)) errors.push(`invalid tier "${row.tier}" (expected T1-T4)`);
-  const wantOk = isValidScoreCell(row.want);
+  const matchOk = isValidScoreCell(row.match);
   const easeOk = isValidScoreCell(row.ease);
-  if (!wantOk) errors.push(`invalid Want "${row.want}" (expected a number 1-10 or "—")`);
+  if (!matchOk) errors.push(`invalid Match "${row.match}" (expected a number 1-10 or "—")`);
   if (!easeOk) errors.push(`invalid Ease "${row.ease}" (expected a number 1-10 or "—")`);
   const elig = parseEligibilityCell(row.eligibility);
   if (!elig) {
     errors.push(`invalid Eligibility "${row.eligibility}" (expected green | amber: … | red: …)`);
-  } else if (wantOk && easeOk) {
-    const w = toNumber(row.want);
+  } else if (matchOk && easeOk) {
+    const w = toNumber(row.match);
     const e = toNumber(row.ease);
     if (elig.status === 'red') {
       // A red row is Blocked; it carries scores only when the profile's
       // score_through_red allowed them, and then both or neither.
-      if ((w === null) !== (e === null)) errors.push('red (blocked) row must have both Want and Ease, or "—" for both');
+      if ((w === null) !== (e === null)) errors.push('red (blocked) row must have both Match and Ease, or "—" for both');
       if (row.tier !== 'T4') errors.push(`red (blocked) row must be T4, got ${row.tier}`);
       if (/^(READY|MONITOR)$/i.test(row.hint || '')) warnings.push(`blocked row carries hint "${row.hint}"`);
     } else if (w === null || e === null) {
-      errors.push('Want/Ease "—" is only valid for a red (blocked) row');
+      errors.push('Match/Ease "—" is only valid for a red (blocked) row');
     } else {
-      const { tier } = verdictFromCells({ want: w, ease: e, eligibility: elig.status });
+      const { tier } = verdictFromCells({ match: w, ease: e, eligibility: elig.status });
       if (VALID_TIERS.includes(row.tier) && tier !== row.tier) {
-        warnings.push(`tier ${row.tier} disagrees with the verdict grid for W${w} E${e} (grid says ${tier})`);
+        warnings.push(`tier ${row.tier} disagrees with the verdict grid for M${w} E${e} (grid says ${tier})`);
       }
     }
   }

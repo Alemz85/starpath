@@ -7,17 +7,17 @@ import type { ApplicationEntry, ScoreEntry } from '@/types'
 
 function app(company: string, role: string, extra: Partial<ApplicationEntry> = {}): ApplicationEntry {
   return {
-    num: 1, date: '2026-10-01', company, role, score: 'W8 E6', status: 'Applied', pdf: false,
+    num: 1, date: '2026-10-01', company, role, score: 'M8 E6', status: 'Applied', pdf: false,
     deadline: 'n/d', report: '', notes: '', entityId: '', cities: [], ...extra,
   }
 }
 
-function evaluation(company: string, role: string, date: string, want: number, ease: number): ScoreEntry {
+function evaluation(company: string, role: string, date: string, match: number, ease: number): ScoreEntry {
   return {
     date, archetype: '', skills_match: null, experience_bar: null, competition: null, ease,
     growth_mobility: null, optionality_exit: null, brand_value: null, role_content: null,
-    best_cities: null, salary_adj_city: null, work_life_balance: null, want,
-    priority: Math.sqrt(want * ease), eligibility: 'green', eligibility_flags: '', verdict: 'solid',
+    best_cities: null, salary_adj_city: null, work_life_balance: null, match,
+    priority: Math.sqrt(match * ease), eligibility: 'green', eligibility_flags: '', verdict: 'solid',
     best_fit_roles: '', mode: 'scouting', company, role, tier: 'T2', source: '', location: 'Lyon, France',
     employment_type: '', duration: '', salary_raw: '', url: `https://example.com/${company}/${role}`,
   }
@@ -37,7 +37,7 @@ test('latestEvaluation takes the newest score-history row', () => {
     evaluation('Nimbus Robotics', 'Data Analyst', '2026-10-01', 8, 7),
     evaluation('Nimbus Robotics', 'Other', '2026-11-01', 9, 9),
   ]
-  assert.equal(latestEvaluation(rows, 'nimbus robotics', 'data analyst')?.want, 8)
+  assert.equal(latestEvaluation(rows, 'nimbus robotics', 'data analyst')?.match, 8)
   assert.equal(latestEvaluation(rows, 'Nimbus Robotics', 'Missing'), null)
 })
 
@@ -52,7 +52,7 @@ test('companyOverview joins evaluations and applications, applications first', (
   assert.equal(o.name, 'Nimbus Robotics')
   assert.deepEqual(o.rows.map(r => r.role), ['Data Analyst', 'Ops Analyst'])
   assert.equal(o.rows[0].application?.status, 'Interview')
-  assert.equal(o.rows[0].want, 7)
+  assert.equal(o.rows[0].match, 7)
   assert.deepEqual([o.evaluated, o.applied], [2, 1])
   assert.equal(companyOverview(history, apps, 'Nobody'), null)
 })

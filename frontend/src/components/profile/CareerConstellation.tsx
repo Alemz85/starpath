@@ -37,7 +37,7 @@ export function CareerConstellation({ initials }: Props) {
       if (!e.company) continue
       const cur = companyMap.get(e.company) ?? { count: 0, sumScore: 0 }
       cur.count += 1
-      // Priority (√(Want × Ease)) as the size/colour key — blocked rows add 0.
+      // Priority (√(Match × Ease)) as the size/colour key — blocked rows add 0.
       cur.sumScore += priorityOf(e) ?? 0
       companyMap.set(e.company, cur)
     }
@@ -56,7 +56,7 @@ export function CareerConstellation({ initials }: Props) {
       if (!a || a === 'Unknown' || a === 'unknown') continue
       const cur = archMap.get(a) ?? { count: 0, sumScore: 0 }
       cur.count += 1
-      // Priority (√(Want × Ease)) as the size/colour key — blocked rows add 0.
+      // Priority (√(Match × Ease)) as the size/colour key — blocked rows add 0.
       cur.sumScore += priorityOf(e) ?? 0
       archMap.set(a, cur)
     }

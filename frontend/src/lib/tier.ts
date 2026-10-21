@@ -38,11 +38,11 @@ export const TIER_BG: Record<TierKey, string> = {
   T4: themeColor('tier-4-bg'),
 }
 
-// Numeric score → display colour. Scoring v2 colours the Want and the Ease
+// Numeric score → display colour. Scoring v2 colours the Match and the Ease
 // numbers each on their own with this ladder (Priority is never coloured as a
 // headline, docs/scoring-v2.md §5). One hue, so the eye sorts by depth, never
 // by category. The colour is a magnitude cue only: whether to apply comes
-// from the verdict (Want × Ease grid), never from these cut-offs.
+// from the verdict (Match × Ease grid), never from these cut-offs.
 //   ≥ 8.0 → tier-1
 //   ≥ 7.0 → tier-2
 //   ≥ 5.0 → score-mid (the theme's secondary text colour)

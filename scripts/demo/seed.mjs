@@ -4,7 +4,7 @@
  * Everything here is invented: the persona, her schools and employers, every
  * company (Microsoft-style fictional names), every person, URL and number.
  * scripts/demo/build-demo.mjs turns it into demo/ through the real scoring
- * engine (scripts/score-listing.mjs), so Want / Ease / verdict / tier always
+ * engine (scripts/score-listing.mjs), so Match / Ease / verdict / tier always
  * match the current rubric. The seed only holds the agent's side of an
  * evaluation: JD facts, integer judgment scores and the prose that explains
  * them.
@@ -180,7 +180,7 @@ export const listings = [
       role_content: 'Almost all of it is the work you want: business cases, KPI design and the quarterly review pack for the regional leadership team, with some meeting coordination around the reviews.',
       best_cities: 'Vienna is second on your list, and the role is hybrid with three office days.',
       work_life_balance: 'They describe a 40-hour week with heavier weeks around the quarterly reviews; nothing points to a crunch culture.',
-      want: 'Carried by the work itself and a company you already rate highly',
+      match: 'Carried by the work itself and a company you already rate highly',
       skills_match: 'Excel modelling, SQL and a dashboard tool are all on your CV. The one gap is the cost-allocation work they mention, which you have only met in coursework.',
       experience_bar: 'They want zero to one year and a relevant internship, which your six months at Adventure Works covers.',
       competition: 'A recognisable employer with one seat in Vienna, so expect a big pool of business-school graduates, and nothing in the posting gives you a special channel.',
@@ -236,7 +236,7 @@ export const listings = [
       role_content: 'Mostly analysis, but two of the four rotations sit in operations teams with a reporting focus.',
       best_cities: 'Brussels is on your list, lower down; the programme is hybrid.',
       work_life_balance: 'Normal banking hours, with longer weeks during the training blocks.',
-      want: 'Carried by the programme structure and the brand',
+      match: 'Carried by the programme structure and the brand',
       skills_match: 'Python, SQL and statistics are covered; they would like some exposure to credit risk, which you don’t have.',
       experience_bar: 'Built for recent master’s graduates, and you fit the profile.',
       competition: 'A big-name graduate scheme with thousands of applicants for about fifteen seats, and they prefer candidates with a finance internship, which you don’t have.',
@@ -293,7 +293,7 @@ export const listings = [
       role_content: 'Pure strategy work: market-entry cases, acquisition screening and the annual strategic plan.',
       best_cities: 'Vienna is second on your list.',
       work_life_balance: 'Board deadlines and acquisition work mean long weeks at regular intervals.',
-      want: 'Carried by the work and where it leads',
+      match: 'Carried by the work and where it leads',
       skills_match: 'Your modelling and analysis fit; they want valuation and deal-screening experience you don’t have yet.',
       experience_bar: 'They ask for two to three years in strategy consulting or corporate development.',
       competition: 'A small, sought-after team that mostly hires from consultancies.',
@@ -339,7 +339,7 @@ export const listings = [
       role_content: 'Most rotations are hands-on analysis; expect some client presentations and internal training in the first months.',
       best_cities: 'Lyon is your first-choice city, and you already live there.',
       work_life_balance: 'Normal programme hours, with heavier weeks before client deliveries.',
-      want: 'Carried by the programme structure and the Lyon base',
+      match: 'Carried by the programme structure and the Lyon base',
       skills_match: 'Python, SQL and a dashboard tool are covered; they also list dbt, where you only have the basics.',
       experience_bar: 'Built for recent graduates, and your internship and capstone are the profile they describe.',
       competition: 'A popular programme with a cohort of about twelve, and Northfield is one of their main recruiting schools. Inès’s referral puts your application in front of the team directly.',
@@ -390,7 +390,7 @@ export const listings = [
       role_content: 'Mostly SQL reporting and ad-hoc analysis for the sales team.',
       best_cities: 'Vienna is second on your list.',
       work_life_balance: 'Standard hours, nothing unusual either way.',
-      want: 'Fair across the board, with nothing that makes it stand out',
+      match: 'Fair across the board, with nothing that makes it stand out',
       skills_match: 'SQL and Excel are covered; they want their BI platform’s scripting language, which you haven’t used.',
       experience_bar: 'They would like a year of reporting experience, and you have a six-month internship.',
       competition: 'One seat with a moderate pool.',
@@ -446,7 +446,7 @@ export const listings = [
       role_content: 'Almost entirely the analysis you want: experiment design, funnel analysis and the weekly product-metrics review.',
       best_cities: 'Prague is on your list, and the team works mostly remotely around a Prague office.',
       work_life_balance: 'Flexible hours and remote-first; people describe a calm pace outside launch weeks.',
-      want: 'Carried by the work and the growth path',
+      match: 'Carried by the work and the growth path',
       skills_match: 'SQL and statistics are covered; they want hands-on product event data and an experimentation platform, which you have only seen in coursework.',
       experience_bar: 'They ask for a year of product or growth analytics, and your internship was commercial, not product.',
       competition: 'A popular employer with a single analyst seat and an open remote pool.',
@@ -490,7 +490,7 @@ export const listings = [
       role_content: 'Mostly pricing and deal analysis: price-waterfall work, discount governance and margin reviews.',
       best_cities: 'Lyon, your first-choice city.',
       work_life_balance: 'Busy around the quarter-end deal reviews.',
-      want: 'Carried by the pricing work in your own city',
+      match: 'Carried by the pricing work in your own city',
       skills_match: 'Pricing analysis, Excel modelling and SQL are all on your CV.',
       experience_bar: 'They ask for three or more years in B2B pricing or commercial finance.',
       competition: 'A specialist role with a small pool, most of it more experienced than you.',
@@ -533,7 +533,7 @@ export const listings = [
       role_content: 'Mostly analysis: inventory models, supplier-performance dashboards and preparation for the monthly planning meeting, with some coordination.',
       best_cities: 'Munich is third on your list; three office days a week.',
       work_life_balance: 'People describe long weeks during the planning cycle.',
-      want: 'Carried by the brand and the work',
+      match: 'Carried by the brand and the work',
       skills_match: 'SQL, Python and forecasting are covered; they use a planning system you haven’t worked in.',
       experience_bar: 'They prefer a year of supply-chain exposure, and your capstone forecasting work gets you most of the way.',
       competition: 'A big employer with a large pool for one seat.',
@@ -560,7 +560,7 @@ export const listings = [
     note: 'T4 skip — rotating early shifts running the daily dispatch plan',
   },
 
-  // ── 19 · City Power & Light · skip (Want mid, Ease low) ──────────────────
+  // ── 19 · City Power & Light · skip (Match mid, Ease low) ──────────────────
   {
     id: 'cpl-eda', company: 'City Power & Light', role: 'Energy Data Analyst',
     archetype: 'Business / Data Analyst', city: 'Vienna', location: 'Vienna, Austria',
@@ -570,7 +570,7 @@ export const listings = [
     compBand: { min: 40000, max: 48000, confidence: 'medium' },
     facts: { languages: [EN_C1, { language: 'German', level: 'B2', required: false }], country: 'AT' },
     scores: j(7, 7, 6, 8, 8, 7, 4, 4, 6), expect: 'skip',
-    note: 'T4 skip — grid-data and power-systems experience you don’t have, for a role you only half want',
+    note: 'T4 skip — grid-data and power-systems experience you don’t have, for a role you only half match',
   },
 
   // ── 20 · Lumen Freight · solid ────────────────────────────────────────────
@@ -590,7 +590,7 @@ export const listings = [
       role_content: 'Mostly the analysis you want: lane profitability, capacity planning and the weekly operations review.',
       best_cities: 'Lyon, your first-choice city.',
       work_life_balance: 'Regular hours and four office days; the planning team, not the analysts, absorbs the operational peaks.',
-      want: 'Held up by the work and the city, pulled down by a modest name',
+      match: 'Held up by the work and the city, pulled down by a modest name',
       skills_match: 'SQL, Excel modelling and a dashboard tool are all on your CV.',
       experience_bar: 'They want a first internship and some interest in logistics, which your capstone shows.',
       competition: 'A smaller employer hiring locally, and your Lyon school is well known to them.',
@@ -634,7 +634,7 @@ export const listings = [
       role_content: 'About half analysis, pipeline and forecast reporting, and half administration of their CRM.',
       best_cities: 'Prague is fourth on your list.',
       work_life_balance: 'Regular hours with a busy quarter-end.',
-      want: 'Held back by the CRM administration in the job',
+      match: 'Held back by the CRM administration in the job',
       skills_match: 'They want hands-on CRM administration and a sales-forecasting tool; your analysis skills cover the reporting half only.',
       experience_bar: 'A first internship is enough, and you have one.',
       competition: 'A popular employer with one seat.',
@@ -649,7 +649,7 @@ export const listings = [
     },
   },
 
-  // ── 23 · Humongous Insurance · skip (easy, not wanted) ────────────────────
+  // ── 23 · Humongous Insurance · skip (easy, weak match) ────────────────────
   {
     id: 'humongous-cda', company: 'Humongous Insurance', role: 'Claims Data Analyst',
     archetype: 'Business / Data Analyst', city: 'Brussels', location: 'Brussels, Belgium',
@@ -678,7 +678,7 @@ export const listings = [
       role_content: 'Mostly campaign measurement, attribution and customer segmentation, with some dashboard upkeep.',
       best_cities: 'Porto is on your list, near the bottom; hybrid.',
       work_life_balance: 'A 35-hour week with flexible hours.',
-      want: 'Steady work with nothing that stands out',
+      match: 'Steady work with nothing that stands out',
       skills_match: 'SQL, Python and segmentation are covered; attribution modelling would be new.',
       experience_bar: 'An entry-level role, and your internship is enough.',
       competition: 'A modest pool for a Porto role; Portuguese is a plus they mention, and yours is basic.',
@@ -710,7 +710,7 @@ export const listings = [
       role_content: 'Nearly all pricing analysis: elasticity models, promotion post-mortems and the price-change calendar, with a little coordination with the category managers.',
       best_cities: 'Lyon, your first-choice city.',
       work_life_balance: 'A 37-hour week with two office days; seasonal peaks before the holiday range launches.',
-      want: 'Carried by the work itself, which is exactly what you want to do',
+      match: 'Carried by the work itself, which is exactly what you want to do',
       skills_match: 'Price elasticity, Python and SQL are your strongest skills; the only gap is the retail planning tool they use, and they say they will train it.',
       experience_bar: 'They ask for a first internship in pricing or commercial analytics, which you have.',
       competition: 'A mid-sized consumer brand with one seat; your Lyon school helps with their local recruiters.',

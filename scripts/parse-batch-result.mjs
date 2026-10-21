@@ -8,7 +8,7 @@
 //
 //   status \t score \t input_tokens \t cache_creation \t cache_read \t output_tokens \t cost_usd \t duration_ms \t num_turns \t verdict \t denied \t outcome \t reported_error
 //
-// `score` is the worker's Priority (sqrt(want × ease), docs/scoring-v2.md
+// `score` is the worker's Priority (sqrt(match × ease), docs/scoring-v2.md
 // §8.6); a Blocked listing has no Priority, so score is '-' and verdict is
 // 'blocked'. `denied` is the `;`-joined calls the CLI refused (the worker's
 // permissions, scripts/lib/worker-capabilities.mjs); the runner fails the

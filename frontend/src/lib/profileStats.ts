@@ -11,7 +11,7 @@
 
 import { TIER_COLOR } from './tier'
 import type { ScoreEntry, ApplicationEntry } from '@/types'
-import { formatWantEase, isScored, priorityOf } from './scoreBands'
+import { formatMatchEase, isScored, priorityOf } from './scoreBands'
 import { themeColor } from './themes'
 
 const TIER_RANK: Record<string, number> = { T1: 5, T2: 3, T3: 2, T4: 1 }
@@ -162,7 +162,7 @@ export function buildHighlights(history: ScoreEntry[]): Highlight[] | null {
   const scored = history.filter(isScored)
   if (scored.length < 3) return null  // too thin to celebrate
 
-  // The best find = highest Priority (the v2 sort key); shown as Want · Ease.
+  // The best find = highest Priority (the v2 sort key); shown as Match · Ease.
   const top = scored.reduce((best, e) => ((priorityOf(e) ?? 0) > (priorityOf(best) ?? 0) ? e : best))
 
   const byCompany = new Map<string, number>()
@@ -181,7 +181,7 @@ export function buildHighlights(history: ScoreEntry[]): Highlight[] | null {
   }
 
   return [
-    { label: 'Top match',     value: formatWantEase(top.want, top.ease), sub: top.company || 'a listing' },
+    { label: 'Top match',     value: formatMatchEase(top.match, top.ease), sub: top.company || 'a listing' },
     { label: 'Most explored', value: topCompany || '—',      sub: `${topCompanyN} evaluation${topCompanyN === 1 ? '' : 's'}` },
     { label: 'Busiest day',   value: shortDate(peakDay),     sub: `${peakN} in one day` },
   ]

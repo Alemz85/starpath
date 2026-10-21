@@ -2,7 +2,7 @@
 // score-trend math on scoring v2. score-trend.mjs only wraps these with file
 // I/O, so this suite is where the logic is pinned: the canonical
 // (company, role) key reuse, trajectory grouping (same-date collapse +
-// spelling-drift merge), Want and Ease classified separately against their
+// spelling-drift merge), Match and Ease classified separately against their
 // own floors, the verdict move (including blocked ↔ scored), the landscape
 // earlier-vs-later split with its gate, the actionable-share delta, the
 // verdict upgrade / downgrade roll-up, and the recommendation gates.
@@ -25,7 +25,7 @@ import {
   parseScoreHistory,
   DIMENSIONS,
   TREND_METRICS,
-  WANT_NOISE_FLOOR,
+  MATCH_NOISE_FLOOR,
   EASE_NOISE_FLOOR,
 } from './score-trend-core.mjs'
 import * as core from './score-trend-core.mjs'
@@ -34,17 +34,17 @@ import { historyTsv } from './testing/score-history-fixture.mjs'
 
 const parse = (...rows) => parseScoreHistory(historyTsv(...rows))
 
-/** One evaluation of a listing. `want` / `ease` override the engine rollup. */
-const ev = (company, role, date, want, ease, extra = {}) =>
-  ({ company, role, date, want, ease, ...extra })
+/** One evaluation of a listing. `match` / `ease` override the engine rollup. */
+const ev = (company, role, date, match, ease, extra = {}) =>
+  ({ company, role, date, match, ease, ...extra })
 
 /** A blocked evaluation (eligibility red: empty score cells). */
 const blockedEv = (company, role, date, extra = {}) =>
   ({ company, role, date, eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship', ...extra })
 
-/** n single-eval listings on one date with the given Want / Ease. */
-const windowRows = (date, n, want, ease, prefix = date) =>
-  Array.from({ length: n }, (_, i) => ev(`Co ${prefix} ${i}`, 'Analyst', date, want, ease))
+/** n single-eval listings on one date with the given Match / Ease. */
+const windowRows = (date, n, match, ease, prefix = date) =>
+  Array.from({ length: n }, (_, i) => ev(`Co ${prefix} ${i}`, 'Analyst', date, match, ease))
 
 const EARLY = '2026-05-01'
 const LATE = '2026-06-01'
@@ -55,9 +55,9 @@ test('the v1 exports are gone and the v2 ones exist', () => {
   for (const name of ['classifyDelta', 'overallBand', 'OVERALL_NOISE_FLOOR']) {
     assert.equal(name in core, false, `${name} should no longer be exported`)
   }
-  assert.equal(WANT_NOISE_FLOOR, 0.30)
+  assert.equal(MATCH_NOISE_FLOOR, 0.30)
   assert.equal(EASE_NOISE_FLOOR, 0.35)
-  assert.deepEqual([...TREND_METRICS], ['want', 'ease'])
+  assert.deepEqual([...TREND_METRICS], ['match', 'ease'])
   assert.equal(DIMENSIONS.length, 10)
 })
 
@@ -94,17 +94,17 @@ test('listingTrajectories ignores single-eval listings (no movement)', () => {
   assert.deepEqual(listingTrajectories(parse(ev('Northwind', 'Analyst', EARLY, 7, 7))), [])
 })
 
-test('Want and Ease are classified separately, each on its own floor', () => {
+test('Match and Ease are classified separately, each on its own floor', () => {
   const [t] = listingTrajectories(parse(
     ev('Northwind', 'Analyst', EARLY, 7.0, 6.0),
     ev('Northwind', 'Analyst', LATE, 7.6, 6.1),
   ))
-  assert.equal(t.want.first, 7)
-  assert.equal(t.want.latest, 7.6)
-  assert.equal(t.want.delta, 0.6)
-  assert.equal(t.want.movementClass, 'improving')
-  assert.equal(t.want.detectable, true)
-  assert.equal(t.want.noiseFloor, WANT_NOISE_FLOOR)
+  assert.equal(t.match.first, 7)
+  assert.equal(t.match.latest, 7.6)
+  assert.equal(t.match.delta, 0.6)
+  assert.equal(t.match.movementClass, 'improving')
+  assert.equal(t.match.detectable, true)
+  assert.equal(t.match.noiseFloor, MATCH_NOISE_FLOOR)
   assert.equal(t.ease.delta, 0.1)
   assert.equal(t.ease.movementClass, 'within-noise')
   assert.equal(t.ease.detectable, false)
@@ -119,14 +119,14 @@ test('a delta EXACTLY at its floor is detectable; just under is within-noise', (
     ev('Fabrikam Labs', 'Analyst', LATE, w1, e1),
   ))[0]
   const at = one(7.0, 7.3, 6.0, 6.35)
-  assert.equal(at.want.movementClass, 'improving')
+  assert.equal(at.match.movementClass, 'improving')
   assert.equal(at.ease.movementClass, 'improving')
   const under = one(7.0, 7.29, 6.0, 6.34)
-  assert.equal(under.want.movementClass, 'within-noise')
+  assert.equal(under.match.movementClass, 'within-noise')
   assert.equal(under.ease.movementClass, 'within-noise')
-  // The same 0.34 delta clears the Want floor but not the Ease floor.
+  // The same 0.34 delta clears the Match floor but not the Ease floor.
   const split = one(7.0, 7.34, 6.0, 6.34)
-  assert.equal(split.want.movementClass, 'improving')
+  assert.equal(split.match.movementClass, 'improving')
   assert.equal(split.ease.movementClass, 'within-noise')
 })
 
@@ -135,7 +135,7 @@ test('a declining move past the floor classifies as declining', () => {
     ev('Contoso Retail', 'Analyst', EARLY, 8.0, 7.0),
     ev('Contoso Retail', 'Analyst', LATE, 7.2, 6.0),
   ))
-  assert.equal(t.want.movementClass, 'declining')
+  assert.equal(t.match.movementClass, 'declining')
   assert.equal(t.ease.movementClass, 'declining')
 })
 
@@ -146,10 +146,10 @@ test('per-dimension deltas cover the v2 dims; the driver is per metric and only 
   ))
   assert.equal(t.dimDeltas.length, 10)
   assert.ok(t.dimDeltas.every(d => DIMENSIONS.some(x => x.key === d.key)))
-  assert.equal(t.want.movementClass, 'improving')
-  assert.equal(t.want.topMover.key, 'brand_value')
-  assert.equal(t.want.topMover.rollup, 'want')
-  assert.equal(t.want.topMover.delta, 3)
+  assert.equal(t.match.movementClass, 'improving')
+  assert.equal(t.match.topMover.key, 'brand_value')
+  assert.equal(t.match.topMover.rollup, 'match')
+  assert.equal(t.match.topMover.delta, 3)
   assert.equal(t.ease.movementClass, 'within-noise')
   assert.equal(t.ease.topMover, null)
 })
@@ -159,9 +159,9 @@ test('a within-noise move has no driver even if a dimension moved', () => {
     { company: 'Tailspin Toys', role: 'Analyst', date: EARLY, growth_mobility: 7 },
     { company: 'Tailspin Toys', role: 'Analyst', date: LATE, growth_mobility: 8 },
   ))
-  assert.equal(t.want.delta, 0.25) // one motivator step at equal weights
-  assert.equal(t.want.movementClass, 'within-noise')
-  assert.equal(t.want.topMover, null)
+  assert.equal(t.match.delta, 0.25) // one motivator step at equal weights
+  assert.equal(t.match.movementClass, 'within-noise')
+  assert.equal(t.match.topMover, null)
 })
 
 test('listingTrajectories collapses same-date duplicate writes (last wins)', () => {
@@ -171,7 +171,7 @@ test('listingTrajectories collapses same-date duplicate writes (last wins)', () 
     ev('Northwind', 'Analyst', LATE, 7.5, 6.0),
   ))
   assert.equal(t.evals, 2)
-  assert.equal(t.want.first, 6.5)
+  assert.equal(t.match.first, 6.5)
   // Two same-date rows alone are not a trajectory.
   assert.deepEqual(listingTrajectories(parse(
     ev('Northwind', 'Analyst', EARLY, 6.0, 6.0),
@@ -195,10 +195,10 @@ test('peak / trough span a non-monotonic path; sequence is chronological', () =>
     ev('Northwind', 'Analyst', LATE, 8.5, 5.0),
   ))
   assert.deepEqual(t.sequence.map(s => s.date), [EARLY, LATE, '2026-07-01'])
-  assert.equal(t.want.peak, 8.5)
-  assert.equal(t.want.trough, 6)
+  assert.equal(t.match.peak, 8.5)
+  assert.equal(t.match.trough, 6)
   assert.equal(t.ease.trough, 5)
-  assert.equal(t.want.delta, 1)
+  assert.equal(t.match.delta, 1)
 })
 
 test('rows without a date are skipped', () => {
@@ -213,7 +213,7 @@ test('trajectory confidence climbs with the evaluation count (g = 2)', () => {
     ...Array.from({ length: n }, (_, i) => ev('Northwind', 'Analyst', `2026-05-${String(i + 1).padStart(2, '0')}`, 6 + i * 0.1, 6)),
   ))[0]
   assert.equal(traj(2).confidence, 'low')
-  assert.equal(traj(2).want.confidence, 'low')
+  assert.equal(traj(2).match.confidence, 'low')
   assert.equal(traj(3).confidence, 'low')
   assert.equal(traj(4).confidence, 'moderate')
   assert.equal(traj(8).confidence, 'high')
@@ -239,9 +239,9 @@ test('a verdict flip on a sub-floor wobble is flagged as not detectable', () => 
     ev('Northwind', 'Analyst', LATE, 8.1, 7.5),  // go
   ))
   assert.equal(t.verdictMove, 'upgrade')
-  assert.equal(t.want.movementClass, 'within-noise')
+  assert.equal(t.match.movementClass, 'within-noise')
   assert.equal(t.verdictMoveDetectable, false)
-  assert.match(describeTrajectory(t), /verdict Solid → Go · Want flat within noise/)
+  assert.match(describeTrajectory(t), /verdict Solid → Go · Match flat within noise/)
 })
 
 test('blocked → scored is a visible verdict upgrade with no score movement', () => {
@@ -258,11 +258,11 @@ test('blocked → scored is a visible verdict upgrade with no score movement', (
   assert.equal(t.verdictMoveDetectable, true)
   assert.equal(t.blockedFrom, true)
   assert.equal(t.blockedTo, false)
-  assert.equal(t.want.n, 1)
-  assert.equal(t.want.delta, null)
-  assert.equal(t.want.movementClass, 'unknown')
-  assert.equal(t.want.confidence, 'insufficient')
-  assert.deepEqual(t.sequence[0], { date: EARLY, want: null, ease: null, verdict: 'blocked' })
+  assert.equal(t.match.n, 1)
+  assert.equal(t.match.delta, null)
+  assert.equal(t.match.movementClass, 'unknown')
+  assert.equal(t.match.confidence, 'insufficient')
+  assert.deepEqual(t.sequence[0], { date: EARLY, match: null, ease: null, verdict: 'blocked' })
 })
 
 test('scored → blocked is a downgrade; blocked → blocked is unchanged', () => {
@@ -280,16 +280,16 @@ test('scored → blocked is a downgrade; blocked → blocked is unchanged', () =
   assert.equal(same.verdictChanged, false)
 })
 
-test('blocked evals in the middle are excluded from the Want / Ease track', () => {
+test('blocked evals in the middle are excluded from the Match / Ease track', () => {
   const [t] = listingTrajectories(parse(
     ev('Northwind', 'Analyst', EARLY, 6.0, 6.0),
     blockedEv('Northwind', 'Analyst', LATE),
     ev('Northwind', 'Analyst', '2026-07-01', 7.0, 6.0),
   ))
   assert.equal(t.evals, 3)
-  assert.equal(t.want.n, 2)
-  assert.equal(t.want.delta, 1)
-  assert.equal(t.want.trough, 6)
+  assert.equal(t.match.n, 2)
+  assert.equal(t.match.delta, 1)
+  assert.equal(t.match.trough, 6)
 })
 
 test('detectable verdict moves sort first, then the move furthest past its floor', () => {
@@ -303,15 +303,15 @@ test('detectable verdict moves sort first, then the move furthest past its floor
 
 // ─── trajectorySummary ────────────────────────────────────────────────────
 
-test('trajectorySummary tallies Want and Ease separately and counts verdict moves', () => {
+test('trajectorySummary tallies Match and Ease separately and counts verdict moves', () => {
   const ts = listingTrajectories(parse(
-    ev('A Co', 'Analyst', EARLY, 7.0, 7.5), ev('A Co', 'Analyst', LATE, 8.5, 7.5),   // want ↑, ease flat, upgrade
-    ev('B Co', 'Analyst', EARLY, 7.0, 6.0), ev('B Co', 'Analyst', LATE, 7.1, 5.0),   // want flat, ease ↓, thin→thin
+    ev('A Co', 'Analyst', EARLY, 7.0, 7.5), ev('A Co', 'Analyst', LATE, 8.5, 7.5),   // match ↑, ease flat, upgrade
+    ev('B Co', 'Analyst', EARLY, 7.0, 6.0), ev('B Co', 'Analyst', LATE, 7.1, 5.0),   // match flat, ease ↓, thin→thin
     blockedEv('C Co', 'Analyst', EARLY), ev('C Co', 'Analyst', LATE, 7.0, 7.5),      // blocked → solid
   ))
   const s = trajectorySummary(ts)
   assert.equal(s.reevaluated, 3)
-  assert.deepEqual(s.want, { n: 2, improving: 1, declining: 0, withinNoise: 1, detectable: 1, avgDelta: 0.8, medianDelta: 0.8, noiseFloor: WANT_NOISE_FLOOR })
+  assert.deepEqual(s.match, { n: 2, improving: 1, declining: 0, withinNoise: 1, detectable: 1, avgDelta: 0.8, medianDelta: 0.8, noiseFloor: MATCH_NOISE_FLOOR })
   assert.equal(s.ease.n, 2)
   assert.equal(s.ease.declining, 1)
   assert.equal(s.ease.withinNoise, 1)
@@ -324,8 +324,8 @@ test('trajectorySummary tallies Want and Ease separately and counts verdict move
 test('trajectorySummary on empty trajectories returns zero-state', () => {
   const s = trajectorySummary([])
   assert.equal(s.reevaluated, 0)
-  assert.equal(s.want.n, 0)
-  assert.equal(s.want.avgDelta, 0)
+  assert.equal(s.match.n, 0)
+  assert.equal(s.match.avgDelta, 0)
   assert.deepEqual(s.verdictMoves, { upgrade: 0, downgrade: 0, same: 0, unknown: 0 })
 })
 
@@ -357,7 +357,7 @@ test('verdictMoves lists the listings and gates the count as a corpus claim', ()
 
 // ─── landscapeTrend ───────────────────────────────────────────────────────
 
-test('landscapeTrend early-outs carry withheld Want / Ease blocks and the gate', () => {
+test('landscapeTrend early-outs carry withheld Match / Ease blocks and the gate', () => {
   const few = landscapeTrend(parse(...windowRows(EARLY, 2, 7, 7), ...windowRows(LATE, 2, 7, 7)))
   const oneDate = landscapeTrend(parse(...windowRows(EARLY, 12, 7, 7)))
   for (const t of [few, oneDate]) {
@@ -365,7 +365,7 @@ test('landscapeTrend early-outs carry withheld Want / Ease blocks and the gate',
     assert.ok(t.reason)
     assert.equal(t.verdictGate.met, false)
     assert.equal(t.verdictConfidence, 'insufficient')
-    for (const m of ['want', 'ease']) {
+    for (const m of ['match', 'ease']) {
       assert.equal(t[m].movementClass, 'insufficient-data')
       assert.equal(t[m].reportableVerdict, 'insufficient-data')
       assert.equal(t[m].delta, null)
@@ -400,27 +400,27 @@ test('corpus verdict is WITHHELD with 9 scored evals per window (numbers stay au
   assert.equal(t.verdictGate.earlierCount, 9)
   assert.equal(t.verdictGate.laterCount, 9)
   assert.match(t.verdictGate.reason, /withheld/)
-  assert.equal(t.want.delta, 1)
-  assert.equal(t.want.movementClass, 'insufficient-data')
-  assert.equal(t.want.reportableVerdict, 'insufficient-data')
-  assert.equal(t.want.detectable, false)
-  assert.equal(t.want.confidence, 'insufficient')
+  assert.equal(t.match.delta, 1)
+  assert.equal(t.match.movementClass, 'insufficient-data')
+  assert.equal(t.match.reportableVerdict, 'insufficient-data')
+  assert.equal(t.match.detectable, false)
+  assert.equal(t.match.confidence, 'insufficient')
   assert.equal(t.verdictConfidence, 'insufficient')
 })
 
-test('corpus verdict UNLOCKS at exactly 10 per window; Want and Ease read separately', () => {
+test('corpus verdict UNLOCKS at exactly 10 per window; Match and Ease read separately', () => {
   const t = landscapeTrend(parse(...windowRows(EARLY, 10, 7.0, 6.0), ...windowRows(LATE, 10, 7.5, 6.2)))
   assert.equal(t.verdictGate.met, true)
   assert.equal(t.verdictConfidence, 'low')
   assert.deepEqual(
-    { earlier: t.want.earlier, later: t.want.later, delta: t.want.delta },
+    { earlier: t.match.earlier, later: t.match.later, delta: t.match.delta },
     { earlier: 7, later: 7.5, delta: 0.5 },
   )
-  assert.equal(t.want.movementClass, 'improving')
-  assert.equal(t.want.reportableVerdict, 'improving')
-  assert.equal(t.want.noiseFloor, WANT_NOISE_FLOOR)
-  assert.equal(t.want.n, 10)
-  assert.equal(t.want.confidence, 'low')
+  assert.equal(t.match.movementClass, 'improving')
+  assert.equal(t.match.reportableVerdict, 'improving')
+  assert.equal(t.match.noiseFloor, MATCH_NOISE_FLOOR)
+  assert.equal(t.match.n, 10)
+  assert.equal(t.match.confidence, 'low')
   assert.equal(t.ease.delta, 0.2)
   assert.equal(t.ease.movementClass, 'within-noise')
   assert.equal(t.ease.reportableVerdict, 'flat-within-noise')
@@ -463,15 +463,15 @@ test('blocked rows never count toward a window, but are counted beside it', () =
   assert.equal(t.earlier.blocked, 5)
   assert.equal(t.later.blocked, 0)
   assert.equal(t.verdictGate.earlierCount, 10)
-  assert.equal(t.want.earlier, 7, 'blocked rows are not read as 0')
+  assert.equal(t.match.earlier, 7, 'blocked rows are not read as 0')
 })
 
 test('landscapeTrend accepts a caller-supplied verdict gate and floors', () => {
   const rows = parse(...windowRows(EARLY, 6, 7.0, 6.0), ...windowRows(LATE, 6, 7.2, 6.0))
-  const t = landscapeTrend(rows, { minPerWindowForVerdict: 6, wantFloor: 0.1 })
+  const t = landscapeTrend(rows, { minPerWindowForVerdict: 6, matchFloor: 0.1 })
   assert.equal(t.verdictGate.met, true)
-  assert.equal(t.want.noiseFloor, 0.1)
-  assert.equal(t.want.movementClass, 'improving')
+  assert.equal(t.match.noiseFloor, 0.1)
+  assert.equal(t.match.movementClass, 'improving')
 })
 
 test('landscapeTrend carries the verdict upgrades / downgrades of re-evaluated listings', () => {
@@ -493,7 +493,7 @@ test('trendRecommendations flags the sharpest decliner and strongest improver', 
   ))
   const recs = trendRecommendations(ts, null)
   assert.equal(recs.length, 2)
-  assert.match(recs[0].action, /^Re-check "Down Co — Analyst": verdict Go → Solid · Want 8\.5 → 7 \(-1\.5\)/)
+  assert.match(recs[0].action, /^Re-check "Down Co — Analyst": verdict Go → Solid · Match 8\.5 → 7 \(-1\.5\)/)
   assert.equal(recs[0].impact, 'high')
   assert.equal(recs[0].confidence, 'low')
   assert.equal(recs[0].sampleSize, 2)
@@ -530,7 +530,7 @@ test('trendRecommendations emits an insufficient-data marker under the gate', ()
 test('trendRecommendations reports a gate-passing flat corpus as flat', () => {
   const rows = parse(...windowRows(EARLY, 10, 7.0, 6.0), ...windowRows(LATE, 10, 7.1, 6.1))
   const [rec] = trendRecommendations([], landscapeTrend(rows))
-  assert.match(rec.action, /^Landscape trend: flat within noise — Want flat within noise .*; Ease flat within noise/)
+  assert.match(rec.action, /^Landscape trend: flat within noise — Match flat within noise .*; Ease flat within noise/)
   assert.equal(rec.confidence, 'low')
   assert.equal(rec.sampleSize, 10)
 })
@@ -540,11 +540,11 @@ test('trendRecommendations: sharpening, sliding and mixed landscape lines', () =
     ...windowRows(EARLY, 10, 7.0, 6.0), ...windowRows(LATE, 10, wLate, eLate),
   )))[0]
   const up = line(7.6, 6.0)
-  assert.match(up.action, /^Targeting is sharpening — Want improving \(7\.6 vs 7 earlier, \+0\.6\); Ease flat within noise/)
+  assert.match(up.action, /^Targeting is sharpening — Match improving \(7\.6 vs 7 earlier, \+0\.6\); Ease flat within noise/)
   assert.equal(up.impact, 'medium')
   assert.match(up.reasoning, /10 earlier vs 10 later scored evals; low confidence/)
   const down = line(7.0, 5.0)
-  assert.match(down.action, /^Evaluated landscape is sliding — Want flat within noise .*; Ease declining/)
+  assert.match(down.action, /^Evaluated landscape is sliding — Match flat within noise .*; Ease declining/)
   assert.equal(down.impact, 'high')
   const mixed = line(7.6, 5.0)
   assert.match(mixed.action, /^Landscape trend is mixed/)
@@ -570,7 +570,7 @@ test('analyzeTrend returns a structured analysis object and publishes its contra
   assert.deepEqual(r.metadata.dateRange, { from: EARLY, to: LATE })
   assert.deepEqual(r.metadata.contract, {
     doc: 'docs/scoring-statistical-design.md',
-    noiseFloors: { want: WANT_NOISE_FLOOR, ease: EASE_NOISE_FLOOR },
+    noiseFloors: { match: MATCH_NOISE_FLOOR, ease: EASE_NOISE_FLOOR },
     minEvalsPerTrajectory: GATES.trendMinEvals,
     minPerWindowForVerdict: GATES.trendMinPerWindowForVerdict,
   })

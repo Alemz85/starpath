@@ -163,7 +163,7 @@ Antes de imprimir el output, pasa CADA respuesta por este filtro. Si alguna fall
 ```
 ## Respuestas para [Empresa] — [Rol]
 
-Basado en: Report #NNN | Want X.X · Ease X.X · Verdict: [verdict] | Arquetipo: [tipo]
+Basado en: Report #NNN | Match X.X · Ease X.X · Verdict: [verdict] | Arquetipo: [tipo]
 
 ---
 

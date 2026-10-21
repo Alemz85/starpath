@@ -21,7 +21,7 @@ import {
   type TimelineEvent,
 } from '@/lib/companyTimeline'
 import { scoreColor } from '@/lib/tier'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { parseScoreCell } from '@/lib/scoreBands'
 import { cn } from '@/lib/utils'
 import type { ScoreEntry, ApplicationEntry } from '@/types'
@@ -223,15 +223,15 @@ function StatStrip({ stats, appCount }: { stats: CompanyStats; appCount: number 
   const cityHint = stats.cities.join(' · ') || undefined
   return (
     <StatRow>
-      {/* Scoring v2: Want · Ease pairs, never one combined number. "Best"
+      {/* Scoring v2: Match · Ease pairs, never one combined number. "Best"
           is the highest-Priority listing; Average is over scored rows. */}
       <Stat
         label="Best listing"
-        value={stats.best ? <WantEase want={stats.best.want} ease={stats.best.ease} /> : '—'}
+        value={stats.best ? <MatchEase match={stats.best.match} ease={stats.best.ease} /> : '—'}
       />
       <Stat
         label="Average"
-        value={stats.avgWant != null || stats.avgEase != null ? <WantEase want={stats.avgWant} ease={stats.avgEase} /> : '—'}
+        value={stats.avgMatch != null || stats.avgEase != null ? <MatchEase match={stats.avgMatch} ease={stats.avgEase} /> : '—'}
       />
       <Stat
         label="Top tier"
@@ -273,7 +273,7 @@ function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
   return (
     <div className="card p-4 flex flex-col h-full">
       <SectionHeading
-        title="Want trajectory"
+        title="Match trajectory"
         action={
           <span
             className={`inline-flex items-center gap-1 text-label font-medium ${meta.tone}`}
@@ -296,12 +296,12 @@ function TrajectoryCard({ trajectory }: { trajectory: ScoreTrajectory }) {
         )}
       </div>
 
-      {/* Sparkline — Want over evaluations, oldest→newest, left→right. */}
+      {/* Sparkline — Match over evaluations, oldest→newest, left→right. */}
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="mt-3 w-full h-14"
         role="img"
-        aria-label={`Want over ${points.length} evaluations, from ${points[0].score.toFixed(1)} to ${latestScore.toFixed(1)}`}
+        aria-label={`Match over ${points.length} evaluations, from ${points[0].score.toFixed(1)} to ${latestScore.toFixed(1)}`}
         preserveAspectRatio="none"
       >
         <polyline
@@ -382,8 +382,8 @@ function TimelineRow({ ev, last }: { ev: TimelineEvent; last: boolean }) {
       <div className="min-w-0 flex-1 -mt-0.5">
         <div className="flex items-baseline gap-2">
           <span className="text-body text-text-1 truncate">{ev.role || '—'}</span>
-          {(ev.want != null || ev.blocked) && (
-            <WantEase want={ev.want} ease={ev.ease} size="sm" blockedReason={ev.blocked ? 'Blocked' : null} className="shrink-0" />
+          {(ev.match != null || ev.blocked) && (
+            <MatchEase match={ev.match} ease={ev.ease} size="sm" blockedReason={ev.blocked ? 'Blocked' : null} className="shrink-0" />
           )}
           {ev.legacyScore != null && (
             <span className="text-label text-text-3 shrink-0" title="Legacy v1 score">{ev.legacyScore.toFixed(1)}/10</span>
@@ -402,13 +402,13 @@ function TimelineRow({ ev, last }: { ev: TimelineEvent; last: boolean }) {
 
 // ─── Applications ─────────────────────────────────────────────────────────────
 
-// Application `score` cell: `W8.3 E5.6` (scoring v2) or a legacy `8.4/10`,
+// Application `score` cell: `M8.3 E5.6` (scoring v2) or a legacy `8.4/10`,
 // shown as-is (docs/scoring-v2.md §8.3).
 function AppScoreCell({ raw }: { raw: string }) {
   const cell = parseScoreCell(raw)
   if (!cell) return <span className="text-text-4">—</span>
   if ('legacy' in cell) return <span className="text-label text-text-3" title="Legacy v1 score">{cell.legacy.toFixed(1)}/10</span>
-  return <WantEase want={cell.want} ease={cell.ease} size="sm" bare />
+  return <MatchEase match={cell.match} ease={cell.ease} size="sm" bare />
 }
 
 function ApplicationsSection({ apps }: { apps: ApplicationEntry[] }) {
@@ -423,7 +423,7 @@ function ApplicationsSection({ apps }: { apps: ApplicationEntry[] }) {
         <thead>
           <tr className="bg-bg-elevated/60 border-b border-border-default">
             <th className="th text-left px-4 h-8">Role</th>
-            <th className="th text-right px-3 h-8 w-28">Want · Ease</th>
+            <th className="th text-right px-3 h-8 w-28">Match · Ease</th>
             <th className="th text-left px-3 h-8 w-28">Date</th>
             <th className="th text-left px-4 h-8 w-32">Status</th>
           </tr>

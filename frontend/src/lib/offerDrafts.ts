@@ -7,7 +7,7 @@
 // prefill from it instead of making them re-key numbers the system already
 // knows:
 //
-//   fit    ← the role's Want (scoring v2 — an offer has already cleared Ease)
+//   fit    ← the role's Match (scoring v2 — an offer has already cleared Ease)
 //   growth ← Growth/Mobility dimension
 //   brand  ← Brand Value dimension
 //   comp   ← Salary-Adj-for-city dimension (the savings-power band score)
@@ -42,7 +42,7 @@ export function neutralScores(): FactorScores {
 }
 
 // Clamp + round any number into the valid 1-10 integer factor range. Scores in
-// score-history are already 1-10 but may be fractional (the Want rollup) or,
+// score-history are already 1-10 but may be fractional (the Match rollup) or,
 // for legacy rows, missing/0 — guard so a draft never carries an out-of-range
 // value into compareOffers (which would throw).
 export function clampFactor(n: number | undefined | null): number {
@@ -68,7 +68,7 @@ export function offerLabel(company: string, role: string): string {
 /**
  * Build a prefilled draft from one evaluated role. fit/growth/brand/comp come
  * from the evaluation; location/risk start neutral. Scoring v2: fit is the
- * role's Want (offerCompare § fitFactorFromScores) — never re-derived.
+ * role's Match (offerCompare § fitFactorFromScores) — never re-derived.
  */
 export function draftFromScoreEntry(e: ScoreEntry): OfferDraft {
   return {
@@ -77,7 +77,7 @@ export function draftFromScoreEntry(e: ScoreEntry): OfferDraft {
     sourceKey: scoreEntryKey(e),
     scores: {
       comp: clampFactor(e.salary_adj_city),
-      fit: clampFactor(fitFactorFromScores({ want: isScored(e) ? e.want : null }).score),
+      fit: clampFactor(fitFactorFromScores({ match: isScored(e) ? e.match : null }).score),
       growth: clampFactor(e.growth_mobility),
       brand: clampFactor(e.brand_value),
       location: NEUTRAL_FACTOR,
@@ -103,9 +103,9 @@ export interface PickableRole {
   key: string
   company: string
   role: string
-  want: number | null
+  match: number | null
   ease: number | null
-  /** sqrt(Want × Ease) — the ranking key only. */
+  /** sqrt(Match × Ease) — the ranking key only. */
   priority: number | null
   verdict: Verdict | null
   date: string
@@ -133,7 +133,7 @@ export function pickableRoles(scoreHistory: ScoreEntry[]): PickableRole[] {
       key: scoreEntryKey(e),
       company: e.company,
       role: e.role,
-      want: isScored(e) ? e.want : null,
+      match: isScored(e) ? e.match : null,
       ease: isScored(e) ? e.ease : null,
       priority: priorityOf(e),
       verdict: verdictOf(e),

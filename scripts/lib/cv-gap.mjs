@@ -259,15 +259,15 @@ export function weakProofPoints(cvText, opts = {}) {
  * rows never enter it): the dimensions that most consistently score low across
  * the evaluated landscape. We surface only the genuinely low ones (avg below
  * `avgThreshold` OR low in a meaningful share of evals) and attach a
- * CV-oriented hint. Each gap carries the rollup it drags (`want` | `ease`) so
- * the reader can tell an Ease problem (getting in) from a Want problem (the
+ * CV-oriented hint. Each gap carries the rollup it drags (`match` | `ease`) so
+ * the reader can tell an Ease problem (getting in) from a Match problem (the
  * roles being evaluated aren't wanted).
  *
  * CV-actionable dimensions are the Ease-side ones the CV itself moves:
  * skills_match (surface the skills you have in the landscape's vocabulary) and
  * experience_bar (surface the prior internships / projects / YoE that count).
  * competition is Ease too, but it's about the brand's pool — the CV can't move
- * it (a referral or a school/language edge does). Everything on the Want side
+ * it (a referral or a school/language edge does). Everything on the Match side
  * is a targeting/sourcing fix.
  */
 export const CV_LEVER_DIMS = Object.freeze(['skills_match', 'experience_bar']);

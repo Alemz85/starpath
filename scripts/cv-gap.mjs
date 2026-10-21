@@ -150,7 +150,7 @@ function printSummary(res, minRoles = 2) {
     console.log('-'.repeat(50));
     for (const d of dimension) {
       const tag = d.cvActionable ? '[CV-fixable]' : '[targeting]';
-      console.log(`  ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  drags ${d.rollup === 'ease' ? 'Ease' : 'Want'}  ${tag}`);
+      console.log(`  ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  drags ${d.rollup === 'ease' ? 'Ease' : 'Match'}  ${tag}`);
     }
   }
 

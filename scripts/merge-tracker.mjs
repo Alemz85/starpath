@@ -8,10 +8,10 @@
  * - 8-col:  num\tdate\tcompany\trole\tstatus\tscore\tpdf\treport (no notes, backward-compat)
  * - Pipe-delimited (markdown table row): | col | col | ... |
  *
- * The score column is a v2 "W8.3 E5.6" cell (legacy "7.4/10" still accepted).
+ * The score column is a v2 "M8.3 E5.6" cell (legacy "7.4/10" still accepted).
  *
  * Dedup: company normalized + role fuzzy match + report number match
- * If duplicate with a higher Priority (sqrt(want × ease) for v2 cells, the
+ * If duplicate with a higher Priority (sqrt(match × ease) for v2 cells, the
  * legacy number for legacy cells; v2 beats legacy on a tie) → update in-place,
  * update report link
  * Validates status against states.yml (rejects non-canonical, logs warning)

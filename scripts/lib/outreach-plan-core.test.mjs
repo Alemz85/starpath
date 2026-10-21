@@ -233,7 +233,7 @@ test('assemblePlan wires everything together with honest counts', () => {
   const threads = companyThreads([touch({ contact: 'Grace Hopper', lastTouch: '2026-06-30' })], 'Acme', TODAY);
   const plan = assemblePlan({
     company: 'Acme',
-    roles: [{ role: 'Data Analyst', score: 8.1, want: 8.1, ease: 8.1, scoreLabel: 'W8.1 · E8.1', source: 'application' }],
+    roles: [{ role: 'Data Analyst', score: 8.1, match: 8.1, ease: 8.1, scoreLabel: 'M8.1 · E8.1', source: 'application' }],
     paths: [path(), path({ name: 'Alan Turing', warmth: 2.0 })],
     threads,
     research: { exists: true, state: 'fresh', ageDays: 3, valid: true, path: 'data/companies/acme.md' },
@@ -263,7 +263,7 @@ test('assemblePlan on an empty world recommends cold-search and stays calm', () 
 test('renderPlan produces a readable dashboard with the play and the rules', () => {
   const plan = assemblePlan({
     company: 'Acme',
-    roles: [{ role: 'Data Analyst', score: 8.1, want: 8.1, ease: 8.1, scoreLabel: 'W8.1 · E8.1', source: 'application' }],
+    roles: [{ role: 'Data Analyst', score: 8.1, match: 8.1, ease: 8.1, scoreLabel: 'M8.1 · E8.1', source: 'application' }],
     paths: [path()],
     threads: [],
     research: { exists: false },
@@ -274,7 +274,7 @@ test('renderPlan produces a readable dashboard with the play and the rules', () 
   });
   const text = renderPlan(plan);
   assert.match(text, /Outreach plan — Acme/);
-  assert.match(text, /Targeting: Data Analyst \(W8\.1 · E8\.1\)/);
+  assert.match(text, /Targeting: Data Analyst \(M8\.1 · E8\.1\)/);
   assert.ok(!/\/10/.test(text), 'no v1 "/10" score rendering');
   assert.match(text, new RegExp(PLAY_LABEL['warm-direct'].split(' — ')[0]));
   assert.match(text, /Grace Hopper/);

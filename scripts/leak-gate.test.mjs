@@ -78,7 +78,7 @@ before(() => {
   write(pub, 'private/data/applications.md', [
     '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
     '|---|------|---------|------|-------|--------|-----|----------|--------|-------|',
-    `| 1 | 2026-05-05 | ${COMPANY} | ${ROLE} | W8 E7 | Applied | ❌ | | | |`,
+    `| 1 | 2026-05-05 | ${COMPANY} | ${ROLE} | M8 E7 | Applied | ❌ | | | |`,
     '',
   ].join('\n'))
   ok(sh(SCRATCH, 'git', ['init', '-q', '--bare', remote]), 'init bare')

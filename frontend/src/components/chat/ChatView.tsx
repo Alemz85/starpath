@@ -66,7 +66,7 @@ async function applyProposalToTracker(proposal: ChatProposal): Promise<string> {
   const upserted = upsertApplicationRow(raw, {
     company: proposal.company,
     role: proposal.role,
-    want: proposal.want ?? null,
+    match: proposal.match ?? null,
     ease: proposal.ease ?? null,
     tier: tierForProposal(proposal),
   })

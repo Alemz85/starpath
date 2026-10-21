@@ -3,7 +3,7 @@
 # This is the single source of truth for your personal data across all modes.
 
 # Default evaluation mode for pasted JDs / URLs / auto-pipeline.
-#   scouting     — lightweight landscape mapping (eligibility gate + Want + Ease, no PDF per listing).
+#   scouting     — lightweight landscape mapping (eligibility gate + Match + Ease, no PDF per listing).
 #                  Use when you're mapping the market, not actively applying.
 #   applying     — full A-H oferta evaluation with tailored PDF, ready to submit.
 #                  Use when you're in active application mode.
@@ -99,22 +99,22 @@ location:
 #     graduate_programme: { min: 12, max: 24 }   # fixed_term, working_student (rest → default)
 #   permanent_start_ok_before_block: false   # false = a permanent role that would run
 #                                            # through a blocked window is Blocked
-#   score_through_red:                       # Blocked listings that still get Want / Ease,
+#   score_through_red:                       # Blocked listings that still get Match / Ease,
 #     checks: [start_date, work_auth]        # so the Database maps the market behind walls
 #     languages: [German]                    # you may clear later (a language red: only these)
 #     except_employment: [working_student]   # never scored
 
 # ── Scoring weights (optional — omit to use the defaults) ───────────────────
-# Want averages four motivators; Ease is a weighted geometric mean of three
+# Match averages four motivators; Ease is a weighted geometric mean of three
 # dimensions. Weights are relative. Defaults shown.
 # scoring:
-#   want_weights: { growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1 }
+#   match_weights: { growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1 }
 #   ease_weights: { skills_match: 0.35, experience_bar: 0.35, competition: 0.30 }
 
 # ── Calibration (optional — applied by scripts/score-listing.mjs) ───────────
 # calibration:
-#   dream_companies: ["Example Corp"]           # Want floor 8.0 (Brand untouched)
-#   lower_tier_dream_companies: ["Sample Inc"]  # +0.25 Want (preference)
+#   dream_companies: ["Example Corp"]           # Match floor 8.0 (Brand untouched)
+#   lower_tier_dream_companies: ["Sample Inc"]  # +0.25 Match (preference)
 #   brand_affinity_companies: ["Demo Labs"]     # triage/brief boost only (e.g. CEMS partners)
 #   extra_brand_bonuses:                        # Brand perception corrections only
 #     - { company: "Placeholder Co", bonus: 0.5, reason: "household name in the target market" }

@@ -173,7 +173,7 @@ const RELEVANCE_GATE =
   'Work-authorisation, location, language, start-date, duration and graduation walls are NOT discards: ' +
   'they are the eligibility gate. Run it first (`node scripts/score-listing.mjs --eligibility-only`); ' +
   'a red listing is still logged as Blocked with its reason: when the gate says `scored: true` (the profile scores ' +
-  'through that wall) score its Want/Ease as usual, otherwise it gets no Want/Ease; no report either way. An amber one is ' +
+  'through that wall) score its Match/Ease as usual, otherwise it gets no Match/Ease; no report either way. An amber one is ' +
   'scored normally with its recruiter question recorded. ' +
   'Borderline = DISCARD: the bar for inclusion is a one-sentence, JD-cited reason why the role fits an archetype. ' +
   'Move each discard to the "## Filtered Out" section of data/pipeline.md as ' +
@@ -257,7 +257,7 @@ export function filterAllPrompt(today: string = todayISO()): string {
     NO_REPORT_DEVIATION +
     '(4) mark each scored URL [x] in data/pipeline.md. ' +
     MERGE_STEP +
-    'Survivors land in the Database with an eligibility status and a Want · Ease pair (Blocked rows show their ' +
+    'Survivors land in the Database with an eligibility status and a Match · Ease pair (Blocked rows show their ' +
     'reason instead); discards stay auditable in Filtered Out.'
   )
 }
@@ -277,7 +277,7 @@ export function top5ReportsPrompt(today: string = todayISO()): string {
     '(2) ' + RELEVANCE_GATE +
     '(3) evaluate each SURVIVING listing through the system-prompt pipeline, but DEFER Step 5: ' +
     'write the score-history + report-summaries rows and the scouting TSV for ALL survivors first. ' +
-    '(4) Identify the 5 highest-Priority survivors (Priority = sqrt(Want × Ease); never a Blocked listing); ' +
+    '(4) Identify the 5 highest-Priority survivors (Priority = sqrt(Match × Ease); never a Blocked listing); ' +
     'for those 5 ONLY, write the per-listing report ' +
     'under reports/tier-{N}/{Company} - {Role}.md at FULL T1 depth (Role summary + Gaps and opportunities + ' +
     'Comp & demand + Recommendation + Career path impact) regardless of the entry’s actual tier — ' +

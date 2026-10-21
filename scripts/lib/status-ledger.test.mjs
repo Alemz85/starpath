@@ -25,9 +25,9 @@ const CLI = fileURLToPath(new URL('../set-status.mjs', import.meta.url))
 const NOW = new Date('2026-07-10T12:00:00')
 
 const ROWS = [
-  '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | W8.5 E7.5 | Applied | ✅ | 2026-07-15 | [1](reports/tier-1/a.md) | sent |',
-  '| 2 | 2026-06-03 | Contoso Labs | Ops Analyst | W7.0 E6.0 | Evaluated | ❌ | n/d | [2](reports/tier-2/b.md) |  |',
-  '| 3 | 2026-06-05 | Fabrikam Energy | Data Analyst | W6.5 E6.5 | Interview | ❌ | n/d | — | round 2 |',
+  '| 1 | 2026-06-01 | Nimbus Robotics | Strategy Analyst | M8.5 E7.5 | Applied | ✅ | 2026-07-15 | [1](reports/tier-1/a.md) | sent |',
+  '| 2 | 2026-06-03 | Contoso Labs | Ops Analyst | M7.0 E6.0 | Evaluated | ❌ | n/d | [2](reports/tier-2/b.md) |  |',
+  '| 3 | 2026-06-05 | Fabrikam Energy | Data Analyst | M6.5 E6.5 | Interview | ❌ | n/d | — | round 2 |',
 ]
 
 /** A data root whose data/applications.md is a link into a profile, as with profiles. */

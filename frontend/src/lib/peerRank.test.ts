@@ -241,44 +241,44 @@ test('comparables exclude the same company, sort by closeness, cap at 3', () => 
   assert.ok(ctx.comparables.every(c => c.company !== 'Self'))
 })
 
-test('comparables carry Want, Ease, verdict and Priority', () => {
+test('comparables carry Match, Ease, verdict and Priority', () => {
   const rows = cohort('Ops', [
-    { company: 'Self', priority: 7.0, want: 7.5, ease: 6.5 },
-    { company: 'B', priority: 6.9, want: 8.1, ease: 5.9, verdict: 'stretch' },
-    { company: 'C', priority: 5.0, want: 5.0, ease: 5.0 },
-    { company: 'D', priority: 4.5, want: 4.5, ease: 4.5 },
-    { company: 'E', priority: 4.0, want: 4.0, ease: 4.0 },
+    { company: 'Self', priority: 7.0, match: 7.5, ease: 6.5 },
+    { company: 'B', priority: 6.9, match: 8.1, ease: 5.9, verdict: 'stretch' },
+    { company: 'C', priority: 5.0, match: 5.0, ease: 5.0 },
+    { company: 'D', priority: 4.5, match: 4.5, ease: 4.5 },
+    { company: 'E', priority: 4.0, match: 4.0, ease: 4.0 },
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
   const [b] = ctx.comparables
   assert.equal(b.company, 'B')
-  assert.equal(b.want, 8.1)
+  assert.equal(b.match, 8.1)
   assert.equal(b.ease, 5.9)
   assert.equal(b.verdict, 'stretch')
   assert.equal(b.priority, 6.9)
 })
 
-// ─── Want / Ease placement ────────────────────────────────────────────────────
+// ─── Match / Ease placement ────────────────────────────────────────────────────
 
-test('Want and Ease are each placed among the same peers, as separate claims', () => {
+test('Match and Ease are each placed among the same peers, as separate claims', () => {
   const rows = cohort('Ops', [
-    { company: 'Self', priority: 7, want: 9.0, ease: 5.0 },
-    { company: 'B', priority: 7, want: 6.0, ease: 8.0 },
-    { company: 'C', priority: 7, want: 7.0, ease: 7.0 },
-    { company: 'D', priority: 7, want: 8.0, ease: 6.0 },
-    { company: 'E', priority: 7, want: 5.0, ease: 9.0 },
+    { company: 'Self', priority: 7, match: 9.0, ease: 5.0 },
+    { company: 'B', priority: 7, match: 6.0, ease: 8.0 },
+    { company: 'C', priority: 7, match: 7.0, ease: 7.0 },
+    { company: 'D', priority: 7, match: 8.0, ease: 6.0 },
+    { company: 'E', priority: 7, match: 5.0, ease: 9.0 },
   ])
   const ctx = peerContext(rows[0], rows)
-  assert.ok(ctx && ctx.want && ctx.ease)
-  // Want beats all 4 others → 80th percentile of 5, #1, top quartile.
-  assert.equal(ctx.want.value, 9)
-  assert.equal(ctx.want.percentile, 80)
-  assert.equal(ctx.want.rankPosition, 1)
-  assert.equal(ctx.want.rankLabel, 'top quartile')
-  assert.equal(ctx.want.peerAvg, 6.5)                 // OTHER peers only
-  assert.equal(ctx.want.peerN, 5)
-  assert.equal(ctx.want.confidence, 'low')
+  assert.ok(ctx && ctx.match && ctx.ease)
+  // Match beats all 4 others → 80th percentile of 5, #1, top quartile.
+  assert.equal(ctx.match.value, 9)
+  assert.equal(ctx.match.percentile, 80)
+  assert.equal(ctx.match.rankPosition, 1)
+  assert.equal(ctx.match.rankLabel, 'top quartile')
+  assert.equal(ctx.match.peerAvg, 6.5)                 // OTHER peers only
+  assert.equal(ctx.match.peerN, 5)
+  assert.equal(ctx.match.confidence, 'low')
   // Ease beats nobody → bottom half, last.
   assert.equal(ctx.ease.value, 5)
   assert.equal(ctx.ease.percentile, 0)
@@ -287,53 +287,53 @@ test('Want and Ease are each placed among the same peers, as separate claims', (
   assert.equal(ctx.ease.peerAvg, 7.5)
 })
 
-test('Want / Ease placement ties rank below, like the Priority rank', () => {
+test('Match / Ease placement ties rank below, like the Priority rank', () => {
   const rows = cohort('Ops', [
-    { company: 'Self', priority: 7, want: 7.0, ease: 7.0 },
-    { company: 'B', priority: 7, want: 7.0, ease: 6.0 },
-    { company: 'C', priority: 7, want: 6.0, ease: 6.0 },
-    { company: 'D', priority: 7, want: 6.0, ease: 6.0 },
-    { company: 'E', priority: 7, want: 6.0, ease: 6.0 },
+    { company: 'Self', priority: 7, match: 7.0, ease: 7.0 },
+    { company: 'B', priority: 7, match: 7.0, ease: 6.0 },
+    { company: 'C', priority: 7, match: 6.0, ease: 6.0 },
+    { company: 'D', priority: 7, match: 6.0, ease: 6.0 },
+    { company: 'E', priority: 7, match: 6.0, ease: 6.0 },
   ])
   const ctx = peerContext(rows[0], rows)
-  assert.ok(ctx && ctx.want && ctx.ease)
-  assert.equal(ctx.want.rankPosition, 2)               // tie with B ranks below
-  assert.equal(ctx.want.percentile, 60)
-  assert.equal(ctx.want.rankLabel, 'top half')
+  assert.ok(ctx && ctx.match && ctx.ease)
+  assert.equal(ctx.match.rankPosition, 2)               // tie with B ranks below
+  assert.equal(ctx.match.percentile, 60)
+  assert.equal(ctx.match.rankLabel, 'top half')
   assert.equal(ctx.ease.rankPosition, 1)
 })
 
-test('a Want / Ease placement carries its own n when peers are sparser', () => {
-  // 12 entities; only 6 of the 11 others carry a stored Want.
+test('a Match / Ease placement carries its own n when peers are sparser', () => {
+  // 12 entities; only 6 of the 11 others carry a stored Match.
   const rows = cohort('Ops', [
-    { company: 'Self', priority: 7, want: 8, ease: 6 },
+    { company: 'Self', priority: 7, match: 8, ease: 6 },
     ...Array.from({ length: 11 }, (_, i) => ({
       company: `P${i}`,
       priority: 6,
       ease: 6,
-      ...(i < 6 ? { want: 6 } : {}),
+      ...(i < 6 ? { match: 6 } : {}),
     })),
   ])
   const ctx = peerContext(rows[0], rows)
-  assert.ok(ctx && ctx.want && ctx.ease)
+  assert.ok(ctx && ctx.match && ctx.ease)
   assert.equal(ctx.nPeers, 12)
-  assert.equal(ctx.want.peerN, 7)                      // 6 others + self
-  assert.equal(ctx.want.confidence, 'low')
+  assert.equal(ctx.match.peerN, 7)                      // 6 others + self
+  assert.equal(ctx.match.confidence, 'low')
   assert.equal(ctx.ease.peerN, 12)
   assert.equal(ctx.ease.confidence, 'moderate')
 })
 
-test('Want / Ease placement is null when the entry or every peer lacks it', () => {
+test('Match / Ease placement is null when the entry or every peer lacks it', () => {
   const rows = cohort('Ops', [
-    { company: 'Self', priority: 7, want: 8 },           // no Ease on self
-    { company: 'B', priority: 6, ease: 6 },              // no Want on peers
+    { company: 'Self', priority: 7, match: 8 },           // no Ease on self
+    { company: 'B', priority: 6, ease: 6 },              // no Match on peers
     { company: 'C', priority: 6, ease: 6 },
     { company: 'D', priority: 6, ease: 6 },
     { company: 'E', priority: 6, ease: 6 },
   ])
   const ctx = peerContext(rows[0], rows)
   assert.ok(ctx)
-  assert.equal(ctx.want, null)
+  assert.equal(ctx.match, null)
   assert.equal(ctx.ease, null)
 })
 

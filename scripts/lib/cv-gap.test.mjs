@@ -201,11 +201,11 @@ test('dimensionGaps surfaces only the systematically low dimensions', () => {
   }
 });
 
-test('dimensionGaps tags Want-side drags with their rollup + group', () => {
+test('dimensionGaps tags Match-side drags with their rollup + group', () => {
   const rows = scoreRows({ role_content: 3, skills_match: 8, experience_bar: 8 }, { role_content: 3, skills_match: 8, experience_bar: 8 });
   const gaps = dimensionGaps(rows, { avgThreshold: 6.0 });
   assert.deepEqual(gaps.map((g) => g.key), ['role_content']);
-  assert.equal(gaps[0].rollup, 'want');
+  assert.equal(gaps[0].rollup, 'match');
   assert.equal(gaps[0].group, 'motivator');
   assert.equal(gaps[0].cvActionable, false);
 });
@@ -275,7 +275,7 @@ test('gapRecommendations separates CV-fixable skills drag from targeting drags',
     dimension: [
       { key: 'skills_match', label: 'Skills Match', rollup: 'ease', avg: 4, lowShare: 50, cvActionable: true, hint: 'h' },
       { key: 'experience_bar', label: 'Experience bar', rollup: 'ease', avg: 4.5, lowShare: 40, cvActionable: true, hint: 'h' },
-      { key: 'brand_value', label: 'Brand Value', rollup: 'want', avg: 5, lowShare: 30, cvActionable: false, hint: 'h' },
+      { key: 'brand_value', label: 'Brand Value', rollup: 'match', avg: 5, lowShare: 30, cvActionable: false, hint: 'h' },
     ],
   };
   const recs = gapRecommendations(report);

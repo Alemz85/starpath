@@ -8,7 +8,7 @@ import { ipc } from '@/lib/ipc'
 import { useDataStore } from '@/store/data'
 import { CompanyLink } from '@/components/shared/CompanyLink'
 import { Chip, Panel, type ChipTone } from '@/components/ui'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import {
   buildRosterRows, degreeLabel, isNetworkEmpty, partitionGaps,
   type CompanyPath, type NetworkGap, type NetworkOverview, type NetworkThread,
@@ -304,12 +304,12 @@ function ThreadRow({ t }: { t: NetworkThread }) {
   )
 }
 
-// A role's scores: the Want · Ease pair for a v2 row, the legacy label
+// A role's scores: the Match · Ease pair for a v2 row, the legacy label
 // ("7.4/10") as quiet text for an old applications.md cell. Never Priority,
 // which is only the order the core ranked these rows in.
 function RoleScore({ r }: { r: RoleRef }) {
-  if (r.want != null && r.ease != null) {
-    return <WantEase want={r.want} ease={r.ease} size="sm" className="ml-1.5" />
+  if (r.match != null && r.ease != null) {
+    return <MatchEase match={r.match} ease={r.ease} size="sm" className="ml-1.5" />
   }
   if (r.scoreLabel) return <span className="ml-1.5 text-text-4">{r.scoreLabel}</span>
   return null

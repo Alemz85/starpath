@@ -3,12 +3,12 @@
 /**
  * peer-rank.mjs — Comparative Rank Block computation (scoring v2).
  *
- * For a given listing's primary archetype + Want / Ease (+ dims), find peers
+ * For a given listing's primary archetype + Match / Ease (+ dims), find peers
  * in data/score-history.tsv with the same primary archetype and compute:
  *   - rank percentile of this listing's Priority among peers (spec
  *     docs/scoring-v2.md §5: peer percentile is a sanctioned use of Priority;
  *     Priority itself is never rendered as a headline score)
- *   - where the listing's Want and its Ease each sit among the same peers —
+ *   - where the listing's Match and its Ease each sit among the same peers —
  *     two separate claims, never combined
  *   - dimensional outliers over the ten v2 dims (|Δ| ≥ 1.5 from peer mean)
  *   - 3 closest comparables (by Priority delta, excluding the same company)
@@ -19,7 +19,7 @@
  * Returns null when peers < minPeers (default GATES.peerMinPeers = 5) — the
  * peer block is OMITTED entirely below the threshold, never rendered with a
  * "not enough data yet" placeholder. A blocked target listing also returns
- * null (it has no Want / Ease to rank). `peerRankDetailed()` returns the same
+ * null (it has no Match / Ease to rank). `peerRankDetailed()` returns the same
  * block plus the reason it was omitted.
  *
  * Statistical honesty (docs/scoring-statistical-design.md § 3.2): above the
@@ -31,31 +31,31 @@
  *   {
  *     "archetype":   "Strategy & Operations",   // required; compound "A + B" ranks on "A"
  *     "company":     "Fabrikam Labs",            // excluded from comparables
- *     "want":        8.25,                       // number, or the score-listing.mjs
+ *     "match":        8.25,                       // number, or the score-listing.mjs
  *     "ease":        5.6,                        //   object form { "score": 8.25, ... }
- *     "priority":    6.8,                        // optional; else √(want·ease)
+ *     "priority":    6.8,                        // optional; else √(match·ease)
  *     "dims":        { "skills_match": 8, ... }, // optional; any of the 10 v2 dims
  *     "eligibility": "green" | "amber" | "red",  // optional; red → blocked → null
  *     "verdict":     "stretch"                   // optional; "blocked" → null
  *   }
  *
- *   `this_dims` is accepted as an alias of `dims`. When `want` / `ease` are
- *   missing but `dims` holds every Want / Ease dimension, they are derived
- *   with the engine's rollupWant / rollupEase at default weights (no dream
+ *   `this_dims` is accepted as an alias of `dims`. When `match` / `ease` are
+ *   missing but `dims` holds every Match / Ease dimension, they are derived
+ *   with the engine's rollupMatch / rollupEase at default weights (no dream
  *   floor, no amber penalty unless `amber_count` is given) — pass the stored
  *   numbers whenever you have them; `score_source` says which was used.
  *
  * Usage as script:
  *
  *   echo '{ "archetype": "Strategy & Operations", "company": "Fabrikam Labs",
- *           "want": 8.25, "ease": 5.6, "dims": {...} }' | node scripts/peer-rank.mjs
+ *           "match": 8.25, "ease": 5.6, "dims": {...} }' | node scripts/peer-rank.mjs
  *
  *   Prints the block as JSON, or `null` (with the reason on stderr).
  *
  * Usage as library:
  *
  *   import { peerRank } from './peer-rank.mjs'
- *   const block = await peerRank({ archetype, company, want, ease, dims })
+ *   const block = await peerRank({ archetype, company, match, ease, dims })
  *
  *   Options: { minPeers, rows (pre-parsed score-history rows), historyPath }.
  *   By default the history is read from data/score-history.tsv relative to
@@ -70,7 +70,7 @@ import {
   parseScoreHistory, isScored, normalizeArchetype, DIMENSIONS,
 } from './lib/targeting-core.mjs'
 import {
-  computePriority, rollupWant, rollupEase, WANT_DIMS, EASE_DIMS,
+  computePriority, rollupMatch, rollupEase, MATCH_DIMS, EASE_DIMS,
 } from './lib/score-bands.mjs'
 
 const SCORE_HISTORY_PATH = 'data/score-history.tsv'
@@ -91,7 +91,7 @@ function primarySegment(archetype) {
   return normalizeArchetype(archetype ?? '').split(' + ')[0].trim()
 }
 
-/** Normalize the v2 input. @returns {{ want, ease, priority, dims, blocked, scoreSource }} */
+/** Normalize the v2 input. @returns {{ match, ease, priority, dims, blocked, scoreSource }} */
 export function normalizeTarget(input = {}) {
   const dims = {}
   const rawDims = input.dims ?? input.this_dims ?? {}
@@ -101,21 +101,21 @@ export function normalizeTarget(input = {}) {
   }
   const blocked = String(input.eligibility ?? '').toLowerCase() === 'red'
     || String(input.verdict ?? '').toLowerCase() === 'blocked'
-  let want = scoreOf(input.want)
+  let match = scoreOf(input.match)
   let ease = scoreOf(input.ease)
   let scoreSource = 'input'
-  if (!blocked && (want == null || ease == null)) {
-    const haveWant = WANT_DIMS.every(k => dims[k] != null)
+  if (!blocked && (match == null || ease == null)) {
+    const haveMatch = MATCH_DIMS.every(k => dims[k] != null)
     const haveEase = EASE_DIMS.every(k => dims[k] != null)
-    if (want == null && haveWant) { want = rollupWant(dims).score; scoreSource = 'dims' }
+    if (match == null && haveMatch) { match = rollupMatch(dims).score; scoreSource = 'dims' }
     if (ease == null && haveEase) {
       ease = rollupEase(dims, { amber_count: Number(input.amber_count) || 0 }).score
       scoreSource = 'dims'
     }
   }
   let priority = scoreOf(input.priority)
-  if (priority == null) priority = computePriority(want, ease)
-  return { want, ease, priority, dims, blocked, scoreSource }
+  if (priority == null) priority = computePriority(match, ease)
+  return { match, ease, priority, dims, blocked, scoreSource }
 }
 
 /** Percentile + bucket of `value` among `values` (share of peers it beats). */
@@ -141,11 +141,11 @@ function placement(value, values, minPeers) {
  * PeerBlock = {
  *   archetype, n_peers, min_peers, confidence,          // n + tier (g = minPeers)
  *   priority, rank, rank_position, percentile,           // Priority placement (sort key only)
- *   want: { value, peer_avg, percentile, rank, rank_position, peer_n, confidence } | null,
+ *   match: { value, peer_avg, percentile, rank, rank_position, peer_n, confidence } | null,
  *   ease: { value, peer_avg, percentile, rank, rank_position, peer_n, confidence } | null,
  *   score_source: 'input' | 'dims',
  *   outliers: Array<{ dim, label, group, rollup, peer_avg, delta, peer_n, confidence }>,
- *   comparables: Array<{ company, role, want, ease, verdict, priority, delta }>,
+ *   comparables: Array<{ company, role, match, ease, verdict, priority, delta }>,
  *   formatted: string  // ready-to-paste 3-line markdown
  * }
  */
@@ -161,10 +161,10 @@ export async function peerRankDetailed(input = {}, {
 
   const target = normalizeTarget(input)
   if (target.blocked) {
-    return omit('blocked', 'The listing is Blocked (eligibility red): it has no Want / Ease to rank against peers.')
+    return omit('blocked', 'The listing is Blocked (eligibility red): it has no Match / Ease to rank against peers.')
   }
   if (target.priority == null) {
-    return omit('no-score', 'Need want + ease (or priority, or every Want / Ease dimension) to rank the listing.')
+    return omit('no-score', 'Need match + ease (or priority, or every Match / Ease dimension) to rank the listing.')
   }
 
   const history = rows ?? await loadHistory(historyPath)
@@ -186,7 +186,7 @@ export async function peerRankDetailed(input = {}, {
   // split is meaningful; at 4× the gate one peer is ≤5 points.
   const confidence = confidenceTier(peers.length, minPeers)
 
-  // Want and Ease, each placed among the same peers — separate claims.
+  // Match and Ease, each placed among the same peers — separate claims.
   const metricPlacement = (metric) => {
     const value = target[metric]
     if (value == null) return null
@@ -195,7 +195,7 @@ export async function peerRankDetailed(input = {}, {
     const avg = vals.reduce((a, b) => a + b, 0) / vals.length
     return { value: round2(value), peer_avg: round2(avg), ...placement(value, vals, minPeers) }
   }
-  const want = metricPlacement('want')
+  const match = metricPlacement('match')
   const ease = metricPlacement('ease')
 
   // Outliers — dim-by-dim Δ from peer mean over the ten v2 dims, ≥ threshold.
@@ -229,7 +229,7 @@ export async function peerRankDetailed(input = {}, {
     .map(r => ({
       company: r.company,
       role: r.role,
-      want: round2(r.want),
+      match: round2(r.match),
       ease: round2(r.ease),
       verdict: r.verdict,
       priority: round2(r.priority),
@@ -246,11 +246,11 @@ export async function peerRankDetailed(input = {}, {
   const lowNote = confidence === 'low'
     ? ' — at this sample read the half, not the quartile'
     : ''
-  const scorePart = want && ease
-    ? `Want ${fmt(want.value)} · Ease ${fmt(ease.value)} — `
+  const scorePart = match && ease
+    ? `Match ${fmt(match.value)} · Ease ${fmt(ease.value)} — `
     : ''
   const placements = [
-    want ? `Want ${want.rank}` : null,
+    match ? `Match ${match.rank}` : null,
     ease ? `Ease ${ease.rank}` : null,
   ].filter(Boolean)
   const formatted = [
@@ -263,7 +263,7 @@ export async function peerRankDetailed(input = {}, {
     `**Closest comparables:** ${
       comparables.length === 0
         ? 'none in archetype'
-        : comparables.map(c => `${c.company} (W${fmt(c.want)} · E${fmt(c.ease)})`).join(' · ')
+        : comparables.map(c => `${c.company} (M${fmt(c.match)} · E${fmt(c.ease)})`).join(' · ')
     }`,
   ].join('\n')
 
@@ -277,7 +277,7 @@ export async function peerRankDetailed(input = {}, {
       rank: prio.rank,
       rank_position: prio.rank_position,
       percentile: prio.percentile,
-      want,
+      match,
       ease,
       score_source: target.scoreSource,
       outliers,
@@ -326,7 +326,7 @@ const HELP = `Usage: echo '<json>' | node scripts/peer-rank.mjs
 Comparative Rank Block for one listing against same-archetype, non-blocked
 peers in data/score-history.tsv (read from the current directory).
 
-Input JSON: { "archetype", "company", "want", "ease", "priority"?, "dims"?,
+Input JSON: { "archetype", "company", "match", "ease", "priority"?, "dims"?,
               "eligibility"?, "verdict"? }
 Prints the block as JSON, or null (reason on stderr) below ${GATES.peerMinPeers} peers or
 for a blocked listing.`

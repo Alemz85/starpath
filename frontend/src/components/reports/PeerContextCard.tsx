@@ -3,7 +3,7 @@
 import { ArrowUpRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NEUTRAL_SCORE_COLOR } from '@/lib/tier'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import type { PeerContext, PeerPlacement } from '@/lib/peerRank'
 import { type ConfidenceTier } from '@/lib/scoringStats'
 import { Chip, SectionHeading } from '@/components/ui'
@@ -12,10 +12,10 @@ import { Chip, SectionHeading } from '@/components/ui'
 // sharing its archetype, computed live from data/score-history.tsv (see
 // lib/peerRank.ts). Omitted entirely under the cohort gate; the parent checks.
 //
-// The distribution strip ranks on Priority (√(Want × Ease), the v2 sort key).
+// The distribution strip ranks on Priority (√(Match × Ease), the v2 sort key).
 // Priority is a rank axis here, never a headline score, so the strip is drawn
-// in neutral slate and comparables show their Want · Ease pair. Under the
-// rank, a quiet line says where the role's Want and its Ease each sit among
+// in neutral slate and comparables show their Match · Ease pair. Under the
+// rank, a quiet line says where the role's Match and its Ease each sit among
 // the same peers: two separate placements, never folded into one.
 //
 // Statistical contract (docs/scoring-statistical-design.md § 3.2 + § 4): every
@@ -54,7 +54,7 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
               <span className="text-text-3"> · {peer.rankLabel}</span>
             </div>
           </div>
-          <PlacementLine want={peer.want} ease={peer.ease} nPeers={peer.nPeers} />
+          <PlacementLine match={peer.match} ease={peer.ease} nPeers={peer.nPeers} />
           <DistributionStrip priority={peer.priority} peerPriorities={peer.peerPriorities} selfColor={selfColor} />
           {peer.confidence === 'low' && (
             <p className="mt-1.5 text-label text-text-4 leading-snug">
@@ -103,7 +103,7 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
               const label = (
                 <>
                   <span>{c.company}</span>
-                  <WantEase want={c.want} ease={c.ease} size="sm" bare className="ml-1" />
+                  <MatchEase match={c.match} ease={c.ease} size="sm" bare className="ml-1" />
                 </>
               )
               return onOpenComparable ? (
@@ -127,15 +127,15 @@ export function PeerContextCard({ peer, onOpenComparable }: PeerContextCardProps
   )
 }
 
-// "Want top quartile · Ease bottom half (#7 of 12)". Each placement prints its
+// "Match top quartile · Ease bottom half (#7 of 12)". Each placement prints its
 // own n only when fewer peers carry that score than the cohort holds.
-function PlacementLine({ want, ease, nPeers }: {
-  want: PeerPlacement | null
+function PlacementLine({ match, ease, nPeers }: {
+  match: PeerPlacement | null
   ease: PeerPlacement | null
   nPeers: number
 }) {
   const parts = [
-    want ? { name: 'Want', p: want } : null,
+    match ? { name: 'Match', p: match } : null,
     ease ? { name: 'Ease', p: ease } : null,
   ].filter((x): x is { name: string; p: PeerPlacement } => x != null)
   if (parts.length === 0) return null
@@ -185,8 +185,8 @@ function DistributionStrip({ priority, peerPriorities, selfColor }: {
   return (
     <div
       role="img"
-      aria-label={`Priority distribution (√(Want × Ease)): this role at ${priority.toFixed(1)}, ${peerPriorities.length} peers between ${lo.toFixed(1)} and ${hi.toFixed(1)}`}
-      title="Rank axis: Priority = √(Want × Ease), the sort key, not a score"
+      aria-label={`Priority distribution (√(Match × Ease)): this role at ${priority.toFixed(1)}, ${peerPriorities.length} peers between ${lo.toFixed(1)} and ${hi.toFixed(1)}`}
+      title="Rank axis: Priority = √(Match × Ease), the sort key, not a score"
     >
       <div className="relative h-5 mt-2">
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-px bg-border-default" aria-hidden />

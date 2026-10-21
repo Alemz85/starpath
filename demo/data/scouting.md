@@ -4,7 +4,7 @@ Landscape-mapping inventory. Entries here are NOT active applications — they a
 
 **Promotion path:** `go` verdicts (Tier 1) are flagged `READY` (`stretch` / `solid` are `MONITOR`) in the Promotion Hint column. Run `node scripts/promote-to-applications.mjs <num>` to move an entry from this file to `data/applications.md` and start the active application flow.
 
-| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
+| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
 |---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|
 | 25 | 2026-10-19 | Tailspin Toys | Pricing Analyst | 8.5 | 8.01 | T1 | green | [25](reports/tier-1/Tailspin Toys - Pricing Analyst.md) | 2026-10-25 | PROMOTED-7 | Closest match to your thesis and internship so far; closes in days |
 | 24 | 2026-10-19 | Litware | Marketing Analytics Associate | 7.25 | 7.69 | T2 | green | [24](reports/tier-2/Litware - Marketing Analytics Associate.md) | 2026-11-01 | MONITOR | A steady analytics seat you clearly qualify for; closes soon |
@@ -12,7 +12,7 @@ Landscape-mapping inventory. Entries here are NOT active applications — they a
 | 22 | 2026-10-16 | Proseware | Revenue Operations Analyst | 6.75 | 6.33 | T2 | green | [22](reports/tier-2/Proseware - Revenue Operations Analyst.md) | 2026-10-29 |  | Forecast reporting at a growing software company; half the week is CRM administration |
 | 21 | 2026-10-12 | Relecloud | Junior BI Developer | 5.5 | 6.63 | T4 | green | — | n/d |  | T4 skip — dashboard engineering with no analysis of its own |
 | 20 | 2026-10-09 | Lumen Freight | Operations Analyst | 7.13 | 8 | T2 | green | [20](reports/tier-2/Lumen Freight - Operations Analyst.md) | 2026-11-09 | MONITOR | Hands-on operations analysis in Lyon with little competition; Julien works there |
-| 19 | 2026-10-09 | City Power & Light | Energy Data Analyst | 7.25 | 4.52 | T4 | green | — | n/d |  | T4 skip — grid-data and power-systems experience you don’t have, for a role you only half want |
+| 19 | 2026-10-09 | City Power & Light | Energy Data Analyst | 7.25 | 4.52 | T4 | green | — | n/d |  | T4 skip — grid-data and power-systems experience you don’t have, for a role you only half match |
 | 18 | 2026-10-05 | Consolidated Messenger | Dispatch Planning Analyst | 4.6 | 8.34 | T4 | green | — | n/d |  | T4 skip — rotating early shifts running the daily dispatch plan |
 | 17 | 2026-10-05 | Fabrikam | Business Analyst, Supply Chain | 8.25 | 6.13 | T2 | amber: German B2 required, you have B1 (1 step below) | [17](reports/tier-2/Fabrikam - Business Analyst, Supply Chain.md) | Rolling | PROMOTED-6 | Forecasting and inventory work at a manufacturer every recruiter knows; check the German bar first |
 | 16 | 2026-10-02 | Southridge Video | Content Operations Analyst | 5.5 | 7.69 | T4 | green | — | n/d |  | T4 skip — metadata clean-up and scheduling with light reporting |

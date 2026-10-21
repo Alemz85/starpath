@@ -113,7 +113,7 @@ export function pathKind(canonicalPath) {
 export const SCORE_HISTORY_HEADER =
   'date\tarchetype\tskills_match\texperience_bar\tcompetition\tease\t' +
   'growth_mobility\toptionality_exit\tbrand_value\trole_content\t' +
-  'best_cities\tsalary_adj_city\twork_life_balance\twant\tpriority\t' +
+  'best_cities\tsalary_adj_city\twork_life_balance\tmatch\tpriority\t' +
   'eligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\t' +
   'tier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl';
 
@@ -132,7 +132,7 @@ export const SCOUTING_SCAFFOLD =
   '# Scouting Tracker\n\n' +
   'Landscape-mapping inventory. Entries here are NOT active applications — they are observations from `scouting` mode runs.\n\n' +
   '**Promotion path:** `go` verdicts (Tier 1) are flagged `READY` (`stretch` / `solid` are `MONITOR`) in the Promotion Hint column. Run `node scripts/promote-to-applications.mjs <num>` to move an entry from this file to `data/applications.md` and start the active application flow.\n\n' +
-  '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |\n' +
+  '| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |\n' +
   '|---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|\n';
 
 /**

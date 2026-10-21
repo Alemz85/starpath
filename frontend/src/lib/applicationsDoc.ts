@@ -4,7 +4,7 @@
 //
 //   | # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |
 //   |---|------|---------|------|-------|--------|-----|----------|--------|-------|
-//   | 1 | 2026-04-27 | Acme | ML Eng | W8.3 E5.6 | Evaluated | ❌ | n/d | [#1](…) | … |
+//   | 1 | 2026-04-27 | Acme | ML Eng | M8.3 E5.6 | Evaluated | ❌ | n/d | [#1](…) | … |
 //
 // These helpers were extracted out of `store/data.ts` so the table-mutation
 // logic — which writes directly to the user's on-disk applications.md and is
@@ -105,10 +105,10 @@ export function ensureDeadlineColumn(raw: string): string {
 export function upsertApplicationRow(raw: string, args: {
   company: string
   role: string
-  /** Want / Ease of the listing (docs/scoring-v2.md §8.3). Null leaves the
+  /** Match / Ease of the listing (docs/scoring-v2.md §8.3). Null leaves the
    *  Score cell alone on refresh and writes `—` on append (blocked listings
    *  are never promoted). */
-  want: number | null
+  match: number | null
   ease: number | null
   tier: string
   reportPath?: string
@@ -125,9 +125,9 @@ export function upsertApplicationRow(raw: string, args: {
   // path used to append blindly, which is the documented source of same-listing
   // dupes (CLAUDE.md "Pipeline Integrity"); `node scripts/dedup-tracker.mjs`
   // cleans up any that already slipped in.
-  // v2 Score cell `W8.3 E5.6`; legacy `X.X/10` cells on untouched rows stay.
-  const score = args.want != null && args.ease != null && args.want > 0 && args.ease > 0
-    ? formatScoreCell(args.want, args.ease)
+  // v2 Score cell `M8.3 E5.6`; legacy `X.X/10` cells on untouched rows stay.
+  const score = args.match != null && args.ease != null && args.match > 0 && args.ease > 0
+    ? formatScoreCell(args.match, args.ease)
     : null
   const existingIdx = findApplicationRowIndex(lines, args.company, args.role)
   if (existingIdx !== -1) {

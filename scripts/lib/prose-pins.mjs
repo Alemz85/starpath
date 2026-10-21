@@ -48,7 +48,7 @@ export function scriptPaths(text) {
   return out
 }
 
-/** `**Label:**` names of one template, in order ("**Want:** … · **Ease:** …" is two labels). */
+/** `**Label:**` names of one template, in order ("**Match:** … · **Ease:** …" is two labels). */
 export function labelsOf(block) {
   const labels = []
   for (const line of block.split('\n')) {

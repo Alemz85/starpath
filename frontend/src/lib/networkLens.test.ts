@@ -51,7 +51,7 @@ test('partitionGaps splits at the apply threshold and preserves order', () => {
 })
 
 test('partitionGaps reads a v2 top role by its verdict, not by Priority', () => {
-  const role = (want: number, ease: number) => ({ role: 'Analyst', score: Math.sqrt(want * ease), want, ease, scoreLabel: `W${want} · E${ease}`, source: 'scouting' as const })
+  const role = (match: number, ease: number) => ({ role: 'Analyst', score: Math.sqrt(match * ease), match, ease, scoreLabel: `M${match} · E${ease}`, source: 'scouting' as const })
   const gaps: NetworkGap[] = [
     { ...gap('Zephyr Group', 6.4), roles: [role(8.2, 5.0)] },  // stretch → act, though Priority < 7
     { ...gap('Vantor', 7.38), roles: [role(7.9, 6.9)] },       // thin → quiet, though Priority ≥ 7

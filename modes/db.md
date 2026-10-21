@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Renders a filterable, sortable table of all evaluated offers from `data/score-history.tsv`. The "database view" — every role you've ever evaluated, in one place, with metadata, Want / Ease, eligibility and verdict.
+Renders a filterable, sortable table of all evaluated offers from `data/score-history.tsv`. The "database view" — every role you've ever evaluated, in one place, with metadata, Match / Ease, eligibility and verdict.
 
 Invoke with: `/career-ops db [filters]`
 
@@ -24,7 +24,7 @@ All filters are optional. Combine freely.
 | `--check X` | `--check language` | Rows whose `eligibility_flags` name that check (`start_date` · `duration` · `graduation` · `language` · `work_auth` · `other`) |
 | `--location X` | `--location Lyon` | Fuzzy-match location column |
 | `--type X` | `--type internship` | Exact match on employment_type |
-| `--min-want X` / `--min-ease X` | `--min-ease 5.0` | Want / Ease ≥ X (excludes Blocked rows) |
+| `--min-match X` / `--min-ease X` | `--min-ease 5.0` | Match / Ease ≥ X (excludes Blocked rows) |
 | `--company X` | `--company Acme` | Fuzzy-match company column |
 | `--since YYYY-MM-DD` | `--since 2026-04-01` | date ≥ given date |
 | `--include-blocked` | | Include Blocked rows (default: excluded unless `--verdict blocked`, `--eligibility red` or `--check` asks for them) |
@@ -38,17 +38,17 @@ Render a markdown table directly in chat. Default sort: Priority (`priority` col
 ```markdown
 ## Offer Database — {N} roles ({filters summary or "all"})
 
-| # | Date | Company | Role | Location | Type | Duration | Salary | Archetype | Want | Ease | Eligibility | Verdict | Tier |
+| # | Date | Company | Role | Location | Type | Duration | Salary | Archetype | Match | Ease | Eligibility | Verdict | Tier |
 |---|------|---------|------|----------|------|----------|--------|-----------|------|------|-------------|---------|------|
 | 1 | 2026-04-25 | Acme Analytics | Intern Value Advisory | Lyon | internship | 6mo | n/d | Value Engineering | 8.25 | 5.6 | amber | Stretch | T2 |
 | 2 | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... | ... |
 
-**Summary:** {N} roles shown · avg Want {X.X} · avg Ease {X.X} · verdict mix {go N · stretch N · …} · top archetype {Y} ({N} roles)
+**Summary:** {N} roles shown · avg Match {X.X} · avg Ease {X.X} · verdict mix {go N · stretch N · …} · top archetype {Y} ({N} roles)
 ```
 
 **Column notes:**
 - `#` — row counter for this view (not the tracker entry number)
-- `Want`, `Ease` — from the `want` / `ease` columns; `—` for Blocked rows
+- `Match`, `Ease` — from the `match` / `ease` columns; `—` for Blocked rows
 - `Eligibility` — `green` / `amber` / `red`; for red rows append the first `eligibility_flags` reason
 - `Verdict` — the verdict label (`Go`, `Stretch`, `Growth target`, `Solid`, `If pipeline thin`, `Skip`, `Blocked`)
 - `Location`, `Type`, `Duration`, `Salary` — from the metadata columns (`n/d` when unknown)
@@ -72,6 +72,6 @@ Averages in the Summary line exclude Blocked rows (their scores are empty, never
 
 - **Read-only.** This command reads `data/score-history.tsv` only. It does not write any files.
 - **No report generated.** Output is ephemeral chat only — no `.md` file written.
-- **Treat empty scores as missing**, never 0 — Blocked rows have empty dimension / `want` / `ease` / `priority` cells.
+- **Treat empty scores as missing**, never 0 — Blocked rows have empty dimension / `match` / `ease` / `priority` cells.
 - **Truncate long tables.** If result set > 30 rows, show the top 30 by Priority and note "Showing top 30 of N. Use `--verdict`, `--min-ease` or `--archetype` to narrow."
 - **Graceful n/d handling.** Rows with missing metadata still appear — just show `n/d` in those cells.

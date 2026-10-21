@@ -3,7 +3,7 @@
 **Date:** 2026-09-28
 **Location:** Prague, Czechia · remote-friendly
 **Archetype:** Product Analytics
-**Want:** 8.25/10 · **Ease:** 6.33/10
+**Match:** 8.25/10 · **Ease:** 6.33/10
 **Eligibility:** green
 **Verdict:** Stretch — apply with prep
 **Tier:** T2
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 8/10 | A fast-growing product company that promotes from within; analysts move into product roles after a year or two. |
-| Optionality / Exit (want) | 8/10 | Product analytics at a growing software company opens doors at most tech employers in Europe. |
-| Brand Value (want) | 6/10 | Known among software people in Central Europe, not much beyond. |
-| Role content (want) | 9/10 | Almost entirely the analysis you want: experiment design, funnel analysis and the weekly product-metrics review. |
+| Growth / Mobility (match) | 8/10 | A fast-growing product company that promotes from within; analysts move into product roles after a year or two. |
+| Optionality / Exit (match) | 8/10 | Product analytics at a growing software company opens doors at most tech employers in Europe. |
+| Brand Value (match) | 6/10 | Known among software people in Central Europe, not much beyond. |
+| Role content (match) | 9/10 | Almost entirely the analysis you want: experiment design, funnel analysis and the weekly product-metrics review. |
 | City (hygiene) | 8/10 | Prague is on your list, and the team works mostly remotely around a Prague office. |
 | Salary Adj for City (hygiene) | 7/10 | About €600 a month left after living costs in Prague. |
 | Work-Life Balance (hygiene) | 8/10 | Flexible hours and remote-first; people describe a calm pace outside launch weeks. |
-| **Want (rollup)** | **8.25/10** | Carried by the work and the growth path |
+| **Match (rollup)** | **8.25/10** | Carried by the work and the growth path |
 | Skills Match (ease) | 7/10 | SQL and statistics are covered; they want hands-on product event data and an experimentation platform, which you have only seen in coursework. |
 | Experience bar (ease) | 6/10 | They ask for a year of product or growth analytics, and your internship was commercial, not product. |
 | Competition (ease) | 6/10 | A popular employer with a single analyst seat and an open remote pool. |

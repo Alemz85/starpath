@@ -23,7 +23,7 @@ function makeRoot() {
   writeFileSync(join(root, 'reports/tier-1/Fabrikam Energy - Ops.md'), report('Fabrikam Energy', 'Ops', 'https://jobs.lever.co/fabrikam/0f0e0d0c-aaaa-bbbb-cccc-1234567890ab'));
   writeFileSync(join(root, 'reports/tier-4/Skipped - Role.md'), report('Skipped', 'Role', 'https://x.example.com/1'));
   writeFileSync(join(root, 'data/scouting.md'), [
-    '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Hint | Notes |',
+    '| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Hint | Notes |',
     '|---|---|---|---|---|---|---|---|---|---|---|---|',
     '| 11 | 2026-10-01 | Nimbus Robotics | Data Analyst | 8.5 | 7.5 | T1 | green | [11](reports/tier-1/Nimbus Robotics - Data Analyst.md) | n/d | READY | |',
     '| 12 | 2026-10-01 | Tailspin Toys | Analyst | 7 | 7.5 | T2 | green | [12](reports/tier-2/Tailspin Toys - Analyst.md) | n/d | | |',

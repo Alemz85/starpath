@@ -9,7 +9,7 @@ growth signals. The scorer applies those rules deterministically
 calibration still **matches reality**. This mode closes that feedback loop.
 
 It mines `data/score-history.tsv` (every evaluation's archetype + dimension
-fingerprint + Want / Ease / verdict) and, when available, the application
+fingerprint + Match / Ease / verdict) and, when available, the application
 outcomes (`scripts/outcomes.mjs`: the status log joined with
 `data/applications.md`), and surfaces where the calibration looks off — then
 **suggests concrete edits to `user/*`**. It NEVER writes those files itself: the
@@ -32,12 +32,12 @@ keep getting rejected?", "are my comp targets realistic for this market?".
 
 | Check | Signal | Suggested fix lands in |
 |-------|--------|------------------------|
-| **Brand-bonus drift — inert** | A bonused company already reaches Want ≥ 8.0 unaided → the bonus is cosmetic | `user/profile.yml` |
+| **Brand-bonus drift — inert** | A bonused company already reaches Match ≥ 8.0 unaided → the bonus is cosmetic | `user/profile.yml` |
 | **Brand-bonus drift — misdirected** | A bonused company still lands `skip` even *with* the bonus → it never reaches an actionable verdict | `user/profile.yml` |
-| **Un-credited strong company** | A company with *no* bonus consistently reaches Want ≥ 8.0 across ≥3 evals → candidate to add | `user/profile.yml` |
-| **Rubric signal health** | A dimension is pinned at the ceiling/floor with tiny spread → it can't discriminate; its weight is wasted (consider `scoring.want_weights` / `ease_weights`) | `user/profile.yml` / `user/_profile.md` |
+| **Un-credited strong company** | A company with *no* bonus consistently reaches Match ≥ 8.0 across ≥3 evals → candidate to add | `user/profile.yml` |
+| **Rubric signal health** | A dimension is pinned at the ceiling/floor with tiny spread → it can't discriminate; its weight is wasted (consider `scoring.match_weights` / `ease_weights`) | `user/profile.yml` / `user/_profile.md` |
 | **Comp-target reality** | `salary_adj_city` chronically low → comp targets above market; chronically maxed → comp floor never bites | `user/profile.yml` |
-| **Score → outcome mismatch** | An archetype scores high Want / Ease but none of its resolved applications progressed (over-credited), or scores low but progresses well (under-credited) — stated on Want and Ease separately | `user/_profile.md` |
+| **Score → outcome mismatch** | An archetype scores high Match / Ease but none of its resolved applications progressed (over-credited), or scores low but progresses well (under-credited) — stated on Match and Ease separately | `user/_profile.md` |
 | **Ease vs outcomes** | A higher Ease band progresses less often than a lower one, or the high band never gets past screening — only when the gap is past every gate, survives one application moving, and holds in both halves of the search | `user/profile.yml` (`scoring.ease_weights`) / `user/_profile.md` |
 
 Both outcome checks read one analysis, the same one `scripts/outcomes.mjs`
@@ -71,11 +71,11 @@ The JSON shape:
 | Key | Contents |
 |-----|----------|
 | `metadata` | `evaluated`, `dateRange`, `calibrationConfigured`, `outcomesAvailable`, `contract.gates` |
-| `diagnostics.brandBonusDrift` | `[{ company, source, kind, roles, avgWant, avgEase, verdict }]` |
-| `diagnostics.brandBonusCandidates` | `[{ company, roles, avgWant }]` |
+| `diagnostics.brandBonusDrift` | `[{ company, source, kind, roles, avgMatch, avgEase, verdict }]` |
+| `diagnostics.brandBonusCandidates` | `[{ company, roles, avgMatch }]` |
 | `diagnostics.dimensionSignal` | per-dimension `{ mean, stdev, ceilShare, floorShare, status }` |
 | `diagnostics.compReality` | `{ mean, median, lowShare, highShare, status }` |
-| `diagnostics.scoreOutcome` | `{ available, archetypes: [{ applied, positive, rejected, noResponse, convertRate, avgWant, avgEase, flag }], excluded: { unscored, pending, withdrawn } }` — `applied` = resolved, scored applications |
+| `diagnostics.scoreOutcome` | `{ available, archetypes: [{ applied, positive, rejected, noResponse, convertRate, avgMatch, avgEase, flag }], excluded: { unscored, pending, withdrawn } }` — `applied` = resolved, scored applications |
 | `diagnostics.easeOutcome` | `{ available, counts, comparisons, suggestions }` — `scripts/outcomes.mjs`'s `easeCheck`, unchanged |
 | `suggestions` | `[{ id, target, action, reasoning, severity, edit, sampleSize, gate, confidence }]` sorted high→low severity; a confirmed Ease gap appears here too (`source: 'outcomes'`, its `outcomes:ease:…` id) |
 | `insufficientData` | advisories under their gate — never recommendations |

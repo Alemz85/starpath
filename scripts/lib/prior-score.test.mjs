@@ -8,12 +8,12 @@ import { findPrior, compareToPrior, PRIOR_DIMS } from './prior-score.mjs'
 import { parseScoreHistory } from './targeting-core.mjs'
 import { scoreListing } from '../score-listing.mjs'
 
-const HEADER = 'date\tarchetype\tskills_match\texperience_bar\tcompetition\tease\tgrowth_mobility\toptionality_exit\tbrand_value\trole_content\tbest_cities\tsalary_adj_city\twork_life_balance\twant\tpriority\teligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\ttier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl'
+const HEADER = 'date\tarchetype\tskills_match\texperience_bar\tcompetition\tease\tgrowth_mobility\toptionality_exit\tbrand_value\trole_content\tbest_cities\tsalary_adj_city\twork_life_balance\tmatch\tpriority\teligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\ttier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl'
 const row = (date, dims, extra = {}) => {
   const r = {
     date, archetype: 'Strategy', skills_match: 7, experience_bar: 9, competition: 6, ease: 7.3,
     growth_mobility: 8, optionality_exit: 8, brand_value: 8.6, role_content: 7, best_cities: 8,
-    salary_adj_city: 7, work_life_balance: 6, want: 8.15, priority: 7.7, eligibility: 'green',
+    salary_adj_city: 7, work_life_balance: 6, match: 8.15, priority: 7.7, eligibility: 'green',
     eligibility_flags: '', verdict: 'go', best_fit_roles: '—', mode: 'scouting',
     company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', tier: 'T1',
     source: 'batch', location: 'Lyon, France', employment_type: 'Full-time', duration: '',
@@ -41,7 +41,7 @@ test('findPrior: latest row for the listing, matched by URL or company + role', 
 })
 
 test('findPrior: a blocked prior has no dimension scores', () => {
-  const rows = parseScoreHistory([HEADER, row('2026-10-01', Object.fromEntries(PRIOR_DIMS.map((d) => [d, ''])), { want: '', ease: '', priority: '', eligibility: 'red', verdict: 'blocked' })].join('\n'))
+  const rows = parseScoreHistory([HEADER, row('2026-10-01', Object.fromEntries(PRIOR_DIMS.map((d) => [d, ''])), { match: '', ease: '', priority: '', eligibility: 'red', verdict: 'blocked' })].join('\n'))
   const p = findPrior(rows, { url: 'https://example.com/jobs/42/' })
   assert.equal(p.blocked, true)
   assert.equal(p.dims.skills_match, null)

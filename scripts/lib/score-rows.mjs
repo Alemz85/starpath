@@ -21,7 +21,7 @@ import { SCORE_HISTORY_HEADER } from './profile-core.mjs'
 import { writeFileAtomic } from './write-file-atomic.mjs'
 
 export const HISTORY_COLUMNS = SCORE_HISTORY_HEADER.split('\t')
-export const SUMMARY_COLUMNS = ['date', 'company', 'role', 'archetype', 'tier', 'want', 'ease', 'eligibility', 'key_gaps', 'verdict']
+export const SUMMARY_COLUMNS = ['date', 'company', 'role', 'archetype', 'tier', 'match', 'ease', 'eligibility', 'key_gaps', 'verdict']
 
 const HISTORY_REQUIRED = ['date', 'company', 'role', 'tier', 'verdict']
 const SUMMARY_REQUIRED = ['date', 'company', 'role', 'tier', 'verdict']
@@ -55,7 +55,11 @@ export function appendLine(file, line, { header } = {}) {
     if (header) {
       if (text.trim() === '') text = header + '\n'
       else if (text.split('\n', 1)[0] !== header) {
-        throw new Error(`${file}: header does not match the current format; refusing to append (run npm run doctor)`)
+        // A header from before Want was renamed Match: the migration fixes it.
+        const preRename = text.split('\n', 1)[0] === header.replace('\tmatch\t', '\twant\t')
+        throw new Error(preRename
+          ? `${file}: the header still calls the Match column \`want\`; run node scripts/migrate-match-rename.mjs --apply, then retry`
+          : `${file}: header does not match the current format; refusing to append (run npm run doctor)`)
       }
     }
     if (text.split('\n').includes(line)) return 'duplicate'

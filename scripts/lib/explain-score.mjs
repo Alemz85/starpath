@@ -1,6 +1,6 @@
 // explain-score.mjs — pure scoring EXPLAINABILITY (scoring v2).
 //
-// score-bands.mjs answers "what are Want, Ease and the verdict". This module
+// score-bands.mjs answers "what are Match, Ease and the verdict". This module
 // answers the question the user actually has when they read a report:
 //
 //   "Why did it land in this cell, and what single thing would move it up?"
@@ -8,7 +8,7 @@
 // It is pure (no I/O, no mutation, no globals) and it does NOT re-implement
 // any rule. Every hypothetical ("what if Skills Match were 8?", "what if the
 // start-date amber were resolved?") is answered by replaying the canonical
-// rollupWant / rollupEase / assignVerdict from score-bands.mjs, so the
+// rollupMatch / rollupEase / assignVerdict from score-bands.mjs, so the
 // explanation can never drift from the engine. If a threshold changes there,
 // the constraints and levers here recompute with zero edits.
 //
@@ -17,7 +17,7 @@
 // Outputs:
 //   bindingConstraints — what keeps the listing out of a better cell
 //                        (eligibility_red, experience_wall, hygiene_veto,
-//                        role_content_veto, low_want, low_ease, amber)
+//                        role_content_veto, low_match, low_ease, amber)
 //   drivers            — which motivators / hygiene terms / Ease stages
 //                        carry or drag each rollup
 //   levers             — the smallest single-dimension integer raise (≤ +4),
@@ -27,15 +27,15 @@
 //                        "Closest lever:" labels, same as v1 so parsers work)
 
 import {
-  rollupWant,
+  rollupMatch,
   rollupEase,
   assignVerdict,
   verdictRank,
   MOTIVATOR_DIMS,
   HYGIENE_DIMS,
   EASE_DIMS,
-  WANT_HIGH,
-  WANT_MID,
+  MATCH_HIGH,
+  MATCH_MID,
   EASE_HIGH,
   EASE_MID,
   EXPERIENCE_WALL_AT,
@@ -89,19 +89,19 @@ const vLabel = (v) => VERDICT_LABELS[v] ?? v
 // Replay the canonical engine for a (possibly hypothetical) dim set and
 // amber count. The only scoring logic in this module is the call below.
 function replay(dims, status, amberCount, context) {
-  if (status === 'red') return { want: null, ease: null, verdict: 'blocked' }
-  const want = rollupWant(dims, {
-    weights: context?.weights?.want,
+  if (status === 'red') return { match: null, ease: null, verdict: 'blocked' }
+  const match = rollupMatch(dims, {
+    weights: context?.weights?.match,
     is_intern: context?.is_intern === true,
     dream: context?.dream === true,
     preference: context?.preference ?? 0,
   })
   const ease = rollupEase(dims, { weights: context?.weights?.ease, amber_count: amberCount })
-  const { verdict } = assignVerdict({ want: want.score, ease: ease.score, eligibility: status })
-  return { want, ease, verdict }
+  const { verdict } = assignVerdict({ match: match.score, ease: ease.score, eligibility: status })
+  return { match, ease, verdict }
 }
 
-const verdictFor = (want, ease) => assignVerdict({ want, ease, eligibility: 'green' }).verdict
+const verdictFor = (match, ease) => assignVerdict({ match, ease, eligibility: 'green' }).verdict
 
 // Every amber item that can be resolved on its own: one per amber check,
 // and one per amber entry of the `other` check (each counts toward
@@ -150,7 +150,7 @@ const lowest = (dims, keys) => keys.reduce((lo, k) => (dims[k] < dims[lo] ? k : 
  * `binding` = lifting this constraint alone (to its threshold) would reach a
  * better cell. Binding constraints come first; within each group the order
  * is eligibility_red, experience_wall, hygiene_veto, role_content_veto,
- * low_want, low_ease, amber. A `go` listing only ever carries non-binding
+ * low_match, low_ease, amber. A `go` listing only ever carries non-binding
  * ambers.
  */
 export function bindingConstraints({ dims, eligibility, context }) {
@@ -168,7 +168,7 @@ export function bindingConstraints({ dims, eligibility, context }) {
   const base = replay(n.dims, n.status, n.amberCount, context)
   const rank = verdictRank(base.verdict)
   const better = (v) => verdictRank(v) > rank
-  const want = base.want.score
+  const match = base.match.score
   const ease = base.ease.score
   const out = []
 
@@ -179,17 +179,17 @@ export function bindingConstraints({ dims, eligibility, context }) {
       dimension: 'experience_bar',
       label: label('experience_bar'),
       value: n.dims.experience_bar,
-      binding: better(verdictFor(want, base.ease.unwalled)),
+      binding: better(verdictFor(match, base.ease.unwalled)),
       message:
         `${label('experience_bar')} ${n.dims.experience_bar}/10 hits the experience wall (≤ ${EXPERIENCE_WALL_AT}): ` +
         `Ease is capped at ${EXPERIENCE_WALL_CAP} (it would be ${base.ease.unwalled} without the wall).`,
     })
   }
 
-  // 2–3. Want vetoes. Lifting one veto leaves the others in force.
-  for (const veto of base.want.vetoes) {
-    const others = base.want.vetoes.filter(v => v !== veto)
-    const without = Math.min(base.want.uncapped, ...others.map(v => v.cap))
+  // 2–3. Match vetoes. Lifting one veto leaves the others in force.
+  for (const veto of base.match.vetoes) {
+    const others = base.match.vetoes.filter(v => v !== veto)
+    const without = Math.min(base.match.uncapped, ...others.map(v => v.cap))
     const isHygiene = veto.kind === 'hygiene_veto'
     out.push({
       kind: veto.kind,
@@ -198,24 +198,24 @@ export function bindingConstraints({ dims, eligibility, context }) {
       value: veto.value,
       binding: veto.applied && better(verdictFor(without, ease)),
       message: isHygiene
-        ? `${label(veto.dimension)} ${veto.value}/10 is below ${HYGIENE_VETO_BELOW}: the hygiene veto caps Want at ${veto.cap.toFixed(1)}.`
-        : `${label('role_content')} ${veto.value}/10 (≤ ${ROLE_CONTENT_VETO_AT}): the role-content veto caps Want at ${veto.cap.toFixed(1)}.`,
+        ? `${label(veto.dimension)} ${veto.value}/10 is below ${HYGIENE_VETO_BELOW}: the hygiene veto caps Match at ${veto.cap.toFixed(1)}.`
+        : `${label('role_content')} ${veto.value}/10 (≤ ${ROLE_CONTENT_VETO_AT}): the role-content veto caps Match at ${veto.cap.toFixed(1)}.`,
     })
   }
 
-  // 4. Want below the next row.
-  if (want < WANT_HIGH) {
-    const threshold = want < WANT_MID ? WANT_MID : WANT_HIGH
+  // 4. Match below the next row.
+  if (match < MATCH_HIGH) {
+    const threshold = match < MATCH_MID ? MATCH_MID : MATCH_HIGH
     const weakest = lowest(n.dims, MOTIVATOR_DIMS)
     out.push({
-      kind: 'low_want',
+      kind: 'low_match',
       dimension: weakest,
-      label: 'Want',
-      value: want,
+      label: 'Match',
+      value: match,
       threshold,
       binding: better(verdictFor(threshold, ease)),
       message:
-        `Want ${want} is below ${threshold.toFixed(1)}; its weakest motivator is ` +
+        `Match ${match} is below ${threshold.toFixed(1)}; its weakest motivator is ` +
         `${label(weakest)} ${n.dims[weakest]}/10.`,
     })
   }
@@ -230,7 +230,7 @@ export function bindingConstraints({ dims, eligibility, context }) {
       label: 'Ease',
       value: ease,
       threshold,
-      binding: better(verdictFor(want, threshold)),
+      binding: better(verdictFor(match, threshold)),
       message:
         `Ease ${ease} is below ${threshold.toFixed(1)}; its weakest stage is ` +
         `${label(weakest)} ${n.dims[weakest]}/10.`,
@@ -264,7 +264,7 @@ export function bindingConstraints({ dims, eligibility, context }) {
 
 /**
  * Per-rollup driver analysis.
- *   want: { motivators_mean, topLift, biggestDrag, hygiene: [{dimension,label,value,term}], weak }
+ *   match: { motivators_mean, topLift, biggestDrag, hygiene: [{dimension,label,value,term}], weak }
  *   ease: { topLift, biggestDrag, weak }
  * Motivator deltas are against the motivator mean; hygiene entries are the
  * h(x) terms the engine added (most negative first). Null when blocked.
@@ -273,19 +273,19 @@ export function drivers({ dims, eligibility, context }) {
   const n = normalise({ dims, eligibility })
   if (n.status === 'red') return null
   const base = replay(n.dims, n.status, n.amberCount, context)
-  const mean = base.want.motivators_mean
+  const mean = base.match.motivators_mean
   const motivators = MOTIVATOR_DIMS
     .map(d => ({ dimension: d, label: label(d), value: n.dims[d], delta: round2(n.dims[d] - mean) }))
     .sort((a, b) => b.delta - a.delta)
   const hygiene = HYGIENE_DIMS
-    .map(d => ({ dimension: d, label: label(d), value: n.dims[d], term: base.want.hygiene[d] }))
+    .map(d => ({ dimension: d, label: label(d), value: n.dims[d], term: base.match.hygiene[d] }))
     .sort((a, b) => a.term - b.term)
   const stages = EASE_DIMS
     .map(d => ({ dimension: d, label: label(d), value: n.dims[d] }))
     .sort((a, b) => b.value - a.value)
   return {
-    want: {
-      score: base.want.score,
+    match: {
+      score: base.match.score,
       motivators_mean: mean,
       topLift: motivators[0],
       biggestDrag: motivators[motivators.length - 1],
@@ -429,7 +429,7 @@ export function sensitivity({ dims, eligibility, context, drop = 1 }) {
  *   dims         final dimension values (calibrated, competition incl. the
  *                referral bonus, salary_adj_city computed); null when blocked
  *   eligibility  evaluateEligibility() result
- *   context      { is_intern, dream, preference, weights: { want, ease } }
+ *   context      { is_intern, dream, preference, weights: { match, ease } }
  *
  * Returns { verdict, bindingConstraints, drivers, levers, sensitivity,
  *           headline, holdingItBack, closestLever, whyThisScore }
@@ -454,11 +454,11 @@ export function explainScore({ dims, eligibility, context }) {
     const reds = redItems(eligibility).map(r => `${CHECK_LABELS[r.check] ?? r.check}: ${r.reason}`)
     headline = `Blocked by eligibility (${reds.join('; ') || 'red'}).`
   } else if (verdict === 'go') {
-    holdingItBack = `Nothing: Want ${drv.want.score} and Ease ${drv.ease.score} both clear the Go thresholds.`
+    holdingItBack = `Nothing: Match ${drv.match.score} and Ease ${drv.ease.score} both clear the Go thresholds.`
     closestLever = 'None needed: already the top cell.'
     headline =
-      `Go: Want ${drv.want.score}, Ease ${drv.ease.score}; ` +
-      `${drv.want.topLift.label} and ${drv.ease.topLift.label} lead.`
+      `Go: Match ${drv.match.score}, Ease ${drv.ease.score}; ` +
+      `${drv.match.topLift.label} and ${drv.ease.topLift.label} lead.`
   } else {
     holdingItBack = constraints[0]?.message ?? `${vLabel(verdict)} cell.`
     closestLever = levers[0]?.message ??

@@ -11,30 +11,30 @@
 //
 //   1. Per-listing trajectory  — group every evaluation by a canonical
 //      (company, role) key; for listings evaluated on 2+ distinct dates,
-//      classify the first→latest Want move and the first→latest Ease move
+//      classify the first→latest Match move and the first→latest Ease move
 //      SEPARATELY (each against its own noise floor), plus the verdict move
 //      between the first and the latest evaluation (upgrade / downgrade /
 //      same, ordered by score-bands.verdictRank).
 //
 //   2. Landscape trend         — split all scored evaluations into an earlier
 //      and a later calendar window (the boundary closest to 50/50) and compare
-//      window-mean Want, window-mean Ease and the actionable share
+//      window-mean Match, window-mean Ease and the actionable share
 //      (go + stretch + solid), each gated and floored per the contract.
 //
-// BLOCKED EVALUATIONS (eligibility red — no Want, no Ease; docs/scoring-v2.md
+// BLOCKED EVALUATIONS (eligibility red — no Match, no Ease; docs/scoring-v2.md
 // §8.1). The reading this module takes:
-//   - They never enter a Want / Ease number: not a trajectory delta, not a
+//   - They never enter a Match / Ease number: not a trajectory delta, not a
 //     window mean, not a window count toward the ≥10 gate.
 //   - They DO count as evaluations for the verdict axis. A listing whose
 //     evaluations span distinct dates is a trajectory even if some (or all but
 //     one) of them are blocked, so a listing that went blocked → scored (an
 //     eligibility fact changed, e.g. the JD now offers sponsorship) or
-//     scored → blocked shows up as a verdict upgrade / downgrade. Its Want /
+//     scored → blocked shows up as a verdict upgrade / downgrade. Its Match /
 //     Ease blocks then report `n` < 2 and `movementClass: 'unknown'` — there is
 //     no score movement to classify, only the verdict move.
 //   - A verdict move that touches `blocked` is always `verdictMoveDetectable`
 //     (the eligibility gate is mechanical, not judge wobble). A verdict move
-//     between two scored cells is detectable only when the Want or Ease move
+//     between two scored cells is detectable only when the Match or Ease move
 //     behind it cleared its floor — otherwise it is a sub-floor wobble across
 //     a grid line and is flagged as such.
 //
@@ -51,7 +51,7 @@
 // STATISTICAL CONTRACT: docs/scoring-statistical-design.md § 3.3.
 //   - per trajectory, per metric: `movementClass` ('within-noise' |
 //     'improving' | 'declining' | 'unknown') against that metric's floor
-//     (Want 0.30, Ease 0.35), `n` (scored evals) and `confidence` (g = 2);
+//     (Match 0.30, Ease 0.35), `n` (scored evals) and `confidence` (g = 2);
 //   - per corpus trend: `verdictGate` (≥10 scored evals per calendar window),
 //     and per metric `reportableVerdict` — 'insufficient-data' under the gate,
 //     'flat-within-noise' under the floor, else 'improving' / 'declining'.
@@ -64,7 +64,7 @@ import {
 } from './targeting-core.mjs'
 import { verdictRank, VERDICT_LABELS } from './score-bands.mjs'
 import {
-  WANT_NOISE_FLOOR,
+  MATCH_NOISE_FLOOR,
   EASE_NOISE_FLOOR,
   GATES,
   classifyMovement,
@@ -73,12 +73,12 @@ import {
 
 // Re-export so the CLI and tests can pull the TSV parser from one import site.
 export { parseScoreHistory, DIMENSIONS }
-export { WANT_NOISE_FLOOR, EASE_NOISE_FLOOR }
+export { MATCH_NOISE_FLOOR, EASE_NOISE_FLOOR }
 
 /** The two score metrics this module classifies, each on its own floor. */
-export const TREND_METRICS = Object.freeze(['want', 'ease'])
+export const TREND_METRICS = Object.freeze(['match', 'ease'])
 
-const METRIC_LABEL = { want: 'Want', ease: 'Ease' }
+const METRIC_LABEL = { match: 'Match', ease: 'Ease' }
 const SCORED_VERDICTS = ['go', 'stretch', 'solid', 'thin', 'growth', 'skip']
 
 const round2 = (n) => Math.round(n * 100) / 100
@@ -96,7 +96,7 @@ const byDateAsc = (a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
 /** Resolve the per-metric floors from options (overridable for inspection only). */
 function floorsFrom(opts = {}) {
   return {
-    want: Number.isFinite(opts.wantFloor) ? opts.wantFloor : WANT_NOISE_FLOOR,
+    match: Number.isFinite(opts.matchFloor) ? opts.matchFloor : MATCH_NOISE_FLOOR,
     ease: Number.isFinite(opts.easeFloor) ? opts.easeFloor : EASE_NOISE_FLOOR,
   }
 }
@@ -143,7 +143,7 @@ export function verdictMove(from, to) {
  * evals logged the same day are a duplicate write, not a re-evaluation over
  * time, so same-date rows collapse to the last one seen.
  *
- * Want and Ease are tracked over the SCORED evaluations of the sequence
+ * Match and Ease are tracked over the SCORED evaluations of the sequence
  * (blocked ones have no numbers); the verdict move is read off the first and
  * the latest evaluation of the full sequence, blocked included.
  */
@@ -189,7 +189,7 @@ function metricTrack(scoredSeq, metric, floor, dimDeltas) {
 
 /** How far past its floor a trajectory's biggest score move went (sort key). */
 function salience(t) {
-  const w = Number.isFinite(t.want.delta) ? Math.abs(t.want.delta) / t.want.noiseFloor : 0
+  const w = Number.isFinite(t.match.delta) ? Math.abs(t.match.delta) / t.match.noiseFloor : 0
   const e = Number.isFinite(t.ease.delta) ? Math.abs(t.ease.delta) / t.ease.noiseFloor : 0
   return Math.max(w, e)
 }
@@ -234,7 +234,7 @@ export function listingTrajectories(rows, opts = {}) {
       }
     }
 
-    const want = metricTrack(scoredSeq, 'want', floors.want, dimDeltas)
+    const match = metricTrack(scoredSeq, 'match', floors.match, dimDeltas)
     const ease = metricTrack(scoredSeq, 'ease', floors.ease, dimDeltas)
 
     const verdictFrom = verdictOf(first)
@@ -244,7 +244,7 @@ export function listingTrajectories(rows, opts = {}) {
     const blockedTo = verdictTo === 'blocked'
     const verdictChanged = move === 'upgrade' || move === 'downgrade'
     const verdictMoveDetectable = verdictChanged
-      && (blockedFrom !== blockedTo || want.detectable || ease.detectable)
+      && (blockedFrom !== blockedTo || match.detectable || ease.detectable)
 
     trajectories.push({
       key: g.key,
@@ -255,7 +255,7 @@ export function listingTrajectories(rows, opts = {}) {
       blockedEvals: seq.length - scoredSeq.length,
       firstDate: first.date,
       latestDate: latest.date,
-      want,
+      match,
       ease,
       verdictFrom,
       verdictTo,
@@ -271,7 +271,7 @@ export function listingTrajectories(rows, opts = {}) {
       // Full chronological trail so the CLI can print the path if asked.
       sequence: seq.map(e => ({
         date: e.date,
-        want: isScored(e) ? round2(e.want) : null,
+        match: isScored(e) ? round2(e.match) : null,
         ease: isScored(e) ? round2(e.ease) : null,
         verdict: verdictOf(e),
       })),
@@ -308,7 +308,7 @@ function summarizeMetric(trajectories, metric, floor) {
 
 /**
  * Roll the trajectories into a summary: how many re-evaluated listings, how
- * the Want moves and the Ease moves split against their own floors, and how
+ * the Match moves and the Ease moves split against their own floors, and how
  * the verdict moved. "Flat within noise" is reported as a result, not as an
  * absent row.
  */
@@ -319,7 +319,7 @@ export function trajectorySummary(trajectories, opts = {}) {
   for (const t of list) verdictMoves[t.verdictMove ?? 'unknown'] = (verdictMoves[t.verdictMove ?? 'unknown'] || 0) + 1
   return {
     reevaluated: list.length,
-    want: summarizeMetric(list, 'want', floors.want),
+    match: summarizeMetric(list, 'match', floors.match),
     ease: summarizeMetric(list, 'ease', floors.ease),
     verdictMoves,
   }
@@ -369,7 +369,7 @@ export function verdictMoves(trajectories, { gate = GATES.trendMinPerWindowForVe
 /* ───── Landscape trend over calendar time ─────────────────────────────────
  *
  * "Is my targeting sharpening?" — split ALL scored evaluations into an earlier
- * window and a later window and compare window-mean Want, window-mean Ease and
+ * window and a later window and compare window-mean Match, window-mean Ease and
  * the actionable share. We split on the date axis (not a row count) so the two
  * windows are genuinely "before" vs "after" in calendar time; and we pick the
  * boundary that splits the rows as close to 50/50 as the calendar allows, so a
@@ -449,11 +449,11 @@ function metricTrend(earlier, later, metric, floor, gateMet, gate) {
 export function landscapeTrend(rows, {
   minPerWindow = 3,
   minPerWindowForVerdict = GATES.trendMinPerWindowForVerdict,
-  wantFloor,
+  matchFloor,
   easeFloor,
   trajectories,
 } = {}) {
-  const floors = floorsFrom({ wantFloor, easeFloor })
+  const floors = floorsFrom({ matchFloor, easeFloor })
   const dated = (rows || []).filter(r => r && r.date)
   const scored = dated.filter(isScored)
   const blocked = dated.filter(isBlocked)
@@ -462,7 +462,7 @@ export function landscapeTrend(rows, {
   // Per-listing verdict moves don't depend on the windows, so they ride on
   // every return path.
   const moves = verdictMoves(
-    trajectories ?? listingTrajectories(dated, { wantFloor, easeFloor }),
+    trajectories ?? listingTrajectories(dated, { matchFloor, easeFloor }),
     { gate: minPerWindowForVerdict },
   )
 
@@ -478,7 +478,7 @@ export function landscapeTrend(rows, {
     splitDate: null,
     earlier: null,
     later: null,
-    want: withheldMetric(floors.want),
+    match: withheldMetric(floors.match),
     ease: withheldMetric(floors.ease),
     actionableShareDelta: null,
     verdictGate: {
@@ -550,7 +550,7 @@ export function landscapeTrend(rows, {
     splitDate,
     earlier: earlierWin,
     later: laterWin,
-    want: metricTrend(earlier, later, 'want', floors.want, gateMet, minPerWindowForVerdict),
+    match: metricTrend(earlier, later, 'match', floors.match, gateMet, minPerWindowForVerdict),
     ease: metricTrend(earlier, later, 'ease', floors.ease, gateMet, minPerWindowForVerdict),
     // Actionable share (go + stretch + solid) later − earlier, in percentage
     // points. A band count, not a measurement: stated with both window counts
@@ -569,7 +569,7 @@ export function landscapeTrend(rows, {
  * prioritizing and (c) the gated landscape line.
  */
 
-/** "verdict Solid → Skip · Want 7.2 → 6.1 (−1.1) · Ease flat within noise". */
+/** "verdict Solid → Skip · Match 7.2 → 6.1 (−1.1) · Ease flat within noise". */
 export function describeTrajectory(t) {
   const parts = []
   if (t.verdictChanged) {
@@ -625,7 +625,7 @@ function trajectoryRec(t, direction) {
   }
 }
 
-/** "Want 7.10 vs 6.40 earlier (+0.7)" or "Want flat within noise (|Δ| 0.10 < 0.30 floor)". */
+/** "Match 7.10 vs 6.40 earlier (+0.7)" or "Match flat within noise (|Δ| 0.10 < 0.30 floor)". */
 function describeMetricTrend(m, block) {
   if (block.reportableVerdict === 'flat-within-noise') {
     return `${METRIC_LABEL[m]} flat within noise (|Δ| ${Math.abs(block.delta).toFixed(2)} < ${block.noiseFloor.toFixed(2)} floor)`
@@ -661,7 +661,7 @@ export function trendRecommendations(trajectories, trend, { minDelta = 0.5 } = {
   if (!trend.verdictGate.met) {
     recs.push({
       action: 'Landscape trend: insufficient data — corpus verdict withheld',
-      reasoning: `${trend.verdictGate.reason} A window mean built on fewer evaluations can be moved past the Want (${trend.want.noiseFloor}) or Ease (${trend.ease.noiseFloor}) noise floor by a single role, so the direction would be a report about one listing. Keep evaluating; the verdict unlocks itself.`,
+      reasoning: `${trend.verdictGate.reason} A window mean built on fewer evaluations can be moved past the Match (${trend.match.noiseFloor}) or Ease (${trend.ease.noiseFloor}) noise floor by a single role, so the direction would be a report about one listing. Keep evaluating; the verdict unlocks itself.`,
       impact: 'low',
       insufficientData: true,
       confidence: 'insufficient',
@@ -693,9 +693,9 @@ export function trendRecommendations(trajectories, trend, { minDelta = 0.5 } = {
     ? 'Landscape trend is mixed'
     : anyDeclining ? 'Evaluated landscape is sliding' : 'Targeting is sharpening'
   const advice = anyDeclining && anyImproving
-    ? 'Want and Ease moved in opposite directions: read them separately before changing scan scope.'
+    ? 'Match and Ease moved in opposite directions: read them separately before changing scan scope.'
     : anyDeclining
-      ? "Lately you're evaluating roles you want less, or can reach less easily, than before. Re-tighten scan keywords or raise the pre-evaluation bar before scoring more."
+      ? "Lately you're evaluating roles that match you less, or that you can reach less easily, than before. Re-tighten scan keywords or raise the pre-evaluation bar before scoring more."
       : 'The roles you have evaluated lately sit higher than your earlier ones. Keep sourcing the way you have been.'
   recs.push({
     action: `${headline} — ${metricsLine}`,
@@ -737,7 +737,7 @@ export function analyzeTrend(rows, opts = {}) {
       // print the floors and the gates it is bound by without re-deriving them.
       contract: {
         doc: 'docs/scoring-statistical-design.md',
-        noiseFloors: { want: floors.want, ease: floors.ease },
+        noiseFloors: { match: floors.match, ease: floors.ease },
         minEvalsPerTrajectory: GATES.trendMinEvals,
         minPerWindowForVerdict: opts.minPerWindowForVerdict ?? GATES.trendMinPerWindowForVerdict,
       },

@@ -94,26 +94,26 @@ function normToken(s) {
   return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
-function matchArtifactFile(file, wantCo, wantRo) {
+function matchArtifactFile(file, matchCo, matchRo) {
   if (!file.endsWith('.md')) return false;
   const stem = file.replace(/\.md$/, '');
   const dash = stem.indexOf(' - ');
   const fileCo = normToken(dash === -1 ? stem : stem.slice(0, dash));
   const fileRo = normToken(dash === -1 ? '' : stem.slice(dash + 3));
-  const coMatch = fileCo === wantCo || (wantCo && fileCo.startsWith(wantCo));
-  const roMatch = !wantRo || fileRo === wantRo || (fileRo && fileRo.includes(wantRo));
+  const coMatch = fileCo === matchCo || (matchCo && fileCo.startsWith(matchCo));
+  const roMatch = !matchRo || fileRo === matchRo || (fileRo && fileRo.includes(matchRo));
   return coMatch && roMatch;
 }
 
 // Scouting report: scan tier-1..4 for "{Company} - {Role}.md" (role optional).
 function resolveReport(co, ro) {
-  const wantCo = normToken(co);
-  const wantRo = normToken(ro);
+  const matchCo = normToken(co);
+  const matchRo = normToken(ro);
   for (let t = 0; t < TIER_DIRS.length; t++) {
     const dir = join(REPORTS_DIR, TIER_DIRS[t]);
     if (!existsSync(dir)) continue;
     for (const file of readdirSync(dir)) {
-      if (matchArtifactFile(file, wantCo, wantRo)) {
+      if (matchArtifactFile(file, matchCo, matchRo)) {
         return { exists: true, path: `reports/${TIER_DIRS[t]}/${file}`, tier: t + 1 };
       }
     }
@@ -124,11 +124,11 @@ function resolveReport(co, ro) {
 // Per-listing prep file: interview-prep/{Company} - {Role}.md.
 function resolvePrep(co, ro) {
   if (!existsSync(PREP_DIR)) return { exists: false };
-  const wantCo = normToken(co);
-  const wantRo = normToken(ro);
+  const matchCo = normToken(co);
+  const matchRo = normToken(ro);
   for (const file of readdirSync(PREP_DIR)) {
     if (file === 'story-bank.md') continue;
-    if (matchArtifactFile(file, wantCo, wantRo)) {
+    if (matchArtifactFile(file, matchCo, matchRo)) {
       return { exists: true, path: `interview-prep/${file}` };
     }
   }

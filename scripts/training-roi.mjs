@@ -34,8 +34,8 @@
  * experience_bar, competition, role_content (loose aliases accepted:
  * "skills", "experience", "credential", "positioning"). expectedLift is the
  * integer steps assumed (default 1) for the engine replay. mappedArchetypes
- * are matched against the score-history archetype buckets. Want/Ease weights
- * for the replay come from user/profile.yml → scoring.want_weights /
+ * are matched against the score-history archetype buckets. Match/Ease weights
+ * for the replay come from user/profile.yml → scoring.match_weights /
  * scoring.ease_weights when present (engine defaults otherwise).
  */
 
@@ -61,13 +61,13 @@ function loadRows() {
   return parseScoreHistory(readFileSync(SCORE_HISTORY_FILE, 'utf-8'))
 }
 
-// Best effort: the user's Want/Ease weights, so the replay matches how their
+// Best effort: the user's Match/Ease weights, so the replay matches how their
 // listings were scored. Missing / unreadable profile → engine defaults.
 function loadWeights() {
   try {
     if (!existsSync(PROFILE_FILE)) return {}
     const scoring = yaml.load(readFileSync(PROFILE_FILE, 'utf-8'))?.scoring || {}
-    return { wantWeights: scoring.want_weights, easeWeights: scoring.ease_weights }
+    return { matchWeights: scoring.match_weights ?? scoring.want_weights, easeWeights: scoring.ease_weights }
   } catch {
     return {}
   }
@@ -99,7 +99,7 @@ if (dragOnly) {
     console.log('-'.repeat(56))
     drag.forEach((d, i) => {
       console.log(
-        `  ${String(i + 1).padStart(2)}. ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  ${d.rollup === 'ease' ? 'Ease' : 'Want'}  (low in ${d.lowShare}% of evals)${TRAINABLE_DIMS.includes(d.key) ? '' : '  [not trainable]'}`,
+        `  ${String(i + 1).padStart(2)}. ${d.label.padEnd(20)} avg ${String(d.avg).padStart(4)}  ${d.rollup === 'ease' ? 'Ease' : 'Match'}  (low in ${d.lowShare}% of evals)${TRAINABLE_DIMS.includes(d.key) ? '' : '  [not trainable]'}`,
       )
     })
     console.log('')

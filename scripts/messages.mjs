@@ -3,7 +3,7 @@
  * messages.mjs — leave the user a message they read in the app (Messages view).
  *
  * Optional and meant to be rare. Post when you are stuck on something only
- * the user can unblock, found an important issue they should fix, or want
+ * the user can unblock, found an important issue they should fix, or match
  * their approval before a change (to their profile, say). Otherwise keep
  * working on your own; never wait for an answer here.
  *

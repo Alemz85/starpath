@@ -27,13 +27,13 @@ const NETWORK_MD = `# Network
 
 const APPS_MD = `| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
 |---|------|---------|------|-------|--------|-----|--------|-------|
-| 1 | 2026-06-01 | Helios Analytics | Strategy Analyst | W8.4 E8.4 | Applied | ✅ | [1](reports/tier-1/x.md) | |
+| 1 | 2026-06-01 | Helios Analytics | Strategy Analyst | M8.4 E8.4 | Applied | ✅ | [1](reports/tier-1/x.md) | |
 `
 
-// v2 scouting rows (docs/scoring-v2.md §8.2). Want == Ease keeps each row's
-// Priority (√(W·E)) equal to that number, so the ordering reads off directly.
+// v2 scouting rows (docs/scoring-v2.md §8.2). Match == Ease keeps each row's
+// Priority (√(M·E)) equal to that number, so the ordering reads off directly.
 // The Blocked row has no scores and is never a referral target.
-const SCOUTING_MD = `| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
+const SCOUTING_MD = `| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |
 |---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|
 | 1 | 2026-06-10 | Northwind Labs | Strategy Associate | 7.8 | 7.8 | T2 | green | [1](reports/tier-2/y.md) | n/d | MONITOR | |
 | 2 | 2026-06-12 | Zephyr Group | Strategy Consultant | 9.1 | 9.1 | T1 | green | [2](reports/tier-1/z.md) | n/d | READY | |
@@ -119,7 +119,7 @@ test('companies carry the decision-ladder play — due nudge outranks warm paths
   assert.equal(helios.target.name, 'Bo Lindt')
   assert.equal(helios.topRole.role, 'Strategy Analyst')
   assert.equal(helios.topRole.score, 8.4)
-  assert.equal(helios.topRole.scoreLabel, 'W8.4 · E8.4')
+  assert.equal(helios.topRole.scoreLabel, 'M8.4 · E8.4')
   assert.equal(helios.counts.paths, 2)
   assert.equal(helios.counts.untouched, 1) // Ada untouched; Bo has the thread
   assert.ok(helios.cautions.some(c => c.includes('Ada Vega')))
@@ -156,7 +156,7 @@ test('gaps are the pipeline companies with no contact, best score first', () => 
   const o = overview()
   assert.deepEqual(o.gaps.map(g => g.company), ['Zephyr Group', 'Umbra Partners'])
   assert.equal(o.gaps[0].topScore, 9.1)
-  assert.equal(o.gaps[0].topScoreLabel, 'W9.1 · E9.1')
+  assert.equal(o.gaps[0].topScoreLabel, 'M9.1 · E9.1')
   assert.ok(!o.gaps.some(g => g.company === 'Obsidian Freight'), 'blocked listings are not targets')
   assert.equal(o.counts.gaps, 2)
 })

@@ -46,7 +46,7 @@ function scanRow(over = {}) {
 const scanTsv = (...rows) => [SCAN_HEADER, ...rows].join('\n')
 
 // Score rows go through the real v2 fixture builder + the real parser, so
-// Want / Ease / verdict / tier always agree with the engine.
+// Match / Ease / verdict / tier always agree with the engine.
 // Dimension presets (fictional listings):
 const GO = { skills_match: 8, experience_bar: 8, competition: 7, growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }
 const STRETCH = { skills_match: 6, experience_bar: 6, competition: 5, growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }
@@ -157,12 +157,12 @@ test('indexScoresByUrl keeps the most recent eval per url', () => {
 
 /* ───── verdictOf / blockedReasonOf / bucketOf ───────────────────── */
 
-test('verdictOf reads the stored verdict, derives from Want/Ease, flags red as blocked', () => {
+test('verdictOf reads the stored verdict, derives from Match/Ease, flags red as blocked', () => {
   assert.equal(verdictOf({ verdict: 'stretch' }), 'stretch')
-  assert.equal(verdictOf({ want: 8.5, ease: 7.5, eligibility: 'green' }), 'go')
-  assert.equal(verdictOf({ want: 9, ease: 9, eligibility: 'red' }), 'blocked')
+  assert.equal(verdictOf({ match: 8.5, ease: 7.5, eligibility: 'green' }), 'go')
+  assert.equal(verdictOf({ match: 9, ease: 9, eligibility: 'red' }), 'blocked')
   assert.equal(verdictOf({ blocked: true }), 'blocked')
-  assert.equal(verdictOf({ want: NaN, ease: NaN }), '')
+  assert.equal(verdictOf({ match: NaN, ease: NaN }), '')
   assert.equal(verdictOf(null), '')
 })
 
@@ -176,7 +176,7 @@ test('blockedReasonOf takes the first red flag reason, from parsed or raw flags'
 
 test('bucketOf buckets by scanner status and verdict', () => {
   const [go, stretch, solid, thin, skip] = scores(GO, STRETCH, SOLID, THIN, SKIP)
-  const [growth] = scores({ ...GO, want: 8.5, ease: 4.0 })
+  const [growth] = scores({ ...GO, match: 8.5, ease: 4.0 })
   const [blocked] = scores({ eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship' })
   const added = { status: 'added' }
   assert.equal(bucketOf({ status: 'skipped_expired' }, go), 'noise')
@@ -188,7 +188,7 @@ test('bucketOf buckets by scanner status and verdict', () => {
   assert.equal(bucketOf(added, growth), 'consider')
   assert.equal(bucketOf(added, skip), 'skip')
   assert.equal(bucketOf(added, blocked), 'blocked')
-  assert.equal(bucketOf(added, { want: NaN, ease: NaN, verdict: '' }), 'needs-eval')
+  assert.equal(bucketOf(added, { match: NaN, ease: NaN, verdict: '' }), 'needs-eval')
   assert.equal(priorityOf, bucketOf) // v1 alias
 })
 
@@ -233,13 +233,13 @@ test('buildDigest surfaces only postings new since the cutoff, bucketed and rank
   assert.equal(hi.company, 'Northwind Analytics')
   assert.equal(hi.verdict, 'go')
   assert.equal(hi.verdictLabel, 'Go')
-  assert.ok(hi.want >= 8 && hi.ease >= 7)
+  assert.ok(hi.match >= 8 && hi.ease >= 7)
   assert.ok(Number.isFinite(hi.priority))
   assert.equal(st.verdict, 'stretch')
   assert.equal(fresh.verdict, null)
   assert.equal(fresh.priority, null)
   assert.equal(red.verdict, 'blocked')
-  assert.equal(red.want, null)
+  assert.equal(red.match, null)
   assert.equal(red.ease, null)
   assert.equal(red.priority, null)
   assert.equal(red.blockedReason, 'German C1 required')
@@ -263,8 +263,8 @@ test('buildDigest ranks by Priority within a bucket', () => {
     scanRow({ url: 'https://x.test/b', first_seen: '2026-06-24', company: 'High Solid' }),
   )
   const score = scores(
-    { want: 8.1, ease: 5.2, url: 'https://x.test/a' }, // stretch, priority ≈ 6.49
-    { want: 7.9, ease: 9.0, url: 'https://x.test/b' }, // solid, priority ≈ 8.43
+    { match: 8.1, ease: 5.2, url: 'https://x.test/a' }, // stretch, priority ≈ 6.49
+    { match: 7.9, ease: 9.0, url: 'https://x.test/b' }, // solid, priority ≈ 8.43
   )
   const d = buildDigest(parseScanHistory(scan), score, { since: '2026-06-24' })
   assert.deepEqual(d.items.map((i) => i.company), ['High Solid', 'Low Stretch'])

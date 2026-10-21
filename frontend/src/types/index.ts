@@ -92,14 +92,14 @@ export interface EligibilityFlag {
   question?: string
 }
 
-/** Verdict cell of the Want × Ease grid (spec §4). */
+/** Verdict cell of the Match × Ease grid (spec §4). */
 export type Verdict = 'go' | 'stretch' | 'growth' | 'solid' | 'thin' | 'skip' | 'blocked'
 
 // ─── Score history (data/score-history.tsv) ───────────────────────────────────
 
 /** One v2 score-history row (spec §8.1, 29 columns, parsed by header name).
  *  Every numeric column is `null` when its cell is empty — blocked (red) rows
- *  carry no dimensions, no Want, no Ease and no Priority. Never coerce a null
+ *  carry no dimensions, no Match, no Ease and no Priority. Never coerce a null
  *  to 0: a 0 reads as a real (terrible) score. */
 export interface ScoreEntry {
   date: string
@@ -109,17 +109,17 @@ export interface ScoreEntry {
   experience_bar: number | null
   competition: number | null
   ease: number | null
-  // Want motivators (1–10)
+  // Match motivators (1–10)
   growth_mobility: number | null
   optionality_exit: number | null
   brand_value: number | null
   role_content: number | null
-  // Want hygiene factors (1–10)
+  // Match hygiene factors (1–10)
   best_cities: number | null
   salary_adj_city: number | null
   work_life_balance: number | null
-  want: number | null
-  /** round(sqrt(want × ease), 2) — a sort key only, never a headline (§5). */
+  match: number | null
+  /** round(sqrt(match × ease), 2) — a sort key only, never a headline (§5). */
   priority: number | null
   /** null only for a malformed row with no eligibility cell. */
   eligibility: Eligibility | null
@@ -166,8 +166,8 @@ export interface ScoutingEntry {
   date: string
   company: string
   role: string
-  /** Want score; null when blocked (`—`). */
-  want: number | null
+  /** Match score; null when blocked (`—`). */
+  match: number | null
   /** Ease score; null when blocked (`—`). */
   ease: number | null
   tier: ScoutingTier

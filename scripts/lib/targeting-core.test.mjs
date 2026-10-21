@@ -10,6 +10,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { SCORE_HISTORY_HEADER } from './profile-core.mjs'
 import {
   normalizeArchetype,
   parseScoreHistory,
@@ -31,9 +32,9 @@ import { historyTsv, historyRow } from './testing/score-history-fixture.mjs'
 const tsv = (...rows) => historyTsv(...rows)
 
 // Fixture archetypes for verdict cells (default weights, green):
-//   GO      Want 8.5,  Ease 8.0   → go
-//   SOLID   Want 7.0,  Ease 7.0   → solid
-//   SKIP    Want 4.75…            → skip
+//   GO      Match 8.5,  Ease 8.0   → go
+//   SOLID   Match 7.0,  Ease 7.0   → solid
+//   SKIP    Match 4.75…            → skip
 const GO = { growth_mobility: 8, optionality_exit: 8, brand_value: 9, role_content: 8, best_cities: 8, skills_match: 8, experience_bar: 8, competition: 8 }
 const SOLID = { growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7, best_cities: 7, skills_match: 7, experience_bar: 7, competition: 7 }
 const SKIP = { growth_mobility: 5, optionality_exit: 5, brand_value: 5, role_content: 4, skills_match: 7, experience_bar: 7, competition: 7 }
@@ -46,7 +47,7 @@ test('parseScoreHistory reads the v2 header + numeric coercion', () => {
   assert.equal(rows.length, 1)
   const r = rows[0]
   assert.equal(r.skills_match, 8)
-  assert.equal(r.want, 8.5) // M 8.25 + City hygiene +0.25
+  assert.equal(r.match, 8.5) // M 8.25 + City hygiene +0.25
   assert.equal(typeof r.ease, 'number')
   assert.equal(r.verdict, 'go')
   assert.equal(r.tier, 'T1')
@@ -60,7 +61,7 @@ test('parseScoreHistory: Blocked rows have NaN scores, never 0', () => {
   const [r] = parseScoreHistory(tsv(RED))
   assert.equal(r.blocked, true)
   assert.equal(r.verdict, 'blocked')
-  assert.ok(Number.isNaN(r.want))
+  assert.ok(Number.isNaN(r.match))
   assert.ok(Number.isNaN(r.ease))
   assert.ok(Number.isNaN(r.priority))
   assert.ok(Number.isNaN(r.skills_match))
@@ -69,7 +70,7 @@ test('parseScoreHistory: Blocked rows have NaN scores, never 0', () => {
   assert.equal(isScored(r), false)
 })
 
-test('parseScoreHistory derives a missing verdict/priority from want + ease', () => {
+test('parseScoreHistory derives a missing verdict/priority from match + ease', () => {
   const line = historyRow({ ...SOLID }).split('\t')
   const cols = tsv().split('\n')[0].split('\t')
   line[cols.indexOf('verdict')] = ''
@@ -93,9 +94,9 @@ test('parseScoreHistory skips blank lines', () => {
 
 test('parseScoreHistory coerces garbage numerics to NaN', () => {
   const line = historyRow({}).split('\t')
-  line[tsv().split('\n')[0].split('\t').indexOf('want')] = 'abc'
+  line[tsv().split('\n')[0].split('\t').indexOf('match')] = 'abc'
   const rows = parseScoreHistory(tsv(line.join('\t')))
-  assert.ok(Number.isNaN(rows[0].want))
+  assert.ok(Number.isNaN(rows[0].match))
   assert.equal(isScored(rows[0]), false)
 })
 
@@ -124,7 +125,7 @@ test('DIMENSIONS lists the ten v2 dimensions with their rollup group', () => {
 
 // ─── archetypePerformance ─────────────────────────────────────────────────────
 
-test('archetypePerformance aggregates Want/Ease/verdicts, sorts by actionable rate', () => {
+test('archetypePerformance aggregates Match/Ease/verdicts, sorts by actionable rate', () => {
   const rows = parseScoreHistory(tsv(
     { ...GO, archetype: 'Strategy' },
     { ...SOLID, archetype: 'Strategy' },
@@ -138,7 +139,7 @@ test('archetypePerformance aggregates Want/Ease/verdicts, sorts by actionable ra
   assert.equal(perf[0].actionableRate, 100)
   assert.equal(perf[0].verdicts.go, 1)
   assert.equal(perf[0].verdicts.solid, 1)
-  assert.equal(perf[0].avgWant, 7.75)
+  assert.equal(perf[0].avgMatch, 7.75)
   const sales = perf.find(p => p.archetype === 'Sales')
   assert.equal(sales.count, 2, 'blocked row is not a scored role')
   assert.equal(sales.blocked, 1)
@@ -289,4 +290,12 @@ test('analyzeScouting errors on empty or score-less input, keeping eligibility',
   assert.ok(onlyBlocked.error)
   assert.equal(onlyBlocked.eligibility.status.red, 1)
   assert.equal(scoredRows(parseScoreHistory(tsv(RED))).length, 0)
+})
+
+test('parseScoreHistory reads a pre-rename `want` column as match', () => {
+  const header = SCORE_HISTORY_HEADER.replace('\tmatch\t', '\twant\t')
+  const cols = header.split('\t')
+  const row = cols.map((c) => ({ date: '2026-10-01', archetype: 'Analyst', want: '8.5', ease: '7', company: 'Nimbus Robotics', role: 'Analyst', eligibility: 'green' }[c] ?? '')).join('\t')
+  const [r] = parseScoreHistory(`${header}\n${row}\n`)
+  assert.equal(r.match, 8.5)
 })

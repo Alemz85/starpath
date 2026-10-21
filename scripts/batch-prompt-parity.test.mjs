@@ -38,7 +38,7 @@ test('scoring-version stamps match', () => {
 const V2_HEADER = [
   'date', 'archetype', 'skills_match', 'experience_bar', 'competition', 'ease',
   'growth_mobility', 'optionality_exit', 'brand_value', 'role_content',
-  'best_cities', 'salary_adj_city', 'work_life_balance', 'want', 'priority',
+  'best_cities', 'salary_adj_city', 'work_life_balance', 'match', 'priority',
   'eligibility', 'eligibility_flags', 'verdict', 'best_fit_roles', 'mode',
   'company', 'role', 'tier', 'source', 'location', 'employment_type',
   'duration', 'salary_raw', 'url',
@@ -150,7 +150,7 @@ test('key Competition / work_auth constants agree with _shared.md', () => {
 test('report header lines and dimensional-table tags agree', () => {
   for (const [name, text] of [...BOTH, ['scouting mode', scouting]]) {
     for (const token of [
-      '**Want:**', '**Ease:**', '**Eligibility:**', '**Verdict:**', '**TL;DR:**', '**Tier:**', '**URL:**',
+      '**Match:**', '**Ease:**', '**Eligibility:**', '**Verdict:**', '**TL;DR:**', '**Tier:**', '**URL:**',
       '## Eligibility', '## Dimensional scoring', 'Salary math:',
     ]) {
       assert.ok(text.includes(token), `${name} carries ${token}`)
@@ -158,8 +158,8 @@ test('report header lines and dimensional-table tags agree', () => {
   }
   for (const [name, text] of BOTH) {
     for (const row of [
-      'Growth / Mobility (want)', 'Role content (want)', 'City (hygiene)',
-      'Salary Adj for City (hygiene)', 'Work-Life Balance (hygiene)', '**Want (rollup)**',
+      'Growth / Mobility (match)', 'Role content (match)', 'City (hygiene)',
+      'Salary Adj for City (hygiene)', 'Work-Life Balance (hygiene)', '**Match (rollup)**',
       'Skills Match (ease)', 'Experience bar (ease)', 'Competition (ease)', '**Ease (rollup)**',
       'Best-fit Early-career Roles (context)',
     ]) {
@@ -207,19 +207,19 @@ test('batch workers write the scouting flow, not the applications tracker', () =
   assert.match(prompt, /12 tab-separated columns/)
   // The 12-col scouting TSV shape must match modes/scouting.md's definition.
   assert.ok(scouting.includes('12 tab-separated columns'))
-  const row = '{num}\t{date}\t{company}\t{role}\t{want}\t{ease}\t{tier}\t{eligibility}\t'
+  const row = '{num}\t{date}\t{company}\t{role}\t{match}\t{ease}\t{tier}\t{eligibility}\t'
   assert.ok(prompt.includes(row.replace('{date}', '{{DATE}}')), 'batch prompt TSV column order')
   assert.ok(scouting.includes(row), 'scouting mode TSV column order')
 })
 
 test('report-summaries row shape agrees between the bundle and modes/scouting.md', () => {
-  const row = '{date}\t{company}\t{role}\t{archetype}\t{tier}\t{want}\t{ease}\t{eligibility}\t{key_gaps}\t{verdict}'
+  const row = '{date}\t{company}\t{role}\t{archetype}\t{tier}\t{match}\t{ease}\t{eligibility}\t{key_gaps}\t{verdict}'
   assert.ok(prompt.includes(row), 'batch prompt report-summaries row')
   assert.ok(scouting.includes(row), 'scouting mode report-summaries row')
 })
 
 test('final JSON carries the v2 keys and score = Priority (spec §8.6)', () => {
-  for (const key of ['"want"', '"ease"', '"eligibility"', '"verdict"', '"tier"', '"score"']) {
+  for (const key of ['"match"', '"ease"', '"eligibility"', '"verdict"', '"tier"', '"score"']) {
     assert.ok(prompt.includes(key), `final JSON has ${key}`)
   }
   assert.match(prompt, /`score` carries \*\*Priority\*\*/)

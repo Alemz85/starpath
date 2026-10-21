@@ -24,13 +24,13 @@ scale as its scouting report — never invent a parallel rubric.
 | Factor | 1–10 score is… | Source |
 |--------|----------------|--------|
 | **comp** | Cost-of-living-adjusted savings power | `compFactorFromSavings(monthlyNet, colBaseline)` → reuses the savings band in `scripts/lib/score-bands.mjs`. Build total comp with `buildTotalComp(...)`, net it with `grossToNet(...)`, pull the city baseline from `data/col-cache.tsv` (`scripts/lib/col-cache.mjs`). |
-| **fit** | How much the candidate **wants** this role (scouting **Want**, 1–10) | The fit helper in `scripts/lib/offer-compare.mjs` (`fitFactorFromScores` / `fitFactorFromDims`) → the v2 engine's Want. With an offer in hand, Ease no longer matters: it is returned for display only and never affects the ranking. If the role already has a scouting report, take Want from its header. |
+| **fit** | How well the role matches the candidate (scouting **Match**, 1–10) | The fit helper in `scripts/lib/offer-compare.mjs` (`fitFactorFromScores` / `fitFactorFromDims`) → the v2 engine's Match. With an offer in hand, Ease no longer matters: it is returned for display only and never affects the ranking. If the role already has a scouting report, take Match from its header. |
 | **growth** | Growth / mobility — does it lead somewhere | The role's Growth/Mobility dimension from its scouting evaluation (1–10). |
 | **brand** | Brand value on a CV | The role's Brand Value dimension (1–10). |
 | **location** | How well the location fits **your** preferences | Derive from `user/profile.yml` (`location.preferred_cities`, `visa_status`, relocation appetite) — NOT a hardcoded city. A role in a top-preference city + no visa friction scores high; one requiring an unwanted move scores low. |
 | **risk** | Stability / downside (higher = safer) | Funding stage, layoff signals, role clarity, manager risk, probation terms. A late-stage profitable employer scores high; a runway-constrained startup or an ambiguous "will I actually do analytics?" role scores low. |
 
-The agent derives growth/brand/location/risk the same way it scores the Want
+The agent derives growth/brand/location/risk the same way it scores the Match
 dimensions during scouting — read `user/cv.md`, `user/profile.yml`,
 `user/_profile.md`, and any existing report for the role; substitute real values
 at comparison time. Never hardcode a candidate's cities, target companies, or

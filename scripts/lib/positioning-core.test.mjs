@@ -4,7 +4,7 @@
 // per-listing constraint/lever tallies, the systemic binding constraint and the
 // per-archetype Ease trajectory (the canary).
 //
-// Rows are built with the shared v2 fixture builder (Want / Ease / verdict come
+// Rows are built with the shared v2 fixture builder (Match / Ease / verdict come
 // from the real engine) and parsed by targeting-core. Companies are fictional.
 //
 // Plain ESM, zero deps: `node --test scripts/lib/positioning-core.test.mjs`.
@@ -13,7 +13,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseScoreHistory } from './targeting-core.mjs'
 import { historyTsv } from './testing/score-history-fixture.mjs'
-import { rollupWant, rollupEase, assignVerdict } from './score-bands.mjs'
+import { rollupMatch, rollupEase, assignVerdict } from './score-bands.mjs'
 import { classifyMovement, EASE_NOISE_FLOOR, GATES } from './scoring-stats.mjs'
 import {
   archetypeFingerprints,
@@ -34,7 +34,7 @@ const dated = (n, over = {}, offset = 0) => Array.from({ length: n }, (_, i) => 
   return { ...over, date: d, company: `Wingtip ${offset + i}` }
 })
 
-const TOP_WANT = { growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }
+const TOP_MATCH = { growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }
 const EASY = { skills_match: 8, experience_bar: 8, competition: 8 }
 
 const fullDims = (over = {}) => ({
@@ -63,9 +63,9 @@ test('archetypeFingerprints averages each of the ten v2 dimensions', () => {
   assert.equal(fp.dims.role_content, 8)
 })
 
-test('archetypeFingerprints carries Want / Ease, verdict mix, actionable share and blocked count', () => {
+test('archetypeFingerprints carries Match / Ease, verdict mix, actionable share and blocked count', () => {
   const rows = parse(
-    ...repeat(3, { ...TOP_WANT, ...EASY }),                              // go
+    ...repeat(3, { ...TOP_MATCH, ...EASY }),                              // go
     { growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7 }, // thin
     { eligibility: 'red', eligibility_flags: 'language:red:German C1 required' },
   )
@@ -75,8 +75,8 @@ test('archetypeFingerprints carries Want / Ease, verdict mix, actionable share a
   assert.equal(fp.verdicts.go, 3)
   assert.equal(fp.verdicts.thin, 1)
   assert.equal(fp.actionableShare, 75)
-  const wants = rows.filter(r => !r.blocked).map(r => r.want)
-  assert.equal(fp.avgWant, Math.round((wants.reduce((a, b) => a + b, 0) / wants.length) * 100) / 100)
+  const matchScores = rows.filter(r => !r.blocked).map(r => r.match)
+  assert.equal(fp.avgMatch, Math.round((matchScores.reduce((a, b) => a + b, 0) / matchScores.length) * 100) / 100)
   assert.ok(Number.isFinite(fp.avgEase))
 })
 
@@ -104,7 +104,7 @@ test('archetypeFingerprints applies the minRoles filter on SCORED rows only', ()
 test('archetypeFingerprints sorts the most actionable archetype first', () => {
   const rows = parse(
     ...repeat(3, { archetype: 'Field Sales', growth_mobility: 5, optionality_exit: 5, brand_value: 5, role_content: 5 }),
-    ...repeat(3, { archetype: 'Product Ops', ...TOP_WANT, ...EASY }),
+    ...repeat(3, { archetype: 'Product Ops', ...TOP_MATCH, ...EASY }),
   )
   const fps = archetypeFingerprints(rows)
   assert.equal(fps[0].archetype, 'Product Ops')
@@ -116,7 +116,7 @@ test('archetypeFingerprints sorts the most actionable archetype first', () => {
 test('archetypeFingerprints tolerates a blank dimension cell (NaN-safe averaging)', () => {
   const rows = parse(
     { skills_match: 7 },
-    { skills_match: '', want: 7, ease: 6.5 }, // blank → NaN, excluded from the mean
+    { skills_match: '', match: 7, ease: 6.5 }, // blank → NaN, excluded from the mean
     { skills_match: 9 },
   )
   const fp = archetypeFingerprints(rows)[0]
@@ -126,12 +126,12 @@ test('archetypeFingerprints tolerates a blank dimension cell (NaN-safe averaging
 
 // ─── archetypeLever: replay must agree with the canonical engine ──────────────
 
-test('hand anchor: motivators 8, neutral hygiene, Ease stages 8 → Want 8.0, Ease 8.0, Go', () => {
+test('hand anchor: motivators 8, neutral hygiene, Ease stages 8 → Match 8.0, Ease 8.0, Go', () => {
   const lever = archetypeLever({
     archetype: 'Anchor', count: 3,
     dims: fullDims({ growth_mobility: 8, optionality_exit: 8, brand_value: 8, role_content: 8, skills_match: 8, experience_bar: 8, competition: 8 }),
   })
-  assert.equal(lever.want, 8)
+  assert.equal(lever.match, 8)
   assert.equal(lever.ease, 8)
   assert.equal(lever.verdict, 'go')
   assert.equal(lever.verdictLabel, 'Go')
@@ -139,28 +139,28 @@ test('hand anchor: motivators 8, neutral hygiene, Ease stages 8 → Want 8.0, Ea
   assert.equal(lever.cheapestLever, null)
 })
 
-test('archetypeLever reproduces Want / Ease / verdict from the average fingerprint', () => {
+test('archetypeLever reproduces Match / Ease / verdict from the average fingerprint', () => {
   const dims = fullDims({ skills_match: 6.67, experience_bar: 5.33, competition: 5.5, role_content: 8.25 })
   const lever = archetypeLever({ archetype: 'X', count: 4, dims })
-  const want = rollupWant(dims).score
+  const match = rollupMatch(dims).score
   const ease = rollupEase(dims).score
-  assert.equal(lever.want, want)
+  assert.equal(lever.match, match)
   assert.equal(lever.ease, ease)
-  assert.equal(lever.verdict, assignVerdict({ want, ease, eligibility: 'green' }).verdict)
+  assert.equal(lever.verdict, assignVerdict({ match, ease, eligibility: 'green' }).verdict)
 })
 
 test('archetypeLever honors the caller weights', () => {
   const dims = fullDims({ role_content: 10 })
   const plain = archetypeLever({ archetype: 'W', count: 3, dims })
-  const weighted = archetypeLever({ archetype: 'W', count: 3, dims }, { weights: { want: { role_content: 3 } } })
-  assert.equal(weighted.want, rollupWant(dims, { weights: { role_content: 3 } }).score)
-  assert.ok(weighted.want > plain.want)
+  const weighted = archetypeLever({ archetype: 'W', count: 3, dims }, { weights: { match: { role_content: 3 } } })
+  assert.equal(weighted.match, rollupMatch(dims, { weights: { role_content: 3 } }).score)
+  assert.ok(weighted.match > plain.match)
 })
 
 test('archetypeLever surfaces the experience wall as the binding constraint, with its lever', () => {
   const lever = archetypeLever({
     archetype: 'Walled', count: 4,
-    dims: fullDims({ ...TOP_WANT, skills_match: 8, experience_bar: 3, competition: 7 }),
+    dims: fullDims({ ...TOP_MATCH, skills_match: 8, experience_bar: 3, competition: 7 }),
   })
   assert.equal(lever.ease, 4.5)                 // the wall cap
   assert.equal(lever.verdict, 'growth')
@@ -173,19 +173,19 @@ test('archetypeLever surfaces the experience wall as the binding constraint, wit
 })
 
 test('archetypeLever treats a mostly-intern archetype as intern (salary cannot veto)', () => {
-  const dims = fullDims({ ...TOP_WANT, ...EASY, salary_adj_city: 2 })
+  const dims = fullDims({ ...TOP_MATCH, ...EASY, salary_adj_city: 2 })
   const fulltime = archetypeLever({ archetype: 'FT', count: 3, dims, internShare: 0 })
   const interns = archetypeLever({ archetype: 'IN', count: 3, dims, internShare: 100 })
-  assert.equal(fulltime.want, 5)                // hygiene veto caps Want
+  assert.equal(fulltime.match, 5)                // hygiene veto caps Match
   assert.equal(fulltime.bindingConstraint.kind, 'hygiene_veto')
-  assert.equal(interns.want, 9)
+  assert.equal(interns.match, 9)
   assert.equal(interns.verdict, 'go')
 })
 
 test('archetypeLever imputes a neutral midpoint for an all-blank dimension and says so', () => {
   const lever = archetypeLever({ archetype: 'Gap', count: 3, dims: fullDims({ competition: NaN }) })
   assert.deepEqual(lever.imputed, ['competition'])
-  assert.ok(Number.isFinite(lever.want))
+  assert.ok(Number.isFinite(lever.match))
   assert.ok(Number.isFinite(lever.ease))
 })
 
@@ -193,8 +193,8 @@ test('archetypeLever imputes a neutral midpoint for an all-blank dimension and s
 
 test('listingConstraints tallies binding-constraint kinds and lever dimensions per listing', () => {
   const rows = parse(
-    ...repeat(3, { ...TOP_WANT, skills_match: 8, experience_bar: 3, competition: 7 }), // growth, wall
-    ...repeat(2, { ...TOP_WANT, ...EASY }),                                            // go
+    ...repeat(3, { ...TOP_MATCH, skills_match: 8, experience_bar: 3, competition: 7 }), // growth, wall
+    ...repeat(2, { ...TOP_MATCH, ...EASY }),                                            // go
   )
   const t = listingConstraints(rows)
   assert.equal(t.n, 5)
@@ -212,7 +212,7 @@ test('listingConstraints tallies binding-constraint kinds and lever dimensions p
 test('listingConstraints replays amber flags: resolving the amber is the cheapest lever', () => {
   // Ease geometric ≈ 7.34, −0.5 amber → 6.84 (Stretch); resolving it → Go.
   const rows = parse(...repeat(3, {
-    ...TOP_WANT, skills_match: 8, experience_bar: 8, competition: 6,
+    ...TOP_MATCH, skills_match: 8, experience_bar: 8, competition: 6,
     eligibility: 'amber', eligibility_flags: 'start_date:amber:start not stated',
   }))
   assert.equal(rows[0].verdict, 'stretch')
@@ -229,10 +229,10 @@ test('listingConstraints counts replay mismatches instead of hiding them', () =>
 })
 
 test('listingConstraints applies the dream floor from calibration', () => {
-  // Motivators 7/7/10/7 → raw Want 7.75; the dream floor stored 8.0 → Go.
+  // Motivators 7/7/10/7 → raw Match 7.75; the dream floor stored 8.0 → Go.
   const rows = parse(...repeat(2, {
     company: 'Northwind Analytics', growth_mobility: 7, optionality_exit: 7, brand_value: 10, role_content: 7,
-    ...EASY, want: 8,
+    ...EASY, match: 8,
   }))
   assert.equal(rows[0].verdict, 'go')
   assert.equal(listingConstraints(rows).replayMismatches, 2)
@@ -267,7 +267,7 @@ test('systemicConstraint picks the constraint holding back the most archetypes',
   assert.equal(sc.lever.avgLift, 1.5)
 })
 
-test('systemicConstraint keys low_want / low_ease by the rollup, not the weakest dimension', () => {
+test('systemicConstraint keys low_match / low_ease by the rollup, not the weakest dimension', () => {
   const levers = [
     { archetype: 'A', bindingConstraint: { kind: 'low_ease', dimension: 'competition', label: 'Ease', binding: true }, cheapestLever: { dimension: 'competition', lift: 1 } },
     { archetype: 'B', bindingConstraint: { kind: 'low_ease', dimension: 'skills_match', label: 'Ease', binding: true }, cheapestLever: { dimension: 'skills_match', lift: 2 } },
@@ -382,8 +382,8 @@ test('positioningIntel errors on an all-blocked history but still reports eligib
 
 test('positioningIntel assembles the full bundle and ties levers to fingerprints', () => {
   const rows = parse(
-    ...repeat(3, { archetype: 'Data Analyst', ...TOP_WANT, skills_match: 8, experience_bar: 3, competition: 7 }),
-    ...repeat(3, { archetype: 'Strategy & Operations', ...TOP_WANT, ...EASY }),
+    ...repeat(3, { archetype: 'Data Analyst', ...TOP_MATCH, skills_match: 8, experience_bar: 3, competition: 7 }),
+    ...repeat(3, { archetype: 'Strategy & Operations', ...TOP_MATCH, ...EASY }),
     { archetype: 'Strategy & Operations', eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship' },
   )
   const intel = positioningIntel(rows)
@@ -397,7 +397,7 @@ test('positioningIntel assembles the full bundle and ties levers to fingerprints
   for (const l of intel.levers) assert.ok(fpNames.has(l.archetype))
 
   const strat = intel.fingerprints.find(f => f.archetype === 'Strategy & Operations')
-  for (const k of ['avgWant', 'avgEase', 'actionableShare', 'verdicts', 'blocked', 'easeTrajectory']) assert.ok(k in strat, k)
+  for (const k of ['avgMatch', 'avgEase', 'actionableShare', 'verdicts', 'blocked', 'easeTrajectory']) assert.ok(k in strat, k)
   assert.equal(strat.blocked, 1)
   assert.equal(strat.actionableShare, 100)
 
@@ -417,7 +417,7 @@ test('positioningIntel assembles the full bundle and ties levers to fingerprints
 })
 
 test('positioningIntel output carries no v1 fields', () => {
-  const intel = positioningIntel(parse(...repeat(4, {}), ...repeat(3, { archetype: 'Ops', ...TOP_WANT })))
+  const intel = positioningIntel(parse(...repeat(4, {}), ...repeat(3, { archetype: 'Ops', ...TOP_MATCH })))
   const keys = new Set()
   const walk = (v) => {
     if (Array.isArray(v)) v.forEach(walk)

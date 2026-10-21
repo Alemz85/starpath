@@ -31,20 +31,20 @@ test('the canonical scripts/lib/scoring-stats.mjs is importable from the rendere
 /* ───── v2 noise floors (docs/scoring-v2.md § 9) ─────────────────────── */
 
 test('the v2 noise floors carry the spec values', () => {
-  assert.equal(ts.WANT_NOISE_FLOOR, 0.30)
+  assert.equal(ts.MATCH_NOISE_FLOOR, 0.30)
   assert.equal(ts.EASE_NOISE_FLOOR, 0.35)
   assert.equal(ts.PRIORITY_NOISE_FLOOR, 0.30)
-  assert.deepEqual(ts.NOISE_FLOORS, { want: 0.30, ease: 0.35, priority: 0.30 })
+  assert.deepEqual(ts.NOISE_FLOORS, { match: 0.30, ease: 0.35, priority: 0.30 })
 })
 
 test('the v2 noise floors are identical across runtimes (needs the v2 scoring-stats.mjs)', () => {
-  assert.equal(ts.WANT_NOISE_FLOOR, (mjs as Record<string, unknown>).WANT_NOISE_FLOOR)
+  assert.equal(ts.MATCH_NOISE_FLOOR, (mjs as Record<string, unknown>).MATCH_NOISE_FLOOR)
   assert.equal(ts.EASE_NOISE_FLOOR, (mjs as Record<string, unknown>).EASE_NOISE_FLOOR)
   assert.equal(ts.PRIORITY_NOISE_FLOOR, (mjs as Record<string, unknown>).PRIORITY_NOISE_FLOOR)
 })
 
-test('the Want floor clears one motivator step at equal weights (0.25)', () => {
-  assert.ok(ts.WANT_NOISE_FLOOR > 0.25)
+test('the Match floor clears one motivator step at equal weights (0.25)', () => {
+  assert.ok(ts.MATCH_NOISE_FLOOR > 0.25)
 })
 
 test('the Ease floor clears one step on a 0.35-weight dimension near 6', () => {
@@ -189,8 +189,8 @@ test('classifyMovement: just under the floor is within-noise, in both directions
   assert.equal(ts.classifyMovement(0), 'within-noise')
 })
 
-test('classifyMovement: one motivator step never reads as Want movement; two do', () => {
-  const floor = ts.NOISE_FLOORS.want
+test('classifyMovement: one motivator step never reads as Match movement; two do', () => {
+  const floor = ts.NOISE_FLOORS.match
   assert.equal(ts.classifyMovement(0.25, { floor }), 'within-noise')
   assert.equal(ts.classifyMovement(-0.25, { floor }), 'within-noise')
   assert.equal(ts.classifyMovement(0.5, { floor }), 'improving')

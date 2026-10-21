@@ -3,7 +3,7 @@
 **Date:** 2026-10-19
 **Location:** Lyon, France · hybrid, two office days
 **Archetype:** Pricing & Commercial Analytics
-**Want:** 8.5/10 · **Ease:** 8.01/10
+**Match:** 8.5/10 · **Ease:** 8.01/10
 **Eligibility:** green
 **Verdict:** Go — apply now
 **Tier:** T1
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 7/10 | A small pricing team that is growing; they mention scope expanding into promotions planning, but there is no formal ladder. |
-| Optionality / Exit (want) | 8/10 | Retail pricing and promotion analytics is a skill set every consumer-goods and retail employer hires for. |
-| Brand Value (want) | 7/10 | A known consumer brand in France; recruiters outside retail will recognise the name but not the team. |
-| Role content (want) | 9/10 | Nearly all pricing analysis: elasticity models, promotion post-mortems and the price-change calendar, with a little coordination with the category managers. |
+| Growth / Mobility (match) | 7/10 | A small pricing team that is growing; they mention scope expanding into promotions planning, but there is no formal ladder. |
+| Optionality / Exit (match) | 8/10 | Retail pricing and promotion analytics is a skill set every consumer-goods and retail employer hires for. |
+| Brand Value (match) | 7/10 | A known consumer brand in France; recruiters outside retail will recognise the name but not the team. |
+| Role content (match) | 9/10 | Nearly all pricing analysis: elasticity models, promotion post-mortems and the price-change calendar, with a little coordination with the category managers. |
 | City (hygiene) | 9/10 | Lyon, your first-choice city. |
 | Salary Adj for City (hygiene) | 6.5/10 | About €750 a month left after living costs in Lyon. |
 | Work-Life Balance (hygiene) | 8/10 | A 37-hour week with two office days; seasonal peaks before the holiday range launches. |
-| **Want (rollup)** | **8.5/10** | Carried by the work itself, which is exactly what you want to do |
+| **Match (rollup)** | **8.5/10** | Carried by the work itself, which is exactly what you want to do |
 | Skills Match (ease) | 9/10 | Price elasticity, Python and SQL are your strongest skills; the only gap is the retail planning tool they use, and they say they will train it. |
 | Experience bar (ease) | 8/10 | They ask for a first internship in pricing or commercial analytics, which you have. |
 | Competition (ease) | 7/10 | A mid-sized consumer brand with one seat; your Lyon school helps with their local recruiters. |

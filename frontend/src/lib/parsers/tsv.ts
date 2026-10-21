@@ -13,7 +13,7 @@ import {
 // the switch (data/archive/scoring-v1/), so no v1 compatibility here.
 
 /** Empty / non-numeric cell → null. Blocked rows leave every dimension,
- *  Want, Ease and Priority empty — those must read as missing, never as 0. */
+ *  Match, Ease and Priority empty — those must read as missing, never as 0. */
 function num(v: string | undefined): number | null {
   const t = (v ?? '').trim()
   if (!t) return null
@@ -25,7 +25,8 @@ export function parseScoreHistory(tsv: string): ScoreEntry[] {
   const lines = tsv.trim().split('\n')
   if (lines.length < 2) return []
 
-  const headers = lines[0].split('\t').map(h => h.trim())
+  // `want` is the pre-rename name of the `match` column (files not yet migrated).
+  const headers = lines[0].split('\t').map(h => h.trim()).map(h => (h === 'want' ? 'match' : h))
 
   return lines.slice(1).flatMap(line => {
     const cols = line.split('\t').map(c => c.trim())
@@ -38,11 +39,11 @@ export function parseScoreHistory(tsv: string): ScoreEntry[] {
     if (!row.company || !row.role) return []
 
     const eligibility = normalizeEligibility(row.eligibility)
-    const want = num(row.want)
+    const match = num(row.match)
     const ease = num(row.ease)
     // Verdict cell first; replay the grid only when it's empty.
     const verdict = normalizeVerdict(row.verdict)
-      ?? assignVerdict({ want, ease, eligibility })?.verdict
+      ?? assignVerdict({ match, ease, eligibility })?.verdict
       ?? null
     const tier = normalizeTier(row.tier) ?? (verdict ? VERDICT_TIER[verdict] : (row.tier ?? ''))
     const blocked = eligibility === 'red' || verdict === 'blocked'
@@ -61,8 +62,8 @@ export function parseScoreHistory(tsv: string): ScoreEntry[] {
       best_cities:       num(row.best_cities),
       salary_adj_city:   num(row.salary_adj_city),
       work_life_balance: num(row.work_life_balance),
-      want,
-      priority:          blocked ? null : (num(row.priority) ?? computePriority(want, ease)),
+      match,
+      priority:          blocked ? null : (num(row.priority) ?? computePriority(match, ease)),
       eligibility,
       eligibility_flags: row.eligibility_flags ?? '',
       verdict,

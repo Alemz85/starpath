@@ -6,7 +6,7 @@
 
 This mode does NOT do CV tailoring (`modes/pdf.md`), interview prep (`modes/interview-prep.md`), or live application drafting (`modes/apply.md`). Those are separate per-listing skills the user triggers when they want them.
 
-Every listing runs the same model — eligibility gate first, then Want and Ease, then the verdict grid (`modes/_shared.md`; contract `docs/scoring-v2.md`) — and every report that gets written has the same structure.
+Every listing runs the same model — eligibility gate first, then Match and Ease, then the verdict grid (`modes/_shared.md`; contract `docs/scoring-v2.md`) — and every report that gets written has the same structure.
 
 ## Inputs
 
@@ -43,9 +43,9 @@ Use the **Dimensional Scoring Framework** defined in `modes/_shared.md` (contrac
 
 The framework gives you, for every listing, in this order:
 - An **Eligibility gate** — six checks (`start_date`, `duration`, `graduation`, `language`, `work_auth`, `other`) → `green` / `amber` / `red`. Run it first with `node scripts/score-listing.mjs --eligibility-only`; `red` means **Blocked** and you stop before scoring dimensions.
-- **Want** (1–10) — 4 motivators (Growth / Mobility, Optionality / Exit, Brand Value, Role content) plus 3 hygiene factors (City, Salary Adj for City, Work-Life Balance).
+- **Match** (1–10) — 4 motivators (Growth / Mobility, Optionality / Exit, Brand Value, Role content) plus 3 hygiene factors (City, Salary Adj for City, Work-Life Balance).
 - **Ease** (1–10) — Skills Match, Experience bar, Competition, minus 0.5 per amber eligibility check.
-- A **verdict** from the Want × Ease grid (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`) and its storage tier `T1`–`T4`. There is no Overall.
+- A **verdict** from the Match × Ease grid (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`) and its storage tier `T1`–`T4`. There is no Overall.
 
 All of it is computed by `scripts/score-listing.mjs` from the facts and integer judgment scores you pass in. The dimensional table is the load-bearing artifact. The prose around it is short.
 
@@ -80,9 +80,9 @@ Follow the lookup flow defined in `modes/_shared.md` § Comp cache. On a cache m
 
 ### Calibration hooks
 
-- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` and pass the structured `calibration:` block from `user/profile.yml` to the script (dream-company Want floor, lower-tier dream Want preference, per-company `extra_brand_bonuses`, structured-onboarding signal) — the script applies them. Brand itself is scored as a CV signal, never raised for liking the company.
+- **Entry-level lens:** Apply the Score Calibration adjustments from `_profile.md` and pass the structured `calibration:` block from `user/profile.yml` to the script (dream-company Match floor, lower-tier dream Match preference, per-company `extra_brand_bonuses`, structured-onboarding signal) — the script applies them. Brand itself is scored as a CV signal, never raised for liking the company.
 - **Location policy:** The City hygiene factor reads from `_profile.md` → Your Location Policy. Top preferred city floors at 9; a non-preferred city inside the reachable region floors at 6; outside it drops to 2–3.
-- **Dream-company floor:** a company in `calibration.dream_companies` gets Brand Value 10 and a **Want floor of 8.0** from the script — the hygiene and Role-content vetoes still win over it.
+- **Dream-company floor:** a company in `calibration.dream_companies` gets Brand Value 10 and a **Match floor of 8.0** from the script — the hygiene and Role-content vetoes still win over it.
 - **Referral:** if `data/network.md` shows a warm path (`npm run outreach-plan -- "Company" --summary`), pass `referral: "warm-direct"` or `"warm-intro"`; the script adds it to Competition.
 
 ### Lead with what decides this listing (run AFTER scoring, BEFORE writing prose)
@@ -128,7 +128,7 @@ Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thi
 **Date:** {YYYY-MM-DD}
 **Location:** {city, country} {remote-policy in 2–4 words}
 **Archetype:** {primary, plus secondary if hybrid}
-**Want:** {want}/10 · **Ease:** {ease}/10
+**Match:** {match}/10 · **Ease:** {ease}/10
 **Eligibility:** {green | amber — reasons ;-joined}
 **Verdict:** {verdict_label} — {action}
 **TL;DR:** {one plain sentence: the deciding factor and the call}
@@ -176,7 +176,7 @@ Promotion hint: `MONITOR` for `stretch` and `solid`; blank for `thin`. All three
 
 ### `growth` — Growth target: close the gap first (T3)
 
-Want ≥ 8.0 but Ease < 5.0 (often the experience wall). Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title `# Gap & Growth:`, `**Tier:** T3`, `reports/tier-3/`):
+Match ≥ 8.0 but Ease < 5.0 (often the experience wall). Generate a **Gap & Growth Report** — a roadmap, not a rejection. Universal header (title `# Gap & Growth:`, `**Tier:** T3`, `reports/tier-3/`):
 
 ```markdown
 ## Gaps and opportunities
@@ -188,11 +188,11 @@ If no single change would move the verdict, say so honestly rather than inventin
 
 ### `skip` (T4)
 
-Want < 6.5, or Want 6.5–8.0 with Ease < 5.0. Do NOT write a report file. **Still compute the full dimensional table** for `data/score-history.tsv` (`tier=T4`, `verdict=skip`). Add a one-line scouting entry with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
+Match < 6.5, or Match 6.5–8.0 with Ease < 5.0. Do NOT write a report file. **Still compute the full dimensional table** for `data/score-history.tsv` (`tier=T4`, `verdict=skip`). Add a one-line scouting entry with tier `T4`, report `—`, note `"T4 skip — {reason}"`.
 
 ### `blocked` (T4, eligibility red)
 
-The gate returned `red` — a language wall, a start date inside a blocked window, a hard graduation window, missing work rights without sponsorship, or a mandatory `other` requirement the CV fails. Do NOT write a report file. **When the gate's result says `scored: true`** (the profile's `eligibility.score_through_red` allows every red check; `modes/_shared.md` § Eligibility gate), score the dimensions as usual and log Want / Ease in score-history and the scouting entry; the verdict stays `blocked`, tier `T4`, Priority empty. **Otherwise** do not score dimensions: log a score-history row with the dimension, `want`, `ease` and `priority` columns empty (`eligibility=red`, `eligibility_flags` set, `verdict=blocked`, `tier=T4`) and a scouting entry whose Eligibility cell is `red: {reason}` and whose Want / Ease cells are `—`. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
+The gate returned `red` — a language wall, a start date inside a blocked window, a hard graduation window, missing work rights without sponsorship, or a mandatory `other` requirement the CV fails. Do NOT write a report file. **When the gate's result says `scored: true`** (the profile's `eligibility.score_through_red` allows every red check; `modes/_shared.md` § Eligibility gate), score the dimensions as usual and log Match / Ease in score-history and the scouting entry; the verdict stays `blocked`, tier `T4`, Priority empty. **Otherwise** do not score dimensions: log a score-history row with the dimension, `match`, `ease` and `priority` columns empty (`eligibility=red`, `eligibility_flags` set, `verdict=blocked`, `tier=T4`) and a scouting entry whose Eligibility cell is `red: {reason}` and whose Match / Ease cells are `—`. If the company is in `calibration.dream_companies` / `lower_tier_dream_companies` / `brand_affinity_companies`, the note starts `Revisit next cycle:`.
 
 ## T1 body
 
@@ -201,9 +201,9 @@ After the tables, five short sections. Each says what matters for *this* listing
 ```markdown
 ## Peer ranking (optional — only with ≥5 peers for the primary archetype in `data/score-history.tsv`; otherwise omit, no placeholder)
 ---
-**Rank vs {Archetype} peers:** Want {X.X} · Ease {X.X} — Priority {percentile} of {N} roles evaluated
+**Rank vs {Archetype} peers:** Match {X.X} · Ease {X.X} — Priority {percentile} of {N} roles evaluated
 **Dimension outliers:** {dim ±X above/below avg} · {dim ±X}
-**Closest comparables:** {Company} (W {X.X} · E {X.X}) · {Company} (W {X.X} · E {X.X}) · {Company} (W {X.X} · E {X.X})
+**Closest comparables:** {Company} (M {X.X} · E {X.X}) · {Company} (M {X.X} · E {X.X}) · {Company} (M {X.X} · E {X.X})
 
 ## A) Role summary
 | Field | Value |
@@ -252,7 +252,7 @@ When the pipeline feeds you **multi-city postings of the same role** (same JD co
 2. Write ONE report at `reports/tier-{N}/{Company} - {Role}.md` — the master.
 3. For each additional city variant, append a one-line delta to the master report under a `## City variants` section:
    ```
-   - **City B variant:** City 6/10 (vs 8/10 City A), Salary Adj 6/10 (vs 8/10 City A); Want 7.9 (vs 8.3); otherwise identical. Verdict solid (vs stretch).
+   - **City B variant:** City 6/10 (vs 8/10 City A), Salary Adj 6/10 (vs 8/10 City A); Match 7.9 (vs 8.3); otherwise identical. Verdict solid (vs stretch).
    ```
 4. Write ONE scouting tracker TSV entry referencing the master report; in the Notes column, list the other cities (e.g., `"Multi-city: City A (primary), City B"`).
 5. Log ONE row to `data/score-history.tsv` for the master. If the user wants per-city trajectory later, positioning mode can parse the `## City variants` section.
@@ -273,20 +273,20 @@ For evaluation rows:
 - `verdict` → the verdict key; `eligibility` → `green` | `amber` | `red`; `eligibility_flags` → `check:status:reason` for each non-green check, `;`-joined
 - `source` → `url` | `paste` | `scan` | `pipeline`
 
-The dimension columns must be filled even for `skip` rows — that's the point of logging them (so positioning can see what the user *isn't* a fit for and why). Blocked rows are the one exception: dimension, `want`, `ease` and `priority` columns stay empty, and the eligibility columns carry the why.
+The dimension columns must be filled even for `skip` rows — that's the point of logging them (so positioning can see what the user *isn't* a fit for and why). Blocked rows are the one exception: dimension, `match`, `ease` and `priority` columns stay empty, and the eligibility columns carry the why.
 
 Also fill the metadata columns: `location`, `employment_type`, `duration`, `salary_raw`, `url` (see `_shared.md` for definitions). Use `n/d` for any that are unknown.
 
 ## Report Summary Cache
 
-After writing the report (or recording a T4 skip / Blocked listing), also append a row to `data/report-summaries.tsv` (headerless, 10 columns; the `report_summary` object of the same `append-score-rows.mjs` input file, keys `date`, `company`, `role`, `archetype`, `tier`, `want`, `ease`, `eligibility`, `key_gaps`, `verdict`):
+After writing the report (or recording a T4 skip / Blocked listing), also append a row to `data/report-summaries.tsv` (headerless, 10 columns; the `report_summary` object of the same `append-score-rows.mjs` input file, keys `date`, `company`, `role`, `archetype`, `tier`, `match`, `ease`, `eligibility`, `key_gaps`, `verdict`):
 
 ```
-{date}	{company}	{role}	{archetype}	{tier}	{want}	{ease}	{eligibility}	{key_gaps}	{verdict}
+{date}	{company}	{role}	{archetype}	{tier}	{match}	{ease}	{eligibility}	{key_gaps}	{verdict}
 ```
 
 - `tier` — `T1` | `T2` | `T3` | `T4`
-- `want` / `ease` — the script's numbers; empty for Blocked rows
+- `match` / `ease` — the script's numbers; empty for Blocked rows
 - `eligibility` — `green` | `amber` | `red`
 - `key_gaps` — pipe-separated list of dimensions scored ≤ 5/10, max 3 (e.g. `Experience bar|Skills Match`). Use `—` when none (and for Blocked rows).
 - `verdict` — the verdict key (`go` · `stretch` · `growth` · `solid` · `thin` · `skip` · `blocked`)
@@ -300,7 +300,7 @@ Evaluations are landscape-mapping inventory by default. They live in **`data/sco
 Write a TSV entry to `batch/scouting-additions/{num}-{company-slug}.tsv` (let `scripts/merge-scouting.mjs` handle the merge into `data/scouting.md`). **12 tab-separated columns** (no status field — tier and verdict replace status here):
 
 ```
-{num}	{date}	{company}	{role}	{want}	{ease}	{tier}	{eligibility}	[{num}](reports/tier-{N}/{Company} - {Role}.md)	{deadline}	{promotion_hint}	{one-line summary}
+{num}	{date}	{company}	{role}	{match}	{ease}	{tier}	{eligibility}	[{num}](reports/tier-{N}/{Company} - {Role}.md)	{deadline}	{promotion_hint}	{one-line summary}
 ```
 
 **Report file path:** reports live in **`reports/tier-{N}/{Company} - {Role}.md`** where `{N}` is the tier digit (1, 2 or 3). T4 (skip and blocked) uses `—` for the report column and writes nothing to disk.
@@ -310,7 +310,7 @@ Column order:
 2. `date` — YYYY-MM-DD
 3. `company` — short company name
 4. `role` — job title
-5. `want` — the script's Want, plain number (`8.25`, no `/10`); `—` when blocked
+5. `match` — the script's Match, plain number (`8.25`, no `/10`); `—` when blocked
 6. `ease` — the script's Ease, plain number (`5.6`); `—` when blocked
 7. `tier` — `T1` | `T2` | `T3` | `T4`
 8. `eligibility` — `green`, `amber: {reasons ;-joined}`, or `red: {reason}`
@@ -321,7 +321,7 @@ Column order:
 
 - **PDF:** Evaluation never auto-generates a PDF. CV / PDF generation is a separate, manual operation via `/career-ops pdf` (or the Database popover's "Tailor CV" button).
 - **T4 rows:** still write the TSV with tier `T4`, report `—`, deadline as stated (or `n/d`), and a short note.
-- **Promotion:** `go` rows get `READY`. The user runs `node scripts/promote-to-applications.mjs <num>` (or clicks Apply in the Database) to move an entry into `data/applications.md` with status `Evaluated` and a `W8.3 E5.6` Score cell. Blocked rows are never promoted. The scouting row stays as a historical record (its Promotion Hint flips to `PROMOTED-{app_num}`).
+- **Promotion:** `go` rows get `READY`. The user runs `node scripts/promote-to-applications.mjs <num>` (or clicks Apply in the Database) to move an entry into `data/applications.md` with status `Evaluated` and a `M8.3 E5.6` Score cell. Blocked rows are never promoted. The scouting row stays as a historical record (its Promotion Hint flips to `PROMOTED-{app_num}`).
 
 ## File Naming
 
@@ -342,4 +342,4 @@ The tier subfolder layout makes it trivial to browse just the `go` hits when dec
 
 ## Workflow stage vs scoring
 
-The frontend cockpit's "Scouting" and "Applying" tabs are about *where the entry sits in the user's workflow* (inventory vs active pipeline) — they don't change which evaluation runs or how it scores. Every evaluation uses this same mode and the eligibility → Want → Ease → verdict model defined in `_shared.md`.
+The frontend cockpit's "Scouting" and "Applying" tabs are about *where the entry sits in the user's workflow* (inventory vs active pipeline) — they don't change which evaluation runs or how it scores. Every evaluation uses this same mode and the eligibility → Match → Ease → verdict model defined in `_shared.md`.

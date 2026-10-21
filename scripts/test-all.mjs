@@ -157,7 +157,7 @@ try {
 // ── 3b. BACKEND UNIT TESTS (scoring core) ───────────────────────
 //
 // The scoring engine (scripts/lib/score-bands.mjs et al.) has a direct
-// node:test unit suite — eligibility checks, Want / Ease rollups, the
+// node:test unit suite — eligibility checks, Match / Ease rollups, the
 // intern carve-out, every verdict-grid cell. Section 10 below also exercises the
 // end-to-end scoring fixtures through score-listing.mjs; this catches
 // per-function regressions the fixtures don't.
@@ -431,7 +431,7 @@ for (const section of requiredSections) {
 // ── 10. Scoring fixtures ────────────────────────────────────────
 // These pin known-good inputs so any future change to score-bands.mjs,
 // eligibility.mjs or score-listing.mjs that breaks the math gets caught
-// here. Scoring v2 (docs/scoring-v2.md): eligibility gate → Want / Ease →
+// here. Scoring v2 (docs/scoring-v2.md): eligibility gate → Match / Ease →
 // verdict grid. Companies and candidates are fictional; every fixture
 // passes its own eligibility_profile + scoring_weights so the real
 // user/profile.yml is never read.
@@ -498,8 +498,8 @@ const FIXTURES = [
       'salary_adj_for_city.score': 10,
       'salary_adj_for_city.computed.totalComp': 155250,
       // M = (9+9+9+8)/4 = 8.75; hygiene: city 8 → +0.25, salary 10 → +0.25, WLB 7 → 0
-      'want.score': 9.25,
-      'want.motivators_mean': 8.75,
+      'match.score': 9.25,
+      'match.motivators_mean': 8.75,
       // exp(0.35·ln8 + 0.35·ln7 + 0.30·ln7) = 7.33
       'ease.score': 7.33,
       'priority': 8.23,
@@ -530,7 +530,7 @@ const FIXTURES = [
       'salary_adj_for_city.score': 3,
       'salary_adj_for_city.computed.savings': -50,
       // M 8.5 + city +0.25 + salary(3) −0.80 = 7.95 → just under the top row
-      'want.score': 7.95,
+      'match.score': 7.95,
       // geometric 6.64 − 0.5 amber = 6.14
       'ease.geometric': 6.64,
       'ease.amber_penalty': 0.5,
@@ -559,11 +559,11 @@ const FIXTURES = [
       'eligibility.status': 'amber',
       'calibrated_dims.competition.final': 6,
       'calibrated_dims.competition.adjustments.0.source': 'warm-direct referral',
-      'want.score': 8.25,
+      'match.score': 8.25,
       'ease.score': 6.14,
       'verdict': 'stretch',
       'tier': 'T2',
-      'tier_reason': 'Want 8.25 ≥ 8.0, Ease 6.14 in 5.0–7.0',
+      'tier_reason': 'Match 8.25 ≥ 8.0, Ease 6.14 in 5.0–7.0',
       'promotion_hint': 'MONITOR',
     },
   },
@@ -583,7 +583,7 @@ const FIXTURES = [
       'verdict': 'blocked',
       'verdict_label': 'Blocked',
       'tier': 'T4',
-      'want': null,
+      'match': null,
       'ease': null,
       'priority': null,
       'salary_adj_for_city': undefined,
@@ -592,7 +592,7 @@ const FIXTURES = [
     check: (r) => typeof r.note === 'string' && r.note.startsWith('Revisit next cycle: language:'),
   },
   {
-    name: 'Intern — €1,200/mo stipend at half baseline; salary term is 0 for Want',
+    name: 'Intern — €1,200/mo stipend at half baseline; salary term is 0 for Match',
     input: fx({
       company: 'Litware Labs', role_archetype: 'Data Analyst Intern',
       city: 'Barcelona', country: 'ES',
@@ -607,14 +607,14 @@ const FIXTURES = [
       // €1,200 − €1,000 (half of the 2000 baseline) = €200 → band 4
       'salary_adj_for_city.score': 4,
       'salary_adj_for_city.computed.savings': 200,
-      'want.hygiene.salary_adj_city': 0,
+      'match.hygiene.salary_adj_city': 0,
       // M 7 + city +0.25 (salary ignored)
-      'want.score': 7.25,
+      'match.score': 7.25,
       'verdict': 'solid',
     },
   },
   {
-    name: 'Intern carve-out — €800/mo stipend (salary 2) does not veto Want',
+    name: 'Intern carve-out — €800/mo stipend (salary 2) does not veto Match',
     input: fx({
       company: 'Litware Labs', role_archetype: 'Marketing Intern',
       city: 'Madrid', country: 'ES',
@@ -628,12 +628,12 @@ const FIXTURES = [
     expect: {
       // €800 − €1,000 = −€200 → band 2
       'salary_adj_for_city.score': 2,
-      'want.score': 7.25,
-      'want.vetoes.length': 0,
+      'match.score': 7.25,
+      'match.vetoes.length': 0,
     },
   },
   {
-    name: 'Hygiene veto — non-intern at poverty salary (score 1) caps Want at 5.0',
+    name: 'Hygiene veto — non-intern at poverty salary (score 1) caps Match at 5.0',
     input: fx({
       company: 'Litware Labs', role_archetype: 'Marketing Analyst',
       city: 'Madrid', country: 'ES',
@@ -645,15 +645,15 @@ const FIXTURES = [
     expect: {
       // €18,000 × 0.85 / 12 = €1,275 − €2,000 = −€725 → band 1
       'salary_adj_for_city.score': 1,
-      'want.raw': 6.05,
-      'want.score': 5,
-      'want.vetoes.0.dimension': 'salary_adj_city',
+      'match.raw': 6.05,
+      'match.score': 5,
+      'match.vetoes.0.dimension': 'salary_adj_city',
       'verdict': 'skip',
       'tier': 'T4',
     },
   },
   {
-    name: 'Dream-company floor — Brand stays a CV signal, Want floored to 8.0',
+    name: 'Dream-company floor — Brand stays a CV signal, Match floored to 8.0',
     input: fx({
       company: 'Northwind Analytics', role_archetype: 'Solutions Consultant',
       city: 'Lyon', country: 'FR',
@@ -669,9 +669,9 @@ const FIXTURES = [
     expect: {
       'calibrated_dims.brand_value.final': 5,   // preference never moves Brand
       // M = (6+6+5+6)/4 = 5.75; salary 6 → 0
-      'want.raw': 5.75,
-      'want.floor.to': 8,
-      'want.score': 8,
+      'match.raw': 5.75,
+      'match.floor.to': 8,
+      'match.score': 8,
       'verdict': 'go',
     },
   },
@@ -687,9 +687,9 @@ const FIXTURES = [
       judgment_scores: JS({ role_content: 3 }),
     }),
     expect: {
-      'want.uncapped': 8,
-      'want.score': 6,
-      'want.vetoes.0.kind': 'role_content_veto',
+      'match.uncapped': 8,
+      'match.score': 6,
+      'match.vetoes.0.kind': 'role_content_veto',
       'verdict': 'skip',
     },
   },
@@ -713,7 +713,7 @@ const FIXTURES = [
     },
   },
   {
-    name: 'Lower-tier dream — +0.25 Want preference, Brand unchanged, no Want floor',
+    name: 'Lower-tier dream — +0.25 Match preference, Brand unchanged, no Match floor',
     input: fx({
       company: 'Litware Labs', role_archetype: 'Operations Analyst',
       city: 'Dublin', country: 'IE',
@@ -725,8 +725,8 @@ const FIXTURES = [
     }),
     expect: {
       'calibrated_dims.brand_value.final': 6,
-      'want.preference': 0.25,
-      'want.floor': null,
+      'match.preference': 0.25,
+      'match.floor': null,
     },
   },
   {
@@ -758,7 +758,7 @@ for (const fixture of FIXTURES) {
     const mismatches = result.error ? [`error: ${result.error} — ${result.message}`] : [];
     for (const [path, expected] of Object.entries(fixture.expect)) {
       const actual = getDeep(result, path);
-      if (actual !== expected) { ok = false; mismatches.push(`${path}: got ${JSON.stringify(actual)}, want ${JSON.stringify(expected)}`); }
+      if (actual !== expected) { ok = false; mismatches.push(`${path}: got ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`); }
     }
     if (fixture.check && !fixture.check(result)) { ok = false; mismatches.push('custom check failed'); }
     if (ok) pass(fixture.name);

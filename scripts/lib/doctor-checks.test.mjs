@@ -136,7 +136,7 @@ test('parseTsvHeader trims column names', () => {
 // ── validateScoreHistoryHeader ────────────────────────────────────────────
 
 test('validateScoreHistoryHeader passes when all required columns present', () => {
-  const cols = ['date', 'company', 'role', 'archetype', 'want', 'ease', 'eligibility', 'verdict', 'tier', 'extra'];
+  const cols = ['date', 'company', 'role', 'archetype', 'match', 'ease', 'eligibility', 'verdict', 'tier', 'extra'];
   const { valid, missing } = validateScoreHistoryHeader(cols);
   assert.equal(valid, true);
   assert.deepEqual(missing, []);
@@ -144,7 +144,7 @@ test('validateScoreHistoryHeader passes when all required columns present', () =
 
 test('SCORE_HISTORY_REQUIRED_COLS is the v2 set', () => {
   assert.deepEqual(SCORE_HISTORY_REQUIRED_COLS, [
-    'date', 'company', 'role', 'archetype', 'want', 'ease', 'eligibility', 'verdict', 'tier',
+    'date', 'company', 'role', 'archetype', 'match', 'ease', 'eligibility', 'verdict', 'tier',
   ]);
 });
 
@@ -152,19 +152,19 @@ test('validateScoreHistoryHeader rejects a v1 header (overall / ease_of_entry / 
   const v1 = ['date', 'company', 'role', 'archetype', 'overall', 'skills_match', 'ease_of_entry', 'strategic_fit'];
   const { valid, missing } = validateScoreHistoryHeader(v1);
   assert.equal(valid, false);
-  assert.deepEqual(missing, ['want', 'ease', 'eligibility', 'verdict', 'tier']);
+  assert.deepEqual(missing, ['match', 'ease', 'eligibility', 'verdict', 'tier']);
 });
 
 test('validateScoreHistoryHeader fails on missing required columns', () => {
   const cols = ['date', 'company', 'role'];
   const { valid, missing } = validateScoreHistoryHeader(cols);
   assert.equal(valid, false);
-  assert.ok(missing.includes('want'));
+  assert.ok(missing.includes('match'));
   assert.ok(missing.includes('archetype'));
 });
 
 test('validateScoreHistoryHeader is case-insensitive', () => {
-  const cols = ['Date', 'Company', 'Role', 'Archetype', 'Want', 'Ease', 'Eligibility', 'Verdict', 'Tier'];
+  const cols = ['Date', 'Company', 'Role', 'Archetype', 'Match', 'Ease', 'Eligibility', 'Verdict', 'Tier'];
   const { valid } = validateScoreHistoryHeader(cols);
   assert.equal(valid, true);
 });
@@ -303,7 +303,7 @@ test('buildArtifactChecks: companies count shown in label', () => {
 });
 
 test('buildArtifactChecks: valid score-history → pass with row count', () => {
-  const header = 'date\tcompany\trole\tarchetype\twant\tease\teligibility\tverdict\ttier\n';
+  const header = 'date\tcompany\trole\tarchetype\tmatch\tease\teligibility\tverdict\ttier\n';
   const row    = '2026-01-01\tAcme\tAnalyst\tBiz Dev\t8.25\t5.6\tgreen\tstretch\tT2\n';
   const content = header + row + row;
   const files = { scanHistory: null, scoreHistory: content, scouting: null, applications: null, pipeline: null, outreach: null, colCache: null, taxCache: null };
@@ -322,7 +322,7 @@ test('buildArtifactChecks: v1 score-history header fails with an archive hint', 
 });
 
 test('buildArtifactChecks: scouting.md with a v2 header passes, a v1 header fails', () => {
-  const v2 = '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2026-06-01 | Acme | Analyst | 8 | 7 | T1 | green | — | n/d | READY |  |\n';
+  const v2 = '| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2026-06-01 | Acme | Analyst | 8 | 7 | T1 | green | — | n/d | READY |  |\n';
   const v1 = '| # | Date | Company | Role | Score | Tier | CF/AF | Report | Deadline | Promotion Hint | Notes |\n|---|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2026-06-01 | Acme | Analyst | 8/10 | T1 | 8/8 | — | n/d | READY |  |\n';
   const base = { scanHistory: null, scoreHistory: null, applications: null, pipeline: null, outreach: null, colCache: null, taxCache: null };
   const ok = buildArtifactChecks({ ...base, scouting: v2 }, {}).find(c => c.label.includes('scouting.md'));
@@ -334,12 +334,12 @@ test('buildArtifactChecks: scouting.md with a v2 header passes, a v1 header fail
 
 // ── checkScoreHistoryRows (verify-pipeline) ─────────────────────────────────
 
-const V2_COLS = 'date\tarchetype\tskills_match\texperience_bar\tcompetition\tease\tgrowth_mobility\toptionality_exit\tbrand_value\trole_content\tbest_cities\tsalary_adj_city\twork_life_balance\twant\tpriority\teligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\ttier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl';
+const V2_COLS = 'date\tarchetype\tskills_match\texperience_bar\tcompetition\tease\tgrowth_mobility\toptionality_exit\tbrand_value\trole_content\tbest_cities\tsalary_adj_city\twork_life_balance\tmatch\tpriority\teligibility\teligibility_flags\tverdict\tbest_fit_roles\tmode\tcompany\trole\ttier\tsource\tlocation\temployment_type\tduration\tsalary_raw\turl';
 const hrow = (o = {}) => {
   const base = {
     date: '2026-06-01', archetype: 'Analyst', skills_match: '8', experience_bar: '6', competition: '5', ease: '5.6',
     growth_mobility: '8', optionality_exit: '8', brand_value: '9', role_content: '7', best_cities: '8', salary_adj_city: '6',
-    work_life_balance: '6', want: '8.25', priority: '6.8', eligibility: 'amber', eligibility_flags: 'start_date:amber:not stated',
+    work_life_balance: '6', match: '8.25', priority: '6.8', eligibility: 'amber', eligibility_flags: 'start_date:amber:not stated',
     verdict: 'stretch', best_fit_roles: '', mode: 'scouting', company: 'Acme', role: 'Analyst', tier: 'T2', source: '', location: '',
     employment_type: '', duration: '', salary_raw: '', url: '',
   };
@@ -348,7 +348,7 @@ const hrow = (o = {}) => {
 };
 
 test('checkScoreHistoryRows: a clean v2 file has no findings', () => {
-  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow()}\n${hrow({ company: 'Blocked Co', eligibility: 'red', eligibility_flags: 'language:red:German C1', verdict: 'blocked', tier: 'T4', want: '', ease: '', priority: '', skills_match: '', experience_bar: '', competition: '', growth_mobility: '', optionality_exit: '', brand_value: '', role_content: '', best_cities: '', salary_adj_city: '', work_life_balance: '' })}\n`);
+  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow()}\n${hrow({ company: 'Blocked Co', eligibility: 'red', eligibility_flags: 'language:red:German C1', verdict: 'blocked', tier: 'T4', match: '', ease: '', priority: '', skills_match: '', experience_bar: '', competition: '', growth_mobility: '', optionality_exit: '', brand_value: '', role_content: '', best_cities: '', salary_adj_city: '', work_life_balance: '' })}\n`);
   assert.deepEqual(r.errors, []);
   assert.deepEqual(r.warnings, []);
   assert.equal(r.rows, 2);
@@ -357,38 +357,38 @@ test('checkScoreHistoryRows: a clean v2 file has no findings', () => {
 test('checkScoreHistoryRows: v1 header → missing-column error', () => {
   const r = checkScoreHistoryRows('date\tcompany\trole\tarchetype\toverall\n2026-01-01\tA\tR\tX\t7\n');
   assert.equal(r.errors.length, 1);
-  assert.match(r.errors[0], /want, ease, eligibility, verdict, tier/);
+  assert.match(r.errors[0], /match, ease, eligibility, verdict, tier/);
 });
 
 test('checkScoreHistoryRows: checks by header name, not position (column order may change)', () => {
-  const cols = ['tier', 'company', 'role', 'archetype', 'date', 'verdict', 'eligibility', 'ease', 'want'];
+  const cols = ['tier', 'company', 'role', 'archetype', 'date', 'verdict', 'eligibility', 'ease', 'match'];
   const text = `${cols.join('\t')}\nT1\tAcme\tAnalyst\tX\t2026-06-01\tgo\tgreen\t7.5\t8.5\n`;
   const r = checkScoreHistoryRows(text);
   assert.deepEqual(r.errors, []);
 });
 
 test('checkScoreHistoryRows: flags bad eligibility, bad tier, missing/out-of-range scores', () => {
-  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow({ eligibility: 'maybe' })}\n${hrow({ tier: 'full' })}\n${hrow({ want: '' })}\n${hrow({ ease: '11' })}\n`);
+  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow({ eligibility: 'maybe' })}\n${hrow({ tier: 'full' })}\n${hrow({ match: '' })}\n${hrow({ ease: '11' })}\n`);
   assert.equal(r.errors.length, 4);
   assert.ok(r.errors.some(e => /eligibility "maybe"/.test(e)));
   assert.ok(r.errors.some(e => /tier "full"/.test(e)));
-  assert.ok(r.errors.some(e => /want ""/.test(e)));
+  assert.ok(r.errors.some(e => /match ""/.test(e)));
   assert.ok(r.errors.some(e => /ease "11"/.test(e)));
 });
 
-test('checkScoreHistoryRows: a blocked (red) row has no priority, and want/ease both or neither — never 0', () => {
+test('checkScoreHistoryRows: a blocked (red) row has no priority, and match/ease both or neither — never 0', () => {
   const red = (o) => hrow({ eligibility: 'red', verdict: 'blocked', tier: 'T4', priority: '', ...o });
-  const half = checkScoreHistoryRows(`${V2_COLS}\n${red({ want: '0', ease: '' })}\n`);
+  const half = checkScoreHistoryRows(`${V2_COLS}\n${red({ match: '0', ease: '' })}\n`);
   assert.equal(half.errors.length, 1);
-  assert.match(half.errors[0], /blocked \(red\) row must have both want and ease/);
-  const zero = checkScoreHistoryRows(`${V2_COLS}\n${red({ want: '0', ease: '7' })}\n`);
-  assert.match(zero.errors.join('\n'), /want "0" is not a number in \[1,10\]/);
-  const pri = checkScoreHistoryRows(`${V2_COLS}\n${red({ want: '', ease: '', priority: '6.1' })}\n`);
+  assert.match(half.errors[0], /blocked \(red\) row must have both match and ease/);
+  const zero = checkScoreHistoryRows(`${V2_COLS}\n${red({ match: '0', ease: '7' })}\n`);
+  assert.match(zero.errors.join('\n'), /match "0" is not a number in \[1,10\]/);
+  const pri = checkScoreHistoryRows(`${V2_COLS}\n${red({ match: '', ease: '', priority: '6.1' })}\n`);
   assert.match(pri.errors.join('\n'), /blocked \(red\) row has priority "6.1"/);
 });
 
-test('checkScoreHistoryRows: a red listing the profile scored through keeps its want and ease', () => {
-  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow({ eligibility: 'red', verdict: 'blocked', tier: 'T4', priority: '', want: '8.5', ease: '7.81' })}\n`);
+test('checkScoreHistoryRows: a red listing the profile scored through keeps its match and ease', () => {
+  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow({ eligibility: 'red', verdict: 'blocked', tier: 'T4', priority: '', match: '8.5', ease: '7.81' })}\n`);
   assert.deepEqual(r.errors, []);
 });
 
@@ -865,4 +865,17 @@ test('findTrackedPersonal: personal and private/ paths only', () => {
     'private/README.md',
   ]);
   assert.deepEqual(findTrackedPersonal(null), []);
+});
+
+test('buildArtifactChecks: data from before the Want → Match rename gets the migration as its fix', () => {
+  const history = 'date\tcompany\trole\tarchetype\twant\tease\teligibility\tverdict\ttier\n2026-01-01\tAcme\tAnalyst\tBiz Dev\t8.25\t5.6\tgreen\tstretch\tT2\n';
+  const scouting = '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n';
+  const files = { scanHistory: null, scoreHistory: history, scouting, applications: null, pipeline: null, outreach: null, colCache: null, taxCache: null };
+  const checks = buildArtifactChecks(files, {});
+  const sh = checks.find(c => c.label.includes('score-history'));
+  assert.equal(sh.pass, false);
+  assert.match(sh.fix, /migrate-match-rename\.mjs --apply/);
+  const sc = checks.find(c => c.label.includes('scouting.md'));
+  assert.equal(sc.pass, false);
+  assert.match(sc.fix, /migrate-match-rename\.mjs --apply/);
 });

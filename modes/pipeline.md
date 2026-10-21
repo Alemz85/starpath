@@ -155,7 +155,7 @@ a. Compute the next sequential entry number: read `data/scouting.md` + `data/app
 b. **Extract JD:** Playwright (`browser_navigate` + `browser_snapshot`) → WebFetch → WebSearch
 c. If not accessible → mark `- [!]` with a note and continue
 d. **Run evaluation** per `modes/scouting.md` — eligibility gate first, then score the listing, write the per-listing report under `reports/tier-N/{Company} - {Role}.md` (none for T4), append the row to `data/score-history.tsv` and the scouting tracker.
-e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | W{want} E{ease} | Tier | verdict` (Blocked: `- [x] #NNN | URL | Company | Role | BLOCKED | T4 | {reason}`)
+e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | M{match} E{ease} | Tier | verdict` (Blocked: `- [x] #NNN | URL | Company | Role | BLOCKED | T4 | {reason}`)
 
 **If 3+ pending URLs:** launch agents in parallel (`Agent tool` with `run_in_background`) to maximize speed. Keep company grouping intact — evaluate the same-company batch together before dispatching the next company.
 
@@ -164,10 +164,10 @@ e. **Move from Pending to Processed:** `- [x] #NNN | URL | Company | Role | W{wa
 When all URLs are processed, show:
 
 ```
-| # | Company | Role | Want | Ease | Verdict | Tier | Action |
+| # | Company | Role | Match | Ease | Verdict | Tier | Action |
 ```
 
-Sort by Priority (`√(Want × Ease)`) descending; Blocked rows last, with their reason in Action. Include a note for any `[STALE]` entries that were liveness-checked and found closed.
+Sort by Priority (`√(Match × Ease)`) descending; Blocked rows last, with their reason in Action. Include a note for any `[STALE]` entries that were liveness-checked and found closed.
 
 ## Step 5 — Filter Intelligence (automatic, silent)
 
@@ -177,7 +177,7 @@ Run this after every batch of **3+ evaluations**. Takes ~10 seconds and requires
 
 Collect every posting in this batch that:
 - Passed the title filter (i.e., the scanner let it through), AND
-- Landed verdict `skip` with **Want < 5.0** (the role itself is off-target — Ease-only skips and Blocked listings don't count, since a title keyword can't predict either)
+- Landed verdict `skip` with **Match < 5.0** (the role itself is off-target — Ease-only skips and Blocked listings don't count, since a title keyword can't predict either)
 
 These are false positives from the scanner's perspective — the keywords were too permissive.
 
@@ -191,8 +191,8 @@ Read `data/filter-log.md` (create it if absent with the header below). Append ea
 # Filter Intelligence Log
 
 ## False Positive Patterns
-<!-- Postings that passed title filters but landed skip with Want < 5.0 -->
-| Date | Company | Title | Want | Suspected Pattern | Count |
+<!-- Postings that passed title filters but landed skip with Match < 5.0 -->
+| Date | Company | Title | Match | Suspected Pattern | Count |
 |------|---------|-------|------|-------------------|-------|
 ```
 
@@ -293,8 +293,8 @@ in the Configuration tab.
 - [!] FILTERED | https://example.com/job | BigBank | Senior Director | wrong seniority (10+ YoE)
 
 ## Processed
-- [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | Analyst | W8.3 E6.1 | T2 | stretch
-- [x] #144 | https://boards.greenhouse.io/xyz/jobs/012 | BigCo | SA | W8.1 E4.2 | T3 | growth
+- [x] #143 | https://jobs.example.com/posting/789 | Acme Corp | Analyst | M8.3 E6.1 | T2 | stretch
+- [x] #144 | https://boards.greenhouse.io/xyz/jobs/012 | BigCo | SA | M8.1 E4.2 | T3 | growth
 - [x] #145 | https://jobs.example.com/posting/901 | USStartup | Engineer | BLOCKED | T4 | work_auth: US-only, no sponsorship
 - [x] DUPE | https://... | OldCo | Analyst | → existing #112
 - [!] CLOSED | https://stale.url | ClosedCo | PM | stale + liveness check failed

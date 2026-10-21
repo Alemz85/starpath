@@ -32,10 +32,10 @@
 // no globals, no mutation. That keeps it exhaustively unit-testable, and keeps
 // the imported cores untouched (this is a composition layer, not a fork).
 //
-// Scoring v2 (docs/scoring-v2.md): scores render as "Want · Ease" (never a
+// Scoring v2 (docs/scoring-v2.md): scores render as "Match · Ease" (never a
 // headline number), star markers come from the verdict (go ★★, stretch /
 // solid ★, everything else — blocked included — none), and Priority
-// (√(Want·Ease)) is only ever a sort key.
+// (√(Match·Ease)) is only ever a sort key.
 
 import { parseScoreCell, displayScoreCell, scoreCellPriority } from './tracker-core.mjs'
 import { verdictFromCells } from './scouting-core.mjs'
@@ -112,36 +112,36 @@ export function verdictStars(verdict) {
 }
 
 /**
- * Want/Ease info for an applications.md Score cell (spec §8.3):
- *   { scoreLabel, priority, want, ease, verdict }
- *   v2 "W8.3 E5.6" → label "W8.3 · E5.6", priority √(w·e), verdict from the
+ * Match/Ease info for an applications.md Score cell (spec §8.3):
+ *   { scoreLabel, priority, match, ease, verdict }
+ *   v2 "M8.3 E5.6" → label "M8.3 · E5.6", priority √(w·e), verdict from the
  *                    grid with eligibility green (blocked listings are never
  *                    promoted to applications.md)
- *   legacy "7.4/10" → label "7.4/10", priority 7.4, want/ease/verdict null
+ *   legacy "7.4/10" → label "7.4/10", priority 7.4, match/ease/verdict null
  *   unparseable     → all null
  */
 export function scoreCellInfo(cell) {
   const p = parseScoreCell(cell)
-  if (!p) return { scoreLabel: null, priority: null, want: null, ease: null, verdict: null }
+  if (!p) return { scoreLabel: null, priority: null, match: null, ease: null, verdict: null }
   if ('legacy' in p) {
-    return { scoreLabel: displayScoreCell(cell), priority: scoreCellPriority(cell), want: null, ease: null, verdict: null }
+    return { scoreLabel: displayScoreCell(cell), priority: scoreCellPriority(cell), match: null, ease: null, verdict: null }
   }
   return {
     scoreLabel: displayScoreCell(cell),
     priority: scoreCellPriority(cell),
-    want: p.want,
+    match: p.match,
     ease: p.ease,
-    verdict: verdictFromCells({ want: p.want, ease: p.ease, eligibility: 'green' }).verdict,
+    verdict: verdictFromCells({ match: p.match, ease: p.ease, eligibility: 'green' }).verdict,
   }
 }
 
-/** Verdict for a scored (non-blocked) Want/Ease pair; null when either is missing. */
-function verdictForPair(want, ease) {
-  if (!Number.isFinite(want) || !Number.isFinite(ease)) return null
-  return verdictFromCells({ want, ease, eligibility: 'green' }).verdict
+/** Verdict for a scored (non-blocked) Match/Ease pair; null when either is missing. */
+function verdictForPair(match, ease) {
+  if (!Number.isFinite(match) || !Number.isFinite(ease)) return null
+  return verdictFromCells({ match, ease, eligibility: 'green' }).verdict
 }
 
-/** " · W8.3 · E5.6 ★★" — the score suffix used in item subs ('' when unscored). */
+/** " · M8.3 · E5.6 ★★" — the score suffix used in item subs ('' when unscored). */
 function scoreSuffix(label, verdict) {
   if (!label) return ''
   const stars = verdictStars(verdict)
@@ -184,7 +184,7 @@ export function followupItems(followupResult) {
         score: e.score, // raw applications.md Score cell
         scoreLabel: info.scoreLabel,
         priority: info.priority,
-        want: info.want,
+        match: info.match,
         ease: info.ease,
         verdict: info.verdict,
         daysSince: days,
@@ -239,7 +239,7 @@ export function outreachItems(outreachResult) {
  * entirely, and exhausted (cold) contacts are never targets. So every item here
  * is safe to act on as-is. Input arrives ranked highest-value first (role
  * Priority, then warmth) — we keep that order and just cap for scannability.
- * topRole = { role, score (Priority), want, ease, scoreLabel, source }.
+ * topRole = { role, score (Priority), match, ease, scoreLabel, source }.
  *
  * @param {Array|null} opportunities  warmOutreachOpportunities() output
  * @param {object} opts               { maxWarmPaths = 3 }
@@ -255,7 +255,7 @@ export function warmPathItems(opportunities, { maxWarmPaths = 3 } = {}) {
       : `Message ${who}${title} directly — untouched 1st-degree tie`
     const tr = o.topRole || null
     const rolePriority = tr && Number.isFinite(tr.score) && tr.score > 0 ? tr.score : null
-    const roleVerdict = tr ? verdictForPair(tr.want, tr.ease) : null
+    const roleVerdict = tr ? verdictForPair(tr.match, tr.ease) : null
     const roleScoreLabel = rolePriority != null && tr.scoreLabel ? tr.scoreLabel : null
     const suffix = roleScoreLabel ? `${scoreSuffix(roleScoreLabel, roleVerdict)} role` : ''
     return {
@@ -298,7 +298,7 @@ export function newHitItems(digest, { maxPrioritize = 8, maxNeedsEval = 5 } = {}
     .filter((it) => it && it.verdict !== 'blocked')
     .slice(0, maxPrioritize)
   for (const it of prioritize) {
-    const priority = Number.isFinite(it.priority) ? it.priority : computePriority(it.want, it.ease)
+    const priority = Number.isFinite(it.priority) ? it.priority : computePriority(it.match, it.ease)
     items.push({
       key: `${(it.company || '').toLowerCase()}|${(it.title || '').toLowerCase()}`,
       label: it.title ? `${it.company} — ${it.title}` : it.company,
@@ -307,7 +307,7 @@ export function newHitItems(digest, { maxPrioritize = 8, maxNeedsEval = 5 } = {}
       sortKey: Number.isFinite(priority) ? priority : 0,
       meta: {
         kind: 'prioritize',
-        want: Number.isFinite(it.want) ? it.want : null,
+        match: Number.isFinite(it.match) ? it.match : null,
         ease: Number.isFinite(it.ease) ? it.ease : null,
         priority: Number.isFinite(priority) ? priority : null,
         verdict: it.verdict || null,
@@ -339,12 +339,12 @@ export function newHitItems(digest, { maxPrioritize = 8, maxNeedsEval = 5 } = {}
   return items.sort((a, b) => a.urgency - b.urgency || b.sortKey - a.sortKey)
 }
 
-// "W8.3 · E7.4 ★★ Go" — Want · Ease, the verdict's stars, the verdict label.
+// "M8.3 · E7.4 ★★ Go" — Match · Ease, the verdict's stars, the verdict label.
 function scoreSub(it) {
-  if (!Number.isFinite(it.want) || !Number.isFinite(it.ease)) return 'Scored'
+  if (!Number.isFinite(it.match) || !Number.isFinite(it.ease)) return 'Scored'
   const stars = verdictStars(it.verdict)
   const label = it.verdictLabel ? ` ${it.verdictLabel}` : ''
-  return `W${it.want} · E${it.ease}${stars ? ` ${stars}` : ''}${label}`
+  return `M${it.match} · E${it.ease}${stars ? ` ${stars}` : ''}${label}`
 }
 
 function ageSuffix(it) {
@@ -380,7 +380,7 @@ export function insightItems(intel) {
     }
     return [{
       // positioning-core keys the tally by dimension, check or rollup kind
-      // (low_want / low_ease have dimension null), so `key` is the stable id.
+      // (low_match / low_ease have dimension null), so `key` is the stable id.
       key: `insight|${d.key ?? d.dimension}`,
       label: `Targeting: ${d.label} is your systemic blocker`,
       sub,
@@ -394,12 +394,12 @@ export function insightItems(intel) {
   // positioning-core sorts `fingerprints` strongest-first.
   const top = (Array.isArray(intel.fingerprints) && intel.fingerprints[0]) || null
   if (top && top.archetype) {
-    const hasWE = Number.isFinite(top.avgWant) && Number.isFinite(top.avgEase)
+    const hasWE = Number.isFinite(top.avgMatch) && Number.isFinite(top.avgEase)
     return [{
       key: `insight|${top.archetype}`,
       label: `Targeting: lean into ${top.archetype}`,
       sub: `Your strongest archetype` +
-        (hasWE ? ` (avg Want ${round1(top.avgWant)} · Ease ${round1(top.avgEase)})` : '') +
+        (hasWE ? ` (avg Match ${round1(top.avgMatch)} · Ease ${round1(top.avgEase)})` : '') +
         ` — concentrate sourcing there.`,
       urgency: 0,
       sortKey: 0,
@@ -423,7 +423,7 @@ function round1(n) {
  *   { asOf, buckets: { urgent: [...], near: [...], ... }, counts: {...} }
  *
  * Each bucket entry has: { source, num, company, role, status/tier, deadline,
- *   parsed, daysLeft } — scouting entries also { want, ease, scoreLabel }
+ *   parsed, daysLeft } — scouting entries also { match, ease, scoreLabel }
  *   (blocked scouting rows are already dropped by deadlines-core). Within a
  *   bucket, fewer days left first, then higher Priority.
  *
@@ -485,24 +485,24 @@ export function deadlineItems(classifiedDeadlines, { maxUrgent = 5, maxNear = 5 
     prio(b.meta.priority) - prio(a.meta.priority))
 }
 
-// Want/Ease/Priority/verdict for a deadline entry. Scouting entries carry
-// want/ease (blocked rows are never passed); application entries may carry a
+// Match/Ease/Priority/verdict for a deadline entry. Scouting entries carry
+// match/ease (blocked rows are never passed); application entries may carry a
 // raw Score cell in `score`; anything else is unscored.
 function deadlineScore(e) {
-  if (Number.isFinite(e.want) && Number.isFinite(e.ease)) {
+  if (Number.isFinite(e.match) && Number.isFinite(e.ease)) {
     return {
-      want: e.want,
+      match: e.match,
       ease: e.ease,
-      scoreLabel: e.scoreLabel || `W${e.want} · E${e.ease}`,
-      priority: computePriority(e.want, e.ease),
-      verdict: verdictForPair(e.want, e.ease),
+      scoreLabel: e.scoreLabel || `M${e.match} · E${e.ease}`,
+      priority: computePriority(e.match, e.ease),
+      verdict: verdictForPair(e.match, e.ease),
     }
   }
   if (e.score != null) {
     const info = scoreCellInfo(e.score)
-    return { want: info.want, ease: info.ease, scoreLabel: info.scoreLabel, priority: info.priority, verdict: info.verdict }
+    return { match: info.match, ease: info.ease, scoreLabel: info.scoreLabel, priority: info.priority, verdict: info.verdict }
   }
-  return { want: null, ease: null, scoreLabel: null, priority: null, verdict: null }
+  return { match: null, ease: null, scoreLabel: null, priority: null, verdict: null }
 }
 
 /* ───── Deep-eval next: the inbox triage top slice ───────────────────────────

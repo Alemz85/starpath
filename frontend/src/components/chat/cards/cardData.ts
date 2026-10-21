@@ -50,7 +50,7 @@ export function findReport(
 /** One role at a company, as the company card lists it. */
 export interface CompanyRow {
   role: string
-  want: number | null
+  match: number | null
   ease: number | null
   evaluation: ScoreEntry | null
   application: ApplicationEntry | null
@@ -75,7 +75,7 @@ export function companyOverview(
     seen.add(application.role.trim().toLowerCase())
     rows.push({
       role: application.role,
-      want: evaluation?.want ?? null,
+      match: evaluation?.match ?? null,
       ease: evaluation?.ease ?? null,
       evaluation,
       application,
@@ -84,9 +84,9 @@ export function companyOverview(
   for (const evaluation of evaluations) {
     if (seen.has(evaluation.role.trim().toLowerCase())) continue
     seen.add(evaluation.role.trim().toLowerCase())
-    rows.push({ role: evaluation.role, want: evaluation.want, ease: evaluation.ease, evaluation, application: null })
+    rows.push({ role: evaluation.role, match: evaluation.match, ease: evaluation.ease, evaluation, application: null })
   }
-  const priority = (r: CompanyRow) => (r.want ?? 0) * (r.ease ?? 0)
+  const priority = (r: CompanyRow) => (r.match ?? 0) * (r.ease ?? 0)
   rows.sort((a, b) =>
     Number(!!b.application) - Number(!!a.application) || priority(b) - priority(a) || a.role.localeCompare(b.role))
 

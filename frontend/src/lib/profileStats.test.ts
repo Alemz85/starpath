@@ -158,14 +158,14 @@ test('the streak badge stays earned after a day off (achievement, not current st
 // ─── buildHighlights ──────────────────────────────────────────────────────────
 
 test('buildHighlights returns null below 3 scored evaluations', () => {
-  assert.equal(buildHighlights([makeScoreEntry({ want: 8, ease: 7 }), makeScoreEntry({ want: 7, ease: 7 })]), null)
+  assert.equal(buildHighlights([makeScoreEntry({ match: 8, ease: 7 }), makeScoreEntry({ match: 7, ease: 7 })]), null)
 })
 
 test('buildHighlights surfaces top score, most-explored company, busiest day', () => {
   const hl = buildHighlights([
-    makeScoreEntry({ company: 'Stripe', want: 9.2, ease: 7, date: '2026-06-20' }),
-    makeScoreEntry({ company: 'Stripe', want: 6.0, ease: 7, date: '2026-06-20' }),
-    makeScoreEntry({ company: 'Acme',   want: 7.1, ease: 7, date: '2026-06-19' }),
+    makeScoreEntry({ company: 'Stripe', match: 9.2, ease: 7, date: '2026-06-20' }),
+    makeScoreEntry({ company: 'Stripe', match: 6.0, ease: 7, date: '2026-06-20' }),
+    makeScoreEntry({ company: 'Acme',   match: 7.1, ease: 7, date: '2026-06-19' }),
   ])
   assert.ok(hl)
   const byLabel = Object.fromEntries(hl!.map(h => [h.label, h]))

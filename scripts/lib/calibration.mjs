@@ -9,8 +9,8 @@
 //
 // Calibration shape (all fields optional; missing = no effect):
 //   {
-//     "dream_companies":              ["Northwind", ...],         // Want floor 8.0 (rollupWant)
-//     "lower_tier_dream_companies":   ["Contoso", ...],           // +0.25 Want (preference)
+//     "dream_companies":              ["Northwind", ...],         // Match floor 8.0 (rollupMatch)
+//     "lower_tier_dream_companies":   ["Contoso", ...],           // +0.25 Match (preference)
 //     "brand_affinity_companies":     ["Fabrikam", ...],          // no score effect here (see below)
 //     "extra_brand_bonuses": [                                    // Brand perception correction
 //       { "company": "Northwind", "bonus": 1.0, "reason": "household name in the target market" }
@@ -21,7 +21,7 @@
 //
 // Brand Value is a CV signal: how a recruiter at another company reads the
 // name. It is NOT moved by the candidate's own liking for a company — that
-// is preference, and preference lives in Want (the dream floor, and the
+// is preference, and preference lives in Match (the dream floor, and the
 // small lower-tier bonus below), where it is counted once and labelled as
 // such. `extra_brand_bonuses` stays for genuine perception corrections the
 // tier table misses (a name that carries more weight in the candidate's
@@ -34,15 +34,15 @@
 //
 // Adjustments applied:
 //   - Brand:  extra_brand_bonuses entry match → +entry.bonus
-//   - Want:   lower_tier_dream_companies match → +0.25 (wantPreference)
-//   - Want:   dream_companies match → floor 8.0 (in rollupWant, via isDreamCompany)
+//   - Match:   lower_tier_dream_companies match → +0.25 (matchPreference)
+//   - Match:   dream_companies match → floor 8.0 (in rollupMatch, via isDreamCompany)
 //   - Growth: has_structured_onboarding → +1.0
 //   - Growth: has_sink_or_swim_signal → −1.0
 //   - Competition: referral "warm-direct" → +1.0, "warm-intro" → +0.5 (clamp 10)
 //
 // All numbers ultimately clamped to [1, 10].
 
-import { REFERRAL_BONUS, PREFERRED_COMPANY_WANT_BONUS } from './score-bands.mjs'
+import { REFERRAL_BONUS, PREFERRED_COMPANY_MATCH_BONUS } from './score-bands.mjs'
 
 /**
  * Apply Brand calibration to the agent's raw Brand score: only the explicit
@@ -67,16 +67,16 @@ export function applyBrandCalibration(rawBrand, company, calibration) {
 }
 
 /**
- * The candidate's own preference for a company, as a Want bonus: a
- * lower-tier dream company adds PREFERRED_COMPANY_WANT_BONUS. Dream companies
- * get the Want floor instead (rollupWant), not this bonus.
+ * The candidate's own preference for a company, as a Match bonus: a
+ * lower-tier dream company adds PREFERRED_COMPANY_MATCH_BONUS. Dream companies
+ * get the Match floor instead (rollupMatch), not this bonus.
  * Returns { bonus, source } (bonus 0 when nothing applies).
  */
-export function wantPreference(company, calibration) {
+export function matchPreference(company, calibration) {
   if (isDreamCompany(company, calibration)) return { bonus: 0, source: null }
   const lower = calibration?.lower_tier_dream_companies ?? []
   if (lower.some(c => sameCompany(c, company))) {
-    return { bonus: PREFERRED_COMPANY_WANT_BONUS, source: 'lower-tier dream company' }
+    return { bonus: PREFERRED_COMPANY_MATCH_BONUS, source: 'lower-tier dream company' }
   }
   return { bonus: 0, source: null }
 }
@@ -100,7 +100,7 @@ export function applyGrowthCalibration(rawGrowth, calibration) {
 
 /**
  * Is the company one of the candidate's upper-tier dream companies? Drives
- * the Want floor in rollupWant (spec §2.2).
+ * the Match floor in rollupMatch (spec §2.2).
  */
 export function isDreamCompany(company, calibration) {
   return (calibration?.dream_companies ?? []).some(c => sameCompany(c, company))

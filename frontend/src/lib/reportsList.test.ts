@@ -15,31 +15,31 @@ import type { ScoreEntry } from '@/types'
 
 // A report row carries only the handful of fields the grid reads.
 function row(over: Partial<ReportRowLike> = {}): ReportRowLike {
-  return { company: 'Acme', role: 'Analyst', tier: 'T2', want: 7.5, ease: 7.5, mtime: 0, ...over }
+  return { company: 'Acme', role: 'Analyst', tier: 'T2', match: 7.5, ease: 7.5, mtime: 0, ...over }
 }
 
 // ─── getScoreBand: verdict, never a number cut-off ───────────────────────────
 
 test('getScoreBand prefers the stored verdict', () => {
-  assert.equal(getScoreBand(row({ verdict: 'thin', want: 9, ease: 9 })), 'thin')
+  assert.equal(getScoreBand(row({ verdict: 'thin', match: 9, ease: 9 })), 'thin')
   assert.equal(getScoreBand(row({ verdict: 'Stretch' })), 'stretch')
 })
 
-test('getScoreBand replays the grid from Want / Ease when the verdict is missing', () => {
-  assert.equal(getScoreBand(row({ want: 8, ease: 7 })), 'go')
-  assert.equal(getScoreBand(row({ want: 8, ease: 6.99 })), 'stretch')
-  assert.equal(getScoreBand(row({ want: 8, ease: 4.99 })), 'growth')
-  assert.equal(getScoreBand(row({ want: 7.99, ease: 7 })), 'solid')
-  assert.equal(getScoreBand(row({ want: 6.5, ease: 5 })), 'thin')
-  assert.equal(getScoreBand(row({ want: 6.49, ease: 10 })), 'skip')
+test('getScoreBand replays the grid from Match / Ease when the verdict is missing', () => {
+  assert.equal(getScoreBand(row({ match: 8, ease: 7 })), 'go')
+  assert.equal(getScoreBand(row({ match: 8, ease: 6.99 })), 'stretch')
+  assert.equal(getScoreBand(row({ match: 8, ease: 4.99 })), 'growth')
+  assert.equal(getScoreBand(row({ match: 7.99, ease: 7 })), 'solid')
+  assert.equal(getScoreBand(row({ match: 6.5, ease: 5 })), 'thin')
+  assert.equal(getScoreBand(row({ match: 6.49, ease: 10 })), 'skip')
 })
 
 test('getScoreBand: red eligibility is blocked', () => {
-  assert.equal(getScoreBand(row({ want: null, ease: null, eligibility: 'red' })), 'blocked')
+  assert.equal(getScoreBand(row({ match: null, ease: null, eligibility: 'red' })), 'blocked')
 })
 
 test('getScoreBand falls back to the folder tier for an orphan report', () => {
-  const orphan = (tier: string) => row({ tier, want: null, ease: null })
+  const orphan = (tier: string) => row({ tier, match: null, ease: null })
   assert.equal(getScoreBand(orphan('T1')), 'go')
   assert.equal(getScoreBand(orphan('t2')), 'solid')
   assert.equal(getScoreBand(orphan('T3')), 'growth')
@@ -84,9 +84,9 @@ test('filterReportRows matches the query against company OR role, case-insensiti
 
 test('filterReportRows treats the band set as an OR multi-select and ANDs the query', () => {
   const rows = [
-    row({ company: 'A', want: 9, ease: 9 }),       // go
-    row({ company: 'B', want: 8, ease: 6 }),       // stretch
-    row({ company: 'C', want: 5, ease: 5 }),       // skip
+    row({ company: 'A', match: 9, ease: 9 }),       // go
+    row({ company: 'B', match: 8, ease: 6 }),       // stretch
+    row({ company: 'C', match: 5, ease: 5 }),       // skip
   ]
   const both = filterReportRows(rows, { bands: new Set<ScoreBand>(['go', 'skip']) })
   assert.deepEqual(both.map(r => r.company), ['A', 'C'])
@@ -99,10 +99,10 @@ test('filterReportRows treats the band set as an OR multi-select and ANDs the qu
 
 test('sortReportRows by score sorts on Priority; blocked/unscored rows last', () => {
   const rows = [
-    row({ company: 'Low', want: 6, ease: 6 }),            // 6.0
-    row({ company: 'Blocked', want: null, ease: null, eligibility: 'red' }),
-    row({ company: 'High', want: 9, ease: 8 }),           // 8.49
-    row({ company: 'Mid', want: 8, ease: 6, priority: 6.93 }),
+    row({ company: 'Low', match: 6, ease: 6 }),            // 6.0
+    row({ company: 'Blocked', match: null, ease: null, eligibility: 'red' }),
+    row({ company: 'High', match: 9, ease: 8 }),           // 8.49
+    row({ company: 'Mid', match: 8, ease: 6, priority: 6.93 }),
   ]
   assert.deepEqual(sortReportRows(rows, 'score', 'desc').map(r => r.company), ['High', 'Mid', 'Low', 'Blocked'])
   assert.deepEqual(sortReportRows(rows, 'score', 'asc').map(r => r.company), ['Blocked', 'Low', 'Mid', 'High'])
@@ -116,17 +116,17 @@ test('sortReportRows by date keys off mtime', () => {
 
 test('sortReportRows by tier: T1→T4, unknown last, better verdict first within a tier', () => {
   const rows = [
-    row({ company: 'T4', tier: 'T4', want: 5, ease: 5 }),
+    row({ company: 'T4', tier: 'T4', match: 5, ease: 5 }),
     row({ company: 'X', tier: 'weird' }),
-    row({ company: 'T2thin', tier: 'T2', want: 7, ease: 6 }),
-    row({ company: 'T2stretch', tier: 'T2', want: 8.5, ease: 6 }),
-    row({ company: 'T1', tier: 'T1', want: 9, ease: 9 }),
+    row({ company: 'T2thin', tier: 'T2', match: 7, ease: 6 }),
+    row({ company: 'T2stretch', tier: 'T2', match: 8.5, ease: 6 }),
+    row({ company: 'T1', tier: 'T1', match: 9, ease: 9 }),
   ]
   assert.deepEqual(sortReportRows(rows, 'tier', 'desc').map(r => r.company), ['T1', 'T2stretch', 'T2thin', 'T4', 'X'])
 })
 
 test('sortReportRows does not mutate its input', () => {
-  const rows = [row({ company: 'B', want: 6, ease: 6 }), row({ company: 'A', want: 9, ease: 9 })]
+  const rows = [row({ company: 'B', match: 6, ease: 6 }), row({ company: 'A', match: 9, ease: 9 })]
   const copy = [...rows]
   sortReportRows(rows, 'score', 'desc')
   assert.deepEqual(rows, copy)
@@ -135,15 +135,15 @@ test('sortReportRows does not mutate its input', () => {
 // ─── corpusBands / bandCounts ────────────────────────────────────────────────
 
 test('corpusBands lists only the bands actually present, in canonical order, deduped', () => {
-  const rows = [row({ want: 5, ease: 5 }), row({ want: 9, ease: 9 }), row({ want: 9, ease: 9 }), row({ eligibility: 'red', want: null, ease: null })]
+  const rows = [row({ match: 5, ease: 5 }), row({ match: 9, ease: 9 }), row({ match: 9, ease: 9 }), row({ eligibility: 'red', match: null, ease: null })]
   assert.deepEqual(corpusBands(rows), ['go', 'skip', 'blocked'])
 })
 
 test('bandCounts tallies per band and respects the query', () => {
   const rows = [
-    row({ company: 'Acme', want: 9, ease: 9 }),
-    row({ company: 'Acme', want: 8, ease: 6 }),
-    row({ company: 'Globex', want: 9, ease: 9 }),
+    row({ company: 'Acme', match: 9, ease: 9 }),
+    row({ company: 'Acme', match: 8, ease: 6 }),
+    row({ company: 'Globex', match: 9, ease: 9 }),
   ]
   const all = bandCounts(rows)
   assert.equal(all.go, 2)
@@ -158,10 +158,10 @@ test('bandCounts tallies per band and respects the query', () => {
 
 test('matchScore: exact → file-name rule → unique prefix (both directions) → null', () => {
   const entries = [
-    makeScoreEntry({ company: 'Acme', role: 'Analyst', want: 6, ease: 6 }),
-    makeScoreEntry({ company: 'Acme', role: 'Senior Strategy Associate', want: 7, ease: 7 }),
-    makeScoreEntry({ company: 'Globex', role: 'PM', want: 6, ease: 6 }),
-    makeScoreEntry({ company: 'Globex', role: 'Data Lead', want: 9, ease: 8 }),
+    makeScoreEntry({ company: 'Acme', role: 'Analyst', match: 6, ease: 6 }),
+    makeScoreEntry({ company: 'Acme', role: 'Senior Strategy Associate', match: 7, ease: 7 }),
+    makeScoreEntry({ company: 'Globex', role: 'PM', match: 6, ease: 6 }),
+    makeScoreEntry({ company: 'Globex', role: 'Data Lead', match: 9, ease: 8 }),
     makeBlockedEntry('x', { company: 'Globex', role: 'Intern' }),
   ]
   const idx = buildScoreIndex(entries)
@@ -176,8 +176,8 @@ test('matchScore: exact → file-name rule → unique prefix (both directions) �
 
 test('matchScore: a report saved without parentheses finds its own listing, never a sibling', () => {
   const entries = [
-    makeScoreEntry({ company: 'Nimbus Robotics', role: 'Program Analyst Intern, Lyon 2027', want: 8, ease: 8.25 }),
-    makeScoreEntry({ company: 'Nimbus Robotics', role: 'Process Analyst Intern 2027 (Lyon)', want: 8, ease: 7.4 }),
+    makeScoreEntry({ company: 'Nimbus Robotics', role: 'Program Analyst Intern, Lyon 2027', match: 8, ease: 8.25 }),
+    makeScoreEntry({ company: 'Nimbus Robotics', role: 'Process Analyst Intern 2027 (Lyon)', match: 8, ease: 7.4 }),
   ]
   const idx = buildScoreIndex(entries)
   // File name "Nimbus Robotics - Process Analyst Intern 2027 Lyon.md"
@@ -195,7 +195,7 @@ test('matchScore: a report saved without parentheses finds its own listing, neve
 test('without a scored entry a report is never a near-miss', () => {
   assert.equal(isNearMiss({ ...row() }), false)
   assert.equal(fixabilityScore({ ...row() }), 0)
-  const blocked: FixabilityRow = { ...row({ want: null, ease: null, eligibility: 'red' }), scoreEntry: makeBlockedEntry() }
+  const blocked: FixabilityRow = { ...row({ match: null, ease: null, eligibility: 'red' }), scoreEntry: makeBlockedEntry() }
   assert.equal(isNearMiss(blocked), false)
   assert.equal(fixabilityScore(blocked), 0)
 })
@@ -210,12 +210,12 @@ const near: V2Dims = {
 function scored(d: V2Dims, over: Partial<ScoreEntry> = {}): ScoreEntry {
   const base = makeScoreEntry({ ...d, employment_type: 'full-time', ...over })
   const r = replay(d, leverContextOf(base, d))
-  return { ...base, want: r.want, ease: r.ease, verdict: r.verdict, ...over }
+  return { ...base, match: r.match, ease: r.ease, verdict: r.verdict, ...over }
 }
 
 test('DRIFT GUARD: a report row carrying real dims reads identically to the Database', () => {
   const entry = scored(near) // stretch, one step from go
-  const fr: FixabilityRow = { ...row({ want: entry.want, ease: entry.ease, verdict: entry.verdict }), scoreEntry: entry }
+  const fr: FixabilityRow = { ...row({ match: entry.match, ease: entry.ease, verdict: entry.verdict }), scoreEntry: entry }
   const db = rowLever(entry)
   const rep = reportRowFixability(fr)
   assert.equal(rep.nearMiss, db.nearMiss)
@@ -227,13 +227,13 @@ test('DRIFT GUARD: a report row carrying real dims reads identically to the Data
 test('a far row (needs +2) is not a near-miss, and a go row never is', () => {
   const far = scored({ ...near, growth_mobility: 6, optionality_exit: 6, brand_value: 6, role_content: 6, best_cities: 6, skills_match: 6, experience_bar: 6 })
   assert.equal(isNearMiss({ ...row(), scoreEntry: far }), false)
-  assert.equal(isNearMiss({ ...row({ want: 9, ease: 9 }), scoreEntry: far }), false)
+  assert.equal(isNearMiss({ ...row({ match: 9, ease: 9 }), scoreEntry: far }), false)
 })
 
 test('sortReportRows by fixable puts the cheapest upgrade first under desc', () => {
   const far = scored({ ...near, growth_mobility: 6, optionality_exit: 6, brand_value: 6, role_content: 6, best_cities: 6, skills_match: 6, experience_bar: 6 })
   const rows: FixabilityRow[] = [
-    { ...row({ company: 'None', want: 6, ease: 6 }) },
+    { ...row({ company: 'None', match: 6, ease: 6 }) },
     { ...row({ company: 'Near' }), scoreEntry: scored(near) },
     { ...row({ company: 'Far' }), scoreEntry: far },
   ]

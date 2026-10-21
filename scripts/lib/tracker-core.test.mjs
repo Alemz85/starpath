@@ -98,16 +98,17 @@ test('roleMatchStrict ignores seniority/location stopwords', () => {
 
 /* ───── scalar parsers ───────────────────────────────────────────── */
 
-test('parseScoreCell: v2 "W8.3 E5.6" → { want, ease }', () => {
-  assert.deepEqual(parseScoreCell('W8.3 E5.6'), { want: 8.3, ease: 5.6 });
-  assert.deepEqual(parseScoreCell('W8.25 E5'), { want: 8.25, ease: 5 });
-  assert.deepEqual(parseScoreCell('**W8.3 E5.6**'), { want: 8.3, ease: 5.6 });
-  assert.deepEqual(parseScoreCell('w8 e7'), { want: 8, ease: 7 });
+test('parseScoreCell: v2 "M8.3 E5.6" → { match, ease }', () => {
+  assert.deepEqual(parseScoreCell('M8.3 E5.6'), { match: 8.3, ease: 5.6 });
+  assert.deepEqual(parseScoreCell('M8.25 E5'), { match: 8.25, ease: 5 });
+  assert.deepEqual(parseScoreCell('**M8.3 E5.6**'), { match: 8.3, ease: 5.6 });
+  assert.deepEqual(parseScoreCell('w8 e7'), { match: 8, ease: 7 });
   // tolerated separators
-  assert.deepEqual(parseScoreCell('W8.3 · E5.6'), { want: 8.3, ease: 5.6 });
-  assert.deepEqual(parseScoreCell('W8.3/E5.6'), { want: 8.3, ease: 5.6 });
-  assert.deepEqual(parseScoreCell('W8.3,E5.6'), { want: 8.3, ease: 5.6 });
-  assert.deepEqual(parseScoreCell('W8.3E5.6'), { want: 8.3, ease: 5.6 });
+  assert.deepEqual(parseScoreCell('M8.3 · E5.6'), { match: 8.3, ease: 5.6 });
+  assert.deepEqual(parseScoreCell('W8.3/E5.6'), { match: 8.3, ease: 5.6 });
+  assert.deepEqual(parseScoreCell('W8.3,E5.6'), { match: 8.3, ease: 5.6 });
+  assert.deepEqual(parseScoreCell('W8 E7.43'), { match: 8, ease: 7.43 }, 'the pre-rename Want cell still parses');
+  assert.deepEqual(parseScoreCell('M8.3E5.6'), { match: 8.3, ease: 5.6 });
 });
 
 test('parseScoreCell: legacy "7.4/10" → { legacy }', () => {
@@ -124,52 +125,52 @@ test('parseScoreCell: sentinels and garbage → null', () => {
 });
 
 test('formatScoreCell / displayScoreCell', () => {
-  assert.equal(formatScoreCell(8.3, 5.6), 'W8.3 E5.6');
-  assert.equal(formatScoreCell('8.25', '5.0'), 'W8.25 E5');
-  assert.equal(displayScoreCell('W8.3 E5.6'), 'W8.3 · E5.6');
+  assert.equal(formatScoreCell(8.3, 5.6), 'M8.3 E5.6');
+  assert.equal(formatScoreCell('8.25', '5.0'), 'M8.25 E5');
+  assert.equal(displayScoreCell('M8.3 E5.6'), 'M8.3 · E5.6');
   assert.equal(displayScoreCell('7.4/10'), '7.4/10');
   assert.equal(displayScoreCell('9'), '9/10');
   assert.equal(displayScoreCell('N/A'), 'N/A');
   // round trip
-  assert.deepEqual(parseScoreCell(formatScoreCell(8.3, 5.6)), { want: 8.3, ease: 5.6 });
+  assert.deepEqual(parseScoreCell(formatScoreCell(8.3, 5.6)), { match: 8.3, ease: 5.6 });
 });
 
-test('scoreCellPriority: sqrt(want × ease) for v2, the number for legacy, null otherwise', () => {
-  assert.equal(scoreCellPriority('W9 E4'), 6);
-  assert.equal(scoreCellPriority('W8.3 E5.6'), 6.82);
+test('scoreCellPriority: sqrt(match × ease) for v2, the number for legacy, null otherwise', () => {
+  assert.equal(scoreCellPriority('M9 E4'), 6);
+  assert.equal(scoreCellPriority('M8.3 E5.6'), 6.82);
   assert.equal(scoreCellPriority('7.4/10'), 7.4);
   assert.equal(scoreCellPriority('N/A'), null);
 });
 
 test('compareScoreCells: higher priority wins, v2 beats legacy on a tie', () => {
-  assert.ok(compareScoreCells('W9 E7', 'W8 E6') > 0);
-  assert.ok(compareScoreCells('W8 E6', 'W9 E7') < 0);
-  assert.equal(compareScoreCells('W8 E8', 'W8 E8'), 0);
-  // 6/10 legacy vs W9 E4 (priority 6) → tie → v2 wins
-  assert.ok(compareScoreCells('W9 E4', '6/10') > 0);
-  assert.ok(compareScoreCells('6/10', 'W9 E4') < 0);
+  assert.ok(compareScoreCells('M9 E7', 'M8 E6') > 0);
+  assert.ok(compareScoreCells('M8 E6', 'M9 E7') < 0);
+  assert.equal(compareScoreCells('M8 E8', 'M8 E8'), 0);
+  // 6/10 legacy vs M9 E4 (priority 6) → tie → v2 wins
+  assert.ok(compareScoreCells('M9 E4', '6/10') > 0);
+  assert.ok(compareScoreCells('6/10', 'M9 E4') < 0);
   // cross-model: legacy 8.0 beats a lower-priority v2 cell
-  assert.ok(compareScoreCells('8.0/10', 'W7 E6') > 0);
+  assert.ok(compareScoreCells('8.0/10', 'M7 E6') > 0);
   // unparseable ranks below everything
-  assert.ok(compareScoreCells('W5 E5', 'N/A') > 0);
+  assert.ok(compareScoreCells('M5 E5', 'N/A') > 0);
   assert.ok(compareScoreCells('N/A', '3/10') < 0);
   assert.equal(compareScoreCells('N/A', 'DUP'), 0);
 });
 
-test('describeReEval: W/E deltas for v2 pairs, old→new display otherwise', () => {
-  assert.equal(describeReEval('W7.1 E5', 'W8.3 E5.6'), '(W 7.1→8.3, E 5→5.6)');
-  assert.equal(describeReEval('7.4/10', 'W8.3 E5.6'), '(7.4/10→W8.3 · E5.6)');
+test('describeReEval: M/E deltas for v2 pairs, old→new display otherwise', () => {
+  assert.equal(describeReEval('M7.1 E5', 'M8.3 E5.6'), '(M 7.1→8.3, E 5→5.6)');
+  assert.equal(describeReEval('7.4/10', 'M8.3 E5.6'), '(7.4/10→M8.3 · E5.6)');
 });
 
 test('validateScoreCell accepts v2, legacy, and N/A / DUP; rejects the rest', () => {
-  assert.equal(validateScoreCell('W8.3 E5.6'), null);
+  assert.equal(validateScoreCell('M8.3 E5.6'), null);
   assert.equal(validateScoreCell('7.4/10'), null);
   assert.equal(validateScoreCell('N/A'), null);
   assert.equal(validateScoreCell('DUP'), null);
   assert.match(validateScoreCell('—'), /invalid score format/);
   assert.match(validateScoreCell('8.3/E5.6'), /invalid score format/);
-  assert.match(validateScoreCell('W11 E5'), /out of range/);
-  assert.match(validateScoreCell('W5 E0.5'), /out of range/);
+  assert.match(validateScoreCell('M11 E5'), /out of range/);
+  assert.match(validateScoreCell('M5 E0.5'), /out of range/);
 });
 
 test('extractReportNum handles [#N] and [N] forms', () => {
@@ -240,32 +241,32 @@ test('CANONICAL_STATES exactly matches templates/states.yml labels', () => {
 /* ───── tier paths ───────────────────────────────────────────────── */
 
 test('tierForScoreCell: v2 cells go through the verdict grid, SKIP wins, legacy/unparseable → null', () => {
-  assert.equal(tierForScoreCell('W8.5 E7.5', 'Evaluated'), 1); // go
-  assert.equal(tierForScoreCell('W8.5 E5.5', 'Evaluated'), 2); // stretch
-  assert.equal(tierForScoreCell('W8.5 E3', 'Evaluated'), 3); // growth
-  assert.equal(tierForScoreCell('W7 E7.5', 'Applied'), 2); // solid
-  assert.equal(tierForScoreCell('W6 E9', 'Evaluated'), 4); // skip
-  assert.equal(tierForScoreCell('W9.9 E9.9', 'SKIP'), 4); // SKIP always tier-4
+  assert.equal(tierForScoreCell('M8.5 E7.5', 'Evaluated'), 1); // go
+  assert.equal(tierForScoreCell('M8.5 E5.5', 'Evaluated'), 2); // stretch
+  assert.equal(tierForScoreCell('M8.5 E3', 'Evaluated'), 3); // growth
+  assert.equal(tierForScoreCell('M7 E7.5', 'Applied'), 2); // solid
+  assert.equal(tierForScoreCell('M6 E9', 'Evaluated'), 4); // skip
+  assert.equal(tierForScoreCell('M9.9 E9.9', 'SKIP'), 4); // SKIP always tier-4
   assert.equal(tierForScoreCell('7.4/10', 'Evaluated'), null); // legacy: v1 cut-offs are retired
   assert.equal(tierForScoreCell('N/A', 'Evaluated'), null);
 });
 
 test('rewriteReportPathForOfertaTier rewrites flat paths, leaves tiered/sentinels', () => {
   assert.equal(
-    rewriteReportPathForOfertaTier('[#1](reports/Acme.md)', 'W8.5 E5.5', 'Evaluated'),
+    rewriteReportPathForOfertaTier('[#1](reports/Acme.md)', 'M8.5 E5.5', 'Evaluated'),
     '[#1](reports/tier-2/Acme.md)',
   );
   // Already tiered → unchanged
   assert.equal(
-    rewriteReportPathForOfertaTier('[#1](reports/tier-1/Acme.md)', 'W9.5 E8', 'Evaluated'),
+    rewriteReportPathForOfertaTier('[#1](reports/tier-1/Acme.md)', 'M9.5 E8', 'Evaluated'),
     '[#1](reports/tier-1/Acme.md)',
   );
   // Sentinels → unchanged
-  assert.equal(rewriteReportPathForOfertaTier('—', 'W8 E8', 'Evaluated'), '—');
-  assert.equal(rewriteReportPathForOfertaTier('', 'W8 E8', 'Evaluated'), '');
+  assert.equal(rewriteReportPathForOfertaTier('—', 'M8 E8', 'Evaluated'), '—');
+  assert.equal(rewriteReportPathForOfertaTier('', 'M8 E8', 'Evaluated'), '');
   // SKIP → tier-4
   assert.equal(
-    rewriteReportPathForOfertaTier('[#1](reports/Acme.md)', 'W7 E6', 'SKIP'),
+    rewriteReportPathForOfertaTier('[#1](reports/Acme.md)', 'M7 E6', 'SKIP'),
     '[#1](reports/tier-4/Acme.md)',
   );
   // Legacy cell → no derivable tier → left untouched
@@ -342,13 +343,13 @@ test('regression: writing notes by index lands in notes, not the report cell', (
 /* ───── TSV additions ────────────────────────────────────────────── */
 
 test('parseTsvAddition: canonical 10-col TSV (status before score, v2 cell)', () => {
-  const tsv = '14\t2026-06-01\tAcme\tData Analyst\tEvaluated\tW8.5 E5.5\t❌\t2026-06-30\t[#14](reports/Acme.md)\tnice fit';
+  const tsv = '14\t2026-06-01\tAcme\tData Analyst\tEvaluated\tM8.5 E5.5\t❌\t2026-06-30\t[#14](reports/Acme.md)\tnice fit';
   const a = parseTsvAddition(tsv, '14-acme.tsv', silent);
   assert.equal(a.num, 14);
   assert.equal(a.status, 'Evaluated');
-  assert.equal(a.score, 'W8.5 E5.5');
+  assert.equal(a.score, 'M8.5 E5.5');
   assert.equal(a.deadline, '2026-06-30');
-  // W8.5 E5.5 = stretch → tier-2, rewritten from the flat path
+  // M8.5 E5.5 = stretch → tier-2, rewritten from the flat path
   assert.equal(a.report, '[#14](reports/tier-2/Acme.md)');
   assert.equal(a.notes, 'nice fit');
 });
@@ -356,15 +357,15 @@ test('parseTsvAddition: canonical 10-col TSV (status before score, v2 cell)', ()
 test('parseTsvAddition: canonicalizes the v2 score spelling', () => {
   const tsv = '14\t2026-06-01\tAcme\tData Analyst\tEvaluated\tW 8.50 · E5.5\t❌\t2026-06-30\t[#14](reports/tier-2/Acme.md)\tx';
   const a = parseTsvAddition(tsv, '14-acme.tsv', silent);
-  assert.equal(a.score, 'W8.5 E5.5');
+  assert.equal(a.score, 'M8.5 E5.5');
 });
 
 test('parseTsvAddition: tolerates the legacy score-before-status column swap', () => {
   // col4 is a score, col5 a status → heuristic swaps them back (v2 cell).
-  const tsv = '15\t2026-06-01\tAcme\tData Analyst\tW9 E8\tApplied\t❌\t[#15](reports/Acme.md)\tnote';
+  const tsv = '15\t2026-06-01\tAcme\tData Analyst\tM9 E8\tApplied\t❌\t[#15](reports/Acme.md)\tnote';
   const a = parseTsvAddition(tsv, '15-acme.tsv', silent);
   assert.equal(a.status, 'Applied');
-  assert.equal(a.score, 'W9 E8');
+  assert.equal(a.score, 'M9 E8');
   // 9-col (no deadline) form
   assert.equal(a.deadline, 'n/d');
   assert.equal(a.report, '[#15](reports/tier-1/Acme.md)'); // go → tier-1
@@ -379,7 +380,7 @@ test('parseTsvAddition: legacy "X.X/10" scores are still accepted (path left fla
 });
 
 test('parseTsvAddition: pipe-delimited markdown row fallback', () => {
-  const row = '| 16 | 2026-06-02 | Acme | Data Analyst | W6.5 E5.2 | Evaluated | ❌ | [#16](reports/Acme.md) | x |';
+  const row = '| 16 | 2026-06-02 | Acme | Data Analyst | M6.5 E5.2 | Evaluated | ❌ | [#16](reports/Acme.md) | x |';
   const a = parseTsvAddition(row, '16-acme.tsv', silent);
   assert.equal(a.num, 16);
   assert.equal(a.status, 'Evaluated');
@@ -402,7 +403,7 @@ test('parseTsvAddition: skips unparseable scores (a blocked "—" or a v1-era sh
 test('parseTsvAddition: returns null on malformed/empty input', () => {
   assert.equal(parseTsvAddition('', 'x.tsv', silent), null);
   assert.equal(parseTsvAddition('only\tthree\tfields', 'x.tsv', silent), null);
-  assert.equal(parseTsvAddition('NaN\t2026\tA\tR\tEvaluated\tW8 E8\t❌\t[#1](r.md)\tn', 'x.tsv', silent), null);
+  assert.equal(parseTsvAddition('NaN\t2026\tA\tR\tEvaluated\tM8 E8\t❌\t[#1](r.md)\tn', 'x.tsv', silent), null);
 });
 
 /* ───── refreshApplicationRows ───── */
@@ -418,19 +419,19 @@ const APPS = [
 test('refreshApplicationRows: re-scored listing updates Score + Report, leaves the sibling event alone', () => {
   const { lines, changed } = refreshApplicationRows(APPS, [{
     company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)',
-    want: 8.15, ease: 7.29, report: '[5](reports/tier-1/Lumen Freight - Supply Chain Analyst Lyon, March 2028 start.md)',
+    match: 8.15, ease: 7.29, report: '[5](reports/tier-1/Lumen Freight - Supply Chain Analyst Lyon, March 2028 start.md)',
   }])
   assert.equal(changed.length, 1)
-  assert.deepEqual(changed[0], { num: 1, company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', from: '7.79/10', to: 'W8.15 E7.29' })
-  assert.match(lines[2], /\| W8\.15 E7\.29 \| Applied \|/)
+  assert.deepEqual(changed[0], { num: 1, company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', from: '7.79/10', to: 'M8.15 E7.29' })
+  assert.match(lines[2], /\| M8\.15 E7\.29 \| Applied \|/)
   assert.match(lines[2], /\[5\]\(reports\/tier-1\/Lumen Freight - Supply Chain Analyst Lyon, March 2028 start\.md\)/)
   assert.equal(lines[3], APPS[3])
 })
 
 test('refreshApplicationRows: blocked re-eval (no scores) and unmatched companies change nothing', () => {
   const { lines, changed } = refreshApplicationRows(APPS, [
-    { company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: null, ease: null, report: '—' },
-    { company: 'Othercorp', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: 8, ease: 7, report: '—' },
+    { company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', match: null, ease: null, report: '—' },
+    { company: 'Othercorp', role: 'Supply Chain Analyst (Lyon, March 2028 start)', match: 8, ease: 7, report: '—' },
   ])
   assert.equal(changed.length, 0)
   assert.deepEqual(lines, APPS)
@@ -438,14 +439,14 @@ test('refreshApplicationRows: blocked re-eval (no scores) and unmatched companie
 
 test('refreshApplicationRows: report "—" keeps the existing link', () => {
   const apps = [APPS[0], APPS[1], APPS[2].replace('| — | applied |', '| [9](reports/tier-2/old.md) | applied |')]
-  const { lines } = refreshApplicationRows(apps, [{ company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: 6.9, ease: 5.1, report: '—' }])
-  assert.match(lines[2], /W6\.9 E5\.1/)
+  const { lines } = refreshApplicationRows(apps, [{ company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', match: 6.9, ease: 5.1, report: '—' }])
+  assert.match(lines[2], /M6\.9 E5\.1/)
   assert.match(lines[2], /\[9\]\(reports\/tier-2\/old\.md\)/)
 })
 
 test('refreshApplicationRows: matched lists the row even when its cells are already current', () => {
-  const current = [APPS[0], APPS[1], APPS[2].replace('7.79/10', 'W8.15 E7.29')]
-  const { changed, matched } = refreshApplicationRows(current, [{ company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', want: 8.15, ease: 7.29, report: '—' }])
+  const current = [APPS[0], APPS[1], APPS[2].replace('7.79/10', 'M8.15 E7.29')]
+  const { changed, matched } = refreshApplicationRows(current, [{ company: 'Lumen Freight', role: 'Supply Chain Analyst (Lyon, March 2028 start)', match: 8.15, ease: 7.29, report: '—' }])
   assert.equal(changed.length, 0)
   assert.equal(matched.length, 1)
   assert.equal(matched[0].num, 1)

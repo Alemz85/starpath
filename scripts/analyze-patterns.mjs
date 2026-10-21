@@ -3,10 +3,10 @@
  * analyze-patterns.mjs — Rejection Pattern Detector for career-ops
  *
  * Parses applications.md + all linked reports, extracts dimensions
- * (archetype, seniority, remote, gaps, Want / Ease / verdict), classifies
+ * (archetype, seniority, remote, gaps, Match / Ease / verdict), classifies
  * outcomes, and outputs structured JSON with actionable patterns.
  *
- * Scoring v2 (docs/scoring-v2.md): applications are read as Want · Ease
+ * Scoring v2 (docs/scoring-v2.md): applications are read as Match · Ease
  * (legacy "X/10" cells shown as-is), Priority is only an aggregate/sort key,
  * and "actionable" = verdict go / stretch / solid (`actionableRate`).
  *
@@ -109,13 +109,13 @@ function parseReport(reportPath) {
   if (domainMatch) report.domain = domainMatch[1].trim();
 
   // v2 report header (docs/scoring-v2.md §8.5), bold already stripped:
-  //   Want: 8.25/10 · Ease: 5.6/10
+  //   Match: 8.25/10 · Ease: 5.6/10
   //   Eligibility: amber — start date not stated
   //   Verdict: Stretch — apply with prep
-  const wantMatch = plain.match(/^\s*Want:\s*([\d.]+)(?:\s*\/\s*10)?/im);
+  const matchLine = plain.match(/^\s*(?:Match|Want):\s*([\d.]+)(?:\s*\/\s*10)?/im);
   const easeMatch = plain.match(/\bEase:\s*([\d.]+)(?:\s*\/\s*10)?/i);
-  if (wantMatch && easeMatch) {
-    report.scores.want = parseFloat(wantMatch[1]);
+  if (matchLine && easeMatch) {
+    report.scores.match = parseFloat(matchLine[1]);
     report.scores.ease = parseFloat(easeMatch[1]);
   }
   const eligMatch = plain.match(/^\s*Eligibility:\s*(green|amber|red)\b/im);
@@ -232,13 +232,13 @@ function printSummary(result) {
     if (skipApplications > 0) console.log(`  ${skipApplications} application(s) sent to Skip-verdict listings`);
   }
 
-  // Want / Ease by outcome (Priority is the sort key only; legacy X/10 rows are
+  // Match / Ease by outcome (Priority is the sort key only; legacy X/10 rows are
   // excluded from it and counted)
-  console.log('\nWANT · EASE BY OUTCOME');
+  console.log('\nMATCH · EASE BY OUTCOME');
   console.log('-'.repeat(40));
   for (const [group, stats] of Object.entries(scoreComparison)) {
     if (stats.count === 0) continue;
-    const we = stats.wantEaseCount > 0 ? `W ${stats.avgWant} · E ${stats.avgEase}` : 'W — · E —';
+    const we = stats.matchEaseCount > 0 ? `M ${stats.avgMatch} · E ${stats.avgEase}` : 'M — · E —';
     const act = stats.actionableRate === null ? '' : `  ${stats.actionableRate}% actionable`;
     const ex = stats.excluded?.legacy ? `; ${stats.excluded.legacy} legacy X/10 excluded` : '';
     console.log(`  ${group.padEnd(15)} ${we}  (${stats.count} entries, priority ${stats.minPriority}–${stats.maxPriority}${ex})${act}`);
@@ -335,7 +335,7 @@ function printScoutingSummary(result) {
 
   console.log('LANDSCAPE');
   console.log('-'.repeat(40));
-  console.log(`  avg Want ${landscape.avgWant} · Ease ${landscape.avgEase}  (median W ${landscape.medianWant} · E ${landscape.medianEase})`);
+  console.log(`  avg Match ${landscape.avgMatch} · Ease ${landscape.avgEase}  (median M ${landscape.medianMatch} · E ${landscape.medianEase})`);
   const mix = verdictLine({ ...landscape.verdicts, blocked: landscape.blocked });
   if (mix) console.log(`  ${mix}`);
   console.log(`  ${landscape.actionableShare}% actionable (go / stretch / solid) · ${landscape.wastedShare}% skip · ${landscape.blockedShare}% blocked`);
@@ -344,7 +344,7 @@ function printScoutingSummary(result) {
   console.log('-'.repeat(40));
   for (const a of archetypePerformance.slice(0, 10)) {
     const blocked = a.blocked ? `  +${a.blocked} blocked` : '';
-    console.log(`  ${a.archetype.slice(0, 32).padEnd(33)} W ${String(a.avgWant).padStart(4)} · E ${String(a.avgEase).padStart(4)}  ${String(a.count).padStart(3)} roles  ${a.actionableRate}% actionable${blocked}`);
+    console.log(`  ${a.archetype.slice(0, 32).padEnd(33)} W ${String(a.avgMatch).padStart(4)} · E ${String(a.avgEase).padStart(4)}  ${String(a.count).padStart(3)} roles  ${a.actionableRate}% actionable${blocked}`);
   }
 
   console.log('\nDIMENSION DRAG (weakest first — fix the top one)');

@@ -106,14 +106,14 @@ test('findMessage: exact, prefix, suffix, ambiguous, missing', () => {
 
 test('duplicateOf: open or dismissed keys block a repost, resolved ones do not', () => {
   const msgs = foldMessages([
-    post('m-a', 0, { key: 'calib:want-floor' }),
+    post('m-a', 0, { key: 'calib:match-floor' }),
     post('m-b', 1, { key: 'sched:failed' }),
     post('m-c', 2, { key: 'calib:ease-weights' }),
     buildUpdate('m-b', 'resolved', { now: at(3) }),
     buildUpdate('m-c', 'dismissed', { now: at(4) }),
   ])
   const again = (key) => buildPost({ title: 'again', key }, { id: 'm-new', now: at(9) })
-  assert.equal(duplicateOf(msgs, again('calib:want-floor')).id, 'm-a')
+  assert.equal(duplicateOf(msgs, again('calib:match-floor')).id, 'm-a')
   assert.equal(duplicateOf(msgs, again('sched:failed')), null)
   assert.equal(duplicateOf(msgs, again('calib:ease-weights')).id, 'm-c')
   assert.equal(duplicateOf(msgs, buildPost({ title: 'no key' }, { id: 'x', now: T0 })), null)

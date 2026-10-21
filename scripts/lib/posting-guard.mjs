@@ -530,7 +530,7 @@ const RULES = [
   { id: 'give-score', re: new RegExp(`${B}give\\s+(?:it|this|me|them)\\s+an?\\s+(?:perfect\\s+|top\\s+|high\\s+|maximum\\s+|max\\s+)?(?:score|rating|grade)${E}`, 'i') },
   { id: 'rate-as', re: new RegExp(`${B}(?:(?:rate|score|rank|mark|flag|treat|consider|classify)\\s+(?:it|this|them|me)\\s+as\\s+(?:an?\\s+)?(?:perfect|top|best|ideal|strong|excellent|great|10|highest|maximum)|(?:rate|score)\\s+(?:it|this|me)\\s+(?:a\\s+)?(?:10|ten|perfect|highly|high|maximum))`, 'i') },
   { id: 'recommend-me', re: new RegExp(`${B}recommend\\s+(?:me|this\\s+candidate|this\\s+applicant)${E}`, 'i') },
-  { id: 'score-spoof', re: /(?<![a-z0-9])(?:verdict\s*[:=]\s*go(?![a-z0-9])|eligibility\s*[:=]\s*green|want\s*[:=]\s*(?:10|9)\b[^\n]{0,20}\bease\s*[:=]\s*(?:10|9)\b)/i },
+  { id: 'score-spoof', re: /(?<![a-z0-9])(?:verdict\s*[:=]\s*go(?![a-z0-9])|eligibility\s*[:=]\s*green|match\s*[:=]\s*(?:10|9)\b[^\n]{0,20}\bease\s*[:=]\s*(?:10|9)\b)/i },
   // Secrecy, execution, exfiltration, forced output.
   { id: 'secrecy', re: new RegExp(`${B}(?:do\\s+not|don'?t|never)\\s+(?:mention|reveal|tell|disclose|say|inform|alert|notify|show)\\s+(?:this|that|these|it\\b|the\\s+(?:user|human|candidate|applicant|reader)|(?:to\\s+)?(?:the\\s+)?user|your\\s+(?:instructions|prompt)|anyone|about\\s+(?:this|these|the\\s+(?:above|hidden)))`, 'i') },
   { id: 'run-code', re: new RegExp(`${B}(?:run|execute)\\s+(?:the\\s+following|this|these|the\\s+below|any)\\s+(?:shell\\s+|bash\\s+|python\\s+|terminal\\s+)?(?:commands?|code|script|snippet|program)${E}`, 'i') },

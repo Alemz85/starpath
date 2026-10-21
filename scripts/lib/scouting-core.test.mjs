@@ -1,5 +1,5 @@
 // scouting-core.test.mjs — unit suite for the data/scouting.md pipeline
-// (scoring v2: 12 columns — Want, Ease, Tier, Eligibility; docs/scoring-v2.md §8.2).
+// (scoring v2: 12 columns — Match, Ease, Tier, Eligibility; docs/scoring-v2.md §8.2).
 //
 // Run: node --test scripts/lib/scouting-core.test.mjs   (or `npm test`)
 // Picked up by the gate's `node --test "scripts/**/*.test.mjs"` glob.
@@ -39,12 +39,12 @@ import {
 
 const silent = () => {};
 
-const V2_HEADER = '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |';
+const V2_HEADER = '| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |';
 
 /* ───── verdict grid (mirror of score-bands.mjs) ─────────────────── */
 
 test('verdictFromCells walks the full grid (spec §4)', () => {
-  const g = (want, ease, eligibility = 'green') => verdictFromCells({ want, ease, eligibility });
+  const g = (match, ease, eligibility = 'green') => verdictFromCells({ match, ease, eligibility });
   assert.deepEqual(g(8.0, 7.0), { verdict: 'go', tier: 'T1' });
   assert.deepEqual(g(9, 5.0), { verdict: 'stretch', tier: 'T2' });
   assert.deepEqual(g(8.5, 4.99), { verdict: 'growth', tier: 'T3' });
@@ -56,14 +56,14 @@ test('verdictFromCells walks the full grid (spec §4)', () => {
 });
 
 test('verdictFromCells: red eligibility and missing cells are blocked / T4', () => {
-  assert.deepEqual(verdictFromCells({ want: 9, ease: 9, eligibility: 'red' }), { verdict: 'blocked', tier: 'T4' });
-  assert.deepEqual(verdictFromCells({ want: 9, ease: 9, eligibility: 'red: German C1 required' }), { verdict: 'blocked', tier: 'T4' });
-  assert.deepEqual(verdictFromCells({ want: '—', ease: '—', eligibility: 'green' }), { verdict: 'blocked', tier: 'T4' });
+  assert.deepEqual(verdictFromCells({ match: 9, ease: 9, eligibility: 'red' }), { verdict: 'blocked', tier: 'T4' });
+  assert.deepEqual(verdictFromCells({ match: 9, ease: 9, eligibility: 'red: German C1 required' }), { verdict: 'blocked', tier: 'T4' });
+  assert.deepEqual(verdictFromCells({ match: '—', ease: '—', eligibility: 'green' }), { verdict: 'blocked', tier: 'T4' });
   assert.deepEqual(verdictFromCells({}), { verdict: 'blocked', tier: 'T4' });
 });
 
 test('verdictFromCells accepts cell strings and amber cells', () => {
-  assert.equal(verdictFromCells({ want: '8.25', ease: '5.6', eligibility: 'amber: start date not stated' }).verdict, 'stretch');
+  assert.equal(verdictFromCells({ match: '8.25', ease: '5.6', eligibility: 'amber: start date not stated' }).verdict, 'stretch');
 });
 
 test('VERDICT_TIERS covers every verdict key', () => {
@@ -188,7 +188,7 @@ test('rewriteReportPathForTier rewrites flat paths, leaves tiered/sentinels', ()
 
 test('scoutingColumns is the fixed 12-column layout', () => {
   assert.deepEqual(scoutingColumns(), {
-    num: 1, date: 2, company: 3, role: 4, want: 5, ease: 6, tier: 7, eligibility: 8,
+    num: 1, date: 2, company: 3, role: 4, match: 5, ease: 6, tier: 7, eligibility: 8,
     report: 9, deadline: 10, hint: 11, notes: 12,
   });
 });
@@ -205,9 +205,9 @@ test('parseScoutingRow reads every v2 column', () => {
   const r = parseScoutingRow(ROW);
   assert.equal(r.num, 238);
   assert.equal(r.company, 'Northwind Labs');
-  assert.equal(r.want, '7.1');
+  assert.equal(r.match, '7.1');
   assert.equal(r.ease, '6.0');
-  assert.equal(r.wantNum, 7.1);
+  assert.equal(r.matchNum, 7.1);
   assert.equal(r.easeNum, 6);
   assert.equal(r.tier, 'T2');
   assert.equal(r.eligibility, 'amber: start date not stated');
@@ -218,9 +218,9 @@ test('parseScoutingRow reads every v2 column', () => {
   assert.equal(r.notes, 'rich eval summary');
 });
 
-test('parseScoutingRow reads a blocked row ("—" Want/Ease)', () => {
+test('parseScoutingRow reads a blocked row ("—" Match/Ease)', () => {
   const r = parseScoutingRow('| 9 | 2026-06-25 | Contoso | Graduate Analyst | — | — | T4 | red: German C1 required | — | n/d |  | Revisit next cycle: dream company |');
-  assert.equal(r.wantNum, null);
+  assert.equal(r.matchNum, null);
   assert.equal(r.easeNum, null);
   assert.equal(r.eligibilityStatus, 'red');
   assert.equal(r.report, '—');
@@ -261,7 +261,7 @@ test('parseScoutingTsv: canonical 12-col addition', () => {
   const tsv = '300\t2026-06-25\tNimbus\tML Engineer\t8.4\t7.2\tT1\tgreen\t[#300](reports/Nimbus.md)\t2026-07-15\t\tstrong fit';
   const a = parseScoutingTsv(tsv, '300-nimbus.tsv', silent);
   assert.equal(a.num, 300);
-  assert.equal(a.want, '8.4');
+  assert.equal(a.match, '8.4');
   assert.equal(a.ease, '7.2');
   assert.equal(a.tier, 'T1');
   assert.equal(a.eligibility, 'green');
@@ -272,7 +272,7 @@ test('parseScoutingTsv: canonical 12-col addition', () => {
 });
 
 test('parseScoutingTsv: blank hint defaults MONITOR for stretch/solid, blank otherwise', () => {
-  const mk = (want, ease, tier) => `1\t2026-06-25\tA\tR\t${want}\t${ease}\t${tier}\tgreen\t[#1](reports/A.md)\tn/d\t\tn`;
+  const mk = (match, ease, tier) => `1\t2026-06-25\tA\tR\t${match}\t${ease}\t${tier}\tgreen\t[#1](reports/A.md)\tn/d\t\tn`;
   assert.equal(parseScoutingTsv(mk(8.5, 5.5, 'T2'), 'x', silent).hint, 'MONITOR'); // stretch
   assert.equal(parseScoutingTsv(mk(7.0, 7.5, 'T2'), 'x', silent).hint, 'MONITOR'); // solid
   assert.equal(parseScoutingTsv(mk(7.0, 5.5, 'T2'), 'x', silent).hint, ''); // thin
@@ -293,7 +293,7 @@ test('parseScoutingTsv: amber eligibility is preserved verbatim', () => {
 
 test('parseScoutingTsv: blocked listing is forced into the blocked shape', () => {
   const a = parseScoutingTsv('303\t2026-06-25\tContoso\tGrad Analyst\t—\t—\tT4\tred: study term overlap\t—\tn/d\tREADY\tRevisit next cycle: dream', 'x', silent);
-  assert.equal(a.want, '—');
+  assert.equal(a.match, '—');
   assert.equal(a.ease, '—');
   assert.equal(a.tier, 'T4');
   assert.equal(a.hint, ''); // never READY on a blocked row
@@ -301,7 +301,7 @@ test('parseScoutingTsv: blocked listing is forced into the blocked shape', () =>
   // Numbers on a red row are a score-through-red score (profile
   // score_through_red): they are kept, but the row is still T4 with no hint.
   const b = parseScoutingTsv('304\t2026-06-25\tContoso\tGrad Analyst\t9\t9\tT1\tred: x\t—\tn/d\tREADY\t', 'x', silent);
-  assert.deepEqual([b.want, b.ease, b.tier, b.hint], ['9', '9', 'T4', '']);
+  assert.deepEqual([b.match, b.ease, b.tier, b.hint], ['9', '9', 'T4', '']);
   // Only both or neither.
   assert.equal(parseScoutingTsv('305\t2026-06-25\tContoso\tGrad Analyst\t9\t—\tT4\tred: x\t—\tn/d\t\t', 'x', silent), null);
 });
@@ -316,7 +316,7 @@ test('parseScoutingTsv: rejects malformed / empty / v1-shaped input', () => {
   assert.equal(parseScoutingTsv('', 'x.tsv', silent), null);
   assert.equal(parseScoutingTsv('a\tb\tc', 'x.tsv', silent), null);
   assert.equal(parseScoutingTsv('NaN\td\tc\tr\t8\t8\tT1\tgreen\t[#1](r.md)\tx\ty\tz', 'x.tsv', silent), null);
-  // v1 11-col: score "6.7/10" in the Want slot is out of range, CF/AF in the eligibility slot is unparseable
+  // v1 11-col: score "6.7/10" in the Match slot is out of range, CF/AF in the eligibility slot is unparseable
   assert.equal(parseScoutingTsv('300\t2026-06-25\tNimbus\tML Engineer\t9.1/10\tT1\t9.0/8.5\t[#300](reports/Nimbus.md)\t2026-07-15\t\tstrong fit', 'x.tsv', silent), null);
   // non-red row with blocked cells
   assert.equal(parseScoutingTsv('306\t2026-06-25\tA\tR\t—\t—\tT4\tgreen\t—\tn/d\t\t', 'x', silent), null);
@@ -330,14 +330,14 @@ test('parseScoutingTsv: rejects malformed / empty / v1-shaped input', () => {
 
 const OLD = parseScoutingRow('| 12 | 2026-06-01 | Nimbus | ML Engineer | 7.1 | 5.0 | T2 | green | [#12](reports/tier-2/N.md) | 2026-07-15 | MONITOR | first eval |');
 const NEWER = {
-  num: 99, date: '2026-07-01', company: 'Nimbus', role: 'ML Engineer', want: '8.3', ease: '5.6', tier: 'T2',
+  num: 99, date: '2026-07-01', company: 'Nimbus', role: 'ML Engineer', match: '8.3', ease: '5.6', tier: 'T2',
   eligibility: 'amber: start date not stated', report: '[#99](reports/tier-2/N2.md)', deadline: 'n/d', hint: 'MONITOR', notes: 'second eval',
 };
 
 test('reEvalNote renders W a→b, E c→d (and "—" for blocked sides)', () => {
-  assert.equal(reEvalNote(OLD, NEWER), 'Re-eval (W 7.1→8.3, E 5→5.6)');
-  assert.equal(reEvalNote({ want: '—', ease: '—' }, NEWER), 'Re-eval (W —→8.3, E —→5.6)');
-  assert.equal(reEvalNote(OLD, { want: '—', ease: '—' }), 'Re-eval (W 7.1→—, E 5→—)');
+  assert.equal(reEvalNote(OLD, NEWER), 'Re-eval (M 7.1→8.3, E 5→5.6)');
+  assert.equal(reEvalNote({ match: '—', ease: '—' }, NEWER), 'Re-eval (M —→8.3, E —→5.6)');
+  assert.equal(reEvalNote(OLD, { match: '—', ease: '—' }), 'Re-eval (M 7.1→—, E 5→—)');
 });
 
 test('shouldReplaceScoutingRow: newer or same-day wins, older is stale', () => {
@@ -347,22 +347,22 @@ test('shouldReplaceScoutingRow: newer or same-day wins, older is stale', () => {
 });
 
 test('shouldReplaceScoutingRow replaces even when the new score is LOWER (point-in-time model)', () => {
-  const lower = { ...NEWER, want: '6.0', ease: '4.0', tier: 'T4', hint: '' };
+  const lower = { ...NEWER, match: '6.0', ease: '4.0', tier: 'T4', hint: '' };
   assert.equal(shouldReplaceScoutingRow(OLD, lower), true);
   const merged = buildReEvalRow(OLD, lower);
-  assert.equal(merged.want, '6.0');
-  assert.equal(merged.notes, 'Re-eval (W 7.1→6, E 5→4). second eval');
+  assert.equal(merged.match, '6.0');
+  assert.equal(merged.notes, 'Re-eval (M 7.1→6, E 5→4). second eval');
 });
 
 test('buildReEvalRow: keeps entry number, takes new cells, annotates notes', () => {
   const m = buildReEvalRow(OLD, NEWER);
   assert.equal(m.num, 12);
   assert.equal(m.date, '2026-07-01');
-  assert.equal(m.want, '8.3');
+  assert.equal(m.match, '8.3');
   assert.equal(m.ease, '5.6');
   assert.equal(m.eligibility, 'amber: start date not stated');
   assert.equal(m.report, '[#99](reports/tier-2/N2.md)');
-  assert.equal(m.notes, 'Re-eval (W 7.1→8.3, E 5→5.6). second eval');
+  assert.equal(m.notes, 'Re-eval (M 7.1→8.3, E 5→5.6). second eval');
   // The posting's known close date survives a re-eval that omits it.
   assert.equal(m.deadline, '2026-07-15');
 });
@@ -376,7 +376,7 @@ test('buildReEvalRow: a PROMOTED-n hint is preserved', () => {
 test('buildReEvalRow output serializes to a parseable 12-column row', () => {
   const r = parseScoutingRow(formatScoutingRow(buildReEvalRow(OLD, NEWER)));
   assert.equal(r.num, 12);
-  assert.equal(r.wantNum, 8.3);
+  assert.equal(r.matchNum, 8.3);
   assert.equal(r.deadline, '2026-07-15');
 });
 
@@ -392,18 +392,18 @@ test('validateScoutingRow: a clean row has no findings', () => {
 
 test('validateScoutingRow: structural errors', () => {
   assert.ok(validateScoutingRow(row({ tier: 'T9' })).errors.some(e => /tier/.test(e)));
-  assert.ok(validateScoutingRow(row({ want: '6.7/10x' })).errors.some(e => /Want/.test(e)));
+  assert.ok(validateScoutingRow(row({ match: '6.7/10x' })).errors.some(e => /Match/.test(e)));
   assert.ok(validateScoutingRow(row({ ease: '14' })).errors.some(e => /Ease/.test(e)));
   assert.ok(validateScoutingRow(row({ eligibility: 'maybe' })).errors.some(e => /Eligibility/.test(e)));
-  assert.ok(validateScoutingRow(row({ want: '—', ease: '—' })).errors.some(e => /only valid for a red/.test(e)));
+  assert.ok(validateScoutingRow(row({ match: '—', ease: '—' })).errors.some(e => /only valid for a red/.test(e)));
   // A red row may carry scores (profile score_through_red), but both or neither, and always T4.
   assert.deepEqual(validateScoutingRow(row({ eligibility: 'red: x', tier: 'T4' })).errors, []);
-  assert.ok(validateScoutingRow(row({ eligibility: 'red: x', tier: 'T4', ease: '—' })).errors.some(e => /both Want and Ease/.test(e)));
+  assert.ok(validateScoutingRow(row({ eligibility: 'red: x', tier: 'T4', ease: '—' })).errors.some(e => /both Match and Ease/.test(e)));
   assert.ok(validateScoutingRow(row({ eligibility: 'red: x', tier: 'T2' })).errors.some(e => /T4/.test(e)));
 });
 
 test('validateScoutingRow: tier vs grid disagreement is a warning, not an error', () => {
-  const r = validateScoutingRow(row({ tier: 'T1' })); // W7.1 E6.0 is "thin" → T2
+  const r = validateScoutingRow(row({ tier: 'T1' })); // M7.1 E6.0 is "thin" → T2
   assert.deepEqual(r.errors, []);
   assert.equal(r.warnings.length, 1);
   assert.match(r.warnings[0], /grid says T2/);

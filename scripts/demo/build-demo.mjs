@@ -120,10 +120,10 @@ function taxRate(place, gross) {
 }
 
 const DIM_ROWS = [
-  ['growth_mobility', 'Growth / Mobility (want)'],
-  ['optionality_exit', 'Optionality / Exit (want)'],
-  ['brand_value', 'Brand Value (want)'],
-  ['role_content', 'Role content (want)'],
+  ['growth_mobility', 'Growth / Mobility (match)'],
+  ['optionality_exit', 'Optionality / Exit (match)'],
+  ['brand_value', 'Brand Value (match)'],
+  ['role_content', 'Role content (match)'],
   ['best_cities', 'City (hygiene)'],
   ['salary_adj_city', 'Salary Adj for City (hygiene)'],
   ['work_life_balance', 'Work-Life Balance (hygiene)'],
@@ -252,13 +252,13 @@ async function scoreAll(asOf, t) {
     const r = await scoreListing(input)
     if (r.error) throw new Error(`score-listing failed for ${L.id}: ${r.error} — ${r.message}`)
     if (r.verdict !== L.expect) {
-      throw new Error(`seed: ${L.id} scored "${r.verdict}" (Want ${r.want?.score ?? '—'}, Ease ${r.ease?.score ?? '—'}) but its prose was written for "${L.expect}". ` +
+      throw new Error(`seed: ${L.id} scored "${r.verdict}" (Match ${r.match?.score ?? '—'}, Ease ${r.ease?.score ?? '—'}) but its prose was written for "${L.expect}". ` +
         'The rubric moved this listing: update its scores or prose in scripts/demo/seed.mjs.')
     }
     recs.push({
       L, r, num: idx + 1, id: L.id, company: L.company, role: L.role, date, url, facts, tax,
       tier: r.tier, verdict: r.verdict,
-      want: r.want?.score ?? null, ease: r.ease?.score ?? null, priority: r.priority ?? null,
+      match: r.match?.score ?? null, ease: r.ease?.score ?? null, priority: r.priority ?? null,
     })
   }
   return recs
@@ -302,7 +302,7 @@ function renderReport(rec, ctx) {
   lines.push(`**Location:** ${L.location}${L.remote ? ` · ${L.remote}` : ''}`)
   lines.push(`**Archetype:** ${L.archetype}`)
   if (growth) lines.push('**Mode:** scouting (growth target)')
-  lines.push(`**Want:** ${rec.want}/10 · **Ease:** ${rec.ease}/10`)
+  lines.push(`**Match:** ${rec.match}/10 · **Ease:** ${rec.ease}/10`)
   lines.push(`**Eligibility:** ${eligibilityHeader(r)}`)
   lines.push(`**Verdict:** ${VERDICT_LABELS[r.verdict]} — ${REPORT_ACTIONS[r.verdict]}`)
   lines.push(`**Tier:** ${r.tier}`)
@@ -322,7 +322,7 @@ function renderReport(rec, ctx) {
     const reason = key === 'salary_adj_city' ? r.salary_adj_for_city.summary : R[key]
     lines.push(`| ${label} | ${fmtScore(r.dims[key])} | ${reason} |`)
   }
-  lines.push(`| **Want (rollup)** | **${rec.want}/10** | ${R.want} |`)
+  lines.push(`| **Match (rollup)** | **${rec.match}/10** | ${R.match} |`)
   for (const [key, label] of EASE_ROWS) lines.push(`| ${label} | ${fmtScore(r.dims[key])} | ${R[key]} |`)
   lines.push(`| **Ease (rollup)** | **${rec.ease}/10** | ${R.ease} |`)
   lines.push(`| Best-fit Early-career Roles (context) | — | ${R.best_fit} |`, '')
@@ -368,7 +368,7 @@ function scoreHistoryRow(rec) {
     rec.date, L.archetype,
     num(d.skills_match), num(d.experience_bar), num(d.competition), num(rec.ease),
     num(d.growth_mobility), num(d.optionality_exit), num(d.brand_value), num(d.role_content),
-    num(d.best_cities), num(d.salary_adj_city), num(d.work_life_balance), num(rec.want), num(rec.priority),
+    num(d.best_cities), num(d.salary_adj_city), num(d.work_life_balance), num(rec.match), num(rec.priority),
     r.eligibility.status, eligibilityFlags(r.eligibility), r.verdict,
     blocked ? '' : (L.reasons?.best_fit ?? L.role), 'scouting', L.company, L.role, r.tier, L.source,
     L.location, L.employmentType, L.duration, L.salaryRaw ?? 'n/d', rec.url,
@@ -446,7 +446,7 @@ export async function buildDemo({ asOf }) {
 
   // ── data/report-summaries.tsv (headerless) ──
   put('data/report-summaries.tsv', recs.map(rec => [
-    rec.date, rec.company, rec.role, rec.L.archetype, rec.tier, num(rec.want), num(rec.ease),
+    rec.date, rec.company, rec.role, rec.L.archetype, rec.tier, num(rec.match), num(rec.ease),
     rec.r.eligibility.status, keyGaps(rec), rec.verdict,
   ].map(tsvSafe).join('\t')).join('\n') + '\n')
 
@@ -455,7 +455,7 @@ export async function buildDemo({ asOf }) {
     const blocked = rec.verdict === 'blocked'
     return formatScoutingRow({
       num: rec.num, date: rec.date, company: rec.company, role: rec.role,
-      want: blocked ? '—' : rec.want, ease: blocked ? '—' : rec.ease, tier: rec.tier,
+      match: blocked ? '—' : rec.match, ease: blocked ? '—' : rec.ease, tier: rec.tier,
       eligibility: scoutingEligibilityCell(rec.r),
       report: rec.reportPath ? `[${rec.num}](${rec.reportPath})` : '—',
       deadline: deadlineCell(rec.L, asOf),
@@ -469,7 +469,7 @@ export async function buildDemo({ asOf }) {
   const appRows = apps.map(a => {
     const rec = a.rec
     const notes = `Promoted from scouting #${rec.num} (${rec.tier}, ${rec.r.eligibility.status}). ${a.notes}`.replace(/\|/g, '/')
-    return `| ${a.num} | ${a.date} | ${rec.company} | ${rec.role} | ${formatScoreCell(rec.want, rec.ease)} | ${a.status} | ${a.pdf ? '✅' : '❌'} | ${deadlineCell(rec.L, asOf)} | ${rec.reportPath ? `[${rec.num}](${rec.reportPath})` : '—'} | ${notes} |`
+    return `| ${a.num} | ${a.date} | ${rec.company} | ${rec.role} | ${formatScoreCell(rec.match, rec.ease)} | ${a.status} | ${a.pdf ? '✅' : '❌'} | ${deadlineCell(rec.L, asOf)} | ${rec.reportPath ? `[${rec.num}](${rec.reportPath})` : '—'} | ${notes} |`
   })
   put('data/applications.md', APPLICATIONS_SCAFFOLD + [...appRows].reverse().join('\n') + '\n')
 
@@ -519,7 +519,7 @@ export async function buildDemo({ asOf }) {
     .map(e => `- [ ] ${e.url} | ${e.company} | ${e.title} | ${relevanceNote(e)}`)
   const processedLines = recs.map(rec => rec.verdict === 'blocked'
     ? `- [x] #${rec.num} | ${rec.url} | ${rec.company} | ${rec.role} | BLOCKED | T4 | ${cellReason(rec.r.eligibility.blocking_reason)}`
-    : `- [x] #${rec.num} | ${rec.url} | ${rec.company} | ${rec.role} | ${formatScoreCell(rec.want, rec.ease)} | ${rec.tier} | ${rec.verdict}`)
+    : `- [x] #${rec.num} | ${rec.url} | ${rec.company} | ${rec.role} | ${formatScoreCell(rec.match, rec.ease)} | ${rec.tier} | ${rec.verdict}`)
   put('data/pipeline.md', PIPELINE_SCAFFOLD + pendingLines.join('\n') + '\n\n## Processed\n' + processedLines.join('\n') + '\n')
 
   // ── data/network.md, outreach.md, follow-ups.md ──

@@ -185,10 +185,10 @@ test('parseNetwork handles empty / null input', () => {
 /* ───── pipeline parsing ─────────────────────────────────────────── */
 
 test('parseScoreCellInfo: v2 cell → Priority rank key + label; legacy → the number', () => {
-  assert.deepEqual(parseScoreCellInfo('W9 E4'), { score: 6, want: 9, ease: 4, scoreLabel: 'W9 · E4' });
-  assert.deepEqual(parseScoreCellInfo('**W8.3 E5.6**'), { score: 6.82, want: 8.3, ease: 5.6, scoreLabel: 'W8.3 · E5.6' });
-  assert.deepEqual(parseScoreCellInfo('7.2/10'), { score: 7.2, want: null, ease: null, scoreLabel: '7.2/10' });
-  assert.deepEqual(parseScoreCellInfo('**8**'), { score: 8, want: null, ease: null, scoreLabel: '8/10' });
+  assert.deepEqual(parseScoreCellInfo('M9 E4'), { score: 6, match: 9, ease: 4, scoreLabel: 'M9 · E4' });
+  assert.deepEqual(parseScoreCellInfo('**M8.3 E5.6**'), { score: 6.82, match: 8.3, ease: 5.6, scoreLabel: 'M8.3 · E5.6' });
+  assert.deepEqual(parseScoreCellInfo('7.2/10'), { score: 7.2, match: null, ease: null, scoreLabel: '7.2/10' });
+  assert.deepEqual(parseScoreCellInfo('**8**'), { score: 8, match: null, ease: null, scoreLabel: '8/10' });
   assert.equal(parseScoreCellInfo('—'), null);
   assert.equal(parseScoreCellInfo(''), null);
   assert.equal(parseScoreCellInfo('TBD'), null);
@@ -204,20 +204,20 @@ test('parsePipelineRow reads applications/scouting leading shape', () => {
   assert.equal(r.source, 'application');
 });
 
-test('parsePipelineRow: v2 application row carries Priority + the W/E label', () => {
-  const r = parsePipelineRow('| 2 | 2026-06-05 | Acme Corp | Data Analyst | W8.3 E5.6 | Applied | ❌ | n/d |  |', 'application');
+test('parsePipelineRow: v2 application row carries Priority + the M/E label', () => {
+  const r = parsePipelineRow('| 2 | 2026-06-05 | Acme Corp | Data Analyst | M8.3 E5.6 | Applied | ❌ | n/d |  |', 'application');
   assert.equal(r.score, 6.82);
-  assert.equal(r.want, 8.3);
+  assert.equal(r.match, 8.3);
   assert.equal(r.ease, 5.6);
-  assert.equal(r.scoreLabel, 'W8.3 · E5.6');
+  assert.equal(r.scoreLabel, 'M8.3 · E5.6');
 });
 
-test('parsePipelineRow: v2 scouting row reads Want/Ease from columns 5-6', () => {
+test('parsePipelineRow: v2 scouting row reads Match/Ease from columns 5-6', () => {
   const r = parsePipelineRow('| 10 | 2026-06-01 | Globex | ML Engineer | 8.25 | 5.6 | T2 | green | [#10](reports/tier-2/G.md) | n/d | MONITOR | n |', 'scouting');
-  assert.equal(r.want, 8.25);
+  assert.equal(r.match, 8.25);
   assert.equal(r.ease, 5.6);
   assert.equal(r.score, 6.8);
-  assert.equal(r.scoreLabel, 'W8.25 · E5.6');
+  assert.equal(r.scoreLabel, 'M8.25 · E5.6');
   assert.equal(r.source, 'scouting');
 });
 
@@ -228,7 +228,7 @@ test('parsePipelineRow: Blocked scouting rows (— / —) are not referral targe
 test('parsePipelineRow: a pre-v2 scouting row keeps its single score as the rank key (lenient)', () => {
   const r = parsePipelineRow('| 12 | 2026-06-01 | Globex | ML Engineer | 7.5/10 | T2 |', 'scouting');
   assert.equal(r.score, 7.5);
-  assert.equal(r.want, null);
+  assert.equal(r.match, null);
   assert.equal(r.scoreLabel, '7.5/10');
 });
 
@@ -733,21 +733,21 @@ test('pathLabel surfaces the leverage read when present', () => {
   );
 });
 
-/* ───── v2: role summaries carry the W/E label ──────────────────────────── */
+/* ───── v2: role summaries carry the M/E label ──────────────────────────── */
 
-test('matchNetworkToPipeline / pathsForCompany role summaries carry want, ease and scoreLabel', () => {
+test('matchNetworkToPipeline / pathsForCompany role summaries carry match, ease and scoreLabel', () => {
   const scouting = `| 1 | 2026-06-01 | Acme | Data Engineer | 8.5 | 6.0 | T2 | green | — | n/d | MONITOR | n |
 | 2 | 2026-06-01 | Initech | Analyst | 7.0 | 7.0 | T2 | green | — | n/d | MONITOR | n |`;
   const pipe = parsePipeline('', scouting);
   const contacts = parseNetwork('| 1 | Pat Doe | Acme | Engineer | strong | 1 |  | 2026-06-01 | x |');
   const res = matchNetworkToPipeline(contacts, pipe, '2026-06-24');
   const role = res.matches[0].roles[0];
-  assert.equal(role.scoreLabel, 'W8.5 · E6');
-  assert.equal(role.want, 8.5);
+  assert.equal(role.scoreLabel, 'M8.5 · E6');
+  assert.equal(role.match, 8.5);
   assert.equal(role.ease, 6);
   assert.equal(role.score, 7.14); // Priority, a sort key only
   const gap = res.gaps[0];
-  assert.equal(gap.roles[0].scoreLabel, 'W7 · E7');
+  assert.equal(gap.roles[0].scoreLabel, 'M7 · E7');
   const paths = pathsForCompany('Acme', contacts, pipe, '2026-06-24');
-  assert.equal(paths.roles[0].scoreLabel, 'W8.5 · E6');
+  assert.equal(paths.roles[0].scoreLabel, 'M8.5 · E6');
 });

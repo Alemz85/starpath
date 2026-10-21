@@ -8,14 +8,14 @@
  * 1. All statuses are canonical (per states.yml)
  * 2. No duplicate company+role entries
  * 3. All report links point to existing files
- * 4. Scores are a v2 "W8.3 E5.6" cell, a legacy "7.4/10" cell, or N/A / DUP
+ * 4. Scores are a v2 "M8.3 E5.6" cell, a legacy "7.4/10" cell, or N/A / DUP
  *    (docs/scoring-v2.md §8.3)
  * 5. All rows have proper pipe-delimited format
  * 6. No pending TSVs in tracker-additions/ (only in merged/ or archived/)
  *
  * scouting.md checks (lighter — landscape inventory, not active applications):
  * 1. The table has the v2 12-column header and every row has 12 columns
- * 2. Tier is T1-T4; Want/Ease are numbers 1-10 or "—"; Eligibility is
+ * 2. Tier is T1-T4; Match/Ease are numbers 1-10 or "—"; Eligibility is
  *    green | amber: … | red: …; a red row is blocked (— / — / T4)
  * 3. All report links resolve (— is allowed for T4 skips / blocked rows)
  * 4. No pending TSVs in scouting-additions/
@@ -201,7 +201,7 @@ for (const e of entries) {
 }
 if (brokenReports === 0) ok('All report links valid');
 
-// --- Check 4: Score format (v2 "W8.3 E5.6", legacy "7.4/10", N/A, DUP) ---
+// --- Check 4: Score format (v2 "M8.3 E5.6", legacy "7.4/10", N/A, DUP) ---
 let badScores = 0;
 for (const e of entries) {
   const problem = validateScoreCell(e.score);
@@ -258,7 +258,7 @@ if (existsSync(SCOUTING_FILE)) {
   let v2Header = true;
   if (scoutingHeader && !isV2ScoutingHeader(scoutingHeader)) {
     v2Header = false;
-    error('data/scouting.md has a pre-v2 header (expected # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes)');
+    error('data/scouting.md has a pre-v2 header (expected # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes)');
   }
   let malformedScoutRows = 0;
   for (const line of scoutingLines) {
@@ -279,14 +279,14 @@ if (existsSync(SCOUTING_FILE)) {
 
   console.log(`\n📊 Checking ${scoutingEntries.length} entries in data/scouting.md\n`);
 
-  // Cell validity: tier, Want/Ease, Eligibility, blocked-row consistency
+  // Cell validity: tier, Match/Ease, Eligibility, blocked-row consistency
   let badCells = 0;
   for (const e of scoutingEntries) {
     const { errors: errs, warnings: warns } = validateScoutingRow(e);
     for (const m of errs) { error(`scouting #${e.num}: ${m}`); badCells++; }
     for (const m of warns) warn(`scouting #${e.num}: ${m}`);
   }
-  if (badCells === 0 && malformedScoutRows === 0 && v2Header) ok('All scouting rows valid (tier, Want/Ease, Eligibility)');
+  if (badCells === 0 && malformedScoutRows === 0 && v2Header) ok('All scouting rows valid (tier, Match/Ease, Eligibility)');
 
   // Report links (— allowed for T4 skips)
   let brokenScoutReports = 0;

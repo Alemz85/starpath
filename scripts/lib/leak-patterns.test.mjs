@@ -40,7 +40,7 @@ describe('phone', () => {
   });
   it('ignores fictional ranges, short numbers and score deltas', () => {
     for (const line of ['+1 555 123 4567', '+11 5550 123456', '+44 7700 900123', '+1-555-0123',
-      'Want +0.25 / Ease +1.5', '+33 1234', '@@ -1,3 +12,8 @@', '+00 000 000 000', '+1 234 567 890']) {
+      'Match +0.25 / Ease +1.5', '+33 1234', '@@ -1,3 +12,8 @@', '+00 000 000 000', '+1 234 567 890']) {
       assert.deepEqual(cats(line), [], line);
     }
     assert.equal(isPlaceholderPhone('+1 555 987 6543'), true);

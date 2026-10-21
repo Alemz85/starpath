@@ -134,12 +134,12 @@ function writePrivateRoot(root) {
     'data/applications.md': [
       '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
       '|---|------|---------|------|-------|--------|-----|----------|--------|-------|',
-      '| 1 | 2026-05-05 | **Quillfeather Dynamics** | Orbital Logistics Analyst (Lyon) | W8 E7 | Applied | ❌ | | [1](reports/tier-1/x.md) | |',
-      '| 2 | 2026-05-06 | Google | Data Analyst | W7 E6 | Evaluated | ❌ | | | |',
+      '| 1 | 2026-05-05 | **Quillfeather Dynamics** | Orbital Logistics Analyst (Lyon) | M8 E7 | Applied | ❌ | | [1](reports/tier-1/x.md) | |',
+      '| 2 | 2026-05-06 | Google | Data Analyst | M7 E6 | Evaluated | ❌ | | | |',
       '',
     ].join('\n'),
     'data/scouting.md': [
-      '| # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |',
+      '| # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes |',
       '|---|------|---------|------|------|------|------|-------------|--------|----------|----------------|-------|',
       '| 3 | 2026-05-07 | Brindlewood Labs | Senior Data Analyst | 7 | 6 | T2 | green | | | | |',
       '',

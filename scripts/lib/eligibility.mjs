@@ -1,14 +1,14 @@
 // eligibility.mjs — the scoring v2 eligibility gate (docs/scoring-v2.md §1).
 //
-// Eligibility is a gate, not a score. Before anyone argues about how much a
-// role is wanted or how easy it is to get, ask: can this candidate take it
+// Eligibility is a gate, not a score. Before anyone argues about how well a
+// role matches or how easy it is to get, ask: can this candidate take it
 // at all? Most hand-caught misses in v1 were here: an internship that
 // overlaps a study term, a "fluent German" requirement, a country that won't
 // sponsor. v1 caught them through scattered exceptions (language-wall force
 // Skip, geo/visa discards, a UK salary-floor gate, a visa-friction sub-table).
 // v2 runs six explicit checks and returns green / amber / red:
 //
-//   red   → the listing is Blocked (no Want / Ease / Priority)
+//   red   → the listing is Blocked (no Match / Ease / Priority)
 //   amber → scored normally, Ease −0.5 per amber (max −1.0), and every
 //           amber carries the one question to ask the recruiter
 //   green → no effect
@@ -454,7 +454,7 @@ export function evaluateEligibility(facts, profile, opts = {}) {
 }
 
 /**
- * Whether a red listing still gets Want / Ease (profile
+ * Whether a red listing still gets Match / Ease (profile
  * `eligibility.score_through_red`). Red stays red: the verdict is Blocked and
  * the flag shows; the scores only fill in the market picture for a wall the
  * candidate could plausibly clear later (a start date that may move, a

@@ -49,7 +49,7 @@ Options:
   --retry-failed       Only retry offers marked as "failed" in state
   --start-from N       Start from offer ID N (skip earlier IDs)
   --max-retries N      Max retry attempts per offer (default: 2)
-  --min-score N        Mark offers whose Priority (sqrt(want*ease)) is below N as skipped in
+  --min-score N        Mark offers whose Priority (sqrt(match*ease)) is below N as skipped in
                        state; Blocked listings (no Priority) always fail the gate (default: 0 = off)
   --model ID           Claude model for workers (default: opus = latest Opus)
   -h, --help           Show this help
@@ -484,7 +484,7 @@ process_offer() {
 
   # Parse the worker log once: status heuristic, score, token usage, verdict.
   # Fields: status score input cache_creation cache_read output cost duration turns verdict denied outcome reported_error
-  # `score` is the worker's Priority (sqrt(want*ease)); a Blocked listing has no
+  # `score` is the worker's Priority (sqrt(match*ease)); a Blocked listing has no
   # Priority (score "-", verdict "blocked").
   local parsed
   parsed=$(node "$PROJECT_DIR/scripts/parse-batch-result.mjs" "$log_file" 2>/dev/null || printf 'unknown\t-\t-\t-\t-\t-\t-\t-\t-\t-\t-\tcompleted\t-\n')
@@ -640,7 +640,7 @@ print_summary() {
 
   echo "Total: $total | Completed: $completed | Failed: $failed | Skipped: $skipped | Pending: $pending"
 
-  # Priority = sqrt(want*ease). Blocked listings have none, so they are
+  # Priority = sqrt(match*ease). Blocked listings have none, so they are
   # excluded from the average and reported separately.
   if (( score_count > 0 )); then
     local avg

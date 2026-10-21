@@ -3,8 +3,8 @@
  * dedup-tracker.mjs — Remove duplicate entries from applications.md
  *
  * Groups by normalized company + fuzzy role match.
- * Keeps entry with highest score (Priority = sqrt(want × ease) for v2
- * "W8.3 E5.6" cells, the legacy number for "X.X/10" cells; v2 wins ties). If discarded entry had more advanced status,
+ * Keeps entry with highest score (Priority = sqrt(match × ease) for v2
+ * "M8.3 E5.6" cells, the legacy number for "X.X/10" cells; v2 wins ties). If discarded entry had more advanced status,
  * preserves that status. Merges notes.
  *
  * Parsing/normalization lives in lib/tracker-core.mjs (pure + unit-tested);

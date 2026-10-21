@@ -6,25 +6,25 @@
  * not active applications, so they live in data/scouting.md with a different
  * column shape (docs/scoring-v2.md §8.2):
  *
- *   # | Date | Company | Role | Want | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes
+ *   # | Date | Company | Role | Match | Ease | Tier | Eligibility | Report | Deadline | Promotion Hint | Notes
  *
  * TSV input format (12 tab-separated columns, written by modes/scouting.md):
  *
- *   num\tdate\tcompany\trole\twant\tease\ttier\teligibility\treport\tdeadline\tpromotion_hint\tnotes
+ *   num\tdate\tcompany\trole\tmatch\tease\ttier\teligibility\treport\tdeadline\tpromotion_hint\tnotes
  *
- * Want/Ease are numbers (no "/10"), or "—" for a Blocked (red-eligibility)
+ * Match/Ease are numbers (no "/10"), or "—" for a Blocked (red-eligibility)
  * listing. The v1 10/11-column forms are retired — v1 data was archived, so
  * they are rejected with a warning rather than converted.
  *
  * Dedup: company normalized + role fuzzy match + report number match.
  * Re-evaluation: a newer evaluation of the same listing REPLACES the old row
  * (the score is point-in-time, not a high-water mark); the note records
- * "Re-eval (W a→b, E c→d)". An addition dated before the existing row is
+ * "Re-eval (M a→b, E c→d)". An addition dated before the existing row is
  * skipped as stale. A PROMOTED-n hint is preserved.
  *
  * Applications refresh: when a merged listing is already in
  * data/applications.md (strict company + role match), that row's Score cell
- * becomes the new `W.. E..` and its Report link the new report, so an applied
+ * becomes the new `M.. E..` and its Report link the new report, so an applied
  * role never keeps a stale score after a re-evaluation.
  *
  * Row numbers: a TSV's own number stands when it is free and either above the
@@ -116,7 +116,7 @@ const fileLines = fileContent.split('\n');
 // header would corrupt the file. v1 data is archived (data/archive/scoring-v1/).
 const headerLine = fileLines.find(l => /^\|\s*#\s*\|/.test(l));
 if (headerLine && !isV2ScoutingHeader(headerLine)) {
-  console.error('❌ data/scouting.md has a pre-v2 header (Score/Tier/CF-AF). Archive it and recreate it with the v2 12-column header (Want/Ease/Tier/Eligibility) — see docs/scoring-v2.md §8.2.');
+  console.error('❌ data/scouting.md has a pre-v2 header (Score/Tier/CF-AF). Archive it and recreate it with the v2 12-column header (Match/Ease/Tier/Eligibility) — see docs/scoring-v2.md §8.2.');
   process.exit(1);
 }
 const existing = [];
@@ -223,7 +223,7 @@ for (const { line, label } of additionLines) {
     newRows.push(formatScoutingRow({ ...addition, num: entryNum, report }));
     added++;
     merged.push({ ...addition, report });
-    console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (W ${addition.want} · E ${addition.ease}, ${addition.tier}, ${addition.eligibility.split(':')[0]})`);
+    console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (M ${addition.match} · E ${addition.ease}, ${addition.tier}, ${addition.eligibility.split(':')[0]})`);
     appendDedupIndex(addition.company, addition.role, addition.date);
   }
 }
@@ -249,7 +249,7 @@ if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) withLockSync(lockPathFor
   const appLines = readFileSync(APPLICATIONS_FILE, 'utf-8').split('\n');
   const updates = merged.map(a => ({
     company: a.company, role: a.role,
-    want: Number.parseFloat(a.want), ease: Number.parseFloat(a.ease),
+    match: Number.parseFloat(a.match), ease: Number.parseFloat(a.ease),
     report: a.report,
   }));
   const { lines, changed, matched } = refreshApplicationRows(appLines, updates);

@@ -11,7 +11,7 @@ import { useSpawnsStore } from '@/store/spawns'
 import { ApplyAction } from './ApplyAction'
 import { CompanyLogo } from './CompanyLogo'
 import { FileText, ExternalLink, Sparkles, GraduationCap, X, FileOutput } from 'lucide-react'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { VerdictChip } from '@/components/shared/EligibilityChip'
 import { blockedReason, isBlocked, verdictOf } from '@/lib/scoreBands'
 import { clsx } from 'clsx'
@@ -105,11 +105,11 @@ export function RowActionPopover({ entry, anchor, onClose, onViewReport }: Props
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-semibold leading-tight text-text-1 truncate" title={entry.company}>{entry.company}</div>
           <div className="text-label text-text-3 truncate" title={entry.role}>{entry.role}</div>
-          {/* Wraps instead of squeezing: WantEase never shrinks, so a fixed
+          {/* Wraps instead of squeezing: MatchEase never shrinks, so a fixed
               width let the liveness chip sit on top of the Ease number. */}
           <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 mt-1.5">
             <VerdictChip verdict={verdictOf(entry)} />
-            <WantEase want={entry.want} ease={entry.ease} size="sm" blockedReason={isBlocked(entry) ? blockedReason(entry) : null} className="min-w-0 max-w-full" />
+            <MatchEase match={entry.match} ease={entry.ease} size="sm" blockedReason={isBlocked(entry) ? blockedReason(entry) : null} className="min-w-0 max-w-full" />
             {live && <Chip tone={live.tone}>{live.label}</Chip>}
           </div>
         </div>

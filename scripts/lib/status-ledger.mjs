@@ -346,8 +346,8 @@ export function readHistory({ appsFile, num = null, company = null, role = null 
     const lines = readFileSync(appsFile, 'utf-8').split('\n')
     try { app = matchingRows(lines, { num, company, role })[0]?.row ?? null } catch { app = null }
   }
-  const want = app ?? { num: Number(num), company, role }
-  const hits = rows.filter((e) => (want.num ? entryMatches(e, want) : key(e.company) === key(want.company) && key(e.role) === key(want.role)))
+  const target = app ?? { num: Number(num), company, role }
+  const hits = rows.filter((e) => (target.num ? entryMatches(e, target) : key(e.company) === key(target.company) && key(e.role) === key(target.role)))
   return sortHistory(hits).map(strip)
 }
 

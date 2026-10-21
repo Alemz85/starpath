@@ -17,11 +17,11 @@ import { HISTORY_COLUMNS, SUMMARY_COLUMNS, buildRow, appendLine, appendScoreRows
 const tmp = () => mkdtempSync(join(tmpdir(), 'score-rows-'))
 const files = (d) => ({ historyFile: join(d, 'score-history.tsv'), summariesFile: join(d, 'report-summaries.tsv') })
 const HISTORY = {
-  date: '2026-10-21', archetype: 'Operations', ease: 6.5, want: 7.25, priority: 6.85, eligibility: 'green', verdict: 'stretch',
+  date: '2026-10-21', archetype: 'Operations', ease: 6.5, match: 7.25, priority: 6.85, eligibility: 'green', verdict: 'stretch',
   mode: 'scouting', company: "O'Brien & Sons", role: 'Depot Analyst', tier: 'T2', source: 'batch', location: 'Aldervale',
   salary_raw: '$45,000 / yr', url: 'https://jobs.example.com/aldervale/123?x=1&y=2',
 }
-const SUMMARY = { date: '2026-10-21', company: "O'Brien & Sons", role: 'Depot Analyst', archetype: 'Operations', tier: 'T2', want: 7.25, ease: 6.5, eligibility: 'green', key_gaps: '—', verdict: 'stretch' }
+const SUMMARY = { date: '2026-10-21', company: "O'Brien & Sons", role: 'Depot Analyst', archetype: 'Operations', tier: 'T2', match: 7.25, ease: 6.5, eligibility: 'green', key_gaps: '—', verdict: 'stretch' }
 
 test('column lists are the canonical 29 and 10', () => {
   assert.equal(HISTORY_COLUMNS.join('\t'), SCORE_HISTORY_HEADER)

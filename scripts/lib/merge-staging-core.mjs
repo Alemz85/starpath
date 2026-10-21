@@ -664,10 +664,10 @@ export function indexListingDates(text) {
     if (key && !byKey.has(key)) byKey.set(key, dated);
   }
   return ({ url, company, role } = {}) => {
-    const wantUrl = url ? canonicalizeUrl(url) : '';
-    if (wantUrl && byUrl.has(wantUrl)) return byUrl.get(wantUrl);
-    const wantKey = company && role ? companyRoleKey(company, role) : '';
-    return (wantKey && byKey.get(wantKey)) || null;
+    const matchUrl = url ? canonicalizeUrl(url) : '';
+    if (matchUrl && byUrl.has(matchUrl)) return byUrl.get(matchUrl);
+    const matchKey = company && role ? companyRoleKey(company, role) : '';
+    return (matchKey && byKey.get(matchKey)) || null;
   };
 }
 

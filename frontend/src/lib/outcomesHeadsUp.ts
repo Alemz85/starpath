@@ -101,7 +101,7 @@ export interface OutcomesInput {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// applications.md stores the v2 score as `W8.3 E5.6`; recover the Ease.
+// applications.md stores the v2 score as `M8.3 E5.6`; recover the Ease.
 // A legacy `X.X/10` cell (or anything unparseable) carries no Ease → null.
 export function parseAppEase(raw: string): number | null {
   const cell = parseScoreCell(raw)

@@ -21,7 +21,7 @@ import { APPLICATIONS_SCAFFOLD } from '../../../scripts/lib/profile-core.mjs'
 const DOC = [
   '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
   '|---|------|---------|------|-------|--------|-----|----------|--------|-------|',
-  '| 1 | 2026-04-27 | Acme | ML Eng | W8.4 E6.0 | Applied | ✅ | n/d | [#1](reports/tier-2/Acme - ML Eng.md) | emailed Jane |',
+  '| 1 | 2026-04-27 | Acme | ML Eng | M8.4 E6.0 | Applied | ✅ | n/d | [#1](reports/tier-2/Acme - ML Eng.md) | emailed Jane |',
   '| 2 | 2026-04-28 | Globex | Analyst | 7.1/10 | Evaluated | ❌ | 2026-06-30 | [#2](reports/tier-2/Globex - Analyst.md) |  |',
 ].join('\n')
 
@@ -33,62 +33,62 @@ function row(doc: string, company: string, role: string): string[] | null {
 // ─── upsert: refresh-in-place (the dedup contract) ────────────────────────────
 
 test('upsert refreshes an existing listing in place without adding a row', () => {
-  const next = upsertApplicationRow(DOC, { company: 'Acme', role: 'ML Eng', want: 9.1, ease: 7.2, tier: 'T1' })
+  const next = upsertApplicationRow(DOC, { company: 'Acme', role: 'ML Eng', match: 9.1, ease: 7.2, tier: 'T1' })
   // Same number of data rows — no duplicate appended.
   assert.equal(next.split('\n').filter(isTableDataRow).length, 2)
   const cells = row(next, 'Acme', 'ML Eng')!
-  assert.equal(cells[4], 'W9.1 E7.2')     // score refreshed (v2 cell)
+  assert.equal(cells[4], 'M9.1 E7.2')     // score refreshed (v2 cell)
   assert.equal(cells[5], 'Applied')        // status PRESERVED
   assert.equal(cells[6], '✅')             // pdf PRESERVED
   assert.equal(cells[9], 'emailed Jane')   // notes PRESERVED
 })
 
 test('upsert is idempotent when the score is unchanged', () => {
-  const next = upsertApplicationRow(DOC, { company: 'Acme', role: 'ML Eng', want: 8.4, ease: 6.0, tier: 'T2' })
+  const next = upsertApplicationRow(DOC, { company: 'Acme', role: 'ML Eng', match: 8.4, ease: 6.0, tier: 'T2' })
   assert.equal(next, DOC)
 })
 
 test('upsert matches (company, role) case-insensitively', () => {
-  const next = upsertApplicationRow(DOC, { company: 'acme', role: 'ml eng', want: 9.9, ease: 7.0, tier: 'T1' })
+  const next = upsertApplicationRow(DOC, { company: 'acme', role: 'ml eng', match: 9.9, ease: 7.0, tier: 'T1' })
   assert.equal(next.split('\n').filter(isTableDataRow).length, 2)
-  assert.equal(row(next, 'Acme', 'ML Eng')![4], 'W9.9 E7.0')
+  assert.equal(row(next, 'Acme', 'ML Eng')![4], 'M9.9 E7.0')
 })
 
 test('upsert refreshes the report link only when a path is supplied', () => {
-  const keep = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', want: null, ease: null, tier: 'T2' })
+  const keep = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', match: null, ease: null, tier: 'T2' })
   assert.equal(row(keep, 'Globex', 'Analyst')![8], '[#2](reports/tier-2/Globex - Analyst.md)')
-  const moved = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', want: null, ease: null, tier: 'T1', reportPath: 'reports/tier-1/Globex - Analyst.md' })
+  const moved = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', match: null, ease: null, tier: 'T1', reportPath: 'reports/tier-1/Globex - Analyst.md' })
   assert.equal(row(moved, 'Globex', 'Analyst')![8], '[#2](reports/tier-1/Globex - Analyst.md)')
 })
 
-test('upsert leaves a legacy X.X/10 cell as-is when no Want/Ease is supplied', () => {
-  const next = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', want: null, ease: null, tier: 'T2' })
+test('upsert leaves a legacy X.X/10 cell as-is when no Match/Ease is supplied', () => {
+  const next = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', match: null, ease: null, tier: 'T2' })
   assert.equal(row(next, 'Globex', 'Analyst')![4], '7.1/10')
   assert.equal(next, DOC)
 })
 
-test('upsert replaces a legacy X.X/10 cell with the v2 W/E form once scored', () => {
-  const next = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', want: 7.06, ease: 8.44, tier: 'T2' })
-  assert.equal(row(next, 'Globex', 'Analyst')![4], 'W7.1 E8.4')
+test('upsert replaces a legacy X.X/10 cell with the v2 M/E form once scored', () => {
+  const next = upsertApplicationRow(DOC, { company: 'Globex', role: 'Analyst', match: 7.06, ease: 8.44, tier: 'T2' })
+  assert.equal(row(next, 'Globex', 'Analyst')![4], 'M7.1 E8.4')
 })
 
 // ─── upsert: append (new listing) ─────────────────────────────────────────────
 
 test('upsert appends a new listing with the next number and Evaluated status', () => {
-  const next = upsertApplicationRow(DOC, { company: 'Initech', role: 'PM', want: 8.2, ease: 4.1, tier: 'T3' })
+  const next = upsertApplicationRow(DOC, { company: 'Initech', role: 'PM', match: 8.2, ease: 4.1, tier: 'T3' })
   const rows = next.split('\n').filter(isTableDataRow)
   assert.equal(rows.length, 3)
   const cells = row(next, 'Initech', 'PM')!
   assert.equal(cells[0], '3')              // max(#)+1
-  assert.equal(cells[4], 'W8.2 E4.1')
+  assert.equal(cells[4], 'M8.2 E4.1')
   assert.equal(cells[5], 'Evaluated')
   assert.equal(cells[6], '❌')
   assert.equal(cells[7], 'n/d')
   assert.equal(cells[8], '[#3](reports/tier-3/Initech - PM.md)')  // derived path
 })
 
-test('upsert renders an unscored listing with an em-dash, not W0.0 E0.0', () => {
-  const next = upsertApplicationRow(DOC, { company: 'NewCo', role: 'Intern', want: null, ease: null, tier: 'T4' })
+test('upsert renders an unscored listing with an em-dash, not M0.0 E0.0', () => {
+  const next = upsertApplicationRow(DOC, { company: 'NewCo', role: 'Intern', match: null, ease: null, tier: 'T4' })
   assert.equal(row(next, 'NewCo', 'Intern')![4], '—')
 })
 
@@ -97,7 +97,7 @@ test('upsert seeds the first row when the table has only a header', () => {
     '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |',
     '|---|------|---------|------|-------|--------|-----|----------|--------|-------|',
   ].join('\n')
-  const next = upsertApplicationRow(header, { company: 'Acme', role: 'PM', want: 7.7, ease: 7.1, tier: 'T2' })
+  const next = upsertApplicationRow(header, { company: 'Acme', role: 'PM', match: 7.7, ease: 7.1, tier: 'T2' })
   const rows = next.split('\n').filter(isTableDataRow)
   assert.equal(rows.length, 1)
   assert.equal(splitRow(rows[0])[0], '1')
@@ -159,7 +159,7 @@ test('the 9-col scaffold is already canonical 10-col (no migration needed)', () 
 })
 
 test('upsert self-heals a legacy 9-col file: appends a valid 10-col row, preserves notes', () => {
-  const next = upsertApplicationRow(LEGACY_9COL, { company: 'Globex', role: 'Analyst', want: 7.2, ease: 7.5, tier: 'T2' })
+  const next = upsertApplicationRow(LEGACY_9COL, { company: 'Globex', role: 'Analyst', match: 7.2, ease: 7.5, tier: 'T2' })
   // Header upgraded to 10 columns.
   assert.match(next.split('\n')[0], /\| PDF \| Deadline \| Report \| Notes \|/)
   // The pre-existing row kept its Note through the migration…
@@ -177,11 +177,11 @@ test('upsert refresh on a self-healed file updates Report, never Notes', () => {
   // Refresh the existing Acme row with a new report path. Pre-fix this wrote
   // cells[8] into a 9-col row's NOTES cell; post-migration cells[8] is Report.
   const next = upsertApplicationRow(LEGACY_9COL, {
-    company: 'Acme', role: 'ML Eng', want: 9.0, ease: 7.5, tier: 'T1',
+    company: 'Acme', role: 'ML Eng', match: 9.0, ease: 7.5, tier: 'T1',
     reportPath: 'reports/tier-1/Acme - ML Eng.md',
   })
   const acme = parseApplications(next).find(r => r.company === 'Acme')!
-  assert.equal(acme.score, 'W9.0 E7.5')                            // score refreshed
+  assert.equal(acme.score, 'M9.0 E7.5')                            // score refreshed
   assert.equal(acme.report, '[#1](reports/tier-1/Acme - ML Eng.md)')  // Report moved
   assert.equal(acme.notes, 'emailed Jane')                          // Notes untouched
 })
@@ -208,7 +208,7 @@ test('splitRow / joinRow round-trip a data row', () => {
   const cells = splitRow(DOC.split('\n')[2])
   assert.equal(cells.length, 10)
   assert.equal(cells[2], 'Acme')
-  assert.equal(joinRow(cells), '| 1 | 2026-04-27 | Acme | ML Eng | W8.4 E6.0 | Applied | ✅ | n/d | [#1](reports/tier-2/Acme - ML Eng.md) | emailed Jane |')
+  assert.equal(joinRow(cells), '| 1 | 2026-04-27 | Acme | ML Eng | M8.4 E6.0 | Applied | ✅ | n/d | [#1](reports/tier-2/Acme - ML Eng.md) | emailed Jane |')
 })
 
 // ─── updateApplicationFields (multi-cell patch) ───────────────────────────────
@@ -265,7 +265,7 @@ test('patching a legacy 9-column file upgrades it instead of eating the report l
 
 test('upsert then patch is the chat-proposal write path and lands one clean row', () => {
   const upserted = upsertApplicationRow(DOC, {
-    company: 'Initech', role: 'Data Analyst', want: 7.8, ease: 7.2, tier: 'T2',
+    company: 'Initech', role: 'Data Analyst', match: 7.8, ease: 7.2, tier: 'T2',
   })
   const next = updateApplicationFields(upserted, 'Initech', 'Data Analyst', {
     status: 'Applied', deadline: 'Rolling', notes: 'from chat',
@@ -275,13 +275,13 @@ test('upsert then patch is the chat-proposal write path and lands one clean row'
   assert.equal(cells.length, 10)
   assert.equal(cells[0], '3')
   assert.equal(cells[3], 'Data Analyst')
-  assert.equal(cells[4], 'W7.8 E7.2')
+  assert.equal(cells[4], 'M7.8 E7.2')
   assert.equal(cells[5], 'Applied')
   assert.equal(cells[7], 'Rolling')
   assert.equal(cells[9], 'from chat')
   // Confirming the same proposal twice refreshes in place — never a duplicate.
   const again = updateApplicationFields(
-    upsertApplicationRow(next, { company: 'Initech', role: 'Data Analyst', want: 7.8, ease: 7.2, tier: 'T2' }),
+    upsertApplicationRow(next, { company: 'Initech', role: 'Data Analyst', match: 7.8, ease: 7.2, tier: 'T2' }),
     'Initech', 'Data Analyst', { status: 'Applied', deadline: 'Rolling', notes: 'from chat' },
   )
   assert.equal(again.split('\n').filter(isTableDataRow).length, 3)

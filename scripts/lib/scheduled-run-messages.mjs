@@ -33,7 +33,7 @@ export function topPicksSince(scoreHistoryTsv, sinceDate, max = MAX_PICKS) {
     .filter((r) => r.date >= sinceDate && PICK_VERDICTS.includes(r.verdict))
     .sort((a, b) => PICK_VERDICTS.indexOf(a.verdict) - PICK_VERDICTS.indexOf(b.verdict) || (b.priority ?? 0) - (a.priority ?? 0))
     .slice(0, max)
-    .map((r) => ({ company: r.company, role: r.role, verdict: r.verdict, want: r.want, ease: r.ease, url: r.url || null }))
+    .map((r) => ({ company: r.company, role: r.role, verdict: r.verdict, match: r.match, ease: r.ease, url: r.url || null }))
 }
 
 const fmt = (n) => (Number.isFinite(n) ? n.toFixed(1) : '?')
@@ -83,7 +83,7 @@ export function messageForRun(result, { picks = [], trigger = 'manual', now = Da
   const lines = [`${summarizeRun(run)}.`]
   if (picks.length) {
     lines.push('', '**Top picks**')
-    for (const p of picks) lines.push(`- ${p.company}: ${p.role} (${p.verdict}, Want ${fmt(p.want)} · Ease ${fmt(p.ease)})`)
+    for (const p of picks) lines.push(`- ${p.company}: ${p.role} (${p.verdict}, Match ${fmt(p.match)} · Ease ${fmt(p.ease)})`)
   } else if ((s.evalCompleted ?? 0) > 0) {
     lines.push('', 'Nothing scored `go` or `stretch` this time.')
   }

@@ -2,7 +2,7 @@
 // suites (targeting, peer-rank, score-trend, calibration, positioning, …).
 //
 // Builds data/score-history.tsv rows in the v2 29-column layout
-// (docs/scoring-v2.md §8.1). Want / Ease / Priority / verdict / tier are
+// (docs/scoring-v2.md §8.1). Match / Ease / Priority / verdict / tier are
 // derived through the real engine unless a test overrides them, so fixtures
 // can never disagree with the scoring rules. Companies are fictional.
 //
@@ -10,8 +10,8 @@
 
 import { SCORE_HISTORY_HEADER } from '../profile-core.mjs'
 import {
-  rollupWant, rollupEase, assignVerdict, computePriority,
-  WANT_DIMS, EASE_DIMS,
+  rollupMatch, rollupEase, assignVerdict, computePriority,
+  MATCH_DIMS, EASE_DIMS,
 } from '../score-bands.mjs'
 
 export const HISTORY_COLUMNS = SCORE_HISTORY_HEADER.split('\t')
@@ -26,7 +26,7 @@ export const BASE_DIMS = Object.freeze({
 /**
  * One score-history row object (all 29 keys). Pass dimension overrides and/or
  * any column. `eligibility: 'red'` makes a Blocked row: every dimension,
- * want, ease and priority cell is empty, verdict `blocked`, tier T4.
+ * match, ease and priority cell is empty, verdict `blocked`, tier T4.
  * `amber_count` (not a column) feeds the Ease amber penalty; it defaults to
  * the number of amber flags in `eligibility_flags`.
  */
@@ -43,7 +43,7 @@ export function historyRowObject(over = {}) {
   }
   if (eligibility === 'red') {
     const out = { ...base, ...over }
-    for (const k of [...WANT_DIMS, ...EASE_DIMS, 'want', 'ease', 'priority']) out[k] = over[k] ?? ''
+    for (const k of [...MATCH_DIMS, ...EASE_DIMS, 'match', 'ease', 'priority']) out[k] = over[k] ?? ''
     out.verdict = over.verdict ?? 'blocked'
     out.tier = over.tier ?? 'T4'
     delete out.amber_count
@@ -53,13 +53,13 @@ export function historyRowObject(over = {}) {
   for (const k of Object.keys(BASE_DIMS)) if (over[k] !== undefined) dims[k] = over[k]
   const amberCount = over.amber_count ??
     flags.split(';').filter(f => /^[^:]+:amber:/.test(f)).length
-  const want = over.want ?? rollupWant(dims).score
+  const match = over.match ?? rollupMatch(dims).score
   const ease = over.ease ?? rollupEase(dims, { amber_count: amberCount }).score
-  const v = assignVerdict({ want, ease, eligibility })
+  const v = assignVerdict({ match, ease, eligibility })
   const out = {
     ...base, ...dims,
-    want, ease,
-    priority: over.priority ?? computePriority(want, ease),
+    match, ease,
+    priority: over.priority ?? computePriority(match, ease),
     verdict: over.verdict ?? v.verdict,
     tier: over.tier ?? v.tier,
   }

@@ -12,7 +12,7 @@ export interface ExportColumn {
   value: (e: ScoreEntry) => string
 }
 
-// Two-decimal score (Want / Ease are stored to 2dp), or blank when missing
+// Two-decimal score (Match / Ease are stored to 2dp), or blank when missing
 // (blocked / unscored). Blank rather than "0.00" so the spreadsheet treats it
 // as missing, not as a real zero that would skew downstream averages.
 const score = (n: number | null | undefined): string =>
@@ -36,7 +36,7 @@ const eligibilityCell = (e: ScoreEntry): string => {
 export const DATABASE_EXPORT_COLUMNS: ExportColumn[] = [
   { header: 'Company',          value: e => e.company },
   { header: 'Role',             value: e => e.role },
-  { header: 'Want',             value: e => score(e.want) },
+  { header: 'Match',             value: e => score(e.match) },
   { header: 'Ease',             value: e => score(e.ease) },
   { header: 'Eligibility',      value: eligibilityCell },
   { header: 'Verdict',          value: e => verdictOf(e) ?? '' },

@@ -116,7 +116,7 @@ function readScouting() {
     if (!r) continue;
     rows.push({
       num: r.num, date: r.date, company: r.company, role: r.role,
-      want: r.want, ease: r.ease, tier: r.tier, eligibility: r.eligibility,
+      match: r.match, ease: r.ease, tier: r.tier, eligibility: r.eligibility,
       report: r.report, deadline: r.deadline, hint: r.hint, notes: r.notes,
     });
   }
@@ -133,7 +133,7 @@ function readScoreHistory() {
   const colIdx = (name) => header.indexOf(name);
   const ci = {
     date: colIdx('date'), company: colIdx('company'), role: colIdx('role'),
-    location: colIdx('location'), want: colIdx('want'), ease: colIdx('ease'), tier: colIdx('tier'),
+    location: colIdx('location'), match: colIdx('match'), ease: colIdx('ease'), tier: colIdx('tier'),
   };
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
@@ -143,7 +143,7 @@ function readScoreHistory() {
       company:  cells[ci.company],
       role:     cells[ci.role],
       location: cells[ci.location] ?? '',
-      want:     cells[ci.want],
+      match:     cells[ci.match],
       ease:     cells[ci.ease],
       tier:     cells[ci.tier],
     });
@@ -235,10 +235,10 @@ function renderReport({ resolved, byEntity, siblingGroups }) {
     for (const [id, rows] of collisions) {
       out.push(`### \`${id}\``);
       out.push('');
-      out.push(`| # | Date | Company | Role | Want | Ease | Tier | Location | Notes |`);
+      out.push(`| # | Date | Company | Role | Match | Ease | Tier | Location | Notes |`);
       out.push(`|---|------|---------|------|------|------|------|----------|-------|`);
       for (const r of rows) {
-        out.push(`| ${r.row.num} | ${r.row.date} | ${r.row.company} | ${r.row.role} | ${r.row.want} | ${r.row.ease} | ${r.row.tier} | ${r.location} | ${(r.row.notes || '').slice(0, 80)} |`);
+        out.push(`| ${r.row.num} | ${r.row.date} | ${r.row.company} | ${r.row.role} | ${r.row.match} | ${r.row.ease} | ${r.row.tier} | ${r.location} | ${(r.row.notes || '').slice(0, 80)} |`);
       }
       out.push('');
     }

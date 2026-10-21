@@ -32,9 +32,9 @@ export interface DbFilters {
   employmentTypes: Set<string>
   liveness: Set<Liveness>
   /** Per-axis ranges (scoring v2 has no Overall). A narrowed range keeps
-   *  scored rows only — a blocked row has no Want/Ease to range over. */
-  wantMin: number
-  wantMax: number
+   *  scored rows only — a blocked row has no Match/Ease to range over. */
+  matchMin: number
+  matchMax: number
   easeMin: number
   easeMax: number
 }
@@ -65,16 +65,16 @@ export const VERDICT_FACET_ORDER = ['go', 'stretch', 'solid', 'growth', 'thin', 
 export const ELIGIBILITY_FACET_ORDER = ['green', 'amber', 'red']
 
 /** True when a range filter is narrowed from its 0–10 default. */
-export function rangeActive(f: Pick<DbFilters, 'wantMin' | 'wantMax' | 'easeMin' | 'easeMax'>): boolean {
-  return f.wantMin > 0 || f.wantMax < 10 || f.easeMin > 0 || f.easeMax < 10
+export function rangeActive(f: Pick<DbFilters, 'matchMin' | 'matchMax' | 'easeMin' | 'easeMax'>): boolean {
+  return f.matchMin > 0 || f.matchMax < 10 || f.easeMin > 0 || f.easeMax < 10
 }
 
 function inRanges(r: ScoreEntry, f: DbFilters): boolean {
   if (!rangeActive(f)) return true
   if (!isScored(r)) return false
-  const w = r.want as number
+  const w = r.match as number
   const e = r.ease as number
-  return w >= f.wantMin && w <= f.wantMax && e >= f.easeMin && e <= f.easeMax
+  return w >= f.matchMin && w <= f.matchMax && e >= f.easeMin && e <= f.easeMax
 }
 
 /** A real evaluation: scored, or blocked (shown with its reason). Rows with
@@ -87,7 +87,7 @@ const verdictKey = (r: ScoreEntry): string => verdictOf(r) ?? ''
 const eligKey = (r: ScoreEntry): string => r.eligibility ?? ''
 
 // Global constraints that gate every facet dimension AND the rendered rows:
-// the search tokens, free text, unevaluated-row toggle, Want/Ease ranges
+// the search tokens, free text, unevaluated-row toggle, Match/Ease ranges
 // (inside `filters`), and the raw company|role → liveness map. `liveness` is
 // resolved per row via livenessOf (defaulting to 'active' for unseen listings).
 export interface DbGlobalContext {
@@ -230,7 +230,7 @@ function prio(e: ScoreEntry): number {
 // OTHER active facet applied but its own selection ignored, so a count answers
 // "if I toggle this option, how many entities land?". Counted at the entity
 // level to match the option universe. Global constraints (search tokens, free
-// text, unevaluated toggle, Want/Ease ranges) gate every dimension.
+// text, unevaluated toggle, Match/Ease ranges) gate every dimension.
 //
 // The "Untapped only" lens gates these counts too — like every faceted-search
 // UI, a count must agree with the rows the user actually sees, so an already-

@@ -6,21 +6,21 @@
 //   • the time-window filter takes an injectable `now` (defaulting to the
 //     real clock) so tests pin an exact cutoff — same pattern as
 //     lib/profileStats.ts and lib/scanHistory.ts;
-//   • the "is this a real, scored evaluation" guard (`isScored` — Want and
+//   • the "is this a real, scored evaluation" guard (`isScored` — Match and
 //     Ease present, not blocked — plus noise labels) lives in one place so the
 //     time chart, top-X panels, and any future view agree on what counts.
 //
 // Scoring v2 (docs/scoring-v2.md §9): there is no Overall. Score analytics
-// are stated on Want and Ease separately; bands come from the VERDICT, never
+// are stated on Match and Ease separately; bands come from the VERDICT, never
 // from cut-offs on a number; blocked (red) rows are excluded from every score
-// analytic (averages, medians, the Want line) but counted as listings.
+// analytic (averages, medians, the Match line) but counted as listings.
 
 import type { ScoreEntry, ApplicationEntry, AppStatus, Verdict } from '@/types'
 import { GATES, NOISE_FLOORS } from '@/lib/scoringStats'
-import { WANT_HIGH, isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
+import { MATCH_HIGH, isScored, priorityOf, verdictOf } from '@/lib/scoreBands'
 import { parseCities } from '@/lib/entityId'
 
-/** Rows a score analytic may use: Want and Ease present, not blocked. */
+/** Rows a score analytic may use: Match and Ease present, not blocked. */
 export function scoredOnly(rows: ScoreEntry[]): ScoreEntry[] {
   return rows.filter(isScored)
 }
@@ -99,8 +99,8 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 // ─── Listings per period (week or month) ─────────────────────────────────────
 //
 // The time chart answers one question: when do listings get posted, and how
-// many of them does the user want? Bars, so hiring cycles show as peaks and
-// troughs, each split into the wanted ones and the rest. Only counts: a tally
+// many of them are strong matches? Bars, so hiring cycles show as peaks and
+// troughs, each split into the strong matches and the rest. Only counts: a tally
 // is not a score claim, so nothing here is gated
 // (docs/scoring-statistical-design.md § 3.6).
 //
@@ -110,14 +110,14 @@ export function median(rows: ScoreEntry[], field: keyof ScoreEntry): number {
 //     `pickPostedDate` and passes `postedDate`), else the period it was first
 //     evaluated — a re-evaluation is not a new listing
 //     (key: URL, else company|role);
-//   • "wanted" = the high-Want row of the verdict grid (docs/scoring-v2.md
-//     §4): Want ≥ WANT_HIGH and not blocked, i.e. a Go, Stretch or Growth
+//   • "strong match" = the high-Match row of the verdict grid (docs/scoring-v2.md
+//     §4): Match ≥ MATCH_HIGH and not blocked, i.e. a Go, Stretch or Growth
 //     target verdict, on the listing's latest evaluation;
 //   • each bucket says how many listings it placed by posting date and how
 //     many by first evaluation, so a bar of fallbacks isn't read as a hiring
 //     cycle;
 //   • blocked listings (eligibility red) count in the bars and in `blocked`,
-//     never in `wanted` — they have no Want (docs/scoring-v2.md §9);
+//     never in `strongMatch` — they have no Match (docs/scoring-v2.md §9);
 //   • empty periods between the first and last are kept as zero bars, so a
 //     quiet stretch reads as a gap rather than disappearing.
 
@@ -137,8 +137,8 @@ export interface PeriodBucket {
   posted: number
   /** Of those, placed by their first evaluation (no posting date on file). */
   evaluated: number
-  /** Of those, wanted: Want ≥ WANT_HIGH and not blocked (`isWanted`). */
-  wanted: number
+  /** Of those, strong matches: Match ≥ MATCH_HIGH and not blocked (`isStrongMatch`). */
+  strongMatch: number
   /** Of those, blocked (eligibility red) on their latest evaluation. */
   blocked: number
 }
@@ -180,10 +180,10 @@ export function listingKey(e: Pick<ScoreEntry, 'url' | 'company' | 'role'>): str
   return url ? url : `${(e.company ?? '').trim().toLowerCase()}|${(e.role ?? '').trim().toLowerCase()}`
 }
 
-/** A listing the user wants: the high-Want row of the verdict grid (Go,
- *  Stretch, Growth target): Want ≥ WANT_HIGH and not blocked. */
-export function isWanted(e: Pick<ScoreEntry, 'want' | 'eligibility'>): boolean {
-  return e.eligibility !== 'red' && e.want != null && Number.isFinite(e.want) && e.want >= WANT_HIGH
+/** A strong match: the high-Match row of the verdict grid (Go,
+ *  Stretch, Growth target): Match ≥ MATCH_HIGH and not blocked. */
+export function isStrongMatch(e: Pick<ScoreEntry, 'match' | 'eligibility'>): boolean {
+  return e.eligibility !== 'red' && e.match != null && Number.isFinite(e.match) && e.match >= MATCH_HIGH
 }
 
 export interface ByPeriodOptions {
@@ -232,7 +232,7 @@ export function buildByPeriod(rows: ScoreEntry[], granularity: PeriodGranularity
       listings: entries.length,
       posted,
       evaluated: entries.length - posted,
-      wanted: entries.filter(isWanted).length,
+      strongMatch: entries.filter(isStrongMatch).length,
       blocked: entries.filter(e => e.eligibility === 'red').length,
     })
   }
@@ -249,15 +249,15 @@ export function pickGranularity(rows: ScoreEntry[], opts: ByPeriodOptions = {}):
 
 // ─── Top-X ranking ───────────────────────────────────────────────────────────
 //
-// "Top companies by Ease", "Top locations by Want", "Top archetypes by Ease":
-// every list ranks on ONE named axis (v2 never folds Want and Ease into one
+// "Top companies by Ease", "Top locations by Match", "Top archetypes by Ease":
+// every list ranks on ONE named axis (v2 never folds Match and Ease into one
 // number) and shows both, so the axis it is not ranked on is still visible.
 // Each listing counts once, at its latest evaluation, so a re-evaluated role
 // doesn't count twice. The averages are descriptive, stated with their n.
 
-export type RankAxis = 'want' | 'ease'
+export type RankAxis = 'match' | 'ease'
 
-export interface TopRow { label: string; count: number; avgWant: number; avgEase: number }
+export interface TopRow { label: string; count: number; avgMatch: number; avgEase: number }
 
 // Skip useless labels — the score-history TSV uses "n/d" for unstated values
 // and most files have a few legacy rows with empty / dash entries.
@@ -267,7 +267,7 @@ export const isNoiseLabel = (s: string): boolean => {
 }
 
 // A multi-city listing lists its places "; "-separated, the scored city first
-// (modes/scouting.md), and Want's City score is computed for that city. So a
+// (modes/scouting.md), and Match's City score is computed for that city. So a
 // listing's location for grouping is its FIRST listed place, with its country
 // when that place named one: "Lyon, France; Vienna, Austria" → "Lyon, France",
 // grouped with a plain "Lyon, France". The first segment is taken here, not
@@ -313,13 +313,13 @@ export function buildTopBy(
     if (list) list.push(e)
     else map.set(k, [e])
   }
-  const other: RankAxis = rankBy === 'want' ? 'ease' : 'want'
-  const metric = (r: TopRow, axis: RankAxis) => (axis === 'want' ? r.avgWant : r.avgEase)
+  const other: RankAxis = rankBy === 'match' ? 'ease' : 'match'
+  const metric = (r: TopRow, axis: RankAxis) => (axis === 'match' ? r.avgMatch : r.avgEase)
   return [...map.entries()]
     .map(([label, entries]) => ({
       label,
       count: entries.length,
-      avgWant: avg(entries, 'want'),
+      avgMatch: avg(entries, 'match'),
       avgEase: avg(entries, 'ease'),
     }))
     // The named axis first; then the better-evidenced group, then the other axis.
@@ -339,7 +339,7 @@ export function buildTopBy(
 export interface DimensionDef { field: keyof ScoreEntry; label: string }
 
 export const PROFILE_DIMENSIONS: DimensionDef[] = [
-  { field: 'want',              label: 'Want'           },
+  { field: 'match',              label: 'Match'           },
   { field: 'ease',              label: 'Ease'           },
   { field: 'skills_match',      label: 'Skills Match'   },
   { field: 'experience_bar',    label: 'Experience bar' },
@@ -351,7 +351,7 @@ export const PROFILE_DIMENSIONS: DimensionDef[] = [
 
 // ─── Targeting momentum (recent vs earlier) ──────────────────────────────────
 //
-// The time chart plots a gated mean Want per period, which shows the level but
+// The time chart plots a gated mean Match per period, which shows the level but
 // not a verdict, and the funnel is a *static* snapshot over the whole window.
 // Neither answers the question
 // the tool actually exists to push on (TODO § directive: optimize toward
@@ -360,7 +360,7 @@ export const PROFILE_DIMENSIONS: DimensionDef[] = [
 //
 // This splits the date-windowed, scored corpus in chronological order into two
 // consecutive halves — an EARLIER half and a RECENT half — and contrasts them on
-// the metrics that define "good targeting": the typical (median) Want and Ease,
+// the metrics that define "good targeting": the typical (median) Match and Ease,
 // the share with an apply-worthy verdict, and the per-dimension averages. A rising
 // recent half means the user is finding better-fit roles than they used to; a
 // falling one is an early warning that the funnel is drifting (broader keywords,
@@ -390,17 +390,17 @@ export const PROFILE_DIMENSIONS: DimensionDef[] = [
 export const MIN_PER_HALF_FOR_MOMENTUM = GATES.momentumMinPerHalf
 
 // A median swing smaller than the metric's noise floor reads as flat — a
-// sub-floor wobble between two small samples is noise, not a trend. Want and
+// sub-floor wobble between two small samples is noise, not a trend. Match and
 // Ease each use their own floor (docs/scoring-v2.md §9).
-export const MOMENTUM_DEADBANDS = { want: NOISE_FLOORS.want, ease: NOISE_FLOORS.ease } as const
+export const MOMENTUM_DEADBANDS = { match: NOISE_FLOORS.match, ease: NOISE_FLOORS.ease } as const
 
 export type MomentumDirection = 'improving' | 'steady' | 'declining'
 
 export interface MomentumHalf {
   count: number
-  medianWant: number
+  medianMatch: number
   medianEase: number
-  avgWant: number
+  avgMatch: number
   avgEase: number
   applyPct: number       // % of this half with an apply-worthy verdict
   dateFrom: string       // earliest dated row in the half ('' if none dated)
@@ -418,12 +418,12 @@ export interface MomentumDimShift {
 export interface TargetingMomentum {
   earlier: MomentumHalf
   recent: MomentumHalf
-  /** recent − earlier median Want / Ease — the two headline movements. */
-  wantMedianDelta: number
+  /** recent − earlier median Match / Ease — the two headline movements. */
+  matchMedianDelta: number
   easeMedianDelta: number
   /** recent.applyPct - earlier.applyPct, in percentage points. */
   applyPctDelta: number
-  wantDirection: MomentumDirection
+  matchDirection: MomentumDirection
   easeDirection: MomentumDirection
   /** Per-dimension recent-minus-earlier means, sorted by |delta| desc so the
    *  biggest movers (good or bad) lead. Only meaningful when !lowSignal. */
@@ -441,9 +441,9 @@ function summarizeHalf(rows: ScoreEntry[]): MomentumHalf {
   const winners = rows.filter(isApplyWorthy).length
   return {
     count: rows.length,
-    medianWant: median(rows, 'want'),
+    medianMatch: median(rows, 'match'),
     medianEase: median(rows, 'ease'),
-    avgWant: avg(rows, 'want'),
+    avgMatch: avg(rows, 'match'),
     avgEase: avg(rows, 'ease'),
     applyPct: rows.length ? Math.round((winners / rows.length) * 100) : 0,
     dateFrom: dated[0] ?? '',
@@ -478,7 +478,7 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
     earlierRows.length < MIN_PER_HALF_FOR_MOMENTUM ||
     recentRows.length < MIN_PER_HALF_FOR_MOMENTUM
 
-  const wantMedianDelta = recent.medianWant - earlier.medianWant
+  const matchMedianDelta = recent.medianMatch - earlier.medianMatch
   const easeMedianDelta = recent.medianEase - earlier.medianEase
   const applyPctDelta = recent.applyPct - earlier.applyPct
 
@@ -500,8 +500,8 @@ export function buildTargetingMomentum(rows: ScoreEntry[]): TargetingMomentum {
 
   return {
     earlier, recent,
-    wantMedianDelta, easeMedianDelta, applyPctDelta,
-    wantDirection: directionOf(wantMedianDelta, MOMENTUM_DEADBANDS.want),
+    matchMedianDelta, easeMedianDelta, applyPctDelta,
+    matchDirection: directionOf(matchMedianDelta, MOMENTUM_DEADBANDS.match),
     easeDirection: directionOf(easeMedianDelta, MOMENTUM_DEADBANDS.ease),
     dimShifts,
     scoredCount: scored.length, lowSignal,
@@ -545,7 +545,7 @@ export interface ArchetypeSlice {
   label: string
   count: number          // scored rows in this archetype over the whole window
   sharePct: number       // count / total scored, 0–100 (rounded for display)
-  avgWant: number        // mean Want for this archetype
+  avgMatch: number        // mean Match for this archetype
   avgEase: number        // mean Ease for this archetype
   avgPriority: number    // mean Priority — the sort key
   earlierCount: number   // scored rows in the earlier (chronological) half
@@ -650,7 +650,7 @@ export function buildArchetypeMix(
       label,
       count: b.entries.length,
       sharePct: pct(b.entries.length, total),
-      avgWant: avg(b.entries, 'want'),
+      avgMatch: avg(b.entries, 'match'),
       avgEase: avg(b.entries, 'ease'),
       avgPriority: avgPriority(b.entries),
       earlierCount: b.earlier,

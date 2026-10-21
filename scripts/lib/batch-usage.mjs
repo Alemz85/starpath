@@ -87,7 +87,7 @@ function extractField(content, resultEvent, re) {
 
 /**
  * Extract the worker-reported Priority from a log (docs/scoring-v2.md §8.6:
- * the final JSON's `score` key now carries Priority = sqrt(want × ease)).
+ * the final JSON's `score` key now carries Priority = sqrt(match × ease)).
  *
  * The worker prompt asks each worker to print a JSON summary containing
  * `"score": X.XX` in its final message. A Blocked listing reports

@@ -113,14 +113,14 @@ test('applications.md: 10-column rows, canonical statuses, v2 score cells', () =
     assert.ok(a.hasDeadline, `application #${a.num} has the Deadline column`)
     assert.ok(CANONICAL_STATES.includes(a.status), `application #${a.num} status ${a.status}`)
     const cell = parseScoreCell(a.score)
-    assert.ok(cell && Number.isFinite(cell.want) && Number.isFinite(cell.ease), `application #${a.num} score ${a.score}`)
+    assert.ok(cell && Number.isFinite(cell.match) && Number.isFinite(cell.ease), `application #${a.num} score ${a.score}`)
   }
   // Each application is a promoted scouting row (hint PROMOTED-{num}) with the same scores.
   for (const a of apps) {
     const s = scouting.find(r => r.company === a.company && r.role === a.role)
     assert.ok(s, `application #${a.num} has a scouting row`)
     assert.equal(s.hint, `PROMOTED-${a.num}`)
-    assert.equal(a.score, `W${s.want} E${s.ease}`)
+    assert.equal(a.score, `M${s.match} E${s.ease}`)
     assert.equal(a.report, s.report)
   }
 })
@@ -132,24 +132,24 @@ test('score-history.tsv: canonical header, one row per evaluation, blocked rows 
     assert.equal(r.mode, 'scouting')
     assert.match(r.url, /^https:\/\/example\.com\/jobs\//)
     if (r.blocked) {
-      assert.ok(Number.isNaN(r.want) && Number.isNaN(r.ease), `${r.company} blocked row has no scores`)
+      assert.ok(Number.isNaN(r.match) && Number.isNaN(r.ease), `${r.company} blocked row has no scores`)
       assert.ok(r.eligibilityFlags.some(f => f.status === 'red'))
     } else {
-      assert.equal(assignVerdict({ want: r.want, ease: r.ease, eligibility: r.eligibility }).verdict, r.verdict, `${r.company} — ${r.role} verdict`)
+      assert.equal(assignVerdict({ match: r.match, ease: r.ease, eligibility: r.eligibility }).verdict, r.verdict, `${r.company} — ${r.role} verdict`)
     }
   }
 })
 
-test('scouting Want / Ease / tier match score-history', () => {
+test('scouting Match / Ease / tier match score-history', () => {
   for (const s of scouting) {
     const h = history.find(r => r.company === s.company && r.role === s.role)
     assert.ok(h, `score-history row for ${s.company} — ${s.role}`)
     assert.equal(s.tier, h.tier)
     if (h.blocked) {
-      assert.equal(s.want, '—')
+      assert.equal(s.match, '—')
       assert.equal(s.ease, '—')
     } else {
-      assert.equal(s.wantNum, h.want, `${s.company} Want`)
+      assert.equal(s.matchNum, h.match, `${s.company} Match`)
       assert.equal(s.easeNum, h.ease, `${s.company} Ease`)
     }
   }
@@ -267,7 +267,7 @@ test('report headers agree with the trackers and their tier folder', () => {
     assert.ok(h, `${rel}: URL matches a score-history row`)
     assert.equal(header('Tier'), h.tier, `${rel} tier`)
     assert.equal(rel.split('/')[1], `tier-${h.tier.slice(1)}`)
-    assert.match(md, new RegExp(`^\\*\\*Want:\\*\\* ${h.want}/10 · \\*\\*Ease:\\*\\* ${h.ease}/10$`, 'm'), `${rel} Want · Ease`)
+    assert.match(md, new RegExp(`^\\*\\*Match:\\*\\* ${h.match}/10 · \\*\\*Ease:\\*\\* ${h.ease}/10$`, 'm'), `${rel} Match · Ease`)
     assert.match(md, /^## Eligibility$/m)
     assert.match(md, /^## Dimensional scoring$/m)
     assert.match(md.trimEnd().split('\n').pop(), /^Salary math: comp €/, `${rel} ends with the Salary math footer`)

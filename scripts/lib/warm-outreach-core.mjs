@@ -30,7 +30,7 @@
 // Exhausted (cold) contacts are never suggested: recommendPlay never targets
 // them, and their paths read as touched, so they can't be the "untouched" pick.
 //
-// Ranking: highest-value first — by the best pipeline role Priority (√(Want·Ease),
+// Ranking: highest-value first — by the best pipeline role Priority (√(Match·Ease),
 // network-core's `score`; a sort key only) at the company
 // (a referral matters most where the fit is best), then by the target contact's
 // warmth, then company name for a stable order.
@@ -56,8 +56,8 @@ import { companyThreads, annotatePaths, recommendPlay } from './outreach-plan-co
  *   { company, play, target, topRole, reason, channel, cautions, counts }
  *   where play ∈ {'warm-direct','warm-intro'}, target is recommendPlay's target
  *   ({ name, title, leverage, warmth, degree, via }), topRole is the company's
- *   best pipeline role ({ role, score, want, ease, scoreLabel, source }; score =
- *   Priority, scoreLabel = "W8.3 · E5.6") or null, and counts is
+ *   best pipeline role ({ role, score, match, ease, scoreLabel, source }; score =
+ *   Priority, scoreLabel = "M8.3 · E5.6") or null, and counts is
  *   { paths, untouched }.
  */
 export function warmOutreachOpportunities({

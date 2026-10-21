@@ -109,9 +109,9 @@ const BEHAVIORAL_SIGNALS = [
   /\bwhat\s+(?:is|was)\s+(?:your|a)\s+(?:biggest|greatest)\s+(?:failure|weakness|strength|achievement)\b/i,
 ];
 const MOTIVATION_SIGNALS = [
-  /\bwhy\s+(?:do\s+you\s+(?:want|wish)|are\s+you\s+interested)\b/i, /\bwhy\s+(?:this|our)\s+(?:role|company|team|position)\b/i,
-  /\bwhy\s+do\s+you\s+want\s+to\s+(?:work|join)\b/i, /\bwhat\s+(?:attracts|draws|excites)\s+you\b/i,
-  /\bwhy\s+us\b/i, /\bwhy\s+(?:would\s+you\s+(?:like|want)|join)\b/i, /\binterest(?:ed)?\s+in\s+(?:this|the)\s+(?:role|position|company)\b/i,
+  /\bwhy\s+(?:do\s+you\s+(?:match|wish)|are\s+you\s+interested)\b/i, /\bwhy\s+(?:this|our)\s+(?:role|company|team|position)\b/i,
+  /\bwhy\s+do\s+you\s+match\s+to\s+(?:work|join)\b/i, /\bwhat\s+(?:attracts|draws|excites)\s+you\b/i,
+  /\bwhy\s+us\b/i, /\bwhy\s+(?:would\s+you\s+(?:like|match)|join)\b/i, /\binterest(?:ed)?\s+in\s+(?:this|the)\s+(?:role|position|company)\b/i,
 ];
 const FIT_SIGNALS = [
   /\bwhy\s+are\s+you\s+a\s+(?:good|great|strong)\s+fit\b/i, /\bwhat\s+makes\s+you\s+(?:qualified|a\s+good\s+fit)\b/i,

@@ -3,7 +3,7 @@
 **Date:** 2026-09-18
 **Location:** Lyon, France · hybrid
 **Archetype:** Graduate / Rotational Programme
-**Want:** 8.5/10 · **Ease:** 7.63/10
+**Match:** 8.5/10 · **Ease:** 7.63/10
 **Eligibility:** green
 **Verdict:** Go — apply now
 **Tier:** T1
@@ -22,14 +22,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 10/10 | A two-year programme with three rotations, a named mentor and a promotion review at the end: the most structured path in your pipeline. |
-| Optionality / Exit (want) | 8/10 | Rotations across client analytics, pricing and data products leave you with skills every analytics employer in your target cities hires for. |
-| Brand Value (want) | 7/10 | Well known to analytics recruiters in France and Benelux, less so further east. |
-| Role content (want) | 8/10 | Most rotations are hands-on analysis; expect some client presentations and internal training in the first months. |
+| Growth / Mobility (match) | 10/10 | A two-year programme with three rotations, a named mentor and a promotion review at the end: the most structured path in your pipeline. |
+| Optionality / Exit (match) | 8/10 | Rotations across client analytics, pricing and data products leave you with skills every analytics employer in your target cities hires for. |
+| Brand Value (match) | 7/10 | Well known to analytics recruiters in France and Benelux, less so further east. |
+| Role content (match) | 8/10 | Most rotations are hands-on analysis; expect some client presentations and internal training in the first months. |
 | City (hygiene) | 9/10 | Lyon is your first-choice city, and you already live there. |
 | Salary Adj for City (hygiene) | 7.5/10 | About €970 a month left after living costs in Lyon. |
 | Work-Life Balance (hygiene) | 7/10 | Normal programme hours, with heavier weeks before client deliveries. |
-| **Want (rollup)** | **8.5/10** | Carried by the programme structure and the Lyon base |
+| **Match (rollup)** | **8.5/10** | Carried by the programme structure and the Lyon base |
 | Skills Match (ease) | 7/10 | Python, SQL and a dashboard tool are covered; they also list dbt, where you only have the basics. |
 | Experience bar (ease) | 8/10 | Built for recent graduates, and your internship and capstone are the profile they describe. |
 | Competition (ease) | 8/10 | A popular programme with a cohort of about twelve, and Northfield is one of their main recruiting schools. Inès’s referral puts your application in front of the team directly. |

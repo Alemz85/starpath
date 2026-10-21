@@ -14,7 +14,7 @@
 //      A training moves the CANDIDATE, so the dimensions it can lift are the
 //      Ease side — skills_match, experience_bar, competition — plus
 //      role_content when it repositions the candidate toward the kind of work
-//      they want (TRAINABLE_DIMS). The role-side Want dimensions (growth,
+//      they want (TRAINABLE_DIMS). The role-side Match dimensions (growth,
 //      optionality, brand, city, salary, WLB) belong to the listing, not the
 //      candidate; no course moves them.
 //
@@ -24,7 +24,7 @@
 //      landscape is actually giving the user matches (archetypePerformance).
 //
 //   3. What does it plausibly return? We REPLAY the scoring engine
-//      (rollupEase / rollupWant → assignVerdict → computePriority) on the
+//      (rollupEase / rollupMatch → assignVerdict → computePriority) on the
 //      in-target rows with the targeted dimension(s) lifted by
 //      `expectedLift` integer steps, and report the Ease uplift and the
 //      verdict changes (e.g. thin → solid). Rules are never re-derived here.
@@ -53,13 +53,13 @@ import {
   isActionable,
 } from './targeting-core.mjs'
 import {
-  rollupWant,
+  rollupMatch,
   rollupEase,
   assignVerdict,
   computePriority,
   verdictRank,
   EASE_DIMS,
-  WANT_DIMS,
+  MATCH_DIMS,
 } from './score-bands.mjs'
 import { classifyMovement } from './scoring-stats.mjs'
 
@@ -211,7 +211,7 @@ export function targetingRelevance(rows, mappedArchetypes) {
  *
  *   - Ease (when an Ease dim is targeted) via rollupEase, with the row's
  *     amber-flag count as `amber_count`;
- *   - Want (when role_content is targeted) via rollupWant, is_intern from the
+ *   - Match (when role_content is targeted) via rollupMatch, is_intern from the
  *     row's employment_type (dream floor unknown at row level → off; both
  *     sides use the same assumption so the delta isolates the lift);
  *   - the side not touched keeps the stored value;
@@ -225,7 +225,7 @@ export function targetingRelevance(rows, mappedArchetypes) {
  * archetypes; the whole scored landscape when none were supplied.
  *
  * Returns { scope, lift, dims, rows, avgEaseBefore, avgEaseAfter, easeDelta,
- *           easeMovement, avgWantDelta, avgPriorityDelta, upgrades,
+ *           easeMovement, avgMatchDelta, avgPriorityDelta, upgrades,
  *           downgrades, upgradeShare, actionableUpgrades,
  *           actionableUpgradeShare, transitions: { 'thin→solid': n, … } }
  * upgrades = any better grid cell (VERDICT_ORDER); actionableUpgrades = the
@@ -247,22 +247,22 @@ export function projectedUplift(rows, targetDims, opts = {}) {
   const {
     lift = DEFAULT_EXPECTED_LIFT,
     archetypes = null,       // normalized archetype names in scope, or null = all
-    wantWeights,
+    matchWeights,
     easeWeights,
   } = opts
   const step = Math.max(0, Number(lift) || 0)
   const dims = [...new Set((targetDims || []).filter((k) => TRAINABLE_DIMS.includes(k)))]
   const touchesEase = dims.some((k) => EASE_DIMS.includes(k))
-  const touchesWant = dims.some((k) => WANT_DIMS.includes(k))
+  const touchesMatch = dims.some((k) => MATCH_DIMS.includes(k))
 
   const inScope = scoredRows(rows).filter((r) => !archetypes || archetypes.includes(r.archetype))
   // A row can only be replayed when every dimension of each replayed rollup
   // is present (old/partial rows are skipped, never filled with 0).
   const replayable = inScope.filter((r) =>
     (!touchesEase || EASE_DIMS.every((k) => Number.isFinite(r[k]))) &&
-    (!touchesWant || WANT_DIMS.every((k) => Number.isFinite(r[k]))))
+    (!touchesMatch || MATCH_DIMS.every((k) => Number.isFinite(r[k]))))
 
-  const easeB = [], easeA = [], wantD = [], prioD = []
+  const easeB = [], easeA = [], matchD = [], prioD = []
   const transitions = {}
   let upgrades = 0, downgrades = 0, actionableUpgrades = 0
   for (const r of replayable) {
@@ -273,17 +273,17 @@ export function projectedUplift(rows, targetDims, opts = {}) {
       const ease = touchesEase
         ? rollupEase(Object.fromEntries(EASE_DIMS.map((k) => [k, lifted(k)])), { weights: easeWeights, amber_count: amber }).score
         : r.ease
-      const want = touchesWant
-        ? rollupWant(Object.fromEntries(WANT_DIMS.map((k) => [k, lifted(k)])), { weights: wantWeights, is_intern: isIntern }).score
-        : r.want
-      const { verdict } = assignVerdict({ want, ease, eligibility: r.eligibility || 'green' })
-      return { want, ease, verdict, priority: computePriority(want, ease) }
+      const match = touchesMatch
+        ? rollupMatch(Object.fromEntries(MATCH_DIMS.map((k) => [k, lifted(k)])), { weights: matchWeights, is_intern: isIntern }).score
+        : r.match
+      const { verdict } = assignVerdict({ match, ease, eligibility: r.eligibility || 'green' })
+      return { match, ease, verdict, priority: computePriority(match, ease) }
     }
     const before = replay(false)
     const after = replay(true)
     easeB.push(before.ease)
     easeA.push(after.ease)
-    wantD.push(after.want - before.want)
+    matchD.push(after.match - before.match)
     prioD.push(after.priority - before.priority)
     const rb = verdictRank(before.verdict), ra = verdictRank(after.verdict)
     if (ra > rb) {
@@ -307,7 +307,7 @@ export function projectedUplift(rows, targetDims, opts = {}) {
     avgEaseAfter: round2u(meanOf(easeA)),
     easeDelta,
     easeMovement: n ? classifyMovement(easeDelta, { metric: 'ease' }) : 'unknown',
-    avgWantDelta: round2u(meanOf(wantD)),
+    avgMatchDelta: round2u(meanOf(matchD)),
     avgPriorityDelta: round2u(meanOf(prioD)),
     upgrades,
     downgrades,
@@ -373,7 +373,7 @@ export function trainingVerdict(rows, offer, opts = {}) {
   const uplift = projectedUplift(rows, targetDims, {
     lift: offer.expectedLift ?? DEFAULT_EXPECTED_LIFT,
     archetypes: targeting.matched.length ? [...new Set(targeting.matched.map((m) => m.archetype))] : null,
-    wantWeights: opts.wantWeights,
+    matchWeights: opts.matchWeights,
     easeWeights: opts.easeWeights,
   })
 
@@ -405,7 +405,7 @@ export function trainingVerdict(rows, offer, opts = {}) {
     trace.push('No mapped archetypes supplied — cannot tie the training to roles you target.')
   } else if (archMatches) {
     trace.push(
-      `Maps to "${bestArch.archetype}" — a real part of your landscape (avg Want ${bestArch.avgWant} · Ease ${bestArch.avgEase} across ${bestArch.count} scored roles, ${bestArch.actionableRate}% actionable, ${targeting.landscapeShare}% of all scored evals).`,
+      `Maps to "${bestArch.archetype}" — a real part of your landscape (avg Match ${bestArch.avgMatch} · Ease ${bestArch.avgEase} across ${bestArch.count} scored roles, ${bestArch.actionableRate}% actionable, ${targeting.landscapeShare}% of all scored evals).`,
     )
   } else {
     trace.push(
@@ -419,7 +419,7 @@ export function trainingVerdict(rows, offer, opts = {}) {
     const where = uplift.scope === 'mapped-archetypes' ? 'in-target' : 'scored'
     const easePart = uplift.dims.some((k) => EASE_DIMS.includes(k))
       ? `Ease ${uplift.avgEaseBefore} → ${uplift.avgEaseAfter} (${signed(uplift.easeDelta)}, ${uplift.easeMovement})`
-      : `Want ${signed(uplift.avgWantDelta)} (Ease unchanged)`
+      : `Match ${signed(uplift.avgMatchDelta)} (Ease unchanged)`
     const moves = Object.entries(uplift.transitions)
       .filter(([k]) => { const [b, a] = k.split('→'); return verdictRank(a) > verdictRank(b) })
       .map(([k, c]) => `${k} ×${c}`)

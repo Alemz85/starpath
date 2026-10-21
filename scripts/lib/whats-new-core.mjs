@@ -8,13 +8,13 @@
 //     `first_seen` date, a `status` (added / skipped_*), and a pipe-joined list
 //     of `scan_dates` (every run that re-saw the URL → liveness signal).
 //   - data/score-history.tsv — every scouting evaluation, keyed by `url`, with
-//     the v2 dimensions, Want, Ease, Priority, the eligibility gate result and
+//     the v2 dimensions, Match, Ease, Priority, the eligibility gate result and
 //     the verdict (docs/scoring-v2.md §8.1).
 //
 // This module joins those two read-only sources and emits a ranked digest:
 // genuinely-new postings since a cutoff, bucketed by their verdict (go /
 // stretch+solid / thin+growth / skip / blocked), with the new-but-unscored
-// ones flagged as "needs eval". Within a bucket, Priority (√(Want·Ease)) is
+// ones flagged as "needs eval". Within a bucket, Priority (√(Match·Ease)) is
 // the sort key; it is never shown as a score.
 //
 // All functions are pure (no I/O, no globals, no mutation). The thin file/CLI
@@ -195,7 +195,7 @@ export function indexScoresByUrl(scoreRows) {
  *   blocked     eligibility red: not eligible. Rendered "blocked: <reason>".
  *   noise       surfaced but filtered/skipped by the scanner (not `added`).
  *
- * Within a bucket, items rank by Priority (√(Want·Ease), a sort key only).
+ * Within a bucket, items rank by Priority (√(Match·Ease), a sort key only).
  */
 const BUCKET_ORDER = ['go', 'apply', 'consider', 'needs-eval', 'skip', 'blocked', 'noise']
 
@@ -212,7 +212,7 @@ const VERDICT_BUCKET = {
 /**
  * The verdict of a score-history row: the stored/derived `verdict`
  * (targeting-core.parseScoreHistory fills it), else re-derived through the
- * engine from finite Want/Ease. Blocked rows (eligibility red) are 'blocked'.
+ * engine from finite Match/Ease. Blocked rows (eligibility red) are 'blocked'.
  * Returns '' when nothing is derivable.
  */
 export function verdictOf(scoreRow) {
@@ -220,10 +220,10 @@ export function verdictOf(scoreRow) {
   if (scoreRow.blocked === true || String(scoreRow.eligibility ?? '').toLowerCase() === 'red') return 'blocked'
   const v = String(scoreRow.verdict ?? '').trim().toLowerCase()
   if (VERDICT_ORDER.includes(v)) return v
-  const want = Number(scoreRow.want)
+  const match = Number(scoreRow.match)
   const ease = Number(scoreRow.ease)
-  if (Number.isFinite(want) && Number.isFinite(ease)) {
-    return assignVerdict({ want, ease, eligibility: scoreRow.eligibility || 'green' }).verdict
+  if (Number.isFinite(match) && Number.isFinite(ease)) {
+    return assignVerdict({ match, ease, eligibility: scoreRow.eligibility || 'green' }).verdict
   }
   return ''
 }
@@ -266,9 +266,9 @@ const finiteOrNull = (n) => (Number.isFinite(n) ? n : null)
  *
  * Item shape:
  *   { url, company, title, location, portal, status, firstSeen, ageDays,
- *     timesSeen, want, ease, priority, verdict, verdictLabel, eligibility,
+ *     timesSeen, match, ease, priority, verdict, verdictLabel, eligibility,
  *     blockedReason, archetype, bucket }
- *   want / ease / priority — numbers, null when unscored or blocked
+ *   match / ease / priority — numbers, null when unscored or blocked
  *   verdict                — verdict key, null when unscored
  *   verdictLabel           — VERDICT_LABELS[verdict]; "blocked: <reason>" for blocked
  *   blockedReason          — the red eligibility reason, null unless blocked
@@ -295,10 +295,10 @@ export function buildDigest(scanRows, scoreRows, opts = {}) {
 
     const verdict = scoreRow ? (verdictOf(scoreRow) || null) : null
     const blocked = verdict === 'blocked'
-    const want = !blocked && scoreRow ? finiteOrNull(Number(scoreRow.want)) : null
+    const match = !blocked && scoreRow ? finiteOrNull(Number(scoreRow.match)) : null
     const ease = !blocked && scoreRow ? finiteOrNull(Number(scoreRow.ease)) : null
     const stored = scoreRow ? finiteOrNull(Number(scoreRow.priority)) : null
-    const priority = blocked ? null : (stored ?? computePriority(want, ease))
+    const priority = blocked ? null : (stored ?? computePriority(match, ease))
     const blockedReason = blocked ? blockedReasonOf(scoreRow) : null
     items.push({
       url: r.url,
@@ -310,7 +310,7 @@ export function buildDigest(scanRows, scoreRows, opts = {}) {
       firstSeen: r.first_seen,
       ageDays: asOf && isValidDate(asOf) ? daysBetween(r.first_seen, asOf) : null,
       timesSeen: (r.scan_dates_list || []).length || 1,
-      want,
+      match,
       ease,
       priority,
       verdict,

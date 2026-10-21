@@ -132,10 +132,10 @@ export async function loadJdArchive(
   const names = (await io.list()).filter(n => /\.md$/i.test(n))
   let name = pickByName(names, q)
   if (!name && q.url) {
-    const want = normalizeUrl(q.url)
+    const wantedUrl = normalizeUrl(q.url)
     for (const n of names.filter(n => numOfFileName(n) === null).slice(0, MAX_URL_SCANS)) {
       const text = await io.read(`jds/${n}`)
-      if (text && want && normalizeUrl(parseArchive(text).url) === want) { name = n; break }
+      if (text && wantedUrl && normalizeUrl(parseArchive(text).url) === wantedUrl) { name = n; break }
     }
   }
   if (!name) return null

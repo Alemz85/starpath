@@ -29,7 +29,7 @@ function makeRepo(name: string, opts: { demo?: boolean; private?: boolean; legac
   fs.copyFileSync(path.join(REAL_REPO, 'scripts/lib/data-root.mjs'), path.join(repo, 'scripts/lib/data-root.mjs'))
   if (opts.demo) {
     write('demo/user/profile.yml', 'candidate:\n  full_name: Dana Example\n  location: Lyon\n', repo)
-    write('demo/data/applications.md', '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |\n|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2026-09-01 | Northwind Analytics | Data Analyst | W7.9 E6.1 | Applied | ❌ | — | — | fixture |\n', repo)
+    write('demo/data/applications.md', '| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |\n|---|---|---|---|---|---|---|---|---|---|\n| 1 | 2026-09-01 | Northwind Analytics | Data Analyst | M7.9 E6.1 | Applied | ❌ | — | — | fixture |\n', repo)
     write('demo/reports/tier-2/Fabrikam - Product Analyst.md', '# Fabrikam — Product Analyst\n\n**URL:** https://jobs.example.test/fabrikam/1\n', repo)
   }
   if (opts.private) write('private/data/applications.md', '| # | Date | Company | Role |\n', repo)

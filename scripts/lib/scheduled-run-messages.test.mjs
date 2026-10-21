@@ -9,9 +9,9 @@ import assert from 'node:assert/strict'
 import { messageForRun, runStartDate, topPicksSince } from './scheduled-run-messages.mjs'
 import { buildPost } from './messages-core.mjs'
 
-const HEADER = 'date\tarchetype\twant\tease\tpriority\teligibility\tverdict\tcompany\trole\ttier\turl'
-const row = (date, verdict, company, role, want, ease, url = '') =>
-  [date, 'Strategy & Operations', want, ease, Math.sqrt(want * ease).toFixed(2), 'green', verdict, company, role, 'T1', url].join('\t')
+const HEADER = 'date\tarchetype\tmatch\tease\tpriority\teligibility\tverdict\tcompany\trole\ttier\turl'
+const row = (date, verdict, company, role, match, ease, url = '') =>
+  [date, 'Strategy & Operations', match, ease, Math.sqrt(match * ease).toFixed(2), 'green', verdict, company, role, 'T1', url].join('\t')
 const TSV = [
   HEADER,
   row('2026-07-01', 'go', 'Old Corp', 'Analyst', 9, 9),
@@ -73,7 +73,7 @@ test('a run that found something is an fyi with the top picks and their links', 
   assert.equal(m.key, `scheduler:run:${r.id}`)
   assert.equal(m.title, 'Weekly run: 2 go picks')
   assert.match(m.body, /14 new listings, 6 queued for evaluation, 6 evaluated/)
-  assert.match(m.body, /- Nimbus Robotics: Strategy Analyst \(go, Want 8.5 · Ease 7.5\)/)
+  assert.match(m.body, /- Nimbus Robotics: Strategy Analyst \(go, Match 8.5 · Ease 7.5\)/)
   assert.deepEqual(m.links, [{ kind: 'url', target: 'https://example.com/nimbus', label: 'Nimbus Robotics: Strategy Analyst' }])
 })
 

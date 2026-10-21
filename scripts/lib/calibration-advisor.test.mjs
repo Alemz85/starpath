@@ -1,6 +1,6 @@
 // calibration-advisor.test.mjs — unit tests for the pure calibration advisor
-// (scoring v2: Want / Ease / verdict). Rows are built with the shared v2
-// fixture builder and parsed by targeting-core, so Want / Ease / verdict are
+// (scoring v2: Match / Ease / verdict). Rows are built with the shared v2
+// fixture builder and parsed by targeting-core, so Match / Ease / verdict are
 // the real engine's. Companies are fictional.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,7 +15,7 @@ import {
   partitionSuggestions,
   analyzeCalibration,
   advisoryToSuggestion,
-  wantRow,
+  matchRow,
   resolvedWeights,
   rowIsIntern,
 } from './calibration-advisor.mjs'
@@ -24,7 +24,7 @@ import { analyzeApplicationOutcomes } from './outcome-stats.mjs'
 import { postFromSuggestion, buildPost, MAX_TITLE } from './messages-core.mjs'
 import { parseScoreHistory } from './targeting-core.mjs'
 import { historyTsv } from './testing/score-history-fixture.mjs'
-import { WANT_HIGH, WANT_MID } from './score-bands.mjs'
+import { MATCH_HIGH, MATCH_MID } from './score-bands.mjs'
 
 /* ───── helpers ──────────────────────────────────────────────────── */
 
@@ -34,27 +34,27 @@ const parse = (...overs) => parseScoreHistory(historyTsv(...overs))
 const repeat = (n, over = {}) => parse(...Array.from({ length: n }, () => over))
 
 // Motivator presets (hygiene stays at the fixture's neutral 7 / 6 / 7).
-const WANT_LOW = { growth_mobility: 5, optionality_exit: 5, brand_value: 6, role_content: 5 }   // Want 5.25
-const WANT_TOP = { growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }   // Want 9.0
-const WANT_MIDROW = { growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7 } // Want 7.0
+const MATCH_LOW = { growth_mobility: 5, optionality_exit: 5, brand_value: 6, role_content: 5 }   // Match 5.25
+const MATCH_TOP = { growth_mobility: 9, optionality_exit: 9, brand_value: 9, role_content: 9 }   // Match 9.0
+const MATCH_MIDROW = { growth_mobility: 7, optionality_exit: 7, brand_value: 7, role_content: 7 } // Match 7.0
 
 /* ───── helpers exported by the lib ─────────────────────────────── */
 
-test('wantRow uses the verdict grid row boundaries', () => {
-  assert.equal(wantRow(WANT_HIGH), 'high')
-  assert.equal(wantRow(WANT_HIGH - 0.01), 'mid')
-  assert.equal(wantRow(WANT_MID), 'mid')
-  assert.equal(wantRow(WANT_MID - 0.01), 'low')
-  assert.equal(wantRow(NaN), null)
+test('matchRow uses the verdict grid row boundaries', () => {
+  assert.equal(matchRow(MATCH_HIGH), 'high')
+  assert.equal(matchRow(MATCH_HIGH - 0.01), 'mid')
+  assert.equal(matchRow(MATCH_MID), 'mid')
+  assert.equal(matchRow(MATCH_MID - 0.01), 'low')
+  assert.equal(matchRow(NaN), null)
 })
 
 test('resolvedWeights merges user weights over the engine defaults', () => {
   const d = resolvedWeights()
-  assert.equal(d.want.brand_value, 1)
+  assert.equal(d.match.brand_value, 1)
   assert.equal(d.ease.experience_bar, 0.35)
-  const w = resolvedWeights({ want_weights: { brand_value: 0.5 }, ease_weights: { competition: 0.5 } })
-  assert.equal(w.want.brand_value, 0.5)
-  assert.equal(w.want.growth_mobility, 1)
+  const w = resolvedWeights({ match_weights: { brand_value: 0.5 }, ease_weights: { competition: 0.5 } })
+  assert.equal(w.match.brand_value, 0.5)
+  assert.equal(w.match.growth_mobility, 1)
   assert.equal(w.ease.competition, 0.5)
 })
 
@@ -83,78 +83,78 @@ test('brandLists returns empty arrays for empty/absent calibration', () => {
   assert.deepEqual(brandLists(undefined).dream, [])
 })
 
-/* ───── brandBonusDrift (on Want) ───────────────────────────────── */
+/* ───── brandBonusDrift (on Match) ───────────────────────────────── */
 
-test('brandBonusDrift flags a misdirected bonus (mean Want in the bottom row)', () => {
-  const rows = repeat(2, { company: 'Tailspin Toys', ...WANT_LOW })
+test('brandBonusDrift flags a misdirected bonus (mean Match in the bottom row)', () => {
+  const rows = repeat(2, { company: 'Tailspin Toys', ...MATCH_LOW })
   const out = brandBonusDrift(rows, { lower_tier_dream_companies: ['Tailspin Toys'] })
   assert.equal(out.length, 1)
   assert.equal(out[0].verdict, 'misdirected')
-  assert.equal(out[0].wantRow, 'low')
+  assert.equal(out[0].matchRow, 'low')
   assert.equal(out[0].source, 'lower_tier_dream_companies')
-  assert.ok(out[0].avgWant < WANT_MID)
+  assert.ok(out[0].avgMatch < MATCH_MID)
   assert.ok(Number.isFinite(out[0].avgEase))
-  // The unaided replay drops the +0.25 Want preference; it never exceeds the stored Want.
-  assert.ok(out[0].avgWantUnaided <= out[0].avgWant)
+  // The unaided replay drops the +0.25 Match preference; it never exceeds the stored Match.
+  assert.ok(out[0].avgMatchUnaided <= out[0].avgMatch)
 })
 
 test('brandBonusDrift flags an inert dream floor (top row without the floor)', () => {
-  const rows = repeat(2, { company: 'Northwind Analytics', ...WANT_TOP, brand_value: 10 })
+  const rows = repeat(2, { company: 'Northwind Analytics', ...MATCH_TOP, brand_value: 10 })
   const out = brandBonusDrift(rows, { dream_companies: ['Northwind Analytics'] })
   assert.equal(out.length, 1)
   assert.equal(out[0].verdict, 'inert')
   assert.equal(out[0].kind, 'dream')
-  assert.equal(out[0].wantRowUnaided, 'high')
+  assert.equal(out[0].matchRowUnaided, 'high')
 })
 
-test('brandBonusDrift: a dream floor that actually lifts Want into the top row is working', () => {
-  // Motivators 7 / 7 / 10 / 7 → raw Want 7.75; the dream floor lifts it to 8.0.
-  // A naive "stored Want ≥ 8" check would call this inert; the engine replay
+test('brandBonusDrift: a dream floor that actually lifts Match into the top row is working', () => {
+  // Motivators 7 / 7 / 10 / 7 → raw Match 7.75; the dream floor lifts it to 8.0.
+  // A naive "stored Match ≥ 8" check would call this inert; the engine replay
   // shows the floor is what puts it in the top row.
-  const rows = repeat(3, { company: 'Northwind Analytics', ...WANT_MIDROW, brand_value: 10, want: 8.0 })
+  const rows = repeat(3, { company: 'Northwind Analytics', ...MATCH_MIDROW, brand_value: 10, match: 8.0 })
   const out = brandBonusDrift(rows, { dream_companies: ['Northwind Analytics'] })
   assert.equal(out.length, 0)
 })
 
 test('brandBonusDrift: a company added to dream_companies after it was scored is replayed exactly', () => {
-  // Stored Want 7.0 has no floor (the company wasn't a dream company yet); the
+  // Stored Match 7.0 has no floor (the company wasn't a dream company yet); the
   // unaided replay must not subtract a floor that never applied.
-  const rows = repeat(3, { company: 'Northwind Analytics', ...WANT_MIDROW })
+  const rows = repeat(3, { company: 'Northwind Analytics', ...MATCH_MIDROW })
   const out = brandBonusDrift(rows, { dream_companies: ['Northwind Analytics'] }, { minRoles: 1 })
   assert.equal(out.length, 0)
 })
 
 test('brandBonusDrift: a preference bonus that carries a company over 8.0 is not inert', () => {
-  // lower-tier dream (+0.25 Want): motivators 8/8/7/8 → 7.75 unaided, 8.0 with the preference.
-  const rows = repeat(3, { company: 'Fabrikam Labs', growth_mobility: 8, optionality_exit: 8, brand_value: 7, role_content: 8, want: 8.0 })
+  // lower-tier dream (+0.25 Match): motivators 8/8/7/8 → 7.75 unaided, 8.0 with the preference.
+  const rows = repeat(3, { company: 'Fabrikam Labs', growth_mobility: 8, optionality_exit: 8, brand_value: 7, role_content: 8, match: 8.0 })
   const out = brandBonusDrift(rows, { lower_tier_dream_companies: ['Fabrikam Labs'] })
   assert.equal(out.length, 0)
 })
 
 test('brandBonusDrift stays silent for a mid-row bonus (working as intended)', () => {
-  const rows = repeat(2, { company: 'Contoso Retail', ...WANT_MIDROW })
+  const rows = repeat(2, { company: 'Contoso Retail', ...MATCH_MIDROW })
   assert.equal(brandBonusDrift(rows, { lower_tier_dream_companies: ['Contoso Retail'] }).length, 0)
 })
 
 test('brandBonusDrift needs minRoles scored roles before judging', () => {
-  const rows = repeat(1, { company: 'Northwind Analytics', ...WANT_TOP })
+  const rows = repeat(1, { company: 'Northwind Analytics', ...MATCH_TOP })
   assert.equal(brandBonusDrift(rows, { dream_companies: ['Northwind Analytics'] }).length, 0)
   assert.equal(brandBonusDrift(rows, { dream_companies: ['Northwind Analytics'] }, { minRoles: 1 }).length, 1)
 })
 
-test('brandBonusDrift ignores blocked rows (no Want to judge)', () => {
+test('brandBonusDrift ignores blocked rows (no Match to judge)', () => {
   const rows = parse(
     { company: 'Tailspin Toys', eligibility: 'red', eligibility_flags: 'language:red:German C1 required' },
     { company: 'Tailspin Toys', eligibility: 'red', eligibility_flags: 'language:red:German C1 required' },
-    { company: 'Tailspin Toys', ...WANT_LOW },
+    { company: 'Tailspin Toys', ...MATCH_LOW },
   )
   assert.equal(brandBonusDrift(rows, { dream_companies: ['Tailspin Toys'] }).length, 0)
 })
 
 test('brandBonusDrift is case/space-insensitive on company name', () => {
   const rows = parse(
-    { company: '  tailspin toys ', ...WANT_LOW },
-    { company: 'TAILSPIN TOYS', ...WANT_LOW },
+    { company: '  tailspin toys ', ...MATCH_LOW },
+    { company: 'TAILSPIN TOYS', ...MATCH_LOW },
   )
   const out = brandBonusDrift(rows, { lower_tier_dream_companies: ['Tailspin Toys'] })
   assert.equal(out.length, 1)
@@ -162,7 +162,7 @@ test('brandBonusDrift is case/space-insensitive on company name', () => {
 })
 
 test('brandBonusDrift folds a company on several lists into one entry', () => {
-  const rows = repeat(2, { company: 'Tailspin Toys', ...WANT_LOW })
+  const rows = repeat(2, { company: 'Tailspin Toys', ...MATCH_LOW })
   const out = brandBonusDrift(rows, {
     brand_affinity_companies: ['Tailspin Toys'],          // no score effect: not audited
     lower_tier_dream_companies: ['Tailspin Toys'],
@@ -173,27 +173,27 @@ test('brandBonusDrift folds a company on several lists into one entry', () => {
 })
 
 test('brandBonusDrift returns nothing when no calibration is configured', () => {
-  assert.deepEqual(brandBonusDrift(repeat(3, { company: 'Tailspin Toys', ...WANT_LOW }), {}), [])
+  assert.deepEqual(brandBonusDrift(repeat(3, { company: 'Tailspin Toys', ...MATCH_LOW }), {}), [])
 })
 
 /* ───── brandBonusCandidates ─────────────────────────────────────── */
 
-test('brandBonusCandidates surfaces an un-credited company in the top Want row', () => {
-  const out = brandBonusCandidates(repeat(3, { company: 'Litware Systems', ...WANT_TOP }), {})
+test('brandBonusCandidates surfaces an un-credited company in the top Match row', () => {
+  const out = brandBonusCandidates(repeat(3, { company: 'Litware Systems', ...MATCH_TOP }), {})
   assert.equal(out.length, 1)
   assert.equal(out[0].company, 'Litware Systems')
-  assert.ok(out[0].avgWant >= WANT_HIGH)
+  assert.ok(out[0].avgMatch >= MATCH_HIGH)
   assert.ok(Number.isFinite(out[0].avgEase))
 })
 
 test('brandBonusCandidates excludes companies already credited', () => {
-  const rows = repeat(3, { company: 'Litware Systems', ...WANT_TOP })
+  const rows = repeat(3, { company: 'Litware Systems', ...MATCH_TOP })
   assert.equal(brandBonusCandidates(rows, { lower_tier_dream_companies: ['Litware Systems'] }).length, 0)
 })
 
-test('brandBonusCandidates needs minRoles and a top-row mean Want', () => {
-  assert.equal(brandBonusCandidates(repeat(2, { company: 'Litware Systems', ...WANT_TOP }), {}).length, 0)
-  assert.equal(brandBonusCandidates(repeat(3, { company: 'Contoso Retail', ...WANT_MIDROW }), {}).length, 0)
+test('brandBonusCandidates needs minRoles and a top-row mean Match', () => {
+  assert.equal(brandBonusCandidates(repeat(2, { company: 'Litware Systems', ...MATCH_TOP }), {}).length, 0)
+  assert.equal(brandBonusCandidates(repeat(3, { company: 'Contoso Retail', ...MATCH_MIDROW }), {}).length, 0)
 })
 
 /* ───── dimensionSignal ──────────────────────────────────────────── */
@@ -206,12 +206,12 @@ test('dimensionSignal covers the ten v2 dimensions', () => {
   ])
 })
 
-test('dimensionSignal flags a ceiling-pinned dimension and reports its Want weight', () => {
+test('dimensionSignal flags a ceiling-pinned dimension and reports its Match weight', () => {
   const sig = dimensionSignal(repeat(10, { brand_value: 10 })).find(d => d.key === 'brand_value')
   assert.equal(sig.status, 'pinned-ceiling')
   assert.equal(sig.pinned, 'ceiling')
   assert.equal(sig.group, 'motivator')
-  assert.equal(sig.rollup, 'want')
+  assert.equal(sig.rollup, 'match')
   assert.equal(sig.weight, 1)
   assert.ok(sig.ceilShare >= 70)
 })
@@ -224,7 +224,7 @@ test('dimensionSignal flags a floor-pinned Ease stage with its Ease weight', () 
 })
 
 test('dimensionSignal honors user weights; hygiene factors carry no weight', () => {
-  const sig = dimensionSignal(repeat(5), { weights: { want: { brand_value: 0.5 } } })
+  const sig = dimensionSignal(repeat(5), { weights: { match: { brand_value: 0.5 } } })
   assert.equal(sig.find(d => d.key === 'brand_value').weight, 0.5)
   assert.equal(sig.find(d => d.key === 'best_cities').weight, null)
 })
@@ -265,7 +265,7 @@ test('compReality reports sparse below minRows', () => {
   assert.equal(compReality(repeat(3, { salary_adj_city: 3 })).status, 'sparse')
 })
 
-test('compReality excludes internship rows (their salary term is 0 in Want)', () => {
+test('compReality excludes internship rows (their salary term is 0 in Match)', () => {
   const rows = [
     ...repeat(8, { salary_adj_city: 2, employment_type: 'internship' }),
     ...repeat(6, { salary_adj_city: 7 }),
@@ -284,10 +284,10 @@ const STATUS_OF = { progressed: 'Interview', 'progressed-then-rejected': 'Reject
 
 // n applications of one archetype through the real outcomes path: score-history
 // rows, tracker rows and status-log moves → analyzeApplicationOutcomes.
-const sent = (n, { archetype = 'Growth Analytics', want = 8.4, ease = 7.2, outcome = 'rejected', role = 'Analyst', scored = true } = {}) => {
+const sent = (n, { archetype = 'Growth Analytics', match = 8.4, ease = 7.2, outcome = 'rejected', role = 'Analyst', scored = true } = {}) => {
   const companies = Array.from({ length: n }, (_, i) => `Wingtip ${String.fromCharCode(65 + i)}`)
   const rows = scored
-    ? parse(...companies.map((company, i) => ({ archetype, company, role, want: pick(want, i), ease: pick(ease, i) })))
+    ? parse(...companies.map((company, i) => ({ archetype, company, role, match: pick(match, i), ease: pick(ease, i) })))
     : []
   const applications = []
   const ledger = []
@@ -314,14 +314,14 @@ test('scoreOutcomeCalibration is unavailable with no outcomes', () => {
   }
 })
 
-test('scoreOutcomeCalibration flags high-score-no-convert from the score-history Want / Ease', () => {
+test('scoreOutcomeCalibration flags high-score-no-convert from the score-history Match / Ease', () => {
   const { outcomes } = sent(3, { outcome: (i) => (i === 0 ? 'no-response' : 'rejected') })
   const r = scoreOutcomeCalibration(outcomes)
   assert.equal(r.available, true)
   const a = r.archetypes.find(x => x.archetype === 'Growth Analytics')
   assert.equal(a.typicalVerdict, 'go')
   assert.equal(a.flag, 'high-score-no-convert')
-  assert.equal(a.avgWant, 8.4)
+  assert.equal(a.avgMatch, 8.4)
   assert.equal(a.avgEase, 7.2)
   assert.equal(a.avgPriority, Math.round(Math.sqrt(8.4 * 7.2) * 100) / 100)
   assert.equal(a.verdicts.go, 3)
@@ -330,7 +330,7 @@ test('scoreOutcomeCalibration flags high-score-no-convert from the score-history
 })
 
 test('scoreOutcomeCalibration flags low-score-converts (typical verdict not actionable)', () => {
-  const { outcomes } = sent(3, { want: 6.0, ease: 6.0, outcome: (i) => (i < 2 ? 'progressed' : 'rejected') })
+  const { outcomes } = sent(3, { match: 6.0, ease: 6.0, outcome: (i) => (i < 2 ? 'progressed' : 'rejected') })
   const a = scoreOutcomeCalibration(outcomes).archetypes[0]
   assert.equal(a.typicalVerdict, 'skip')
   assert.equal(a.flag, 'low-score-converts')
@@ -373,31 +373,31 @@ test('scoreOutcomeCalibration normalizes the archetype it groups on', () => {
 
 const driftEntry = (over = {}) => ({
   company: 'Tailspin Toys', source: 'dream_companies', sources: ['dream_companies'], kind: 'dream',
-  roles: 5, avgWant: 5.2, avgWantUnaided: 5.2, avgEase: 6.1, wantRow: 'low', wantRowUnaided: 'low',
+  roles: 5, avgMatch: 5.2, avgMatchUnaided: 5.2, avgEase: 6.1, matchRow: 'low', matchRowUnaided: 'low',
   verdict: 'misdirected', ...over,
 })
 
-test('buildSuggestions emits a misdirected-bonus suggestion stated on Want', () => {
+test('buildSuggestions emits a misdirected-bonus suggestion stated on Match', () => {
   const s = buildSuggestions({ brandBonusDrift: [driftEntry()] })
   assert.equal(s.length, 1)
   assert.equal(s[0].target, 'user/profile.yml')
   assert.match(s[0].action, /Reconsider the brand bonus on "Tailspin Toys"/)
-  assert.match(s[0].action, /Want 5\.2/)
+  assert.match(s[0].action, /Match 5\.2/)
 })
 
-test('buildSuggestions emits the inert dream-floor note with the unaided Want', () => {
+test('buildSuggestions emits the inert dream-floor note with the unaided Match', () => {
   const s = buildSuggestions({
-    brandBonusDrift: [driftEntry({ avgWant: 9.0, avgWantUnaided: 9.0, wantRow: 'high', wantRowUnaided: 'high', verdict: 'inert' })],
+    brandBonusDrift: [driftEntry({ avgMatch: 9.0, avgMatchUnaided: 9.0, matchRow: 'high', matchRowUnaided: 'high', verdict: 'inert' })],
   })
   assert.equal(s.length, 1)
-  assert.match(s[0].action, /Want floor \(8\.0\) never bites/)
+  assert.match(s[0].action, /Match floor \(8\.0\) never bites/)
 })
 
 test('buildSuggestions sorts high severity first', () => {
   const diag = {
     brandBonusDrift: [driftEntry()], // medium
     compReality: { status: 'targets-above-market', mean: 3.5, lowShare: 60, count: 40 }, // high
-    brandBonusCandidates: [{ company: 'Litware Systems', roles: 5, avgWant: 8.6, avgEase: 7.1 }], // low
+    brandBonusCandidates: [{ company: 'Litware Systems', roles: 5, avgMatch: 8.6, avgEase: 7.1 }], // low
   }
   const s = buildSuggestions(diag)
   assert.equal(s[0].severity, 'high')
@@ -406,11 +406,11 @@ test('buildSuggestions sorts high severity first', () => {
 
 test('buildSuggestions points a pinned weighted dimension at its scoring weight', () => {
   const s = buildSuggestions({
-    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'want', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 }],
+    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'match', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 }],
   })
   assert.equal(s.length, 1)
   assert.equal(s[0].target, 'user/profile.yml')
-  assert.match(s[0].edit, /scoring\.want_weights\.brand_value/)
+  assert.match(s[0].edit, /scoring\.match_weights\.brand_value/)
   const e = buildSuggestions({
     dimensionSignal: [{ key: 'competition', label: 'Competition', group: 'ease', rollup: 'ease', weight: 0.3, status: 'pinned-ceiling', mean: 9.5, ceilShare: 90, count: 40 }],
   })
@@ -419,7 +419,7 @@ test('buildSuggestions points a pinned weighted dimension at its scoring weight'
 
 test('buildSuggestions sends a pinned hygiene factor to the anchor, not a weight', () => {
   const s = buildSuggestions({
-    dimensionSignal: [{ key: 'best_cities', label: 'City', group: 'hygiene', rollup: 'want', weight: null, status: 'pinned-ceiling', mean: 9.6, ceilShare: 92, count: 40 }],
+    dimensionSignal: [{ key: 'best_cities', label: 'City', group: 'hygiene', rollup: 'match', weight: null, status: 'pinned-ceiling', mean: 9.6, ceilShare: 92, count: 40 }],
   })
   assert.equal(s[0].target, 'user/_profile.md')
   assert.doesNotMatch(s[0].edit, /weights/)
@@ -427,7 +427,7 @@ test('buildSuggestions sends a pinned hygiene factor to the anchor, not a weight
 
 test('buildSuggestions never returns an apply/write instruction — only an edit hint', () => {
   const s = buildSuggestions({
-    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'want', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 }],
+    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'match', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 }],
   })
   assert.ok(s[0].edit)
   assert.match(s[0].target, /^user\//)
@@ -435,10 +435,10 @@ test('buildSuggestions never returns an apply/write instruction — only an edit
 
 test('no suggestion text renders a v1 Overall or an X/10 score', () => {
   const diag = {
-    brandBonusDrift: [driftEntry({ roles: 6 }), driftEntry({ company: 'Northwind Analytics', avgWant: 9, avgWantUnaided: 9, verdict: 'inert', roles: 6 })],
-    brandBonusCandidates: [{ company: 'Litware Systems', roles: 5, avgWant: 8.6, avgEase: 7.1 }],
+    brandBonusDrift: [driftEntry({ roles: 6 }), driftEntry({ company: 'Northwind Analytics', avgMatch: 9, avgMatchUnaided: 9, verdict: 'inert', roles: 6 })],
+    brandBonusCandidates: [{ company: 'Litware Systems', roles: 5, avgMatch: 8.6, avgEase: 7.1 }],
     compReality: { status: 'targets-below-market', mean: 9.5, lowShare: 0, count: 40 },
-    scoreOutcome: { available: true, archetypes: [{ archetype: 'Ops', applied: 9, positive: 0, negative: 9, convertRate: 0, avgWant: 8.4, avgEase: 7.2, typicalVerdict: 'go', flag: 'high-score-no-convert' }] },
+    scoreOutcome: { available: true, archetypes: [{ archetype: 'Ops', applied: 9, positive: 0, negative: 9, convertRate: 0, avgMatch: 8.4, avgEase: 7.2, typicalVerdict: 'go', flag: 'high-score-no-convert' }] },
   }
   for (const x of buildSuggestions(diag)) {
     for (const field of [x.action, x.reasoning, x.edit]) {
@@ -460,8 +460,8 @@ test('analyzeCalibration errors on empty input and on an all-blocked history', (
 
 test('analyzeCalibration produces a full report with metadata + suggestions', () => {
   const rows = [
-    ...repeat(6, { company: 'Northwind Analytics', ...WANT_TOP, brand_value: 10 }),
-    ...repeat(6, { company: 'Tailspin Toys', ...WANT_LOW, salary_adj_city: 3 }),
+    ...repeat(6, { company: 'Northwind Analytics', ...MATCH_TOP, brand_value: 10 }),
+    ...repeat(6, { company: 'Tailspin Toys', ...MATCH_LOW, salary_adj_city: 3 }),
     ...parse({ company: 'Tailspin Toys', eligibility: 'red', eligibility_flags: 'work_auth:red:no sponsorship' }),
   ]
   const out = analyzeCalibration(rows, {
@@ -471,8 +471,8 @@ test('analyzeCalibration produces a full report with metadata + suggestions', ()
   assert.equal(out.metadata.blocked, 1)
   assert.equal(out.metadata.calibrationConfigured, true)
   assert.equal(out.metadata.outcomesAvailable, false)
-  assert.deepEqual(out.metadata.contract.wantRows, { mid: WANT_MID, high: WANT_HIGH })
-  assert.equal(out.metadata.weights.want.brand_value, 1)
+  assert.deepEqual(out.metadata.contract.matchRows, { mid: MATCH_MID, high: MATCH_HIGH })
+  assert.equal(out.metadata.weights.match.brand_value, 1)
   const drift = out.diagnostics.brandBonusDrift
   assert.equal(drift.find(d => d.company === 'Tailspin Toys').roles, 6) // blocked row not counted
   const actions = out.suggestions.map(s => s.action).join(' | ')
@@ -481,9 +481,9 @@ test('analyzeCalibration produces a full report with metadata + suggestions', ()
 })
 
 test('analyzeCalibration threads the user weights into the dimension diagnostics', () => {
-  const out = analyzeCalibration(repeat(6), { weights: { want: { role_content: 2 } } })
+  const out = analyzeCalibration(repeat(6), { weights: { match: { role_content: 2 } } })
   assert.equal(out.diagnostics.dimensionSignal.find(d => d.key === 'role_content').weight, 2)
-  assert.equal(out.metadata.weights.want.role_content, 2)
+  assert.equal(out.metadata.weights.match.role_content, 2)
 })
 
 test('analyzeCalibration integrates outcomes when provided', () => {
@@ -559,7 +559,7 @@ test('brand advisory confidence climbs at 2× and 4× the gate', () => {
 
 test('dimension-pinning advisory needs 20 scored evaluations of that dimension', () => {
   const dim = (count) => ({
-    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'want', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count }],
+    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'match', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count }],
   })
   assert.equal(partitionSuggestions(dim(19)).suggestions.length, 0)
   assert.equal(partitionSuggestions(dim(19)).insufficientData.length, 1)
@@ -577,7 +577,7 @@ test('conversion advisory needs 8 applications in the archetype', () => {
   const so = (applied) => ({
     scoreOutcome: {
       available: true,
-      archetypes: [{ archetype: 'Growth Analytics', applied, positive: 0, negative: applied, convertRate: 0, avgWant: 8.2, avgEase: 7.1, typicalVerdict: 'go', flag: 'high-score-no-convert' }],
+      archetypes: [{ archetype: 'Growth Analytics', applied, positive: 0, negative: applied, convertRate: 0, avgMatch: 8.2, avgEase: 7.1, typicalVerdict: 'go', flag: 'high-score-no-convert' }],
     },
   })
   assert.equal(partitionSuggestions(so(7)).suggestions.length, 0)
@@ -597,7 +597,7 @@ test('buildSuggestions returns a plain sorted array with the stable fields', () 
 })
 
 test('diagnostics keep firing below the advisory gate — they only describe', () => {
-  const drift = brandBonusDrift(repeat(2, { company: 'Tailspin Toys', ...WANT_LOW }), { dream_companies: ['Tailspin Toys'] })
+  const drift = brandBonusDrift(repeat(2, { company: 'Tailspin Toys', ...MATCH_LOW }), { dream_companies: ['Tailspin Toys'] })
   assert.equal(drift.length, 1)
   assert.equal(drift[0].roles, 2)
   assert.equal(drift[0].confidence, 'insufficient')
@@ -627,7 +627,7 @@ test('scoreOutcomeCalibration tiers each archetype by its resolved, scored count
 
 test('analyzeCalibration publishes its gates and an insufficientData list', () => {
   const rows = [
-    ...repeat(3, { company: 'Tailspin Toys', ...WANT_LOW }),
+    ...repeat(3, { company: 'Tailspin Toys', ...MATCH_LOW }),
     ...repeat(3, { company: 'Contoso Retail' }),
   ]
   const out = analyzeCalibration(rows, { calibration: { dream_companies: ['Tailspin Toys'] } })
@@ -642,7 +642,7 @@ test('analyzeCalibration publishes its gates and an insufficientData list', () =
 })
 
 test('analyzeCalibration keeps every top-level field', () => {
-  const out = analyzeCalibration(repeat(6, { company: 'Northwind Analytics', ...WANT_TOP }), { calibration: { dream_companies: ['Northwind Analytics'] } })
+  const out = analyzeCalibration(repeat(6, { company: 'Northwind Analytics', ...MATCH_TOP }), { calibration: { dream_companies: ['Northwind Analytics'] } })
   for (const k of ['metadata', 'diagnostics', 'suggestions', 'insufficientData']) assert.ok(k in out, k)
   for (const k of ['evaluated', 'blocked', 'calibrationConfigured', 'outcomesAvailable', 'dateRange', 'analysisDate', 'weights']) {
     assert.ok(k in out.metadata, `metadata lost field: ${k}`)
@@ -655,8 +655,8 @@ test('analyzeCalibration keeps every top-level field', () => {
 test('no advisory ever carries an insufficient confidence tier', () => {
   const diag = {
     brandBonusDrift: [driftEntry({ roles: 1 })],
-    brandBonusCandidates: [{ company: 'Litware Systems', roles: 2, avgWant: 8.4, avgEase: 7.0 }],
-    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'want', weight: 1, status: 'pinned-ceiling', mean: 9.9, ceilShare: 99, count: 6 }],
+    brandBonusCandidates: [{ company: 'Litware Systems', roles: 2, avgMatch: 8.4, avgEase: 7.0 }],
+    dimensionSignal: [{ key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'match', weight: 1, status: 'pinned-ceiling', mean: 9.9, ceilShare: 99, count: 6 }],
     compReality: { status: 'targets-above-market', mean: 3, lowShare: 70, count: 6 },
   }
   const p = partitionSuggestions(diag)
@@ -670,17 +670,17 @@ test('no advisory ever carries an insufficient confidence tier', () => {
 const everyAdvisory = (scale = 1) => ({
   brandBonusDrift: [
     driftEntry({ roles: 6 * scale }),
-    driftEntry({ company: 'Northwind Analytics', avgWant: 9, avgWantUnaided: 9, verdict: 'inert', roles: 6 * scale }),
+    driftEntry({ company: 'Northwind Analytics', avgMatch: 9, avgMatchUnaided: 9, verdict: 'inert', roles: 6 * scale }),
   ],
-  brandBonusCandidates: [{ company: 'Litware Systems', roles: 5 * scale, avgWant: 8.6, avgEase: 7.1 }],
+  brandBonusCandidates: [{ company: 'Litware Systems', roles: 5 * scale, avgMatch: 8.6, avgEase: 7.1 }],
   dimensionSignal: [
-    { key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'want', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 * scale },
+    { key: 'brand_value', label: 'Brand Value', group: 'motivator', rollup: 'match', weight: 1, status: 'pinned-ceiling', mean: 9.8, ceilShare: 95, count: 40 * scale },
     { key: 'competition', label: 'Competition', group: 'ease', rollup: 'ease', weight: 0.3, status: 'pinned-floor', mean: 1.6, floorShare: 90, count: 40 * scale },
   ],
   compReality: { status: 'targets-above-market', mean: 3.5, lowShare: 60, count: 40 * scale },
   scoreOutcome: { available: true, archetypes: [
-    { archetype: 'Ops', applied: 9 * scale, positive: 0, negative: 9 * scale, convertRate: 0, avgWant: 8.4, avgEase: 7.2, typicalVerdict: 'go', flag: 'high-score-no-convert' },
-    { archetype: 'Field Sales', applied: 9 * scale, positive: 6 * scale, negative: 3 * scale, convertRate: 67, avgWant: 6.0, avgEase: 6.0, typicalVerdict: 'skip', flag: 'low-score-converts' },
+    { archetype: 'Ops', applied: 9 * scale, positive: 0, negative: 9 * scale, convertRate: 0, avgMatch: 8.4, avgEase: 7.2, typicalVerdict: 'go', flag: 'high-score-no-convert' },
+    { archetype: 'Field Sales', applied: 9 * scale, positive: 6 * scale, negative: 3 * scale, convertRate: 67, avgMatch: 6.0, avgEase: 6.0, typicalVerdict: 'skip', flag: 'low-score-converts' },
   ] },
 })
 

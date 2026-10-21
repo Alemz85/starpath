@@ -12,7 +12,7 @@ const TOKEN_SUGGESTIONS = [
   { token: 'archetype:', hint: 'filter by role archetype' },
   { token: 'location:',  hint: 'filter by city/country' },
   { token: 'type:',      hint: 'full-time, contract...' },
-  { token: 'min-want:',  hint: 'minimum Want (1-10)' },
+  { token: 'min-match:',  hint: 'minimum Match (1-10)' },
   { token: 'min-ease:',  hint: 'minimum Ease (1-10)' },
 ]
 

@@ -29,9 +29,9 @@
  * single-profile / pre-migration repo the footer is absent and the output is
  * byte-identical to before.
  *
- * Scoring v2: listings render as "Want · Ease" with verdict stars (go ★★,
+ * Scoring v2: listings render as "Match · Ease" with verdict stars (go ★★,
  * stretch / solid ★, nothing else — blocked never), ranked by Priority
- * (√(Want·Ease), a sort key only). See docs/scoring-v2.md.
+ * (√(Match·Ease), a sort key only). See docs/scoring-v2.md.
  *
  * All ranking/sectioning/rendering lives in the pure, unit-tested
  * scripts/lib/daily-brief-core.mjs; this file is only I/O + invocation.

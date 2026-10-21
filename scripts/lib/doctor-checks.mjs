@@ -37,13 +37,17 @@ import { HISTORY_HEADER } from './merge-staging-core.mjs';
 import { isV2ScoutingHeader } from './scouting-core.mjs';
 import { isPersonalPath, PRIVATE_DIR } from './data-root.mjs';
 import { formatAge, remoteHint, groupOverrides } from './private-core.mjs';
+import { needsMigration } from './match-rename-migrate.mjs';
+
+// The fix line for data written before the first axis was renamed from Want to Match.
+const MATCH_RENAME_FIX = 'run node scripts/migrate-match-rename.mjs --apply (safe to repeat)';
 
 // ── Expected TSV headers ────────────────────────────────────────────────────
 
 // Scoring v2 (docs/scoring-v2.md §8.1). The full header is 29 columns; these are
 // the ones every reader needs. Exported so verify-pipeline checks the same set.
 export const SCORE_HISTORY_REQUIRED_COLS = [
-  'date', 'company', 'role', 'archetype', 'want', 'ease',
+  'date', 'company', 'role', 'archetype', 'match', 'ease',
   'eligibility', 'verdict', 'tier',
 ];
 
@@ -145,8 +149,8 @@ export function validateScoreHistoryHeader(cols) {
  * position, so a column addition can't silently shift the checks). Used by
  * verify-pipeline.
  *   errors   — missing required columns; a row whose eligibility is not
- *              green|amber|red; a red row that carries want/ease/priority; a
- *              non-red row whose want/ease isn't a number in [1,10]; a tier
+ *              green|amber|red; a red row that carries match/ease/priority; a
+ *              non-red row whose match/ease isn't a number in [1,10]; a tier
  *              outside T1-T4.
  *   warnings — a row with a different column count than the header.
  * Empty cells mean "missing" (never 0) per docs/scoring-v2.md §8.1.
@@ -165,7 +169,7 @@ export function checkScoreHistoryRows(content) {
     return { errors, warnings, rows: 0 };
   }
   const idx = (name) => header.map(c => c.toLowerCase()).indexOf(name);
-  const iWant = idx('want'), iEase = idx('ease'), iPri = idx('priority');
+  const iMatch = idx('match'), iEase = idx('ease'), iPri = idx('priority');
   const iElig = idx('eligibility'), iTier = idx('tier');
   const label = (cols, i) => `row ${i + 1} (${cols[idx('company')] ?? '?'} — ${cols[idx('role')] ?? '?'})`;
   let rows = 0;
@@ -186,21 +190,21 @@ export function checkScoreHistoryRows(content) {
       errors.push(`score-history ${label(cols, i)}: tier "${tier}" is not T1-T4`);
     }
     if (elig === 'red') {
-      // Blocked: never a Priority. Want / Ease only when the profile's
+      // Blocked: never a Priority. Match / Ease only when the profile's
       // score_through_red scored the listing, and then both, each in [1,10].
       if (iPri >= 0 && get(iPri) !== '') errors.push(`score-history ${label(cols, i)}: blocked (red) row has priority "${get(iPri)}" — must be empty`);
-      const w = get(iWant);
+      const w = get(iMatch);
       const e = get(iEase);
       if ((w === '') !== (e === '')) {
-        errors.push(`score-history ${label(cols, i)}: blocked (red) row must have both want and ease (scored through red) or neither`);
+        errors.push(`score-history ${label(cols, i)}: blocked (red) row must have both match and ease (scored through red) or neither`);
       } else if (w !== '') {
-        for (const [name, v] of [['want', w], ['ease', e]]) {
+        for (const [name, v] of [['match', w], ['ease', e]]) {
           const n = Number(v);
           if (!Number.isFinite(n) || n < 1 || n > 10) errors.push(`score-history ${label(cols, i)}: ${name} "${v}" is not a number in [1,10]`);
         }
       }
     } else if (elig) {
-      for (const [name, k] of [['want', iWant], ['ease', iEase]]) {
+      for (const [name, k] of [['match', iMatch], ['ease', iEase]]) {
         const n = Number(get(k));
         if (get(k) === '' || !Number.isFinite(n) || n < 1 || n > 10) {
           errors.push(`score-history ${label(cols, i)}: ${name} "${get(k)}" is not a number in [1,10]`);
@@ -375,13 +379,17 @@ export function buildArtifactChecks(files, counts = {}) {
     if (valid) {
       checks.push({ pass: true, label: `data/score-history.tsv present (${rows} evaluation${rows === 1 ? '' : 's'})` });
     } else {
-      const isV1 = cols.map(c => c.toLowerCase()).includes('overall');
+      const lower = cols.map(c => c.toLowerCase());
+      const isV1 = lower.includes('overall');
+      const isPreRename = missing.length === 1 && missing[0] === 'match' && lower.includes('want');
       checks.push({
         pass: false,
         label: `data/score-history.tsv has unexpected header (missing: ${missing.join(', ')})`,
         fix: isV1
           ? 'This is a pre-v2 score-history (Overall/CF/AF). Archive it under data/archive/scoring-v1/ and start a fresh v2 file (docs/scoring-v2.md §8.1)'
-          : 'This may indicate a version mismatch — check docs/scoring-v2.md §8.1 for the TSV spec',
+          : isPreRename
+            ? `It still calls the Match column by its old name: ${MATCH_RENAME_FIX}`
+            : 'This may indicate a version mismatch — check docs/scoring-v2.md §8.1 for the TSV spec',
       });
     }
   }
@@ -395,11 +403,17 @@ export function buildArtifactChecks(files, counts = {}) {
   } else {
     const rows = countMarkdownTableRows(files.scouting);
     const headerLine = String(files.scouting).split('\n').find(l => /^\|\s*#\s*\|/.test(l));
-    if (headerLine && !isV2ScoutingHeader(headerLine)) {
+    if (headerLine && needsMigration('scouting', headerLine)) {
+      checks.push({
+        pass: false,
+        label: 'data/scouting.md still calls the Match column by its old name',
+        fix: MATCH_RENAME_FIX,
+      });
+    } else if (headerLine && !isV2ScoutingHeader(headerLine)) {
       checks.push({
         pass: false,
         label: 'data/scouting.md has a pre-v2 header (Score / CF/AF columns)',
-        fix: 'Archive it under data/archive/scoring-v1/ and recreate with the 12-column v2 header (Want, Ease, Tier, Eligibility) — docs/scoring-v2.md §8.2',
+        fix: 'Archive it under data/archive/scoring-v1/ and recreate with the 12-column v2 header (Match, Ease, Tier, Eligibility) — docs/scoring-v2.md §8.2',
       });
     } else {
       checks.push({ pass: true, label: `data/scouting.md present (${rows} scouted role${rows === 1 ? '' : 's'})` });

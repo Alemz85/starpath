@@ -6,7 +6,7 @@
 
 Decide whether a course or certification is **worth it for your actual targeting** — not in the abstract. The honest question is never "is this a good course?" but "does this close a gap that's dragging *my* evaluations down, for roles *I'm* actually targeting, at a cost proportionate to the payoff?"
 
-This mode answers that by grounding the verdict in `data/score-history.tsv` — the accumulated fingerprint of every scouting evaluation. A cert that lifts a dimension already scoring well is a vanity purchase; one that attacks the dimension most often holding Want or Ease down (the systemic **dimension drag**) has real leverage — and since most trainings move Ease dimensions, the Ease drag is usually where the verdict lives.
+This mode answers that by grounding the verdict in `data/score-history.tsv` — the accumulated fingerprint of every scouting evaluation. A cert that lifts a dimension already scoring well is a vanity purchase; one that attacks the dimension most often holding Match or Ease down (the systemic **dimension drag**) has real leverage — and since most trainings move Ease dimensions, the Ease drag is usually where the verdict lives.
 
 **When to use:** the user pastes or describes a course / cert / bootcamp / degree module and asks "should I do this?", "is X worth it?", "will this help me get hired?".
 
@@ -30,7 +30,7 @@ This mode answers that by grounding the verdict in `data/score-history.tsv` — 
 
 If `data/score-history.tsv` is missing or has fewer than ~6 evaluations, say so plainly:
 
-> "I can give you a generic read, but the ROI verdict is much stronger once you've run a handful of scouting evaluations — that's the corpus I measure the gap against. Right now I have {N}. Want a provisional take, or scan a few roles first?"
+> "I can give you a generic read, but the ROI verdict is much stronger once you've run a handful of scouting evaluations — that's the corpus I measure the gap against. Right now I have {N}. Match a provisional take, or scan a few roles first?"
 
 With a thin corpus, still run the dimensional reasoning below qualitatively, but flag the verdict as provisional.
 

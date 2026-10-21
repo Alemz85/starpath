@@ -22,7 +22,7 @@
 // But there IS a dense, canonical comp signal on EVERY scored row: the
 // `salary_adj_city` dimension — the 1-10 *savings-power-after-cost-of-living*
 // score the scouting engine already computes (see modes/_shared.md § Salary Adj
-// for City), which feeds Want as a hygiene factor (docs/scoring-v2.md §2). That
+// for City), which feeds Match as a hygiene factor (docs/scoring-v2.md §2). That
 // is the comp axis the whole system is calibrated on. So the
 // benchmark is built in two layers:
 //
@@ -52,7 +52,7 @@
 // `salary_adj_city` rows are already the OUTPUT of score-bands' savingsToBaseScore
 // (the scouting engine ran it at evaluation time), so the proxy backbone reads
 // those scores directly rather than re-deriving them. What a given score DOES
-// to Want comes from score-bands' hygieneTerm / veto constants — never restated.
+// to Match comes from score-bands' hygieneTerm / veto constants — never restated.
 import { normalizeArchetype, isBlocked } from './targeting-core.mjs'
 import { hygieneTerm, HYGIENE_STEPS, HYGIENE_VETO_BELOW, HYGIENE_VETO_CAP } from './score-bands.mjs'
 
@@ -324,15 +324,15 @@ export function enrichRows(rows, opts = {}) {
  * The proxy is the trustworthy part; anchors are surfaced when present.
  */
 
-// "Comp-weak" / "comp-strong" mean exactly what the Want rollup does with the
-// Salary hygiene term (docs/scoring-v2.md §2.2): weak = hygieneTerm < 0 (a Want
-// penalty), strong = hygieneTerm > 0 (the small Want bonus). The display
+// "Comp-weak" / "comp-strong" mean exactly what the Match rollup does with the
+// Salary hygiene term (docs/scoring-v2.md §2.2): weak = hygieneTerm < 0 (a Match
+// penalty), strong = hygieneTerm > 0 (the small Match bonus). The display
 // thresholds below are READ from HYGIENE_STEPS, not restated.
 export const isCompWeak = (adj) => Number.isFinite(adj) && hygieneTerm(adj) < 0
 export const isCompStrong = (adj) => Number.isFinite(adj) && hygieneTerm(adj) > 0
-/** Lowest salary_adj_city with no Want penalty (5 under the v2 steps). */
+/** Lowest salary_adj_city with no Match penalty (5 under the v2 steps). */
 export const COMP_NEUTRAL_MIN = HYGIENE_STEPS.find((st) => st.value === 0).min
-/** Lowest salary_adj_city that earns the Want bonus (8 under the v2 steps). */
+/** Lowest salary_adj_city that earns the Match bonus (8 under the v2 steps). */
 export const COMP_STRONG_MIN = HYGIENE_STEPS.find((st) => st.value > 0).min
 
 function summarizeGroup(label, rows) {
@@ -507,19 +507,19 @@ export function fmtK(eur) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
- * Floor-risk scan — roles whose comp actively costs them Want
+ * Floor-risk scan — roles whose comp actively costs them Match
  * ════════════════════════════════════════════════════════════════════════════
  *
  * The savings-power proxy connects straight to the scoring engine: Salary is a
- * Want hygiene factor, so a non-intern role whose salary_adj_city earns a
- * negative hygiene term (hygieneTerm < 0) loses Want, and one below
- * HYGIENE_VETO_BELOW has Want capped at HYGIENE_VETO_CAP. Interns are surfaced
+ * Match hygiene factor, so a non-intern role whose salary_adj_city earns a
+ * negative hygiene term (hygieneTerm < 0) loses Match, and one below
+ * HYGIENE_VETO_BELOW has Match capped at HYGIENE_VETO_CAP. Interns are surfaced
  * separately: their stipends are break-even by design and the engine zeroes
  * the salary term (and its veto) for them.
  *
  * Blocked rows never appear (no scores). Each entry:
- *   { company, role, archetype, city, salaryAdj, wantPenalty, vetoed,
- *     want, ease, verdict, disclosedEur }
+ *   { company, role, archetype, city, salaryAdj, matchPenalty, vetoed,
+ *     match, ease, verdict, disclosedEur }
  * `adjFloor` (optional) overrides the engine rule with "salary_adj ≤ adjFloor".
  */
 export function compFloorRisks(rows, { adjFloor, limit = 12 } = {}) {
@@ -536,14 +536,14 @@ export function compFloorRisks(rows, { adjFloor, limit = 12 } = {}) {
       archetype: normalizeArchetype(r.archetype),
       city: r.city,
       salaryAdj: r.salary_adj_city,
-      wantPenalty: hygieneTerm(r.salary_adj_city),
+      matchPenalty: hygieneTerm(r.salary_adj_city),
       vetoed: r.salary_adj_city < HYGIENE_VETO_BELOW,
-      want: Number.isFinite(r.want) ? r.want : null,
+      match: Number.isFinite(r.match) ? r.match : null,
       ease: Number.isFinite(r.ease) ? r.ease : null,
       verdict: r.verdict || null,
       disclosedEur: r.disclosed ? r.disclosed.annualEur : null,
     }))
-    .sort((a, b) => a.salaryAdj - b.salaryAdj || (a.want ?? 99) - (b.want ?? 99))
+    .sort((a, b) => a.salaryAdj - b.salaryAdj || (a.match ?? 99) - (b.match ?? 99))
     .slice(0, limit)
 }
 
@@ -585,7 +585,7 @@ export function compRecommendations({ archetypes, cities, drift, floorRisks }) {
     if (top.adjMedian != null && bottom.adjMedian != null && top.adjMedian - bottom.adjMedian >= 1.5) {
       recs.push({
         action: `Comp competitiveness varies by archetype — "${top.label}" runs strongest (median savings-power ${top.adjMedian}), "${bottom.label}" weakest (${bottom.adjMedian})`,
-        reasoning: `If comp is a priority, weight sourcing toward "${top.label}" roles; "${bottom.label}" roles in your landscape more often score in the comp-weak range (${bottom.compWeakShare}% at savings-power < ${COMP_NEUTRAL_MIN}, where Salary costs Want).`,
+        reasoning: `If comp is a priority, weight sourcing toward "${top.label}" roles; "${bottom.label}" roles in your landscape more often score in the comp-weak range (${bottom.compWeakShare}% at savings-power < ${COMP_NEUTRAL_MIN}, where Salary costs Match).`,
         impact: 'medium',
       })
     }
@@ -601,13 +601,13 @@ export function compRecommendations({ archetypes, cities, drift, floorRisks }) {
     })
   }
 
-  // 4. Comp-floor drag — non-intern roles whose comp actively costs Want.
+  // 4. Comp-floor drag — non-intern roles whose comp actively costs Match.
   if (floorRisks.length >= 3) {
     const vetoed = floorRisks.filter((f) => f.vetoed).length
     recs.push({
-      action: `${floorRisks.length} non-intern role${floorRisks.length === 1 ? '' : 's'} you evaluated score in the comp-weak range (savings-power < ${COMP_NEUTRAL_MIN}) — Salary costs each of them Want` +
-        (vetoed ? `; ${vetoed} below ${HYGIENE_VETO_BELOW} have Want capped at ${HYGIENE_VETO_CAP.toFixed(1)}` : ''),
-      reasoning: `These roles' comp is actively dragging their Want (and so their verdict). Either they're in expensive cities relative to pay, or genuinely low-paying. Filter them earlier or weight toward the stronger-comp cities/archetypes above.`,
+      action: `${floorRisks.length} non-intern role${floorRisks.length === 1 ? '' : 's'} you evaluated score in the comp-weak range (savings-power < ${COMP_NEUTRAL_MIN}) — Salary costs each of them Match` +
+        (vetoed ? `; ${vetoed} below ${HYGIENE_VETO_BELOW} have Match capped at ${HYGIENE_VETO_CAP.toFixed(1)}` : ''),
+      reasoning: `These roles' comp is actively dragging their Match (and so their verdict). Either they're in expensive cities relative to pay, or genuinely low-paying. Filter them earlier or weight toward the stronger-comp cities/archetypes above.`,
       impact: 'medium',
     })
   }

@@ -3,7 +3,7 @@
 // analyze-patterns.mjs has two jobs that answer two different questions:
 //
 //   --scouting  → "where is the LANDSCAPE offering me actionable matches
-//                  (verdict go / stretch / solid), which dimension drags Want
+//                  (verdict go / stretch / solid), which dimension drags Match
 //                  or Ease down, and which eligibility check keeps blocking
 //                  listings?"  (targeting-core.mjs; rich from day one, before
 //                  any application has been sent.)
@@ -25,12 +25,12 @@
 // the weakest stage.
 //
 // Scoring v2 (docs/scoring-v2.md): applications.md Score cells are
-// "W8.3 E5.6" (Want + Ease) or legacy "7.4/10" (kept valid, shown as-is). They
+// "M8.3 E5.6" (Match + Ease) or legacy "7.4/10" (kept valid, shown as-is). They
 // are read only through tracker-core's parseScoreCell / displayScoreCell;
-// Priority (√(Want·Ease), v2 cells only — a legacy v1 Overall is not on that
+// Priority (√(Match·Ease), v2 cells only — a legacy v1 Overall is not on that
 // scale, so legacy cells are excluded from Priority stats and counted) is the one
 // number per row and only ever an aggregate/sort key. The verdict is derived
-// from Want/Ease through scouting-core's verdictFromCells with eligibility
+// from Match/Ease through scouting-core's verdictFromCells with eligibility
 // green (blocked listings are never promoted to applications.md); legacy rows
 // have no verdict unless the linked report states one. "Actionable" = verdict
 // go / stretch / solid.
@@ -167,21 +167,21 @@ function emptyVerdicts() {
  * Score stats for one group of enriched rows (rows without a parseable score
  * are skipped, never read as 0):
  *   { count, avgPriority, minPriority, maxPriority,
- *     wantEaseCount, avgWant, avgEase, verdicts, actionableRate,
+ *     matchEaseCount, avgMatch, avgEase, verdicts, actionableRate,
  *     excluded: { legacy, unscored } }
- *   count          rows with a Priority (√(W·E); v2 cells, or a legacy cell
- *                  whose linked v2 report states Want/Ease)
- *   excluded       legacy = legacy "X.X/10" cells with no v2 Want/Ease (a v1
+ *   count          rows with a Priority (√(M·E); v2 cells, or a legacy cell
+ *                  whose linked v2 report states Match/Ease)
+ *   excluded       legacy = legacy "X.X/10" cells with no v2 Match/Ease (a v1
  *                  Overall can't be placed on Priority's scale, same rule as
  *                  calibration-advisor); unscored = no parseable score
- *   wantEaseCount  rows with v2 Want/Ease (avgWant/avgEase are over these)
+ *   matchEaseCount  rows with v2 Match/Ease (avgMatch/avgEase are over these)
  *   verdicts       tally over VERDICT_ORDER of rows with a known verdict
  *   actionableRate % of rows with a known verdict that are go/stretch/solid
  * Averages are null when their sample is empty.
  */
 export function scoreStats(rows) {
   const prios = rows.map(r => r.priority).filter(Number.isFinite)
-  const we = rows.filter(r => Number.isFinite(r.want) && Number.isFinite(r.ease))
+  const we = rows.filter(r => Number.isFinite(r.match) && Number.isFinite(r.ease))
   const verdicts = emptyVerdicts()
   let known = 0
   for (const r of rows) {
@@ -199,8 +199,8 @@ export function scoreStats(rows) {
     avgPriority: prios.length ? round2(mean(prios)) : null,
     minPriority: prios.length ? Math.min(...prios) : null,
     maxPriority: prios.length ? Math.max(...prios) : null,
-    wantEaseCount: we.length,
-    avgWant: we.length ? round2(mean(we.map(r => r.want))) : null,
+    matchEaseCount: we.length,
+    avgMatch: we.length ? round2(mean(we.map(r => r.match))) : null,
     avgEase: we.length ? round2(mean(we.map(r => r.ease))) : null,
     verdicts,
     actionableRate: pct(actionable, known),
@@ -208,42 +208,42 @@ export function scoreStats(rows) {
   }
 }
 
-/* ───── Score cell → Want / Ease / Priority / verdict ───────────────────────
+/* ───── Score cell → Match / Ease / Priority / verdict ───────────────────────
  *
  * One applications.md row's score info, read through tracker-core:
- *   v2 cell "W8.3 E5.6" → want 8.3, ease 5.6, priority √(w·e), verdict from
+ *   v2 cell "M8.3 E5.6" → match 8.3, ease 5.6, priority √(w·e), verdict from
  *                         the grid with eligibility green
  *   legacy "7.4/10"     → legacyScore 7.4, priority null (a v1 Overall is not
- *                         on Priority's scale); Want / Ease / priority / verdict
+ *                         on Priority's scale); Match / Ease / priority / verdict
  *                         from the linked report when it states them (a v2
  *                         report header), else null
  *   unparseable         → all null (never 0)
- * `report` is the parsed report ({ scores: { want, ease }, verdict }) or null.
+ * `report` is the parsed report ({ scores: { match, ease }, verdict }) or null.
  */
 export function scoreInfo(cell, report = null) {
   const parsed = parseScoreCell(cell)
   const out = {
     scoreLabel: parsed ? displayScoreCell(cell) : null,
-    priority: parsed && 'want' in parsed ? computePriority(parsed.want, parsed.ease) : null,
-    want: null,
+    priority: parsed && 'match' in parsed ? computePriority(parsed.match, parsed.ease) : null,
+    match: null,
     ease: null,
     legacyScore: parsed && 'legacy' in parsed ? parsed.legacy : null,
     verdict: null,
   }
-  if (parsed && 'want' in parsed) {
-    out.want = parsed.want
+  if (parsed && 'match' in parsed) {
+    out.match = parsed.match
     out.ease = parsed.ease
   } else {
-    const rw = Number(report?.scores?.want)
+    const rw = Number(report?.scores?.match)
     const re = Number(report?.scores?.ease)
     if (Number.isFinite(rw) && Number.isFinite(re)) {
-      out.want = rw
+      out.match = rw
       out.ease = re
       if (out.priority === null) out.priority = computePriority(rw, re)
     }
   }
-  if (out.want !== null && out.ease !== null) {
-    out.verdict = verdictFromCells({ want: out.want, ease: out.ease, eligibility: 'green' }).verdict
+  if (out.match !== null && out.ease !== null) {
+    out.verdict = verdictFromCells({ match: out.match, ease: out.ease, eligibility: 'green' }).verdict
   } else if (report?.verdict && VERDICT_ORDER.includes(report.verdict)) {
     out.verdict = report.verdict
   }
@@ -405,11 +405,11 @@ export function buildArchetypeLookup(scoreRows) {
  * Takes parsed tracker entries and a `loadReport(pathRelToRoot) → reportData`
  * resolver (injected so this stays pure — the CLI supplies a fs-backed one).
  * reportData shape: { archetype, seniority, remote, teamSize, comp, domain,
- * scores: { want, ease }, eligibility, verdict, gaps } — exactly what
+ * scores: { match, ease }, eligibility, verdict, gaps } — exactly what
  * parseReport in the CLI produces; any field may be null/absent.
  *
  * Each enriched row keeps the raw `score` cell and adds the scoreInfo fields
- * (scoreLabel, priority, want, ease, legacyScore, verdict) and `archetype`
+ * (scoreLabel, priority, match, ease, legacyScore, verdict) and `archetype`
  * (the report's, else `archetypeFor(entry)` — see buildArchetypeLookup).
  */
 export function enrichEntries(entries, loadReport, { archetypeFor = null } = {}) {
@@ -461,7 +461,7 @@ export function analyzeOutcomes(enriched, { minThreshold = 5 } = {}) {
   const conversionFunnel = computeFunnel(enriched)
   const funnelDiagnosis = diagnoseFunnel(conversionFunnel)
 
-  // --- Score by outcome (Priority / Want / Ease / verdict mix per group) ---
+  // --- Score by outcome (Priority / Match / Ease / verdict mix per group) ---
   const byOutcome = { positive: [], negative: [], self_filtered: [], pending: [] }
   for (const e of enriched) byOutcome[e.outcome].push(e)
   const scoreComparison = {
@@ -692,7 +692,7 @@ export function buildOutcomeRecommendations({
   if (skipApplications >= 2) {
     recommendations.push({
       action: `Stop applying to Skip-verdict roles -- ${skipApplications} applications went to listings the verdict grid says to skip`,
-      reasoning: 'Skip means the role is not worth applying to on Want and Ease; that effort is better spent on go / stretch / solid listings.',
+      reasoning: 'Skip means the role is not worth applying to on Match and Ease; that effort is better spent on go / stretch / solid listings.',
       impact: 'medium',
     })
   }

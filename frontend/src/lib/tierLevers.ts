@@ -9,7 +9,7 @@
 // or the single amber eligibility check resolved — that lands the row in a
 // strictly better verdict cell.
 //
-// It MIRRORS docs/scoring-v2.md: §2 Want and §3 Ease (replayed through
+// It MIRRORS docs/scoring-v2.md: §2 Match and §3 Ease (replayed through
 // lib/scoreBands, which restates the score-bands.mjs constants by name), §4
 // the verdict grid, and §7 the lever search (one dimension at a time, up to
 // +4 integer steps; better-cell order blocked < skip < thin < growth < solid
@@ -17,9 +17,9 @@
 // backend; tierLevers.test.ts pins the spec's boundary cases so a drift
 // between the spec and the cockpit fails CI.
 //
-// Replay limits (the renderer has no user/profile.yml): Want/Ease are
+// Replay limits (the renderer has no user/profile.yml): Match/Ease are
 // replayed at the DEFAULT weights. The dream-company floor is inferred from
-// the stored Want (stored ≥ 8.0 while the replay is below it). A lever is only
+// the stored Match (stored ≥ 8.0 while the replay is below it). A lever is only
 // reported when the probe beats BOTH the stored verdict and the replayed
 // base, so a weights mismatch can hide a lever but never invent one.
 //
@@ -29,13 +29,13 @@ import type { ScoreEntry, TierKey, Verdict } from '@/types'
 import {
   assignVerdict,
   computeEase,
-  computeWant,
+  computeMatch,
   eligibilityCheckLabel,
   normalizeTier as normalizeTierCell,
   normalizeVerdict,
   parseEligibilityFlags,
   DIM_LABELS,
-  DREAM_WANT_FLOOR,
+  DREAM_MATCH_FLOOR,
   EASE_HIGH,
   EASE_MID,
   EXPERIENCE_WALL_AT,
@@ -46,8 +46,8 @@ import {
   VERDICT_LABELS,
   VERDICT_RANK,
   VERDICT_TIER,
-  WANT_HIGH,
-  WANT_MID,
+  MATCH_HIGH,
+  MATCH_MID,
   type JudgedDimKey,
   type V2DimKey,
 } from '@/lib/scoreBands'
@@ -140,18 +140,18 @@ export function amberFlagsOf(e: ScoreEntry) {
 export function leverContextOf(e: ScoreEntry, dims: V2Dims | null = v2DimsOf(e)): LeverContext {
   const is_intern = isInternRow(e)
   let dream = false
-  if (dims && e.want != null && e.want >= DREAM_WANT_FLOOR) {
-    dream = computeWant(dims, { is_intern }).score < DREAM_WANT_FLOOR
+  if (dims && e.match != null && e.match >= DREAM_MATCH_FLOOR) {
+    dream = computeMatch(dims, { is_intern }).score < DREAM_MATCH_FLOOR
   }
   return { is_intern, dream, amber_count: amberFlagsOf(e).length }
 }
 
-/** Replay Want / Ease / verdict for a dimension set (spec §2–§4). */
-export function replay(dims: V2Dims, ctx: LeverContext): { want: number; ease: number; verdict: Verdict } {
-  const want = computeWant(dims, { is_intern: ctx.is_intern, dream: ctx.dream }).score
+/** Replay Match / Ease / verdict for a dimension set (spec §2–§4). */
+export function replay(dims: V2Dims, ctx: LeverContext): { match: number; ease: number; verdict: Verdict } {
+  const match = computeMatch(dims, { is_intern: ctx.is_intern, dream: ctx.dream }).score
   const ease = computeEase(dims, { amber_count: ctx.amber_count }).score
-  const verdict = assignVerdict({ want, ease })?.verdict ?? 'skip'
-  return { want, ease, verdict }
+  const verdict = assignVerdict({ match, ease })?.verdict ?? 'skip'
+  return { match, ease, verdict }
 }
 
 // True iff a ScoreEntry carries every v2 dimension and is not blocked — i.e.
@@ -164,13 +164,13 @@ export function hasScoredDims(e: ScoreEntry | null | undefined): e is ScoreEntry
 // Every row entering the renderer passes through here so the T1..T4
 // vocabulary is the only one the UI sees. v2 history writes T1–T4 directly
 // (docs/scoring-v2.md §8.1); an empty cell falls back to the verdict's tier
-// (stored, else replayed from Want/Ease), then T4.
+// (stored, else replayed from Match/Ease), then T4.
 export function normalizeTier(raw: string | null | undefined, entry?: Partial<ScoreEntry>): TierKey {
   const t = normalizeTierCell(raw)
   if (t) return t
   if (entry) {
     const v = normalizeVerdict(entry.verdict ?? '')
-      ?? assignVerdict({ want: entry.want, ease: entry.ease, eligibility: entry.eligibility ?? null })?.verdict
+      ?? assignVerdict({ match: entry.match, ease: entry.ease, eligibility: entry.eligibility ?? null })?.verdict
     if (v) return VERDICT_TIER[v]
   }
   return 'T4'
@@ -289,7 +289,7 @@ export function leverSentence(l: Lever): string {
 
 export type ConstraintKind =
   | 'eligibility_red' | 'experience_wall' | 'hygiene_veto' | 'role_content_veto'
-  | 'amber' | 'low_want' | 'low_ease'
+  | 'amber' | 'low_match' | 'low_ease'
 
 export interface BindingConstraint {
   kind: ConstraintKind
@@ -313,18 +313,18 @@ export function bindingConstraints(e: ScoreEntry): BindingConstraint[] {
     if (k === 'salary_adj_city' && intern) continue
     const v = e[k]
     if (v != null && v < HYGIENE_VETO_AT) {
-      out.push({ kind: 'hygiene_veto', detail: `${DIM_LABELS[k]} ${v} < ${HYGIENE_VETO_AT} caps Want at 5.0` })
+      out.push({ kind: 'hygiene_veto', detail: `${DIM_LABELS[k]} ${v} < ${HYGIENE_VETO_AT} caps Match at 5.0` })
     }
   }
   if (e.role_content != null && e.role_content <= ROLE_CONTENT_VETO_AT) {
-    out.push({ kind: 'role_content_veto', detail: `Role content ${e.role_content} ≤ ${ROLE_CONTENT_VETO_AT} caps Want at 6.0` })
+    out.push({ kind: 'role_content_veto', detail: `Role content ${e.role_content} ≤ ${ROLE_CONTENT_VETO_AT} caps Match at 6.0` })
   }
   for (const f of flags) {
     if (f.status === 'amber') out.push({ kind: 'amber', detail: `${eligibilityCheckLabel(f.check)}: ${f.reason}` })
   }
-  if (e.want != null && e.want < WANT_HIGH) {
-    const target = e.want < WANT_MID ? WANT_MID : WANT_HIGH
-    out.push({ kind: 'low_want', detail: `Want ${e.want} < ${target.toFixed(1)}` })
+  if (e.match != null && e.match < MATCH_HIGH) {
+    const target = e.match < MATCH_MID ? MATCH_MID : MATCH_HIGH
+    out.push({ kind: 'low_match', detail: `Match ${e.match} < ${target.toFixed(1)}` })
   }
   if (e.ease != null && e.ease < EASE_HIGH) {
     const target = e.ease < EASE_MID ? EASE_MID : EASE_HIGH

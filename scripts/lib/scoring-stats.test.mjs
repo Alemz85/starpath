@@ -8,8 +8,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  WANT_DIM_STEP, EASE_DIM_STEP,
-  WANT_NOISE_FLOOR, EASE_NOISE_FLOOR, PRIORITY_NOISE_FLOOR,
+  MATCH_DIM_STEP, EASE_DIM_STEP,
+  MATCH_NOISE_FLOOR, EASE_NOISE_FLOOR, PRIORITY_NOISE_FLOOR,
   NOISE_FLOORS, noiseFloorFor,
   GATES, OUTCOME_GATES, OUTCOME_RULES,
   CONFIDENCE_TIERS,
@@ -19,17 +19,17 @@ import {
   formatSample, formatWithinNoise,
 } from './scoring-stats.mjs'
 import {
-  rollupWant, rollupEase, computePriority, WANT_DIMS, EASE_DIMS,
+  rollupMatch, rollupEase, computePriority, MATCH_DIMS, EASE_DIMS,
 } from './score-bands.mjs'
 
 /* ───── Rubric geometry + the noise-floor derivation (spec §9) ───────────── */
 
 test('the v2 noise floors are exactly the spec values', () => {
-  assert.equal(WANT_NOISE_FLOOR, 0.30)
+  assert.equal(MATCH_NOISE_FLOOR, 0.30)
   assert.equal(EASE_NOISE_FLOOR, 0.35)
   assert.equal(PRIORITY_NOISE_FLOOR, 0.30)
-  assert.deepEqual({ ...NOISE_FLOORS }, { want: 0.30, ease: 0.35, priority: 0.30 })
-  assert.equal(noiseFloorFor('want'), 0.30)
+  assert.deepEqual({ ...NOISE_FLOORS }, { match: 0.30, ease: 0.35, priority: 0.30 })
+  assert.equal(noiseFloorFor('match'), 0.30)
   assert.equal(noiseFloorFor('ease'), 0.35)
   assert.equal(noiseFloorFor('priority'), 0.30)
   assert.equal(noiseFloorFor(undefined), PRIORITY_NOISE_FLOOR)
@@ -41,13 +41,13 @@ const MID = {
   skills_match: 6, experience_bar: 6, competition: 6,
 }
 
-test('one motivator step moves Want by WANT_DIM_STEP, below the Want floor', () => {
-  const base = rollupWant(MID).score
-  const moved = rollupWant({ ...MID, brand_value: 7 }).score
-  assert.equal(Number((moved - base).toFixed(2)), WANT_DIM_STEP)
-  assert.ok(WANT_DIM_STEP < WANT_NOISE_FLOOR)
+test('one motivator step moves Match by MATCH_DIM_STEP, below the Match floor', () => {
+  const base = rollupMatch(MID).score
+  const moved = rollupMatch({ ...MID, brand_value: 7 }).score
+  assert.equal(Number((moved - base).toFixed(2)), MATCH_DIM_STEP)
+  assert.ok(MATCH_DIM_STEP < MATCH_NOISE_FLOOR)
   // two motivators agreeing clear it
-  assert.ok(2 * WANT_DIM_STEP >= WANT_NOISE_FLOOR)
+  assert.ok(2 * MATCH_DIM_STEP >= MATCH_NOISE_FLOOR)
 })
 
 test('one step on a 0.35-weight Ease stage near 6 stays under the Ease floor', () => {
@@ -60,10 +60,10 @@ test('one step on a 0.35-weight Ease stage near 6 stays under the Ease floor', (
 })
 
 test('a single-dimension step stays under the Priority floor at mid-scale', () => {
-  const p0 = computePriority(rollupWant(MID).score, rollupEase(MID).score)
-  for (const dim of [...WANT_DIMS.filter(d => d !== 'salary_adj_city' && d !== 'best_cities' && d !== 'work_life_balance'), ...EASE_DIMS]) {
+  const p0 = computePriority(rollupMatch(MID).score, rollupEase(MID).score)
+  for (const dim of [...MATCH_DIMS.filter(d => d !== 'salary_adj_city' && d !== 'best_cities' && d !== 'work_life_balance'), ...EASE_DIMS]) {
     const d = { ...MID, [dim]: 7 }
-    const p1 = computePriority(rollupWant(d).score, rollupEase(d).score)
+    const p1 = computePriority(rollupMatch(d).score, rollupEase(d).score)
     assert.ok(Math.abs(p1 - p0) < PRIORITY_NOISE_FLOOR, `${dim} moved Priority by ${p1 - p0}`)
   }
 })
@@ -84,8 +84,8 @@ test('dimension classes split mechanical from judgment over the v2 dims', () => 
 test('no dimension is in both classes, and together they cover every v2 dim', () => {
   for (const d of MECHANICAL_DIMS) assert.ok(!JUDGMENT_DIMS.includes(d), `${d} is in both classes`)
   const all = new Set([...MECHANICAL_DIMS, ...JUDGMENT_DIMS])
-  for (const d of [...WANT_DIMS, ...EASE_DIMS]) assert.ok(all.has(d), `${d} is unclassified`)
-  assert.equal(all.size, WANT_DIMS.length + EASE_DIMS.length)
+  for (const d of [...MATCH_DIMS, ...EASE_DIMS]) assert.ok(all.has(d), `${d} is unclassified`)
+  assert.equal(all.size, MATCH_DIMS.length + EASE_DIMS.length)
 })
 
 /* ───── Confidence tiers — boundaries at exactly g, 2g, 4g ───────────────── */
@@ -155,15 +155,15 @@ test('classifyMovement: just under the floor is within-noise, in both directions
   assert.equal(classifyMovement(0), 'within-noise')
 })
 
-test('classifyMovement: one Want dim step alone never reads as movement', () => {
-  assert.equal(classifyMovement(WANT_DIM_STEP, { metric: 'want' }), 'within-noise')
-  assert.equal(classifyMovement(-WANT_DIM_STEP, { metric: 'want' }), 'within-noise')
-  assert.equal(classifyMovement(2 * WANT_DIM_STEP, { metric: 'want' }), 'improving')
+test('classifyMovement: one Match dim step alone never reads as movement', () => {
+  assert.equal(classifyMovement(MATCH_DIM_STEP, { metric: 'match' }), 'within-noise')
+  assert.equal(classifyMovement(-MATCH_DIM_STEP, { metric: 'match' }), 'within-noise')
+  assert.equal(classifyMovement(2 * MATCH_DIM_STEP, { metric: 'match' }), 'improving')
 })
 
-test('classifyMovement: the Ease floor is wider than the Want floor', () => {
+test('classifyMovement: the Ease floor is wider than the Match floor', () => {
   assert.equal(classifyMovement(0.32, { metric: 'ease' }), 'within-noise')
-  assert.equal(classifyMovement(0.32, { metric: 'want' }), 'improving')
+  assert.equal(classifyMovement(0.32, { metric: 'match' }), 'improving')
   assert.equal(classifyMovement(0.35, { metric: 'ease' }), 'improving')
   assert.equal(classifyMovement(-0.35, { metric: 'ease' }), 'declining')
 })

@@ -35,13 +35,13 @@ export const BAND_DETAILS: Record<ScoreBand, { label: string; color: string; bg:
 /** The verdict-carrying fields of a report row (DbReportRow satisfies it). */
 export interface VerdictLike {
   tier: string
-  want?: number | null
+  match?: number | null
   ease?: number | null
   verdict?: string | null
   eligibility?: string | null
 }
 
-// A report's band: its stored verdict, else the grid replay of its Want/Ease
+// A report's band: its stored verdict, else the grid replay of its Match/Ease
 // (red eligibility → blocked), else — for an orphan report with no matching
 // evaluation — the folder tier's representative cell (T1 go, T2 solid, T3
 // growth, T4 skip). T2 holds three cells; `solid` is the neutral middle.
@@ -49,7 +49,7 @@ export function getScoreBand(row: VerdictLike): ScoreBand {
   const stored = normalizeVerdict(row.verdict)
   if (stored) return stored
   const elig = normalizeEligibility(row.eligibility)
-  const replayed = assignVerdict({ want: row.want, ease: row.ease, eligibility: elig })
+  const replayed = assignVerdict({ match: row.match, ease: row.ease, eligibility: elig })
   if (replayed) return replayed.verdict
   const t = (row.tier ?? '').toUpperCase()
   if (t === 'T1') return 'go'
@@ -112,7 +112,7 @@ export interface ReportRowLike extends VerdictLike {
   company: string
   role: string
   tier: string
-  want: number | null
+  match: number | null
   ease: number | null
   priority?: number | null
   eligibility?: string | null
@@ -122,7 +122,7 @@ export interface ReportRowLike extends VerdictLike {
 /** Priority for sorting (spec §5 — a sort key, never a headline). */
 function rowPriority(r: ReportRowLike): number {
   const elig = normalizeEligibility(r.eligibility) as Eligibility | null
-  return priorityOf({ priority: r.priority ?? null, want: r.want, ease: r.ease, eligibility: elig }) ?? -1
+  return priorityOf({ priority: r.priority ?? null, match: r.match, ease: r.ease, eligibility: elig }) ?? -1
 }
 
 export type ReportSortBy = 'score' | 'date' | 'tier' | 'fixable'
@@ -167,7 +167,7 @@ export function sortReportRows<T extends FixabilityRow>(
   const sorted = [...rows].sort((a, b) => {
     let comp = 0
     if (sortBy === 'score') {
-      // Priority (sqrt(Want × Ease)); blocked/unscored rows sort last.
+      // Priority (sqrt(Match × Ease)); blocked/unscored rows sort last.
       comp = rowPriority(b) - rowPriority(a)
     } else if (sortBy === 'date') {
       comp = (b.mtime ?? 0) - (a.mtime ?? 0)

@@ -7,18 +7,18 @@ import {
 import { Button, Panel } from '@/components/ui'
 import { themeColor } from '@/lib/themes'
 import { tierColor } from '@/lib/tier'
-import { WANT_HIGH } from '@/lib/scoreBands'
+import { MATCH_HIGH } from '@/lib/scoreBands'
 import { type PeriodBucket, type PeriodGranularity } from '@/lib/trendsAnalytics'
 
 // Listings posted per period (DESIGN-meta § Charts, "Count bars"). Bars count
 // distinct listings by the period they were posted (scan-history's posting
-// date, else the report's `**Posted:**` date, else their first evaluation): the wanted ones at the foot in the
-// top-score colour (Want ≥ WANT_HIGH, the colour a Want of 8 takes
+// date, else the report's `**Posted:**` date, else their first evaluation): the strong matches at the foot in the
+// top-score colour (Match ≥ MATCH_HIGH, the colour a Match of 8 takes
 // everywhere), the rest above, blocked ones on top in the eligibility red.
 // Counts only, so nothing is gated (docs/scoring-statistical-design.md § 3.6);
 // the tooltip says which date placed each bar's listings.
 
-const WANTED_COLOR = tierColor('T1')
+const STRONG_MATCH_COLOR = tierColor('T1')
 const BAR_COLOR = themeColor('chart-7')
 const BLOCKED_COLOR = themeColor('danger', 0.4)
 
@@ -34,7 +34,7 @@ export function ListingsChart({
   const listings = buckets.reduce((n, b) => n + b.listings, 0)
   const postedCount = buckets.reduce((n, b) => n + b.posted, 0)
   // Bars need their segments as separate keys.
-  const data = buckets.map(b => ({ ...b, rest: b.listings - b.blocked - b.wanted }))
+  const data = buckets.map(b => ({ ...b, rest: b.listings - b.blocked - b.strongMatch }))
 
   return (
     <Panel
@@ -56,7 +56,7 @@ export function ListingsChart({
       }
     >
       <div className="flex flex-wrap items-center gap-4 mb-3">
-        <LegendSwatch color={WANTED_COLOR} label={`Wanted (Want ${WANT_HIGH.toFixed(1)}+)`} />
+        <LegendSwatch color={STRONG_MATCH_COLOR} label={`Strong match (Match ${MATCH_HIGH.toFixed(1)}+)`} />
         <LegendSwatch color={BAR_COLOR} label="Other" />
         <LegendSwatch color={BLOCKED_COLOR} label="Blocked" />
       </div>
@@ -79,7 +79,7 @@ export function ListingsChart({
               width={28}
             />
             <Tooltip content={<PeriodTooltip />} cursor={{ fill: themeColor('bg-elevated') }} />
-            <Bar dataKey="wanted" stackId="n" fill={WANTED_COLOR} maxBarSize={36} isAnimationActive={false} />
+            <Bar dataKey="strongMatch" stackId="n" fill={STRONG_MATCH_COLOR} maxBarSize={36} isAnimationActive={false} />
             <Bar dataKey="rest" stackId="n" fill={BAR_COLOR} maxBarSize={36} isAnimationActive={false} />
             <Bar dataKey="blocked" stackId="n" fill={BLOCKED_COLOR} maxBarSize={36} radius={[2, 2, 0, 0]} isAnimationActive={false} />
           </BarChart>
@@ -93,7 +93,7 @@ export function ListingsChart({
           : postedCount === 0
             ? `: no posting dates on file, so the ${granularity} it was first evaluated. `
             : ` (${postedCount} of ${listings} have a posting date from the scans or their report; the rest use the ${granularity} they were first evaluated). `}
-        Wanted means Want {WANT_HIGH.toFixed(1)} or more and not blocked (a Go, Stretch or Growth target verdict).
+        Strong match means Match {MATCH_HIGH.toFixed(1)} or more and not blocked (a Go, Stretch or Growth target verdict).
       </p>
     </Panel>
   )
@@ -135,10 +135,10 @@ function PeriodTooltip({ active, payload }: PeriodTooltipProps) {
         </li>
         <li className="flex justify-between gap-4">
           <span className="flex items-center gap-1.5 text-text-3">
-            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: WANTED_COLOR }} aria-hidden />
-            Wanted
+            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: STRONG_MATCH_COLOR }} aria-hidden />
+            Strong match
           </span>
-          <span className="text-text-2">{b.wanted}</span>
+          <span className="text-text-2">{b.strongMatch}</span>
         </li>
         {b.blocked > 0 && (
           <li className="flex justify-between gap-4">

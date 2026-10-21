@@ -195,10 +195,10 @@ export const ipc = {
 
 export interface DbApplicationRow {
   num: number; date: string; company: string; role: string
-  /** Raw Score cell — `W8.3 E5.6` (v2) or a legacy `7.4/10`. */
+  /** Raw Score cell — `M8.3 E5.6` (v2) or a legacy `7.4/10`. */
   score_raw: string
   /** Parsed from score_raw (docs/scoring-v2.md §8.3); null when absent. */
-  want: number | null; ease: number | null; legacy_score: number | null
+  match: number | null; ease: number | null; legacy_score: number | null
   status: string; pdf: number; deadline: string; report: string; notes: string
   tier: string
   /** Computed at sync time from (company, role, latest location). Stable
@@ -212,7 +212,7 @@ export interface DbApplicationRow {
 
 export interface DbScoutingRow {
   num: number; date: string; company: string; role: string
-  want: number | null; ease: number | null
+  match: number | null; ease: number | null
   tier: string; eligibility: string | null; eligibility_reason: string; report: string
   deadline: string; promotion_hint: string; notes: string
   entity_id: string
@@ -221,7 +221,7 @@ export interface DbScoutingRow {
 
 export interface DbApplicationWithScoreRow extends DbApplicationRow {
   /** Latest score-history evaluation for the same (company, role). */
-  sh_want: number | null; sh_ease: number | null
+  sh_match: number | null; sh_ease: number | null
   priority: number | null; verdict: string | null; eligibility: string | null
   archetype: string | null; sh_date: string | null
 }
@@ -235,7 +235,7 @@ export interface DbScoreHistoryRow {
   growth_mobility: number | null; optionality_exit: number | null
   brand_value: number | null; role_content: number | null
   best_cities: number | null; salary_adj_city: number | null; work_life_balance: number | null
-  want: number | null; priority: number | null
+  match: number | null; priority: number | null
   eligibility: string | null; eligibility_flags: string; verdict: string | null
   best_fit_roles: string
   mode: string; company: string; role: string; tier: string
@@ -255,14 +255,14 @@ export interface DbReportRow {
   url: string
   /** Latest matching evaluation; all null for an orphan report or a blocked
    *  row's scores. */
-  want: number | null; ease: number | null; priority: number | null
+  match: number | null; ease: number | null; priority: number | null
   verdict: string | null; eligibility: string | null; eligibility_flags: string | null
 }
 
 /** Score averages exclude blocked rows; `blocked` counts them. */
 export interface DbTrendBucket {
   label: string; count: number; blocked: number
-  avg_want: number | null; avg_ease: number | null; avg_priority: number | null
+  avg_match: number | null; avg_ease: number | null; avg_priority: number | null
   avg_skills_match: number | null; avg_brand_value: number | null
   avg_growth: number | null; avg_wlb: number | null
 }

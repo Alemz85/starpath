@@ -1,6 +1,6 @@
 # Scoring statistical design
 
-**Scoring model: v2** (`docs/scoring-v2.md` §9). Re-derived for Want / Ease /
+**Scoring model: v2** (`docs/scoring-v2.md` §9). Re-derived for Match / Ease /
 Priority; the v1 Overall floor and the CF / AF weights are retired.
 
 This document is the contract for every analytic derived from
@@ -22,13 +22,13 @@ eligibility gate (green / amber / red), then scores ten rubric dimensions on
 **integers 1–10** and rolls them up into two independent numbers:
 
 ```
-Want  = mean(4 motivators, weighted) − 0.30 per motivator ≤ 2 + hygiene terms h(x)   (then dream floor, vetoes)
+Match  = mean(4 motivators, weighted) − 0.30 per motivator ≤ 2 + hygiene terms h(x)   (then dream floor, vetoes)
 Ease  = weighted geometric mean(Skills Match 0.35, Experience bar 0.35, Competition 0.30)
         (then the experience wall, then −0.5 per amber check, max −1.0)
-Priority = √(Want × Ease)   — a sort key only, never a headline score
+Priority = √(Match × Ease)   — a sort key only, never a headline score
 ```
 
-A **blocked** listing (eligibility red) has no dimensions, no Want, no Ease and
+A **blocked** listing (eligibility red) has no dimensions, no Match, no Ease and
 no Priority: those cells are empty in `data/score-history.tsv`. Every reader
 treats empty as **missing**, never as 0. Blocked rows are excluded from every
 score analytic in this document and counted only in eligibility analytics
@@ -37,13 +37,13 @@ score analytic in this document and counted only in eligibility analytics
 Two consequences follow from that structure, and they are the basis of this
 contract.
 
-**Want and Ease live on lattices.** One dimension moving by one integer step
+**Match and Ease live on lattices.** One dimension moving by one integer step
 moves its rollup by a roughly fixed amount:
 
 | Dimension moved by one step | Moves |
 |---|---|
-| any motivator (default equal weights) | Want by 1 / 4 = **0.25** |
-| a hygiene factor crossing a threshold (8, 5, 4, 3) | Want by **0.25–0.40** (0 when it stays inside a band) |
+| any motivator (default equal weights) | Match by 1 / 4 = **0.25** |
+| a hygiene factor crossing a threshold (8, 5, 4, 3) | Match by **0.25–0.40** (0 when it stays inside a band) |
 | a 0.35-weight Ease stage near 6 | Ease by **≈ 0.33 up / ≈ 0.37 down** |
 | the 0.30-weight Competition stage near 6 | Ease by **≈ 0.28 up / ≈ 0.32 down** |
 
@@ -60,11 +60,11 @@ integer step, in either direction, with no change in the world.
 
 | Metric | Constant | Value | Derivation |
 |---|---|---|---|
-| Want | `WANT_NOISE_FLOOR` | **0.30** | One motivator re-judged one step = 0.25; the floor is that, rounded up. Two motivators agreeing (0.50) clear it. |
+| Match | `MATCH_NOISE_FLOOR` | **0.30** | One motivator re-judged one step = 0.25; the floor is that, rounded up. Two motivators agreeing (0.50) clear it. |
 | Ease | `EASE_NOISE_FLOOR` | **0.35** | One step on a 0.35-weight stage near 6 ≈ 0.32 (spec §9); 0.35 is the round value above it. |
-| Priority | `PRIORITY_NOISE_FLOOR` | **0.30** | Priority = √(W·E): a one-step Want wobble moves it ≈ 0.13 and a one-step Ease wobble ≈ 0.16 at mid-scale; 0.30 sits above both. |
+| Priority | `PRIORITY_NOISE_FLOOR` | **0.30** | Priority = √(M·E): a one-step Match wobble moves it ≈ 0.13 and a one-step Ease wobble ≈ 0.16 at mid-scale; 0.30 sits above both. |
 
-Want and Ease are classified **separately**, each against its own floor. A
+Match and Ease are classified **separately**, each against its own floor. A
 surface never combines them into one movement statistic; when it needs one
 sortable number it uses Priority with the Priority floor.
 
@@ -74,7 +74,7 @@ limit of the instrument. Surfaces report it as *flat within noise* — see § 4 
 and never render it with a direction, an arrow, or a sign-carrying verb.
 
 **Known limits of the floors.** Three single-step moves can reach a floor on
-their own: a hygiene factor crossing the 5 → 4 threshold (−0.40 Want), a
+their own: a hygiene factor crossing the 5 → 4 threshold (−0.40 Match), a
 motivator dropping to the bottom range (3 → 2: −0.25 and the −0.30 penalty),
 and a downward step on a 0.35-weight Ease stage near 6 (≈ −0.37 Ease). These
 are threshold effects in the engine, not noise in the judge, and they are
@@ -87,7 +87,7 @@ claim.
 **Bands come from the verdict, never from new thresholds on a number.** The
 display/sorting buckets are the verdict cells (`go`, `stretch`, `growth`,
 `solid`, `thin`, `skip`, `blocked`) computed by `assignVerdict` in
-`scripts/lib/score-bands.mjs`. No surface invents its own cut-offs on Want,
+`scripts/lib/score-bands.mjs`. No surface invents its own cut-offs on Match,
 Ease or Priority. A corpus "actionable share" is the share of scored rows whose
 verdict is `go`, `stretch` or `solid`.
 
@@ -129,7 +129,7 @@ against the profile's `eligibility:` block.
 
 - **Skills Match**, **Experience bar**, **Competition** (Ease), and
   **Growth / Mobility**, **Optionality / Exit**, **Role content**,
-  **Work-Life Balance** (Want). Experience bar and Competition have anchor
+  **Work-Life Balance** (Match). Experience bar and Competition have anchor
   tables (years required; brand-competition tier, cohort size, school match),
   but their discretionary share dominates; their table adjustments are still
   mechanical facts.
@@ -143,7 +143,7 @@ clusters at the ceiling on Brand Value*. They support nothing finer.
 - A judgment dimension **must never be read as precise to a decimal across
   re-evaluations**. Report the integer band or report nothing.
 - A per-dimension delta across re-evaluations may be shown as the **driver** of
-  a Want or Ease move that itself cleared its noise floor. It may never be the
+  a Match or Ease move that itself cleared its noise floor. It may never be the
   headline claim on its own.
 - A mean of a judgment dimension across a pool (peer averages, corpus
   fingerprints) is a **pool descriptor**, valid for ranking pools against each
@@ -181,7 +181,7 @@ the only implementation.
 
 **Gate: `minPeers = 5` same-archetype, non-blocked peers with a finite
 Priority.** The rank is computed on Priority (spec §5: the peer percentile is
-one of Priority's sanctioned uses); the block also states where the role's Want
+one of Priority's sanctioned uses); the block also states where the role's Match
 and Ease sit among the same peers, each as its own claim. The
 existing omission rule stands unchanged: below five peers the block is **omitted
 entirely**, returning `null`. It is never rendered with a placeholder, a
@@ -209,7 +209,7 @@ Above the gate:
 - The outlier threshold stays at |Δ| ≥ 1.5 against the peer mean. It is a
   full step and a half on the raw rubric — comfortably above one-step judge
   wobble — and is deliberately expressed in raw dimension points, not in
-  Want / Ease points, so it is not confused with the noise floors.
+  Match / Ease points, so it is not confused with the noise floors.
 
 ### 3.3 Score trend — `scripts/score-trend.mjs`, `scripts/lib/score-trend-core.mjs`
 
@@ -218,9 +218,9 @@ Above the gate:
 1. **≥ 2 evaluations on distinct dates** for the same canonical (company, role)
    key. Same-date rows are duplicate writes, not re-evaluations, and collapse to
    the last one. This is already how trajectories are built.
-2. **|Δ Want| ≥ 0.30** or **|Δ Ease| ≥ 0.35** — each metric is classified
+2. **|Δ Match| ≥ 0.30** or **|Δ Ease| ≥ 0.35** — each metric is classified
    against its own floor from § 1, and reported separately. A trajectory can
-   be "Ease improving, Want flat within noise".
+   be "Ease improving, Match flat within noise".
 
 A metric failing (2) is classified **`within-noise`** and reported as
 *flat within noise*, with its n (evaluation count) and its confidence from
@@ -236,7 +236,7 @@ balanced-split construction.
 
 Derivation. The claim compares two window means. A window mean must not be at
 the mercy of one evaluation, so require that no single evaluation can move its
-window's mean by more than the noise floor. The usable spread of Want in a real
+window's mean by more than the noise floor. The usable spread of Match in a real
 landscape runs about three points between a weak role and a dream one, so a
 single extreme role deviates from its window mean by up to ≈ 3.0 and shifts
 that mean by `3.0 / k`; `3.0 / k ≤ 0.30` gives **k ≥ 10 per window**. Ease
@@ -248,7 +248,7 @@ trend.
 
 A corpus trend under the gate emits an **explicit insufficient-data marker** —
 never a verdict, never a direction, never an arrow. Above the gate, each verdict
-is additionally subject to its noise floor: a window-mean Want delta with
+is additionally subject to its noise floor: a window-mean Match delta with
 |Δ| < 0.30, or Ease delta with |Δ| < 0.35, is `flat-within-noise`, not
 "slightly improving". The corpus trend also reports the change in the
 **actionable share** (verdict `go` / `stretch` / `solid`) between windows; a
@@ -259,7 +259,7 @@ The corpus claim carries its own confidence from § 3.1 with `g = 10` on the
 smaller of the two window counts: 10–19 is `low`, 20–39 `moderate`, 40+ `high`.
 
 **Corpus movement is not causal.** Even at `high` confidence, a rise in recent
-average Want or Ease is compatible with the scanner having pulled a different segment
+average Match or Ease is compatible with the scanner having pulled a different segment
 of the market — different archetypes, employer tiers, or cities — on either side
 of the split date. `modes/positioning.md` already requires that caveat to be
 stated; this contract makes it binding. A trend claim states what moved, not why.
@@ -270,7 +270,7 @@ The advisor produces two different kinds of output and they are held to
 different standards.
 
 **Diagnostics describe; advisories prescribe.** A diagnostic ("this company's
-evaluated roles average Want 5.8") is a statement about the log and may be shown with
+evaluated roles average Match 5.8") is a statement about the log and may be shown with
 its n at any sample size. An advisory ("remove this company from your bonus
 list") asks the user to change their configuration, which silently alters every
 future score. Advisories are gated; diagnostics are not.
@@ -282,11 +282,11 @@ CLI summary, not in JSON consumed by a mode, not in a UI.
 
 | Advisory | Sample counted | Gate | Why |
 |---|---|---|---|
-| Brand-bonus drift (inert / misdirected) | scored (non-blocked) roles at that company | **4** | The verdict places a company's mean **Want** on one side of a verdict-row boundary (Want 6.5 / 8.0). Role-to-role spread within a company is about a full point, so the standard error of the mean is `1.0/√n`; the narrowest band the verdict must resolve is half a point wide, giving `n ≥ 4`. |
+| Brand-bonus drift (inert / misdirected) | scored (non-blocked) roles at that company | **4** | The verdict places a company's mean **Match** on one side of a verdict-row boundary (Match 6.5 / 8.0). Role-to-role spread within a company is about a full point, so the standard error of the mean is `1.0/√n`; the narrowest band the verdict must resolve is half a point wide, giving `n ≥ 4`. |
 | Brand-bonus candidate (company to add) | evaluated roles at that company | **4** | Same claim shape, same boundary, same gate. |
 | Dimension pinned at ceiling / floor | evaluations scoring that dimension | **20** | The claim is a share claim ("≥ 70% of evaluations sit at ≥ 9") plus a dispersion claim. A share estimated from 5 observations has a confidence interval wide enough to contain 50%, i.e. no pinning at all; 20 observations narrow it to roughly ±20 points, which keeps the estimate on the claimed side. Dispersion estimates from fewer than 20 points are unstable in the same way. |
 | Comp targets above / below market | scored evaluations with a `salary_adj_city` score | **20** | Identical share-plus-mean claim over one dimension; identical gate. |
-| Archetype scores high (Priority / verdict) but never converts / scores low but converts | resolved applications in that archetype (progressed + rejected + no-response, classified by § 3.7 from the status log; pending and withdrawn are not answers) with a score-history Want and Ease | **8** | "0 of n converted" is only remarkable if 0 is unlikely under a healthy rate. At a 20% true conversion rate, seeing zero successes has probability `0.8^n`; that only drops below ~1-in-6 at `n = 8`. Below 8, a zero-conversion archetype is an ordinary run of bad luck and must not be presented as a rubric defect. |
+| Archetype scores high (Priority / verdict) but never converts / scores low but converts | resolved applications in that archetype (progressed + rejected + no-response, classified by § 3.7 from the status log; pending and withdrawn are not answers) with a score-history Match and Ease | **8** | "0 of n converted" is only remarkable if 0 is unlikely under a healthy rate. At a 20% true conversion rate, seeing zero successes has probability `0.8^n`; that only drops below ~1-in-6 at `n = 8`. Below 8, a zero-conversion archetype is an ordinary run of bad luck and must not be presented as a rubric defect. |
 
 Sub-gate advisories appear in `insufficientData` with the same `action` text,
 their `sampleSize`, their gate, and the reason — so the user can see what the
@@ -307,11 +307,11 @@ write: it never edits `user/*`.
 ### 3.5 Targeting momentum — `frontend/src/lib/trendsAnalytics.ts`
 
 The Trends view's momentum card splits the date-windowed scored corpus into two
-chronological halves and contrasts per-half **medians** (typical Want and
+chronological halves and contrasts per-half **medians** (typical Match and
 Ease, each against its own floor, and the actionable share). It asserts a direction — `improving` / `steady` /
 `declining` — so it is a verdict surface and must be gated. Its parameters:
 
-- **Deadband = the metric's noise floor** (Want 0.30, Ease 0.35, Priority
+- **Deadband = the metric's noise floor** (Match 0.30, Ease 0.35, Priority
   0.30). A median swing below the floor is `steady`, never a direction. The card must not restate the floor locally;
   it reads the shared constant.
 - **Gate: ≥ 5 scored evaluations in EACH half** (`momentumMinPerHalf`). The
@@ -332,17 +332,17 @@ Ease, each against its own floor, and the actionable share). It asserts a direct
 
 The Trends time chart counts distinct listings per week or month **by the
 period they were posted** (scan-history's `posted_date`, else the period they
-were first evaluated). Each bar is split into the **wanted** listings (Want ≥
-`WANT_HIGH` and not blocked: the high-Want row of the verdict grid, i.e. Go,
+were first evaluated). Each bar is split into the **strong-match** listings (Match ≥
+`MATCH_HIGH` and not blocked: the high-Match row of the verdict grid, i.e. Go,
 Stretch or Growth target) and the rest, with the blocked share on top. The
 count and the split are tallies, not score claims, so they are **ungated**.
-No score statistic (no mean Want) is drawn on this chart: at one person's
+No score statistic (no mean Match) is drawn on this chart: at one person's
 volume a per-week mean would sit under § 3.3's gate almost every week.
 
 - **What counts.** A re-evaluated listing counts once, in the period it was
-  posted (else first evaluated), and is wanted or not on its latest
+  posted (else first evaluated), and is a strong match or not on its latest
   evaluation. Blocked listings count in the bar and in the blocked share,
-  never as wanted.
+  never as strong matches.
 - **Say which date placed it.** Each bucket carries how many listings it
   placed by posting date and how many by first evaluation; the tooltip states
   it and the footnote gives the totals, so a bar of fallbacks is not read as a
@@ -475,7 +475,7 @@ that consumes these outputs.
 
 The switch to scoring v2 was a breaking change: v1 history was archived
 (`data/archive/scoring-v1/`) and the Overall-based fields (`avgOverall`,
-Overall bands, CF / AF fingerprints) were replaced by Want / Ease / verdict
+Overall bands, CF / AF fingerprints) were replaced by Match / Ease / verdict
 fields. Within v2 the contract is enforced through the fields `confidence`,
 `sampleSize`, `movementClass`, `verdictGate`, `reportableVerdict` and
 `insufficientData`; the desktop app mirrors these numbers in

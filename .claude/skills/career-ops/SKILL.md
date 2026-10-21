@@ -62,7 +62,7 @@ career-ops -- Command Center
 Active mode: {scouting | applying}   (set in user/profile.yml -> current_mode)
 
 Landscape mapping:
-  /career-ops scouting      -> Evaluate a listing: Want x Ease, eligibility, verdict, tiered report
+  /career-ops scouting      -> Evaluate a listing: Match x Ease, eligibility, verdict, tiered report
   /career-ops positioning   -> Holistic Career Positioning Report across ALL accumulated data
   /career-ops db            -> Browse and filter every evaluated offer
 

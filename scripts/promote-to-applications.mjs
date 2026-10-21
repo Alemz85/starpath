@@ -9,9 +9,9 @@
  * (so positioning trajectory is not disrupted), with the Promotion Hint column
  * flipped to PROMOTED-{num}.
  *
- * The Score cell on the new applications row is the v2 "W8.3 E5.6" form built
- * from the scouting row's Want / Ease; tier + eligibility go into the Notes text.
- * A Blocked row (red eligibility, Want/Ease "—") is refused — a blocked listing
+ * The Score cell on the new applications row is the v2 "M8.3 E5.6" form built
+ * from the scouting row's Match / Ease; tier + eligibility go into the Notes text.
+ * A Blocked row (red eligibility, Match/Ease "—") is refused — a blocked listing
  * has nothing to apply to. A `skip` verdict is allowed but warned about
  * (docs/scoring-v2.md §4 ethical-use rule).
  *
@@ -87,13 +87,13 @@ function promote() {
   }
 
   console.log(`📋 Found scouting entry #${targetNum}: ${scoutingRow.company} — ${scoutingRow.role}`);
-  console.log(`   Want ${scoutingRow.want} · Ease ${scoutingRow.ease} (${scoutingRow.tier}, eligibility ${scoutingRow.eligibility})`);
+  console.log(`   Match ${scoutingRow.match} · Ease ${scoutingRow.ease} (${scoutingRow.tier}, eligibility ${scoutingRow.eligibility})`);
 
-  // Blocked listings are never promoted: no Want/Ease, nothing to apply to.
+  // Blocked listings are never promoted: no Match/Ease, nothing to apply to.
   const { verdict } = verdictFromCells({
-    want: scoutingRow.wantNum, ease: scoutingRow.easeNum, eligibility: scoutingRow.eligibility,
+    match: scoutingRow.matchNum, ease: scoutingRow.easeNum, eligibility: scoutingRow.eligibility,
   });
-  if (verdict === 'blocked' || scoutingRow.wantNum === null || scoutingRow.easeNum === null) {
+  if (verdict === 'blocked' || scoutingRow.matchNum === null || scoutingRow.easeNum === null) {
     console.error(`⛔ Scouting entry #${targetNum} is Blocked (${scoutingRow.eligibility}). Blocked listings are not promoted.`);
     return 1;
   }
@@ -125,7 +125,7 @@ function promote() {
 
   const newAppNum = maxAppNum + 1;
   const today = new Date().toISOString().slice(0, 10);
-  const scoreCell = formatScoreCell(scoutingRow.wantNum, scoutingRow.easeNum);
+  const scoreCell = formatScoreCell(scoutingRow.matchNum, scoutingRow.easeNum);
   const promotionNote = `Promoted from scouting #${targetNum} (${scoutingRow.tier}, ${scoutingRow.eligibility}). ${scoutingRow.notes}`.trim().replace(/\|/g, '/');
 
   // applications.md is 10-column: # date company role score status pdf deadline report notes

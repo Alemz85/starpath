@@ -26,7 +26,7 @@ export interface TokenFilters {
   eligibility?: string
   /** Scoring v2 replaces `min-score:` (there is no Overall) with one floor
    *  per axis. */
-  minWant?: number
+  minMatch?: number
   minEase?: number
 }
 
@@ -39,9 +39,9 @@ export interface TokenFilters {
 // over after the recognized tokens are stripped is returned as free text.
 export function parseTokenQuery(q: string): { tokenFilters: TokenFilters; freeText: string } {
   const tokenFilters: TokenFilters = {}
-  // Key allows a hyphen so the advertised `min-want:` / `min-ease:` tokens
-  // actually match — `\w` excludes `-`, so `(\w+):` would parse `min-want:7`
-  // as the bare word `min` + an unhandled `want:7` token.
+  // Key allows a hyphen so the advertised `min-match:` / `min-ease:` tokens
+  // actually match — `\w` excludes `-`, so `(\w+):` would parse `min-match:7`
+  // as the bare word `min` + an unhandled `match:7` token.
   const tokenRe = /([\w-]+):(?:"([^"]+)"|(\S+))/g
   let freeText = q
   let match: RegExpExecArray | null
@@ -60,8 +60,8 @@ export function parseTokenQuery(q: string): { tokenFilters: TokenFilters; freeTe
       case 'verdict':     tokenFilters.verdict     = val; break
       case 'eligibility':
       case 'elig':        tokenFilters.eligibility = val; break
-      case 'min-want':
-      case 'minwant':     tokenFilters.minWant     = parseFloat(val); break
+      case 'min-match':
+      case 'minmatch':     tokenFilters.minMatch     = parseFloat(val); break
       case 'min-ease':
       case 'minease':     tokenFilters.minEase     = parseFloat(val); break
     }
@@ -78,8 +78,8 @@ export function parseTokenQuery(q: string): { tokenFilters: TokenFilters; freeTe
 //   location              → substring of the location field OR any parsed city
 //   verdict               → verdict key or label, case-insensitive exact
 //   eligibility           → green | amber | red, case-insensitive exact
-//   min-want / min-ease   → Want / Ease ≥ N (ignored when N isn't finite, so a
-//                           typo like `min-want:x` doesn't nuke results). A
+//   min-match / min-ease   → Match / Ease ≥ N (ignored when N isn't finite, so a
+//                           typo like `min-match:x` doesn't nuke results). A
 //                           blocked row has no scores, so a floor excludes it.
 //   freeText              → substring of company OR role
 export function matchesTokenQuery(r: ScoreEntry, t: TokenFilters, freeText: string): boolean {
@@ -98,12 +98,12 @@ export function matchesTokenQuery(r: ScoreEntry, t: TokenFilters, freeText: stri
   }
   if (t.type && !r.employment_type.toLowerCase().includes(t.type.toLowerCase())) return false
   if (t.verdict) {
-    const want = t.verdict.toLowerCase()
+    const wantedVerdict = t.verdict.toLowerCase()
     const v = verdictOf(r)
-    if (!v || (v !== want && VERDICT_LABELS[v].toLowerCase() !== want)) return false
+    if (!v || (v !== wantedVerdict && VERDICT_LABELS[v].toLowerCase() !== wantedVerdict)) return false
   }
   if (t.eligibility && (r.eligibility ?? '').toLowerCase() !== t.eligibility.toLowerCase()) return false
-  if (t.minWant != null && Number.isFinite(t.minWant) && !(r.want != null && r.want >= t.minWant)) return false
+  if (t.minMatch != null && Number.isFinite(t.minMatch) && !(r.match != null && r.match >= t.minMatch)) return false
   if (t.minEase != null && Number.isFinite(t.minEase) && !(r.ease != null && r.ease >= t.minEase)) return false
   if (freeText) {
     const q = freeText.toLowerCase()

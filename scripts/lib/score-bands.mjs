@@ -8,7 +8,7 @@
 // is caught.
 //
 // Scoring model: v2 (docs/scoring-v2.md): eligibility gate
-// (eligibility.mjs), then Want and Ease, then the verdict grid. The v1
+// (eligibility.mjs), then Match and Ease, then the verdict grid. The v1
 // CF/AF/Overall rollups and assignTier were removed with that model.
 
 /* ───── Salary Adj — savings band ───────────────────────────────── */
@@ -77,12 +77,12 @@ export function buildTotalComp({
   return { total, breakdown }
 }
 
-/* ───── v2 rollups: Want, Ease, verdict, Priority ──────────────── */
+/* ───── v2 rollups: Match, Ease, verdict, Priority ──────────────── */
 //
 // Spec: docs/scoring-v2.md §2–§5. A listing that passes the eligibility gate
 // (scripts/lib/eligibility.mjs) gets two independent numbers:
 //
-//   Want (1–10) — how much the candidate wants the role. Motivators are
+//   Match (1–10) — how much the candidate wants the role. Motivators are
 //                 averaged; hygiene factors only nudge (+0.25 when good) or
 //                 hurt (down to −1.20 when bad), because a great city or a
 //                 fair salary doesn't make a role worth wanting, but a bad
@@ -91,15 +91,15 @@ export function buildTotalComp({
 //                 a weighted GEOMETRIC mean: one weak stage drags more than a
 //                 strong one lifts.
 //
-// The verdict comes from the Want × Ease grid; there is no Overall. Priority
-// (√(Want·Ease)) is a sort key only, never a headline score.
+// The verdict comes from the Match × Ease grid; there is no Overall. Priority
+// (√(Match·Ease)) is a sort key only, never a headline score.
 
 export const MOTIVATOR_DIMS = Object.freeze(['growth_mobility', 'optionality_exit', 'brand_value', 'role_content'])
 export const HYGIENE_DIMS   = Object.freeze(['best_cities', 'salary_adj_city', 'work_life_balance'])
-export const WANT_DIMS      = Object.freeze([...MOTIVATOR_DIMS, ...HYGIENE_DIMS])
+export const MATCH_DIMS      = Object.freeze([...MOTIVATOR_DIMS, ...HYGIENE_DIMS])
 export const EASE_DIMS      = Object.freeze(['skills_match', 'experience_bar', 'competition'])
 
-export const DEFAULT_WANT_WEIGHTS = Object.freeze({
+export const DEFAULT_MATCH_WEIGHTS = Object.freeze({
   growth_mobility: 1, optionality_exit: 1, brand_value: 1, role_content: 1,
 })
 export const DEFAULT_EASE_WEIGHTS = Object.freeze({
@@ -118,12 +118,12 @@ export const HYGIENE_STEPS = Object.freeze([
 export const MOTIVATOR_BOTTOM_AT       = 2     // a motivator ≤ this is "bottom-range"
 export const MOTIVATOR_BOTTOM_PENALTY  = 0.30  // per bottom-range motivator
 export const HYGIENE_VETO_BELOW        = 3     // any hygiene factor < this vetoes…
-export const HYGIENE_VETO_CAP          = 5.0   // …capping Want here
+export const HYGIENE_VETO_CAP          = 5.0   // …capping Match here
 export const ROLE_CONTENT_VETO_AT      = 3     // role_content ≤ this vetoes…
-export const ROLE_CONTENT_VETO_CAP     = 6.0   // …capping Want here
-export const DREAM_WANT_FLOOR          = 8.0
-/** Want bonus for a company the candidate likes (calibration.lower_tier_dream_companies). Preference lives in Want, never in Brand. */
-export const PREFERRED_COMPANY_WANT_BONUS = 0.25
+export const ROLE_CONTENT_VETO_CAP     = 6.0   // …capping Match here
+export const DREAM_MATCH_FLOOR          = 8.0
+/** Match bonus for a company the candidate likes (calibration.lower_tier_dream_companies). Preference lives in Match, never in Brand. */
+export const PREFERRED_COMPANY_MATCH_BONUS = 0.25
 
 export const EXPERIENCE_WALL_AT        = 3     // experience_bar ≤ this…
 export const EXPERIENCE_WALL_CAP       = 4.5   // …caps Ease here
@@ -131,8 +131,8 @@ export const AMBER_EASE_PENALTY        = 0.5   // per amber eligibility check
 export const AMBER_EASE_PENALTY_MAX    = 1.0
 export const REFERRAL_BONUS = Object.freeze({ 'warm-direct': 1.0, 'warm-intro': 0.5 })
 
-export const WANT_HIGH = 8.0
-export const WANT_MID  = 6.5
+export const MATCH_HIGH = 8.0
+export const MATCH_MID  = 6.5
 export const EASE_HIGH = 7.0
 export const EASE_MID  = 5.0
 
@@ -188,18 +188,18 @@ function resolveWeights(custom, defaults) {
 }
 
 /**
- * Want rollup (spec §2.2).
+ * Match rollup (spec §2.2).
  *
  *   dims  { growth_mobility, optionality_exit, brand_value, role_content,
  *           best_cities, salary_adj_city, work_life_balance }
  *         — calibrated values (Brand / Growth already adjusted).
  *   opts  { weights, is_intern, dream }
- *         weights:   scoring.want_weights (partial OK, merged over defaults)
+ *         weights:   scoring.match_weights (partial OK, merged over defaults)
  *         is_intern: the salary term is 0 and salary can't veto (stipends
  *                    are not salaries)
  *         dream:     company ∈ calibration.dream_companies → floor at 8.0
- *         preference: Want bonus for a liked company (calibration.wantPreference,
- *                    PREFERRED_COMPANY_WANT_BONUS); 0 by default
+ *         preference: Match bonus for a liked company (calibration.matchPreference,
+ *                    PREFERRED_COMPANY_MATCH_BONUS); 0 by default
  *
  * Order matters: raw (incl. preference) → dream floor → vetoes. The vetoes win over the floor,
  * so a dream company with a poverty-level city or a quota-carrying role
@@ -212,10 +212,10 @@ function resolveWeights(custom, defaults) {
  *   uncapped = after the floor, before the vetoes (explain-score uses it to
  *              tell whether a veto is what holds the verdict down)
  *   vetoes   = every veto whose condition fired: { kind, dimension, value,
- *              cap, applied } — applied=false when Want was already ≤ cap.
+ *              cap, applied } — applied=false when Match was already ≤ cap.
  */
-export function rollupWant(dims, { weights, is_intern = false, dream = false, preference = 0 } = {}) {
-  const w = resolveWeights(weights, DEFAULT_WANT_WEIGHTS)
+export function rollupMatch(dims, { weights, is_intern = false, dream = false, preference = 0 } = {}) {
+  const w = resolveWeights(weights, DEFAULT_MATCH_WEIGHTS)
   let num = 0, den = 0, bottom = 0
   for (const k of MOTIVATOR_DIMS) {
     num += w[k] * dims[k]
@@ -234,30 +234,30 @@ export function rollupWant(dims, { weights, is_intern = false, dream = false, pr
 
   const pref = Number.isFinite(preference) ? preference : 0
   const raw = clamp(M - penalty + H + pref, 1, 10)
-  let want = raw
+  let match = raw
 
   let floor = null
-  if (dream && want < DREAM_WANT_FLOOR) {
-    floor = { source: 'dream-company Want floor', from: round2(want), to: DREAM_WANT_FLOOR }
-    want = DREAM_WANT_FLOOR
+  if (dream && match < DREAM_MATCH_FLOOR) {
+    floor = { source: 'dream-company Match floor', from: round2(match), to: DREAM_MATCH_FLOOR }
+    match = DREAM_MATCH_FLOOR
   }
-  const uncapped = want
+  const uncapped = match
 
   const vetoes = []
   for (const k of HYGIENE_DIMS) {
     if (k === 'salary_adj_city' && is_intern) continue
     if (dims[k] < HYGIENE_VETO_BELOW) {
-      vetoes.push({ kind: 'hygiene_veto', dimension: k, value: dims[k], cap: HYGIENE_VETO_CAP, applied: want > HYGIENE_VETO_CAP })
-      want = Math.min(want, HYGIENE_VETO_CAP)
+      vetoes.push({ kind: 'hygiene_veto', dimension: k, value: dims[k], cap: HYGIENE_VETO_CAP, applied: match > HYGIENE_VETO_CAP })
+      match = Math.min(match, HYGIENE_VETO_CAP)
     }
   }
   if (dims.role_content <= ROLE_CONTENT_VETO_AT) {
-    vetoes.push({ kind: 'role_content_veto', dimension: 'role_content', value: dims.role_content, cap: ROLE_CONTENT_VETO_CAP, applied: want > ROLE_CONTENT_VETO_CAP })
-    want = Math.min(want, ROLE_CONTENT_VETO_CAP)
+    vetoes.push({ kind: 'role_content_veto', dimension: 'role_content', value: dims.role_content, cap: ROLE_CONTENT_VETO_CAP, applied: match > ROLE_CONTENT_VETO_CAP })
+    match = Math.min(match, ROLE_CONTENT_VETO_CAP)
   }
 
   return {
-    score: round2(want),
+    score: round2(match),
     raw: round2(raw),
     uncapped: round2(uncapped),
     motivators_mean: round2(M),
@@ -312,12 +312,12 @@ const fmtC = (n) => n.toFixed(1)
 
 /**
  * Verdict grid (spec §4). `eligibility` is the evaluateEligibility() result
- * or just its status string. Red → blocked whatever the numbers (want/ease
+ * or just its status string. Red → blocked whatever the numbers (match/ease
  * are null then).
  *
  * Returns { verdict, tier, reason }.
  */
-export function assignVerdict({ want, ease, eligibility }) {
+export function assignVerdict({ match, ease, eligibility }) {
   const status = typeof eligibility === 'string' ? eligibility : eligibility?.status
   if (status === 'red') {
     const red = typeof eligibility === 'object'
@@ -330,7 +330,7 @@ export function assignVerdict({ want, ease, eligibility }) {
     }
   }
 
-  const row = want >= WANT_HIGH ? 'high' : want >= WANT_MID ? 'mid' : 'low'
+  const row = match >= MATCH_HIGH ? 'high' : match >= MATCH_MID ? 'mid' : 'low'
   const col = ease >= EASE_HIGH ? 'high' : ease >= EASE_MID ? 'mid' : 'low'
   const GRID = {
     high: { high: 'go',    mid: 'stretch', low: 'growth' },
@@ -339,16 +339,16 @@ export function assignVerdict({ want, ease, eligibility }) {
   }
   const verdict = GRID[row][col]
 
-  const wantPart =
-    row === 'high' ? `Want ${fmt(want)} ≥ ${fmtC(WANT_HIGH)}`
-    : row === 'mid' ? `Want ${fmt(want)} in ${fmtC(WANT_MID)}–${fmtC(WANT_HIGH)}`
-    : `Want ${fmt(want)} < ${fmtC(WANT_MID)}`
+  const matchPart =
+    row === 'high' ? `Match ${fmt(match)} ≥ ${fmtC(MATCH_HIGH)}`
+    : row === 'mid' ? `Match ${fmt(match)} in ${fmtC(MATCH_MID)}–${fmtC(MATCH_HIGH)}`
+    : `Match ${fmt(match)} < ${fmtC(MATCH_MID)}`
   const easePart =
     col === 'high' ? `Ease ${fmt(ease)} ≥ ${fmtC(EASE_HIGH)}`
     : col === 'mid' ? `Ease ${fmt(ease)} in ${fmtC(EASE_MID)}–${fmtC(EASE_HIGH)}`
     : `Ease ${fmt(ease)} < ${fmtC(EASE_MID)}`
 
-  return { verdict, tier: VERDICT_TIERS[verdict], reason: `${wantPart}, ${easePart}` }
+  return { verdict, tier: VERDICT_TIERS[verdict], reason: `${matchPart}, ${easePart}` }
 }
 
 /** Position of a verdict in VERDICT_ORDER (higher = better; −1 if unknown). */
@@ -364,12 +364,12 @@ export function promotionHint(verdict) {
 }
 
 /**
- * Priority (spec §5): √(Want × Ease), 2 decimals. A sort key only, never a
+ * Priority (spec §5): √(Match × Ease), 2 decimals. A sort key only, never a
  * headline score. Takes plain numbers or the rollup detail objects; null when
  * either side is missing (blocked listings).
  */
-export function computePriority(want, ease) {
-  const w = want != null && typeof want === 'object' ? want.score : want
+export function computePriority(match, ease) {
+  const w = match != null && typeof match === 'object' ? match.score : match
   const e = ease != null && typeof ease === 'object' ? ease.score : ease
   if (w == null || e == null || !Number.isFinite(w) || !Number.isFinite(e)) return null
   return round2(Math.sqrt(w * e))

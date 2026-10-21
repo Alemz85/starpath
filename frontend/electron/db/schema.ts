@@ -14,10 +14,10 @@ import type Database from 'better-sqlite3'
 // v8: scoring v2 (docs/scoring-v2.md §8). score_history drops the v1 rollups
 // (current_fit / aspirational_fit / overall / ease_of_entry / strategic_fit /
 // sales_trap_risk) for experience_bar / competition / ease / role_content /
-// want / priority / eligibility / eligibility_flags / verdict, and every
+// match / priority / eligibility / eligibility_flags / verdict, and every
 // numeric column is a NULLABLE REAL (blocked rows carry no scores). scouting
-// swaps score/cfaf for want / ease / eligibility; applications swaps score_num
-// for want / ease / legacy_score parsed from the Score cell (§8.3).
+// swaps score/cfaf for match / ease / eligibility; applications swaps score_num
+// for match / ease / legacy_score parsed from the Score cell (§8.3).
 // v9: no shape change — the multi-city location parsing changed (one listing,
 // several places), so caches built before it hold stale `cities` cells under
 // current mtimes; force a rebuild.
@@ -25,7 +25,10 @@ import type Database from 'better-sqlite3'
 // report's title when it names the same listing as the file name (so a role
 // like "… (Lyon)" keeps its parentheses); rows cached under current mtimes
 // hold the old file-name spelling, so force a rebuild.
-export const SCHEMA_VERSION = 10
+// v11: the Want axis is renamed Match everywhere (score_history, scouting and
+// applications: `want` → `match`), so a cache built before it has the old
+// column name; rebuild.
+export const SCHEMA_VERSION = 11
 
 const TABLES = [
   `CREATE TABLE IF NOT EXISTS _meta (
@@ -39,9 +42,9 @@ const TABLES = [
     company     TEXT NOT NULL,
     role        TEXT NOT NULL,
     score_raw   TEXT NOT NULL,
-    -- Parsed from score_raw (spec §8.3): 'W8.3 E5.6' → want/ease; a legacy
+    -- Parsed from score_raw (spec §8.3): 'M8.3 E5.6' → match/ease; a legacy
     -- '7.4/10' cell → legacy_score. NULL when the cell doesn't carry it.
-    want         REAL,
+    match         REAL,
     ease         REAL,
     legacy_score REAL,
     status      TEXT NOT NULL,
@@ -63,7 +66,7 @@ const TABLES = [
     date           TEXT NOT NULL,
     company        TEXT NOT NULL,
     role           TEXT NOT NULL,
-    want           REAL,
+    match           REAL,
     ease           REAL,
     tier           TEXT NOT NULL,
     eligibility    TEXT,
@@ -91,7 +94,7 @@ const TABLES = [
     best_cities       REAL,
     salary_adj_city   REAL,
     work_life_balance REAL,
-    want              REAL,
+    match              REAL,
     priority          REAL,
     eligibility       TEXT,
     eligibility_flags TEXT NOT NULL DEFAULT '',

@@ -4,7 +4,7 @@
 **Location:** Lyon, France · hybrid
 **Archetype:** Pricing & Commercial Analytics
 **Mode:** scouting (growth target)
-**Want:** 8.5/10 · **Ease:** 4.28/10
+**Match:** 8.5/10 · **Ease:** 4.28/10
 **Eligibility:** green
 **Verdict:** Growth target — close the gap first
 **Tier:** T3
@@ -23,14 +23,14 @@
 ## Dimensional scoring
 | Dimension | Score | Reasoning |
 |-----------|-------|-----------|
-| Growth / Mobility (want) | 8/10 | A commercial excellence team with a path to pricing manager, and they describe mentoring by the head of pricing. |
-| Optionality / Exit (want) | 8/10 | B2B pricing at an industrial robotics company is valued across manufacturing and software. |
-| Brand Value (want) | 7/10 | A known name in industrial automation in France and Germany. |
-| Role content (want) | 9/10 | Mostly pricing and deal analysis: price-waterfall work, discount governance and margin reviews. |
+| Growth / Mobility (match) | 8/10 | A commercial excellence team with a path to pricing manager, and they describe mentoring by the head of pricing. |
+| Optionality / Exit (match) | 8/10 | B2B pricing at an industrial robotics company is valued across manufacturing and software. |
+| Brand Value (match) | 7/10 | A known name in industrial automation in France and Germany. |
+| Role content (match) | 9/10 | Mostly pricing and deal analysis: price-waterfall work, discount governance and margin reviews. |
 | City (hygiene) | 9/10 | Lyon, your first-choice city. |
 | Salary Adj for City (hygiene) | 8/10 | About €1,340 a month left after living costs in Lyon (estimated pay). |
 | Work-Life Balance (hygiene) | 6/10 | Busy around the quarter-end deal reviews. |
-| **Want (rollup)** | **8.5/10** | Carried by the pricing work in your own city |
+| **Match (rollup)** | **8.5/10** | Carried by the pricing work in your own city |
 | Skills Match (ease) | 8/10 | Pricing analysis, Excel modelling and SQL are all on your CV. |
 | Experience bar (ease) | 2/10 | They ask for three or more years in B2B pricing or commercial finance. |
 | Competition (ease) | 5/10 | A specialist role with a small pool, most of it more experienced than you. |

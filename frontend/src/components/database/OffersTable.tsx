@@ -29,7 +29,7 @@ import {
   blockedReason, computePriority, eligibilityCheckLabel, isBlocked, parseEligibilityFlags, priorityOf,
   DIM_LABELS, EASE_DIMS, HYGIENE_DIMS, MOTIVATOR_DIMS, type V2DimKey,
 } from '@/lib/scoreBands'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
 
 interface OffersTableProps {
@@ -102,18 +102,18 @@ const LIVENESS_CHIP: Record<'active' | 'stale' | 'closed', { tone: ChipTone; lab
 // own casing; the UI renders labels in sentence case (DESIGN-meta § 3).
 const sentence = (s: string) => s.charAt(0) + s.slice(1).toLowerCase()
 
-// ─── Want · Ease ────────────────────────────────────────────────────────────
+// ─── Match · Ease ────────────────────────────────────────────────────────────
 //
-// Scoring v2: the eligibility dot + the Want · Ease pair (shared WantEase,
+// Scoring v2: the eligibility dot + the Match · Ease pair (shared MatchEase,
 // bare — the column header names the two numbers). A blocked row shows its
 // red reason in place of the scores, unless the profile scored it anyway
 // (score_through_red): then the red flag sits beside the numbers. Sorted by
 // Priority, which is never shown; a scored blocked row sorts by its scores.
 
-/** Sort key for the Want · Ease column: Priority, else (a blocked row scored
- *  through its wall) the same √(Want × Ease), else below every score. */
+/** Sort key for the Match · Ease column: Priority, else (a blocked row scored
+ *  through its wall) the same √(Match × Ease), else below every score. */
 function sortPriority(e: ScoreEntry): number {
-  return priorityOf(e) ?? computePriority(e.want, e.ease) ?? -1
+  return priorityOf(e) ?? computePriority(e.match, e.ease) ?? -1
 }
 
 function ScoreCell({ entry }: { entry: ScoreEntry }) {
@@ -123,8 +123,8 @@ function ScoreCell({ entry }: { entry: ScoreEntry }) {
   return (
     <div className="flex items-center justify-end gap-1.5 min-w-0">
       <EligibilityChip status={entry.eligibility} reason={reason || null} compact className="shrink-0" />
-      <WantEase
-        want={entry.want}
+      <MatchEase
+        match={entry.match}
         ease={entry.ease}
         blockedReason={blocked ? blockedReason(entry) : null}
         size="md"
@@ -153,12 +153,12 @@ function relativeTime(dateStr: string): string {
 // ─── Inline row breakdown ───────────────────────────────────────────────────
 //
 // Click the chevron on a row → that row expands inline, revealing the v2
-// breakdown directly below: the dimensions grouped Want (motivators +
+// breakdown directly below: the dimensions grouped Match (motivators +
 // hygiene) / Ease, and the eligibility checks. Multiple rows can be open at
 // once. The chevron rotates 90° to signal open state.
 
-const BREAKDOWN_GROUPS: Array<{ title: 'Want' | 'Ease'; keys: readonly V2DimKey[] }> = [
-  { title: 'Want', keys: [...MOTIVATOR_DIMS, ...HYGIENE_DIMS] },
+const BREAKDOWN_GROUPS: Array<{ title: 'Match' | 'Ease'; keys: readonly V2DimKey[] }> = [
+  { title: 'Match', keys: [...MOTIVATOR_DIMS, ...HYGIENE_DIMS] },
   { title: 'Ease', keys: EASE_DIMS },
 ]
 
@@ -254,7 +254,7 @@ function BreakdownRow({
           {!isBlocked(entry) && (
             <div className="grid grid-cols-2 gap-x-8">
               {BREAKDOWN_GROUPS.map(group => {
-                const rollup = group.title === 'Want' ? entry.want : entry.ease
+                const rollup = group.title === 'Match' ? entry.match : entry.ease
                 return (
                   <div key={group.title} className="min-w-0">
                     <div className="flex items-baseline justify-between mb-1.5">
@@ -310,8 +310,8 @@ function BreakdownRow({
                         {isPrimary && <span className="ml-2 text-label font-normal text-text-4">Primary</span>}
                       </span>
                       <VerdictChip verdict={s.verdict} />
-                      <WantEase
-                        want={s.want}
+                      <MatchEase
+                        match={s.match}
                         ease={s.ease}
                         blockedReason={isBlocked(s) ? blockedReason(s) : null}
                         size="sm"
@@ -490,9 +490,9 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
     }),
     col.display({
       id: 'score',
-      header: 'Want · Ease',
+      header: 'Match · Ease',
       size: 100,
-      // Sorted by Priority (sqrt(Want × Ease)) — the v2 sort key, never shown
+      // Sorted by Priority (sqrt(Match × Ease)) — the v2 sort key, never shown
       // as a number. Blocked / unscored rows sit at -1 → bottom on desc.
       sortingFn: (a, b) => sortPriority(a.original) - sortPriority(b.original),
       sortDescFirst: true,
@@ -625,9 +625,9 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
                 const isRight = RIGHT_ALIGNED.has(id)
                 const headerTitle =
                   id === 'fixability' ? 'Cheapest single change — one dimension raised, or one amber eligibility check resolved — that moves this listing into a better verdict. Sort ascending = easiest to upgrade first.'
-                  : id === 'peer' ? 'Where this listing\'s Priority (√(Want × Ease)) ranks among all evaluated roles of the same archetype (live cohort), followed by the cohort size. Blank = fewer than 5 peers evaluated, where no rank is publishable. Bold = 10+ peers back the band; muted = 5–9 peers, read as top/bottom half only. Sort descending = strongest standouts first.'
-                  : id === 'score' ? 'Eligibility dot, then Want (how much you want it) · Ease (how realistic it is to get in). Blocked listings show their reason instead. Sorted by √(Want × Ease).'
-                  : id === 'verdict' ? 'Where Want × Ease lands on the verdict grid. Sort descending = Go first, Blocked last.'
+                  : id === 'peer' ? 'Where this listing\'s Priority (√(Match × Ease)) ranks among all evaluated roles of the same archetype (live cohort), followed by the cohort size. Blank = fewer than 5 peers evaluated, where no rank is publishable. Bold = 10+ peers back the band; muted = 5–9 peers, read as top/bottom half only. Sort descending = strongest standouts first.'
+                  : id === 'score' ? 'Eligibility dot, then Match (how well the role fits what you are after) · Ease (how realistic it is to get in). Blocked listings show their reason instead. Sorted by √(Match × Ease).'
+                  : id === 'verdict' ? 'Where Match × Ease lands on the verdict grid. Sort descending = Go first, Blocked last.'
                   : undefined
                 const ariaSortVal: 'ascending' | 'descending' | 'none' = sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'
                 const toggleSort = canSort ? header.column.getToggleSortingHandler() : undefined
@@ -675,7 +675,7 @@ export function OffersTable({ rows, onRowClick, onOpenReport, selectedId }: Offe
             const isSelected = id === selectedId
             const isExpanded = expanded.has(entryKey(entry))
             const surface = cellSurface(isSelected, isExpanded)
-            // Rows stay at full strength whatever the score: the Want · Ease
+            // Rows stay at full strength whatever the score: the Match · Ease
             // numbers carry the band colour, so company and role always read cleanly.
             return (
               <Fragment key={row.id}>

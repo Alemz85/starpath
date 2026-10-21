@@ -71,7 +71,7 @@ To protect a term the gate can't infer (a contact's name, an address, a company 
 | `interview-prep/{Company} - {Role}.md` | Per-listing application prep (interview intel + STAR mapping) |
 | `templates/cv-template.html` | HTML template for CVs |
 | `jds/{num}-{company-slug}-{role-slug}.md` | The job description saved when a T1–T3 report is written (postings disappear); shown in the report panel's **Job listing** tab. Written by the eval worker, backfilled by `scripts/archive-posting.mjs` ([Script catalog](#script-catalog)) |
-| `reports/tier-{1..4}/{Company} - {Role}.md` | Evaluation reports — **banded depth** (every report keeps the universal header (Date, Location, Archetype, Want · Ease, Eligibility, Verdict, one-line `**TL;DR:**`, Tier, URL) + `## Eligibility` + `## Dimensional scoring` table + a closing `Salary math:` line; T1 adds the full prose sections — Role summary + Gaps + Comp + Recommendation + Career path impact; T2 a short Fit/gaps + Verdict + Path forward; T3 a compact Gap & Growth roadmap; T4 writes **no file** — scores still land in score-history + scouting). See `modes/scouting.md` § Output Behavior |
+| `reports/tier-{1..4}/{Company} - {Role}.md` | Evaluation reports — **banded depth** (every report keeps the universal header (Date, Location, Archetype, Match · Ease, Eligibility, Verdict, one-line `**TL;DR:**`, Tier, URL) + `## Eligibility` + `## Dimensional scoring` table + a closing `Salary math:` line; T1 adds the full prose sections — Role summary + Gaps + Comp + Recommendation + Career path impact; T2 a short Fit/gaps + Verdict + Path forward; T3 a compact Gap & Growth roadmap; T4 writes **no file** — scores still land in score-history + scouting). See `modes/scouting.md` § Output Behavior |
 
 ## Script catalog
 
@@ -97,6 +97,7 @@ All under `scripts/`. `docs/SCRIPTS.md` has usage detail for the older maintenan
 - `verify-pipeline.mjs` / `dedup-tracker.mjs` / `normalize-statuses.mjs` — health.
 - `rebuild-dedup-index.mjs` — safety-net rebuild of `data/dedup-index.tsv` from scratch after any out-of-band manual edit to scouting.md or applications.md (no npm alias: `node scripts/rebuild-dedup-index.mjs`).
 - `doctor.mjs` — setup validation checklist (`npm run doctor`).
+- `migrate-match-rename.mjs` — carries a workspace over the rename of the first scoring axis from Want to Match (score-history header, scouting.md header, `W…` score cells in applications.md / pipeline.md / pending tracker additions, report headers and dimension tags, `want_weights` in profile.yml). Report only by default; `--apply` writes, `--check` exits 1 while anything is left, `--all-profiles` also covers `private/profiles/*`. Idempotent; transforms in `lib/match-rename-migrate.mjs`. Until it runs, the readers still accept the old names (marked "pre-rename" in the code) and `npm run doctor` points at it.
 - `cv-sync-check.mjs` — consistency check across cv.md / profile.yml (`npm run sync-check`).
 - `generate-pdf.mjs` — Playwright HTML→PDF.
 
@@ -300,10 +301,10 @@ Launch in the background, never in front: `open -g -j -n -a frontend/node_module
 One file per evaluation at `batch/tracker-additions/{num}-{company-slug}.tsv`, a single line of 10 tab-separated columns:
 
 ```
-{num}\t{date}\t{company}\t{role}\t{status}\tW{want} E{ease}\t{pdf_emoji}\t{deadline}\t[{num}](reports/tier-{N}/{num}-{slug}-{date}.md)\t{note}
+{num}\t{date}\t{company}\t{role}\t{status}\tM{match} E{ease}\t{pdf_emoji}\t{deadline}\t[{num}](reports/tier-{N}/{num}-{slug}-{date}.md)\t{note}
 ```
 
-Column order (**status before score** in the TSV): `num`, `date`, `company`, `role`, `status` (canonical, e.g. `Evaluated`), `score` (`W8.3 E5.6`; legacy `X.X/10` cells on old rows stay valid), `pdf` (`✅`/`❌`), `deadline` (`2026-06-30` | `Rolling` | `n/d`), `report` (markdown link to `reports/tier-{N}/...`, where `N` is the tier assigned by `scripts/score-listing.mjs` — from the Want × Ease verdict grid in `docs/scoring-v2.md` § 4, never re-derived by hand), `notes`.
+Column order (**status before score** in the TSV): `num`, `date`, `company`, `role`, `status` (canonical, e.g. `Evaluated`), `score` (`M8.3 E5.6`; legacy `X.X/10` cells on old rows stay valid, and so does the pre-rename `W8.3 E5.6`), `pdf` (`✅`/`❌`), `deadline` (`2026-06-30` | `Rolling` | `n/d`), `report` (markdown link to `reports/tier-{N}/...`, where `N` is the tier assigned by `scripts/score-listing.mjs` — from the Match × Ease verdict grid in `docs/scoring-v2.md` § 4, never re-derived by hand), `notes`.
 
 In `applications.md` score comes BEFORE status: `scripts/merge-tracker.mjs` swaps the columns and rewrites flat `reports/...md` paths into the right tier subfolder if the writer left the tier off. The canonical TSV form is the tiered path.
 

@@ -14,7 +14,7 @@ import {
   assignVerdict, blockedReason, eligibilityCheckLabel, isBlocked, isScored, parseEligibilityFlags,
   verdictOf, VERDICT_ACTIONS,
 } from '@/lib/scoreBands'
-import { WantEase } from '@/components/shared/WantEase'
+import { MatchEase } from '@/components/shared/MatchEase'
 import { EligibilityChip, VerdictChip } from '@/components/shared/EligibilityChip'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -47,7 +47,7 @@ import { mirroredPathCandidates, reportFileStem, reportPathCandidates, resolveRe
 // A right-hand panel that reads like a document. The header has the identity
 // line, then two zones: the job's own facts as a stacked list on the left,
 // and on the right a well with what the app made of the listing (verdict,
-// Want · Ease, eligibility, actions). Then a tab strip, and a body split into
+// Match · Ease, eligibility, actions). Then a tab strip, and a body split into
 // a sticky section index and the content. The content opens on the summary
 // card (the two score tiles beside the report's own TL;DR, verbatim), then
 // the eligibility checks, the scores as a statement-style table, the prose
@@ -61,14 +61,14 @@ interface SiblingInfo {
   company: string
   role: string
   city: string
-  want: number | null
+  match: number | null
   ease: number | null
 }
 
 interface HistoryEntry {
   date: string
   monthLabel: string
-  want: number | null  // null when that evaluation was blocked
+  match: number | null  // null when that evaluation was blocked
   ease: number | null
   verdict: Verdict | null
   tier: string
@@ -115,7 +115,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
       .map(r => ({
         date: r.date,
         monthLabel: r.date.slice(0, 7),
-        want: isScored(r) ? r.want : null,
+        match: isScored(r) ? r.match : null,
         ease: isScored(r) ? r.ease : null,
         verdict: verdictOf(r),
         tier: r.tier,
@@ -150,7 +150,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
           company: r.company,
           role: r.role,
           city: parsed.isMulti ? `${parsed.primary ?? '?'} +${parsed.cities.length - 1}` : (parsed.primary ?? '?'),
-          want: isScored(r) ? r.want : null,
+          match: isScored(r) ? r.match : null,
           ease: isScored(r) ? r.ease : null,
           date: r.date,
         })
@@ -301,7 +301,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
   const entryBlocked = isBlocked(scoreEntry)
   const verdictGrid = entryBlocked || !isScored(scoreEntry)
     ? null
-    : assignVerdict({ want: scoreEntry.want, ease: scoreEntry.ease, eligibility: scoreEntry.eligibility })?.reason ?? null
+    : assignVerdict({ match: scoreEntry.match, ease: scoreEntry.ease, eligibility: scoreEntry.eligibility })?.reason ?? null
 
   // The job facts column. A multi-city listing gets the same treatment as
   // its Database row: the first (scored) city plus "+N more", every city on
@@ -355,7 +355,7 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
               <button
                 key={`${s.company}|${s.role}`}
                 onClick={() => onSwitchEntity?.(s.company, s.role)}
-                title={`${s.role} · ${s.city} · Want ${s.want?.toFixed(1) ?? '—'} · Ease ${s.ease?.toFixed(1) ?? '—'}`}
+                title={`${s.role} · ${s.city} · Match ${s.match?.toFixed(1) ?? '—'} · Ease ${s.ease?.toFixed(1) ?? '—'}`}
                 className="inline-flex items-center gap-0.5 text-accent-text hover:underline underline-offset-2"
               >
                 {s.city}
@@ -422,8 +422,8 @@ export function ReportSlideOver({ company, role, scoreEntry, hideDatabaseLink, o
                 <EligibilityChip status={scoreEntry.eligibility} className="shrink-0" />
               </div>
               {(entryBlocked || isScored(scoreEntry)) && (
-                <WantEase
-                  want={scoreEntry.want}
+                <MatchEase
+                  match={scoreEntry.match}
                   ease={scoreEntry.ease}
                   blockedReason={entryBlocked ? blockedReason(scoreEntry) : null}
                   decimals={2}
@@ -666,7 +666,7 @@ function ReportBody({ content, entry, peer, onOpenComparable }: {
   // Score values: the live score-history row first, the report header second.
   const { header } = parsed
   const blocked = isBlocked(entry) || header.eligibility === 'red'
-  const want = entry.want ?? header.want
+  const match = entry.match ?? header.match
   const ease = entry.ease ?? header.ease
   const eligibility: Eligibility | null = entry.eligibility ?? header.eligibility
   const checks: EligibilityFlag[] = parsed.eligibility?.checks.length
@@ -681,7 +681,7 @@ function ReportBody({ content, entry, peer, onOpenComparable }: {
   return (
     <div className="flex flex-col gap-7">
       {parsed.before.trim() && <ProseBody content={parsed.before} />}
-      <SummaryCard want={want} ease={ease} blockedReason={reason} summary={summary} />
+      <SummaryCard match={match} ease={ease} blockedReason={reason} summary={summary} />
       <EligibilitySection status={eligibility} checks={checks} questions={questions} />
       {parsed.dims && <ScoresTable dims={parsed.dims} />}
       {peer && <PeerContextCard peer={peer} onOpenComparable={onOpenComparable} />}
@@ -766,27 +766,26 @@ function EligibilitySection({ status, checks, questions }: {
 // ─── Scores table ────────────────────────────────────────────────────────────
 //
 // Statement-style: group rows carry the rollup, dimension rows carry the
-// score, a bar and the reasoning. Report row order: the Want motivators, the
-// hygiene factors that nudge Want, the Want rollup's arithmetic, then the Ease
+// score, a bar and the reasoning. Report row order: the Match motivators, the
+// hygiene factors that nudge Match, the Match rollup's arithmetic, then the Ease
 // dimensions and the Ease rollup; context rows (not in any rollup) sit last.
 
 function ScoresTable({ dims }: { dims: ParsedDimensions }) {
   return (
     <section data-slug="scores" data-label="Scores" className="scroll-mt-4">
-      <SectionHeading title="Scores" size="md" rule={false} meta="Motivators and hygiene roll into Want, three dimensions into Ease; context rows inform the report only" />
+      <SectionHeading title="Scores" size="md" rule={false} meta="Motivators and hygiene roll into Match, three dimensions into Ease; context rows inform the report only" />
       <div className="card overflow-hidden">
-        {(dims.want.motivators.length > 0 || dims.want.hygiene.length > 0) && (
+        {(dims.match.motivators.length > 0 || dims.match.hygiene.length > 0) && (
           <ScoreGroup
-            title="Want"
-            subtitle="Do I want this job?"
-            rollup={dims.want.rollup}
-            rollupNote={dims.want.reasoning}
-            rows={dims.want.motivators}
-            subRows={dims.want.hygiene.length > 0 ? { title: 'Hygiene', subtitle: 'Nudges Want, never carries it', rows: dims.want.hygiene } : undefined}
+            title="Match"
+            rollup={dims.match.rollup}
+            rollupNote={dims.match.reasoning}
+            rows={dims.match.motivators}
+            subRows={dims.match.hygiene.length > 0 ? { title: 'Hygiene', subtitle: 'Nudges Match, never carries it', rows: dims.match.hygiene } : undefined}
           />
         )}
         {dims.ease.rows.length > 0 && (
-          <ScoreGroup title="Ease" subtitle="Could I get it?" rollup={dims.ease.rollup} rollupNote={dims.ease.reasoning} rows={dims.ease.rows} />
+          <ScoreGroup title="Ease" rollup={dims.ease.rollup} rollupNote={dims.ease.reasoning} rows={dims.ease.rows} />
         )}
         {dims.context.rows.length > 0 && (
           <ScoreGroup title="Context" subtitle="Shown for the decision, not in the rollups" rows={dims.context.rows} clampReasoning />
@@ -798,12 +797,12 @@ function ScoresTable({ dims }: { dims: ParsedDimensions }) {
 
 function ScoreGroup({ title, subtitle, rollup, rollupNote, rows, subRows, clampReasoning }: {
   title: string
-  subtitle: string
+  subtitle?: string
   rollup?: string
   /** The rollup row's arithmetic ("M 8.0 + hygiene +0.25"), a quiet footer. */
   rollupNote?: string
   rows: DimensionRow[]
-  /** A tagged sub-group under the main rows (Want › Hygiene). */
+  /** A tagged sub-group under the main rows (Match › Hygiene). */
   subRows?: { title: string; subtitle: string; rows: DimensionRow[] }
   clampReasoning?: boolean
 }) {
@@ -814,7 +813,7 @@ function ScoreGroup({ title, subtitle, rollup, rollupNote, rows, subRows, clampR
       <div className="flex items-baseline justify-between gap-3 px-4 py-2.5 bg-bg-elevated/70">
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="text-section text-text-1">{title}</span>
-          <span className="text-label text-text-4 truncate">{subtitle}</span>
+          {subtitle && <span className="text-label text-text-4 truncate">{subtitle}</span>}
         </div>
         {!Number.isNaN(rollupNum) && <ScoreNumber value={rollupNum} size="md" decimals={2} className="text-[16px]" />}
       </div>
@@ -1008,7 +1007,7 @@ function EmptyTab({ message }: { message: string }) {
 
 // ─── History ─────────────────────────────────────────────────────────────────
 
-// Movement across this entity's own re-evaluations, stated on Want and Ease
+// Movement across this entity's own re-evaluations, stated on Match and Ease
 // SEPARATELY, each against its own noise floor (docs/scoring-v2.md §9,
 // docs/scoring-statistical-design.md § 1). A sub-floor first → latest gap is
 // "flat within noise", never a small improvement. Blocked evaluations carry
@@ -1019,7 +1018,7 @@ function HistoryMovement({ rows }: { rows: HistoryEntry[] }) {
   // surviving row per date is the last one written that day.
   const byDate = new Map<string, HistoryEntry>()
   for (const r of [...rows].reverse()) {
-    if (r.want == null || r.ease == null || !r.date) continue
+    if (r.match == null || r.ease == null || !r.date) continue
     byDate.set(r.date, r)
   }
   const scored = [...byDate.values()]
@@ -1029,7 +1028,7 @@ function HistoryMovement({ rows }: { rows: HistoryEntry[] }) {
   const confidence = confidenceTier(scored.length, GATES.trendMinEvals)
   return (
     <div className="flex flex-col gap-1.5 text-label">
-      <MetricMovement label="Want" from={first.want as number} to={latest.want as number} floor={NOISE_FLOORS.want} />
+      <MetricMovement label="Match" from={first.match as number} to={latest.match as number} floor={NOISE_FLOORS.match} />
       <MetricMovement label="Ease" from={first.ease as number} to={latest.ease as number} floor={NOISE_FLOORS.ease} />
       <span className="text-text-4">{scored.length} evaluations · {confidence} confidence</span>
     </div>
@@ -1067,7 +1066,7 @@ function HistoryTable({ rows, onPick }: { rows: HistoryEntry[]; onPick: (date: s
           <thead>
             <tr className="bg-bg-elevated/60 border-b border-border-default">
               <th className="th text-left px-4 py-2">Month</th>
-              <th className="th text-right px-4 py-2">Want · Ease</th>
+              <th className="th text-right px-4 py-2">Match · Ease</th>
               <th className="th text-right px-4 py-2">Verdict</th>
               <th className="px-4 py-2" />
             </tr>
@@ -1081,7 +1080,7 @@ function HistoryTable({ rows, onPick }: { rows: HistoryEntry[]; onPick: (date: s
               >
                 <td className="px-4 py-2.5 text-body text-text-2 tabular-nums">{r.monthLabel}</td>
                 <td className="px-4 py-2.5 text-right">
-                  <WantEase want={r.want} ease={r.ease} size="sm" bare blockedReason={r.verdict === 'blocked' ? 'Blocked' : null} />
+                  <MatchEase match={r.match} ease={r.ease} size="sm" bare blockedReason={r.verdict === 'blocked' ? 'Blocked' : null} />
                 </td>
                 <td className="px-4 py-2.5 text-right"><VerdictChip verdict={r.verdict} /></td>
                 <td className="px-4 py-2.5 text-right text-label text-text-4">View snapshot</td>

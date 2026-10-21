@@ -1,7 +1,7 @@
 // scoringStats.ts — the renderer-side mirror of scripts/lib/scoring-stats.mjs.
 //
 // CONTRACT: docs/scoring-statistical-design.md, re-derived for v2 in
-// docs/scoring-v2.md § 9 (WANT / EASE / PRIORITY noise floors by exact name).
+// docs/scoring-v2.md § 9 (MATCH / EASE / PRIORITY noise floors by exact name).
 //
 // Every analytic the app derives from data/score-history.tsv (peer rank in
 // lib/peerRank.ts, the Trends analytics in lib/trendsAnalytics.ts, and the
@@ -17,38 +17,38 @@
 
 /* ───── 1. Rubric geometry (docs/scoring-v2.md § 9) ─────────────────────── */
 //
-// v2 has no Overall. Want and Ease move on different scales, so each carries
+// v2 has no Overall. Match and Ease move on different scales, so each carries
 // its own noise floor, and Priority (the sort key) a third. A delta below the
 // floor of ITS metric is "flat within noise" — never a direction.
 
-/** Want: one motivator moving one integer step at the default equal weights
- *  (4 motivators) moves the motivator mean, and so Want, by 1/4. */
-export const WANT_DIM_STEP = 0.25
+/** Match: one motivator moving one integer step at the default equal weights
+ *  (4 motivators) moves the motivator mean, and so Match, by 1/4. */
+export const MATCH_DIM_STEP = 0.25
 
 /** Ease: one step on a 0.35-weight stage of the weighted geometric mean near
  *  the middle of the scale moves Ease by ≈ 0.32. */
 export const EASE_DIM_STEP = 0.32
 
-/** One integer step on one motivator at equal weights moves Want by 0.25;
+/** One integer step on one motivator at equal weights moves Match by 0.25;
  *  the floor is that, rounded up. */
-export const WANT_NOISE_FLOOR = 0.30
+export const MATCH_NOISE_FLOOR = 0.30
 
 /** One step on a 0.35-weight Ease dimension near 6 moves the geometric mean
  *  by ≈ 0.32; the floor is that, rounded up. */
 export const EASE_NOISE_FLOOR = 0.35
 
-/** Priority = sqrt(Want × Ease) — floor for sort-key movement. */
+/** Priority = sqrt(Match × Ease) — floor for sort-key movement. */
 export const PRIORITY_NOISE_FLOOR = 0.30
 
-export type ScoreMetric = 'want' | 'ease' | 'priority'
+export type ScoreMetric = 'match' | 'ease' | 'priority'
 
 export const NOISE_FLOORS: Record<ScoreMetric, number> = {
-  want: WANT_NOISE_FLOOR,
+  match: MATCH_NOISE_FLOOR,
   ease: EASE_NOISE_FLOOR,
   priority: PRIORITY_NOISE_FLOOR,
 }
 
-/** The noise floor for 'want' | 'ease' | 'priority' (Priority's for anything else). */
+/** The noise floor for 'match' | 'ease' | 'priority' (Priority's for anything else). */
 export function noiseFloorFor(metric: string | null | undefined): number {
   return (metric != null && metric in NOISE_FLOORS) ? NOISE_FLOORS[metric as ScoreMetric] : PRIORITY_NOISE_FLOOR
 }

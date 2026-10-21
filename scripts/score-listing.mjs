@@ -9,19 +9,19 @@
  *
  *   1. Eligibility gate (scripts/lib/eligibility.mjs): JD facts vs. the
  *      candidate's `eligibility:` profile → green / amber / red. Red stops
- *      here: verdict `blocked`, tier T4, no Want / Ease / Priority, and no
+ *      here: verdict `blocked`, tier T4, no Match / Ease / Priority, and no
  *      tax / cost-of-living lookups (so no `judgment_scores` needed).
  *   2. Salary Adj for City: total comp → tax (cache or override) → net →
  *      minus the city baseline (cache or override; halved for interns) →
  *      monthly savings → 10-tier band → soft-benefits modifier.
  *   3. Calibration: Brand (only explicit perception corrections —
  *      extra_brand_bonuses; Brand is a CV signal, not preference), the
- *      liked-company Want bonus (lower-tier dream companies), Growth
+ *      liked-company Match bonus (lower-tier dream companies), Growth
  *      (onboarding ±1), Competition (referral bonus).
- *   4. Want (motivators mean − bottom penalty + hygiene terms, dream floor,
+ *   4. Match (motivators mean − bottom penalty + hygiene terms, dream floor,
  *      vetoes) and Ease (weighted geometric mean, experience wall, amber
  *      penalty).
- *   5. Verdict grid → verdict, tier, promotion hint; Priority = √(Want·Ease).
+ *   5. Verdict grid → verdict, tier, promotion hint; Priority = √(Match·Ease).
  *   6. Explainability bundle (scripts/lib/explain-score.mjs), which replays
  *      the same engine.
  *   7. Prior evaluation (scripts/lib/prior-score.mjs): the listing's latest
@@ -56,7 +56,7 @@
  *   - empty `eligibility:` → every check is "not checked" (green): no
  *     availability date, no blocked windows, no language / work-auth /
  *     graduation / duration constraints. The gate lets everything through.
- *   - empty `scoring:`     → DEFAULT_WANT_WEIGHTS / DEFAULT_EASE_WEIGHTS.
+ *   - empty `scoring:`     → DEFAULT_MATCH_WEIGHTS / DEFAULT_EASE_WEIGHTS.
  *
  * SCHEMA (input) — fictional values:
  *   {
@@ -81,7 +81,7 @@
  *     "calibration": { ...see scripts/lib/calibration.mjs... },
  *     "eligibility_facts": { ...docs/scoring-v2.md §1.1 (+ "other": [...]) ... },
  *     "eligibility_profile": { ...optional, else user/profile.yml → eligibility... },
- *     "scoring_weights": { "want": {...}, "ease": {...} },        // optional, else profile.yml → scoring.*
+ *     "scoring_weights": { "match": {...}, "ease": {...} },        // optional, else profile.yml → scoring.*
  *     "referral": "warm-direct" | "warm-intro" | null,
  *     "today": "2026-10-20",                  // optional reference date (default: now)
  *     "judgment_scores": {
@@ -92,9 +92,9 @@
  *   }
  *
  * SCHEMA (output): docs/scoring-v2.md §6 — { eligibility, salary_adj_for_city,
- * calibrated_dims, dims, want, ease, priority, verdict, verdict_label,
+ * calibrated_dims, dims, match, ease, priority, verdict, verdict_label,
  * verdict_action, tier, tier_reason, promotion_hint, explanation }. Blocked:
- * { eligibility, verdict: 'blocked', tier: 'T4', want/ease/priority: null,
+ * { eligibility, verdict: 'blocked', tier: 'T4', match/ease/priority: null,
  * note, explanation }. Errors: { error, message, ... } with exit 0 so the
  * agent can read the reason.
  */
@@ -108,12 +108,12 @@ import yaml from 'js-yaml'
 import {
   savingsToBaseScore, applyBenefitsModifier,
   buildTotalComp, grossToNet,
-  rollupWant, rollupEase, assignVerdict, computePriority, promotionHint,
+  rollupMatch, rollupEase, assignVerdict, computePriority, promotionHint,
   VERDICT_LABELS, VERDICT_ACTIONS,
 } from './lib/score-bands.mjs'
 
 import {
-  applyBrandCalibration, applyGrowthCalibration, applyReferralAdjustment, wantPreference,
+  applyBrandCalibration, applyGrowthCalibration, applyReferralAdjustment, matchPreference,
   isDreamCompany, isRevisitCompany,
 } from './lib/calibration.mjs'
 
@@ -209,11 +209,12 @@ export async function loadProfileBlocks(path = DEFAULT_PROFILE_PATH) {
   }
 }
 
-// `scoring:` in profile.yml uses want_weights / ease_weights; the input's
-// `scoring_weights` uses want / ease. Accept either spelling in both places.
+// `scoring:` in profile.yml uses match_weights / ease_weights; the input's
+// `scoring_weights` uses match / ease. Accept either spelling in both places.
+// `want_weights` is the pre-rename spelling of `match_weights`.
 function weightsFrom(block) {
   return {
-    want: block?.want ?? block?.want_weights,
+    match: block?.match ?? block?.match_weights ?? block?.want_weights,
     ease: block?.ease ?? block?.ease_weights,
   }
 }
@@ -254,15 +255,15 @@ export async function scoreListing(input, opts = {}) {
   if (eligibilityOnly) return { eligibility }
 
   const calibration = input.calibration ?? {}
-  // A red listing is Blocked. It still gets Want / Ease when the profile's
+  // A red listing is Blocked. It still gets Match / Ease when the profile's
   // `score_through_red` allows every red check (eligibility.redIsScored):
   // the verdict stays `blocked`, Priority stays null, only the scores fill in.
   if (eligibility.status === 'red' && !eligibility.scored) {
-    const verdict = assignVerdict({ want: null, ease: null, eligibility })
+    const verdict = assignVerdict({ match: null, ease: null, eligibility })
     const reason = eligibility.blocking_reason
     return {
       eligibility,
-      want: null,
+      match: null,
       ease: null,
       priority: null,
       verdict: verdict.verdict,
@@ -310,15 +311,15 @@ export async function scoreListing(input, opts = {}) {
     competition:       compCal.value,
   }
   const dream = isDreamCompany(input.company, calibration)
-  const pref = wantPreference(input.company, calibration)
+  const pref = matchPreference(input.company, calibration)
 
-  // 4. Want and Ease.
-  const want = rollupWant(dims, { weights: weights.want, is_intern: isIntern, dream, preference: pref.bonus })
+  // 4. Match and Ease.
+  const match = rollupMatch(dims, { weights: weights.match, is_intern: isIntern, dream, preference: pref.bonus })
   const ease = rollupEase(dims, { weights: weights.ease, amber_count: eligibility.amber_count })
 
   // 5. Verdict + Priority.
-  const verdict = assignVerdict({ want: want.score, ease: ease.score, eligibility })
-  const priority = eligibility.status === 'red' ? null : computePriority(want.score, ease.score)
+  const verdict = assignVerdict({ match: match.score, ease: ease.score, eligibility })
+  const priority = eligibility.status === 'red' ? null : computePriority(match.score, ease.score)
 
   // 6. Explainability — replays the same engine, so it can't drift.
   const explanation = explainScore({
@@ -336,7 +337,7 @@ export async function scoreListing(input, opts = {}) {
       competition:     { raw: j.competition,     final: compCal.value,   adjustments: compCal.adjustments },
     },
     dims,
-    want,
+    match,
     ease,
     priority,
     verdict: verdict.verdict,

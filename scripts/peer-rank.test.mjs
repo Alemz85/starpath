@@ -1,7 +1,7 @@
 // peer-rank.test.mjs — unit tests for scripts/peer-rank.mjs (the Comparative
 // Rank Block, scoring v2). Covers the below-5-peers omission rule, blocked
 // rows excluded from the pool, a blocked target omitted with a reason, the
-// Priority rank + separate Want / Ease placements, the
+// Priority rank + separate Match / Ease placements, the
 // docs/scoring-statistical-design.md confidence-tier contract (§ 3.1 / § 3.2),
 // the formatted 3-bold-line render, outliers over the ten v2 dims, closest
 // comparables, and the default read of data/score-history.tsv from the cwd.
@@ -20,18 +20,18 @@ import { join } from 'node:path'
 
 import { GATES, confidenceTier } from './lib/scoring-stats.mjs'
 import { parseScoreHistory } from './lib/targeting-core.mjs'
-import { computePriority, rollupWant, rollupEase } from './lib/score-bands.mjs'
+import { computePriority, rollupMatch, rollupEase } from './lib/score-bands.mjs'
 import { historyTsv, BASE_DIMS } from './lib/testing/score-history-fixture.mjs'
 import { peerRank, peerRankDetailed, normalizeTarget } from './peer-rank.mjs'
 
 // ─── Fixture construction ──────────────────────────────────────────────────
 
 /** N scored peers for `archetype`, distinct companies, spread so ties are rare. */
-function peers(archetype, n, { want = (i) => 6 + i * 0.1, ease = (i) => 6 + i * 0.05 } = {}) {
+function peers(archetype, n, { match = (i) => 6 + i * 0.1, ease = (i) => 6 + i * 0.05 } = {}) {
   return Array.from({ length: n }, (_, i) => ({
     archetype,
     company: `${archetype.replace(/\W+/g, '')} Peer ${i}`,
-    want: Number(want(i).toFixed(2)),
+    match: Number(match(i).toFixed(2)),
     ease: Number(ease(i).toFixed(2)),
   }))
 }
@@ -51,11 +51,11 @@ const ROWS = parseScoreHistory(historyTsv(
   { archetype: 'BlockedMix', company: 'Fabrikam Labs', eligibility: 'red' },
   { archetype: 'BlockedMix', company: 'Tailspin Toys', eligibility: 'red' },
 
-  // ── Rank math, fixed Priority values: want = ease = p → priority = p ──
-  ...[5.0, 5.5, 6.0, 6.5, 7.0].map((p, i) => ({ archetype: 'RankMath', company: `RM-${i}`, want: p, ease: p })),
+  // ── Rank math, fixed Priority values: match = ease = p → priority = p ──
+  ...[5.0, 5.5, 6.0, 6.5, 7.0].map((p, i) => ({ archetype: 'RankMath', company: `RM-${i}`, match: p, ease: p })),
 
-  // ── Want and Ease placements disagree: peers want 6.0–6.4, ease 7.6–8.0 ──
-  ...peers('SplitArch', 5, { want: (i) => 6 + i * 0.1, ease: (i) => 7.6 + i * 0.1 }),
+  // ── Match and Ease placements disagree: peers match 6.0–6.4, ease 7.6–8.0 ──
+  ...peers('SplitArch', 5, { match: (i) => 6 + i * 0.1, ease: (i) => 7.6 + i * 0.1 }),
 
   // ── Dimensional outliers: skills_match peer avg 5, brand_value peer avg 8 ──
   ...Array.from({ length: 5 }, (_, i) => ({
@@ -63,19 +63,19 @@ const ROWS = parseScoreHistory(historyTsv(
   })),
 
   // ── Closest comparables: TargetCo excluded, 5 others at varying deltas ──
-  { archetype: 'ComparablesArch', company: 'TargetCo', want: 7.0, ease: 7.0 },
-  { archetype: 'ComparablesArch', company: 'Near1', want: 7.1, ease: 7.1 },
-  { archetype: 'ComparablesArch', company: 'Near2', want: 6.9, ease: 6.9 },
-  { archetype: 'ComparablesArch', company: 'Near3', want: 7.3, ease: 7.3 },
-  { archetype: 'ComparablesArch', company: 'Far1', want: 4.0, ease: 4.0 },
-  { archetype: 'ComparablesArch', company: 'Far2', want: 9.5, ease: 9.5 },
+  { archetype: 'ComparablesArch', company: 'TargetCo', match: 7.0, ease: 7.0 },
+  { archetype: 'ComparablesArch', company: 'Near1', match: 7.1, ease: 7.1 },
+  { archetype: 'ComparablesArch', company: 'Near2', match: 6.9, ease: 6.9 },
+  { archetype: 'ComparablesArch', company: 'Near3', match: 7.3, ease: 7.3 },
+  { archetype: 'ComparablesArch', company: 'Far1', match: 4.0, ease: 4.0 },
+  { archetype: 'ComparablesArch', company: 'Far2', match: 9.5, ease: 9.5 },
 
   // ── Compound archetype matching: peers stored under the primary segment ──
   ...peers('Growth Ops', 5),
 ))
 
 const rank = (input, opts = {}) => peerRank(input, { rows: ROWS, ...opts })
-const T = (archetype, extra = {}) => ({ archetype, company: 'Outsider', want: 7.0, ease: 7.0, ...extra })
+const T = (archetype, extra = {}) => ({ archetype, company: 'Outsider', match: 7.0, ease: 7.0, ...extra })
 
 // ─── Below-gate omission: block is null, never a placeholder ──────────────
 
@@ -111,7 +111,7 @@ test('blocked rows are not peers (4 scored + 3 blocked stays below the gate)', a
 })
 
 test('a blocked target (eligibility red) is omitted with a reason', async () => {
-  const d = await peerRankDetailed(T('Arch20Peers', { eligibility: 'red', want: null, ease: null }), { rows: ROWS })
+  const d = await peerRankDetailed(T('Arch20Peers', { eligibility: 'red', match: null, ease: null }), { rows: ROWS })
   assert.equal(d.block, null)
   assert.equal(d.reason, 'blocked')
   assert.match(d.message, /Blocked/)
@@ -123,7 +123,7 @@ test('a blocked target via verdict "blocked" is omitted even if numbers are pass
   assert.equal(d.reason, 'blocked')
 })
 
-test('a target with no Want / Ease / Priority / dims is omitted as no-score', async () => {
+test('a target with no Match / Ease / Priority / dims is omitted as no-score', async () => {
   const d = await peerRankDetailed({ archetype: 'Arch20Peers', company: 'X' }, { rows: ROWS })
   assert.equal(d.reason, 'no-score')
 })
@@ -147,11 +147,11 @@ test('min_peers echoes the gate actually applied (default GATES.peerMinPeers)', 
   assert.equal(r.min_peers, GATES.peerMinPeers)
 })
 
-// ─── Priority rank + Want / Ease placements ───────────────────────────────
+// ─── Priority rank + Match / Ease placements ───────────────────────────────
 
 test('n_peers, percentile, rank_position follow the documented formula on Priority', async () => {
   // Peers' Priority: 5.0, 5.5, 6.0, 6.5, 7.0. Target √(6.2·6.2) = 6.2 beats 3.
-  const r = await rank(T('RankMath', { want: 6.2, ease: 6.2 }))
+  const r = await rank(T('RankMath', { match: 6.2, ease: 6.2 }))
   assert.equal(r.priority, 6.2)
   assert.equal(r.n_peers, 5)
   assert.equal(r.percentile, 60)
@@ -160,58 +160,58 @@ test('n_peers, percentile, rank_position follow the documented formula on Priori
 })
 
 test('rank label reads "bottom half (#N of total)" below the 50th percentile', async () => {
-  const r = await rank(T('RankMath', { want: 4.5, ease: 4.5 }))
+  const r = await rank(T('RankMath', { match: 4.5, ease: 4.5 }))
   assert.equal(r.percentile, 0)
   assert.equal(r.rank_position, 5)
   assert.equal(r.rank, 'bottom half (#5 of 5)')
 })
 
-test('an explicit priority wins over √(want·ease)', async () => {
-  const r = await rank(T('RankMath', { want: 9, ease: 9, priority: 5.2 }))
+test('an explicit priority wins over √(match·ease)', async () => {
+  const r = await rank(T('RankMath', { match: 9, ease: 9, priority: 5.2 }))
   assert.equal(r.priority, 5.2)
   assert.equal(r.percentile, 20)
 })
 
-test('Want and Ease are placed among peers as separate claims', async () => {
-  // Peers: want 6.0–6.4, ease 7.6–8.0. Target want 7.0 (beats all), ease 7.0 (beats none).
-  const r = await rank(T('SplitArch', { want: 7.0, ease: 7.0 }))
-  assert.equal(r.want.value, 7)
-  assert.equal(r.want.percentile, 100)
-  assert.equal(r.want.rank, 'top 5%')
-  assert.equal(r.want.peer_n, 5)
-  assert.equal(r.want.peer_avg, 6.2)
-  assert.equal(r.want.confidence, 'low')
+test('Match and Ease are placed among peers as separate claims', async () => {
+  // Peers: match 6.0–6.4, ease 7.6–8.0. Target match 7.0 (beats all), ease 7.0 (beats none).
+  const r = await rank(T('SplitArch', { match: 7.0, ease: 7.0 }))
+  assert.equal(r.match.value, 7)
+  assert.equal(r.match.percentile, 100)
+  assert.equal(r.match.rank, 'top 5%')
+  assert.equal(r.match.peer_n, 5)
+  assert.equal(r.match.peer_avg, 6.2)
+  assert.equal(r.match.confidence, 'low')
   assert.equal(r.ease.percentile, 0)
   assert.equal(r.ease.rank, 'bottom half (#5 of 5)')
   assert.equal(r.ease.peer_avg, 7.8)
 })
 
-test('the score-listing.mjs object form ({ score }) is accepted for want / ease', async () => {
-  const r = await rank(T('RankMath', { want: { score: 6.2 }, ease: { score: 6.2 } }))
+test('the score-listing.mjs object form ({ score }) is accepted for match / ease', async () => {
+  const r = await rank(T('RankMath', { match: { score: 6.2 }, ease: { score: 6.2 } }))
   assert.equal(r.priority, 6.2)
   assert.equal(r.score_source, 'input')
 })
 
-test('want / ease are derived from a full set of dims when not given', async () => {
+test('match / ease are derived from a full set of dims when not given', async () => {
   const dims = { ...BASE_DIMS }
   const t = normalizeTarget({ dims })
-  assert.equal(t.want, rollupWant(dims).score)
+  assert.equal(t.match, rollupMatch(dims).score)
   assert.equal(t.ease, rollupEase(dims).score)
-  assert.equal(t.priority, computePriority(t.want, t.ease))
+  assert.equal(t.priority, computePriority(t.match, t.ease))
   assert.equal(t.scoreSource, 'dims')
   const r = await rank({ archetype: 'Arch20Peers', company: 'X', dims })
   assert.equal(r.score_source, 'dims')
 })
 
-test('priority-only input ranks on Priority and omits the Want / Ease claims', async () => {
+test('priority-only input ranks on Priority and omits the Match / Ease claims', async () => {
   const r = await rank({ archetype: 'RankMath', company: 'X', priority: 6.2 })
   assert.equal(r.percentile, 60)
-  assert.equal(r.want, null)
+  assert.equal(r.match, null)
   assert.equal(r.ease, null)
 })
 
 test('outliers and comparables are present as arrays even when empty', async () => {
-  const r = await rank(T('RankMath', { want: 6.2, ease: 6.2 }))
+  const r = await rank(T('RankMath', { match: 6.2, ease: 6.2 }))
   assert.ok(Array.isArray(r.outliers))
   assert.ok(Array.isArray(r.comparables))
   assert.equal(r.outliers.length, 0)
@@ -226,14 +226,14 @@ test('primary-archetype matching collapses compound archetypes', async () => {
 
 // ─── formatted rendering ──────────────────────────────────────────────────
 
-test('formatted block states "of N peers", Want · Ease, and is exactly 3 bold lines', async () => {
-  const r = await rank(T('Arch10Peers', { want: 8.25, ease: 5.6 }))
+test('formatted block states "of N peers", Match · Ease, and is exactly 3 bold lines', async () => {
+  const r = await rank(T('Arch10Peers', { match: 8.25, ease: 5.6 }))
   const lines = r.formatted.split('\n')
   assert.equal(lines.length, 3)
   for (const line of lines) assert.match(line, /^\*\*/)
   assert.match(r.formatted, /of 10 peers/)
-  assert.match(lines[0], /Want 8\.25 · Ease 5\.60/)
-  assert.match(lines[0], /by priority \(Want .+, Ease .+\)/)
+  assert.match(lines[0], /Match 8\.25 · Ease 5\.60/)
+  assert.match(lines[0], /by priority \(Match .+, Ease .+\)/)
   assert.doesNotMatch(r.formatted, /\/10/)
   assert.doesNotMatch(r.formatted, /overall/i)
 })
@@ -243,9 +243,9 @@ test('formatted block appends the low-confidence caveat only at low tier', async
   assert.doesNotMatch((await rank(T('Arch20Peers'))).formatted, /at this sample read the half/)
 })
 
-test('comparables render as W · E, never as a single score', async () => {
-  const r = await rank({ archetype: 'ComparablesArch', company: 'TargetCo', want: 7.0, ease: 7.0 })
-  assert.match(r.formatted.split('\n')[2], /Near1 \(W7\.10 · E7\.10\)/)
+test('comparables render as M · E, never as a single score', async () => {
+  const r = await rank({ archetype: 'ComparablesArch', company: 'TargetCo', match: 7.0, ease: 7.0 })
+  assert.match(r.formatted.split('\n')[2], /Near1 \(M7\.10 · E7\.10\)/)
 })
 
 // ─── Dimensional outliers over the v2 dims (docs § 3.2) ────────────────────
@@ -269,7 +269,7 @@ test('sorts multiple outliers by |delta| descending', async () => {
   assert.equal(r.outliers.length, 2)
   assert.equal(r.outliers[0].dim, 'skills_match')
   assert.equal(r.outliers[1].dim, 'brand_value')
-  assert.equal(r.outliers[1].rollup, 'want')
+  assert.equal(r.outliers[1].rollup, 'match')
   assert.ok(r.outliers[0].delta > 0)
   assert.ok(r.outliers[1].delta < 0)
 })
@@ -295,19 +295,19 @@ test('this_dims is accepted as an alias of dims', async () => {
 // ─── Closest comparables ──────────────────────────────────────────────────
 
 test('excludes the listing\'s own company and returns the 3 closest by Priority', async () => {
-  const r = await rank({ archetype: 'ComparablesArch', company: 'TargetCo', want: 7.0, ease: 7.0 })
+  const r = await rank({ archetype: 'ComparablesArch', company: 'TargetCo', match: 7.0, ease: 7.0 })
   assert.equal(r.comparables.length, 3)
   assert.ok(!r.comparables.some(c => c.company === 'TargetCo'))
   assert.deepEqual(r.comparables.map(c => c.company).sort(), ['Near1', 'Near2', 'Near3'])
   const c = r.comparables.find(x => x.company === 'Near3')
-  assert.deepEqual(Object.keys(c).sort(), ['company', 'delta', 'ease', 'priority', 'role', 'verdict', 'want'])
-  assert.equal(c.want, 7.3)
+  assert.deepEqual(Object.keys(c).sort(), ['company', 'delta', 'ease', 'match', 'priority', 'role', 'verdict'])
+  assert.equal(c.match, 7.3)
   assert.equal(c.delta, 0.3)
-  assert.equal(c.verdict, 'solid') // Want 7.3 < 8.0, Ease 7.3 ≥ 7.0
+  assert.equal(c.verdict, 'solid') // Match 7.3 < 8.0, Ease 7.3 ≥ 7.0
 })
 
 test('same-company exclusion is case/whitespace-insensitive', async () => {
-  const r = await rank({ archetype: 'ComparablesArch', company: '  targetco  ', want: 7.0, ease: 7.0 })
+  const r = await rank({ archetype: 'ComparablesArch', company: '  targetco  ', match: 7.0, ease: 7.0 })
   assert.ok(!r.comparables.some(c => c.company === 'TargetCo'))
 })
 

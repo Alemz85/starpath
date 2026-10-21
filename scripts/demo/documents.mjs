@@ -757,7 +757,7 @@ This folder has the same layout as a private data root (\`private/\`), so the ap
 
 ## How it is made
 
-\`scripts/demo/build-demo.mjs\` generates everything from \`scripts/demo/seed.mjs\`. Each listing in the seed holds the facts from its posting, integer judgment scores and the report prose. The build runs every listing through \`scripts/score-listing.mjs\`, so Want, Ease, verdict and tier always come from the current rubric. Dates are day offsets from the as-of date in \`.demo-meta.json\`, so a rebuild never looks stale.
+\`scripts/demo/build-demo.mjs\` generates everything from \`scripts/demo/seed.mjs\`. Each listing in the seed holds the facts from its posting, integer judgment scores and the report prose. The build runs every listing through \`scripts/score-listing.mjs\`, so Match, Ease, verdict and tier always come from the current rubric. Dates are day offsets from the as-of date in \`.demo-meta.json\`, so a rebuild never looks stale.
 
 Don't edit these files by hand. Change the seed and rebuild:
 

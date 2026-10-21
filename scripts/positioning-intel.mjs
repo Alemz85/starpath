@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
  * positioning-intel.mjs — corpus-level positioning synthesis for the
- * `positioning` mode (scoring v2: eligibility gate, Want, Ease, verdict).
+ * `positioning` mode (scoring v2: eligibility gate, Match, Ease, verdict).
  *
  * Thin file/CLI wrapper around scripts/lib/positioning-core.mjs. Reads
  * data/score-history.tsv, builds per-archetype dimensional fingerprints, replays
  * the canonical scoring engine on each archetype's AVERAGE role, and surfaces:
  *
- *   • per-archetype Want · Ease, verdict mix, actionable share, blocked count,
+ *   • per-archetype Match · Ease, verdict mix, actionable share, blocked count,
  *     and the cheapest single-dim lever that moves the typical role to a
  *     better verdict cell (the targeting move, made concrete);
  *   • the Ease trajectory per archetype (earlier vs later half, against the
@@ -25,7 +25,7 @@
  *      node scripts/positioning-intel.mjs --min-roles 4
  *      node scripts/positioning-intel.mjs --score-history path.tsv --profile path.yml
  *
- * user/profile.yml is optional: its `scoring.want_weights` / `ease_weights` and
+ * user/profile.yml is optional: its `scoring.match_weights` / `ease_weights` and
  * `calibration.dream_companies` feed the engine replay, exactly as the scorer
  * reads them.
  */
@@ -62,7 +62,7 @@ function loadProfile(path) {
     const dream = doc?.target_roles?.dream_companies ?? doc?.profile?.dream_companies ?? null;
     if (dream && !calibration.dream_companies) calibration.dream_companies = dream;
     return {
-      weights: { want: scoring.want ?? scoring.want_weights, ease: scoring.ease ?? scoring.ease_weights },
+      weights: { match: scoring.match ?? scoring.match_weights ?? scoring.want_weights, ease: scoring.ease ?? scoring.ease_weights },
       calibration,
     };
   } catch (e) {
@@ -109,7 +109,7 @@ function printSummary(result) {
 
   console.log('LANDSCAPE');
   console.log('-'.repeat(48));
-  console.log(`  Want ${fmt(landscape.avgWant)} · Ease ${fmt(landscape.avgEase)} (mean)  ·  median Want ${fmt(landscape.medianWant)} · Ease ${fmt(landscape.medianEase)}`);
+  console.log(`  Match ${fmt(landscape.avgMatch)} · Ease ${fmt(landscape.avgEase)} (mean)  ·  median Match ${fmt(landscape.medianMatch)} · Ease ${fmt(landscape.medianEase)}`);
   console.log(`  ${verdictMix(landscape.verdicts)}`);
   console.log(`  ${landscape.actionableShare}% actionable (Go / Stretch / Solid) · ${landscape.wastedShare}% Skip`);
   if (eligibility && eligibility.total) {
@@ -160,9 +160,9 @@ function printSummary(result) {
     const l = leverByArch.get(f.archetype);
     const name = f.archetype.slice(0, 38);
     console.log(`  ${name}`);
-    console.log(`    ${f.count} scored roles${f.blocked ? ` (+${f.blocked} blocked)` : ''} · Want ${fmt(f.avgWant)} · Ease ${fmt(f.avgEase)} · ${f.actionableShare}% actionable`);
+    console.log(`    ${f.count} scored roles${f.blocked ? ` (+${f.blocked} blocked)` : ''} · Match ${fmt(f.avgMatch)} · Ease ${fmt(f.avgEase)} · ${f.actionableShare}% actionable`);
     console.log(`    verdicts: ${verdictMix(f.verdicts)}`);
-    console.log(`    typical role: Want ${fmt(l.want)} · Ease ${fmt(l.ease)} → ${l.verdictLabel}`);
+    console.log(`    typical role: Match ${fmt(l.match)} · Ease ${fmt(l.ease)} → ${l.verdictLabel}`);
     if (f.bottleneck) {
       console.log(`    bottleneck: ${f.bottleneck.label} (avg ${f.bottleneck.avg})`);
     }
@@ -189,7 +189,7 @@ function printSummary(result) {
   console.log('\nDIMENSION DRAG (weakest first — corpus-wide)');
   console.log('-'.repeat(48));
   for (const d of dimensionDrag) {
-    const rollup = d.rollup === 'ease' ? 'Ease' : 'Want';
+    const rollup = d.rollup === 'ease' ? 'Ease' : 'Match';
     console.log(`  ${d.label.padEnd(22)} avg ${String(d.avg).padStart(4)}  (${rollup}; low in ${d.lowShare}% of evals)`);
   }
 
