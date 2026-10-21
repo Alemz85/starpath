@@ -33,7 +33,7 @@ The app opens on a choice: **Explore the demo** (read-only, nothing to set up) o
 
 ![An evaluation report: summary, eligibility, and the scoring table with its reasoning](docs/images/report.png)
 
-![Applying: the application board with deadlines and next actions](docs/images/applying.png)
+![Applying: the application board with stages, date cues and rejections](docs/images/applying.png)
 
 ## How it works
 
