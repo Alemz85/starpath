@@ -31,7 +31,6 @@ export const OVERRIDES: Record<string, string> = {
   'capgemini': 'capgemini.com', 'ibm': 'ibm.com',
   'goldman sachs': 'goldmansachs.com', 'jp morgan': 'jpmorgan.com', 'jpmorgan': 'jpmorgan.com',
   'morgan stanley': 'morganstanley.com', 'blackrock': 'blackrock.com', 'ubs': 'ubs.com',
-  'red bull': 'redbull.com', 'redbull': 'redbull.com',
   'booking.com': 'booking.com', 'booking': 'booking.com',
   'klarna': 'klarna.com', 'revolut': 'revolut.com', 'n26': 'n26.com',
   'wise': 'wise.com', 'monzo': 'monzo.com',
