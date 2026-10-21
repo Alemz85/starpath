@@ -186,8 +186,18 @@ export function checkScoreHistoryRows(content) {
       errors.push(`score-history ${label(cols, i)}: tier "${tier}" is not T1-T4`);
     }
     if (elig === 'red') {
-      for (const [name, k] of [['want', iWant], ['ease', iEase], ['priority', iPri]]) {
-        if (k >= 0 && get(k) !== '') errors.push(`score-history ${label(cols, i)}: blocked (red) row has ${name} "${get(k)}" — must be empty`);
+      // Blocked: never a Priority. Want / Ease only when the profile's
+      // score_through_red scored the listing, and then both, each in [1,10].
+      if (iPri >= 0 && get(iPri) !== '') errors.push(`score-history ${label(cols, i)}: blocked (red) row has priority "${get(iPri)}" — must be empty`);
+      const w = get(iWant);
+      const e = get(iEase);
+      if ((w === '') !== (e === '')) {
+        errors.push(`score-history ${label(cols, i)}: blocked (red) row must have both want and ease (scored through red) or neither`);
+      } else if (w !== '') {
+        for (const [name, v] of [['want', w], ['ease', e]]) {
+          const n = Number(v);
+          if (!Number.isFinite(n) || n < 1 || n > 10) errors.push(`score-history ${label(cols, i)}: ${name} "${v}" is not a number in [1,10]`);
+        }
       }
     } else if (elig) {
       for (const [name, k] of [['want', iWant], ['ease', iEase]]) {

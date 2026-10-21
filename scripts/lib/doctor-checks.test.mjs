@@ -376,10 +376,20 @@ test('checkScoreHistoryRows: flags bad eligibility, bad tier, missing/out-of-ran
   assert.ok(r.errors.some(e => /ease "11"/.test(e)));
 });
 
-test('checkScoreHistoryRows: a blocked (red) row must have empty want/ease/priority — never 0', () => {
-  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow({ eligibility: 'red', verdict: 'blocked', tier: 'T4', want: '0', ease: '', priority: '' })}\n`);
-  assert.equal(r.errors.length, 1);
-  assert.match(r.errors[0], /blocked \(red\) row has want "0"/);
+test('checkScoreHistoryRows: a blocked (red) row has no priority, and want/ease both or neither — never 0', () => {
+  const red = (o) => hrow({ eligibility: 'red', verdict: 'blocked', tier: 'T4', priority: '', ...o });
+  const half = checkScoreHistoryRows(`${V2_COLS}\n${red({ want: '0', ease: '' })}\n`);
+  assert.equal(half.errors.length, 1);
+  assert.match(half.errors[0], /blocked \(red\) row must have both want and ease/);
+  const zero = checkScoreHistoryRows(`${V2_COLS}\n${red({ want: '0', ease: '7' })}\n`);
+  assert.match(zero.errors.join('\n'), /want "0" is not a number in \[1,10\]/);
+  const pri = checkScoreHistoryRows(`${V2_COLS}\n${red({ want: '', ease: '', priority: '6.1' })}\n`);
+  assert.match(pri.errors.join('\n'), /blocked \(red\) row has priority "6.1"/);
+});
+
+test('checkScoreHistoryRows: a red listing the profile scored through keeps its want and ease', () => {
+  const r = checkScoreHistoryRows(`${V2_COLS}\n${hrow({ eligibility: 'red', verdict: 'blocked', tier: 'T4', priority: '', want: '8.5', ease: '7.81' })}\n`);
+  assert.deepEqual(r.errors, []);
 });
 
 test('checkScoreHistoryRows: a short row is a warning', () => {
