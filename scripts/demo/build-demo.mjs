@@ -306,7 +306,10 @@ function renderReport(rec, ctx) {
   lines.push(`**Eligibility:** ${eligibilityHeader(r)}`)
   lines.push(`**Verdict:** ${VERDICT_LABELS[r.verdict]} — ${REPORT_ACTIONS[r.verdict]}`)
   lines.push(`**Tier:** ${r.tier}`)
-  lines.push(`**URL:** ${rec.url}`, '')
+  lines.push(`**URL:** ${rec.url}`)
+  // What the application asks for (modes/scouting.md § Documents), when the seed says.
+  if (L.documents) lines.push(`**Documents:** ${L.documents}`)
+  lines.push('')
 
   lines.push('## Eligibility', '| Check | Status | Reason |', '|-------|--------|--------|')
   for (const c of r.eligibility.checks) lines.push(`| ${c.check} | ${c.status} | ${eligibilityText(c, L, rec.facts, ctx)} |`)

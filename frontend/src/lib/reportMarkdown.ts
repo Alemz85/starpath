@@ -30,8 +30,8 @@ export interface ParsedDimensions {
 
 // Header metadata: keep contextual fields (Date / Mode / Location /
 // Archetype / Verification) and drop the duplicated ones — URL has its own
-// pill, Posted is a job fact (parseReportPosted + pickPostedDate, shown by
-// ReportSlideOver), Match / Ease / Eligibility / Verdict / Tier are parsed by
+// pill, Posted and Documents are job facts (parseReportPosted + pickPostedDate,
+// parseReportDocuments; shown by ReportSlideOver), Match / Ease / Eligibility / Verdict / Tier are parsed by
 // parseReportHeader and rendered in the hero. Verification is kept because
 // batch-mode reports need a visible "unconfirmed" caveat — see ReportMeta —
 // and Posting check because a "suspect" posting (hidden or instruction-like

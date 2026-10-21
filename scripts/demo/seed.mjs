@@ -169,6 +169,7 @@ export const listings = [
     archetype: 'Strategy & Operations', city: 'Vienna', location: 'Vienna, Austria', remote: 'hybrid, three office days',
     employment: 'permanent', employmentType: 'full-time', duration: 'permanent',
     seen: -44, evaluated: -43, lastSeen: -23, portal: 'greenhouse-api', jobId: 4417, source: 'scan', deadline: 'n/d',
+    documents: 'CV required · cover letter optional · transcript not stated · references not stated · language test not stated · from the posting',
     comp: { base: 46000 }, compSource: 'disclosed', salaryRaw: '€46,000 (14 salaries)', soft: 0.3,
     facts: { languages: [EN_C1, { language: 'German', level: 'B2', required: false }], country: 'AT' },
     scores: j(8, 8, 7, 9, 8, 7, 8, 8, 6), expect: 'go',
@@ -323,6 +324,7 @@ export const listings = [
     archetype: 'Graduate / Rotational Programme', city: 'Lyon', location: 'Lyon, France', remote: 'hybrid',
     employment: 'graduate_programme', employmentType: 'graduate-program', duration: '24mo',
     seen: -33, evaluated: -32, portal: 'url', jobId: 1042, source: 'url', deadline: 'Rolling',
+    documents: 'CV required · cover letter required · transcript required · references not stated · language test not stated · 1 file, 2 MB max · all documents in one PDF · from the posting',
     comp: { base: 41000, bonusPct: 0.05 }, compSource: 'disclosed', salaryRaw: '€41,000 + 5% bonus', soft: 0.5, onboarding: true, referral: 'warm-direct',
     facts: {
       start: { in: 40, flexible: false }, duration_months: 24,
@@ -379,6 +381,7 @@ export const listings = [
     archetype: 'Business / Data Analyst', city: 'Vienna', location: 'Vienna, Austria', remote: 'on-site',
     employment: 'permanent', employmentType: 'full-time', duration: 'permanent',
     seen: -30, evaluated: -29, lastSeen: -12, portal: 'lever-api', jobId: 2716, source: 'scan', deadline: 'n/d',
+    documents: 'not stated',
     comp: { base: 41000 }, compSource: 'disclosed', salaryRaw: '€41,000', soft: 0,
     facts: { languages: [{ language: 'English', level: 'B2', required: true }, { language: 'German', level: 'B1', required: false }], country: 'AT' },
     scores: j(6, 7, 6, 8, 8, 7, 7, 6, 6), expect: 'thin',

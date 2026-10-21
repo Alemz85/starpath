@@ -8,6 +8,7 @@
 **Verdict:** Go — apply now
 **Tier:** T1
 **URL:** https://example.com/jobs/contoso/strategy-and-operations-analyst-4417
+**Documents:** CV required · cover letter optional · transcript not stated · references not stated · language test not stated · from the posting
 
 ## Eligibility
 | Check | Status | Reason |
