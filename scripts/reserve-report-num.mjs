@@ -9,8 +9,10 @@
  * prompts tell the worker to run this. Logic: lib/report-nums.mjs.
  *
  * Usage:
- *   node scripts/reserve-report-num.mjs [--tracker scouting|applications] [--by <label>] [--min N] [--json]
- *       prints the reserved number (3-digit padded unless --json)
+ *   node scripts/reserve-report-num.mjs [--tracker scouting|applications] [--by <label>] [--min N] [--count N] [--json]
+ *       prints the reserved number (3-digit padded unless --json); --count N
+ *       claims N numbers in one call, one per line (a run scoring many
+ *       listings would otherwise spend one tool call per number)
  *   node scripts/reserve-report-num.mjs release <num> [--tracker …]
  *   node scripts/reserve-report-num.mjs list [--tracker …]
  *   node scripts/reserve-report-num.mjs gc [--days 7] [--tracker …]
@@ -30,9 +32,10 @@ const flag = (name) => {
   const i = argv.indexOf(name)
   return i === -1 ? null : argv[i + 1]
 }
-const VALUE_FLAGS = new Set(['--tracker', '--by', '--min', '--days'])
+const VALUE_FLAGS = new Set(['--tracker', '--by', '--min', '--days', '--count'])
 const positional = argv.filter((a, i) => !a.startsWith('--') && !VALUE_FLAGS.has(argv[i - 1]))
 
+const MAX_COUNT = 200
 const tracker = flag('--tracker') || 'scouting'
 if (!TRACKERS[tracker]) {
   console.error(`Unknown --tracker "${tracker}" (use ${Object.keys(TRACKERS).join(' | ')})`)
@@ -44,9 +47,18 @@ const [cmd = 'reserve', arg] = positional
 
 if (cmd === 'reserve') {
   const min = Number(flag('--min') || 0)
-  const { num } = reserveNum({ trackerFile, reportsDir: join(ROOT, 'reports'), min, by: flag('--by') || `pid:${process.ppid}` })
-  if (argv.includes('--json')) console.log(JSON.stringify({ num, tracker }))
-  else console.log(String(num).padStart(3, '0'))
+  const count = Number(flag('--count') || 1)
+  if (!Number.isInteger(count) || count < 1 || count > MAX_COUNT) {
+    console.error(`--count must be a whole number from 1 to ${MAX_COUNT}`)
+    process.exit(2)
+  }
+  const by = flag('--by') || `pid:${process.ppid}`
+  const nums = []
+  for (let i = 0; i < count; i++) {
+    nums.push(reserveNum({ trackerFile, reportsDir: join(ROOT, 'reports'), min, by }).num)
+  }
+  if (argv.includes('--json')) console.log(JSON.stringify(count === 1 ? { num: nums[0], tracker } : { nums, tracker }))
+  else console.log(nums.map((n) => String(n).padStart(3, '0')).join('\n'))
 } else if (cmd === 'release') {
   const n = Number(arg)
   if (!Number.isInteger(n) || n <= 0) { console.error('release needs a number'); process.exit(2) }

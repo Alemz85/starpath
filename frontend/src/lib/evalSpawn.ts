@@ -132,7 +132,8 @@ function preamble(batchId: string, today: string): string {
 // reserved number and releases it once merged.
 const RESERVE_NUM =
   'Before writing each listing’s scouting TSV, run `node scripts/reserve-report-num.mjs` and use the number it ' +
-  'prints as that listing’s {num} (in the TSV, its file name and its report link); never derive {num} from data/scouting.md. '
+  'prints as that listing’s {num} (in the TSV, its file name and its report link); never derive {num} from data/scouting.md. ' +
+  'With several listings to write, claim them all in one call: `node scripts/reserve-report-num.mjs --count <N>` prints N numbers, one per line. '
 
 // Compact restatement of modes/pipeline.md § Step 2c (relevance gate) +
 // § Step 2c.1 (multi-variant collapse), so inbox/batch triage doesn't need to

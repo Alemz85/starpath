@@ -5,7 +5,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -94,5 +94,19 @@ test('concurrency: parallel CLI claims never return the same number', async () =
     assert.equal(new Set(nums).size, N, `duplicates in ${nums}`)
     assert.ok(nums.every((n) => n > 7))
     assert.equal(reservedNums(reservedDirFor(join(root, 'data/scouting.md'))).length, N)
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
+test('--count N claims N numbers in one call, one per line (or {nums} with --json)', () => {
+  const root = makeRoot([7])
+  try {
+    const env = { ...process.env, CAREER_OPS_ROOT: root }
+    const lines = execFileSync(process.execPath, [CLI, '--count', '3'], { env, encoding: 'utf8' }).trim().split('\n')
+    assert.deepEqual(lines, ['008', '009', '010'])
+    const json = JSON.parse(execFileSync(process.execPath, [CLI, '--count', '2', '--json'], { env, encoding: 'utf8' }))
+    assert.deepEqual(json.nums, [11, 12])
+    assert.equal(JSON.parse(execFileSync(process.execPath, [CLI, '--json'], { env, encoding: 'utf8' })).num, 13, 'one claim keeps its {num} shape')
+    assert.throws(() => execFileSync(process.execPath, [CLI, '--count', '0'], { env, stdio: 'pipe' }))
+    assert.equal(reservedNums(reservedDirFor(join(root, 'data/scouting.md'))).length, 6)
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
