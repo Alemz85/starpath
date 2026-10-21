@@ -17,7 +17,13 @@ import {
   WORKER_FLAG,
   WORKER_KINDS,
   PERMISSION_BLOCKED_PREFIX,
+  PERMISSION_REFUSED_PREFIX,
+  DONE_WITH_WARNINGS,
   permissionDenials,
+  reportedStatus,
+  runResultOf,
+  parseRunResult,
+  decideFinishStatus,
 } from '@/lib/spawnFormat'
 
 // The capability table main expands the marker with (scripts/lib/
@@ -312,4 +318,59 @@ test('a result with refused calls renders the blocked capstone, not Done', () =>
 test('a result with an empty denial list is a normal capstone', () => {
   assert.equal(humanizeJsonlLine(ev({ type: 'result', subtype: 'success', permission_denials: [] })), '✓ Done')
   assert.deepEqual(permissionDenials({ type: 'result' }), [])
+})
+
+// ─── Recovered runs vs blocked runs ─────────────────────────────────────────
+
+const denial = { tool_name: 'Bash', tool_input: { command: 'node scripts/agent-log.mjs list --unresolved' } }
+const okResult = { type: 'result', subtype: 'success', is_error: false, result: 'Scan finished: 4 new listings.', permission_denials: [denial] }
+
+test('a run whose call was refused but which finished reads Done with warnings, listing the refused calls', () => {
+  const out = humanizeJsonlLine(ev({ ...okResult, num_turns: 9 }))
+  assert.equal(out, `${PERMISSION_REFUSED_PREFIX} Bash: node scripts/agent-log.mjs list --unresolved\n${DONE_WITH_WARNINGS} — 9 turns`)
+  assert.ok(!out!.includes(PERMISSION_BLOCKED_PREFIX))
+  assert.equal(diagnoseFailureText(out!), null)
+})
+
+test('runResultOf: success + is_error false is ok; an error result, a missing is_error or a reported failure is not', () => {
+  assert.deepEqual(runResultOf(okResult), { ok: true, denied: ['Bash: node scripts/agent-log.mjs list --unresolved'] })
+  assert.equal(runResultOf({ ...okResult, is_error: true }).ok, false)
+  assert.equal(runResultOf({ ...okResult, subtype: 'error_max_turns' }).ok, false)
+  assert.equal(runResultOf({ type: 'result', subtype: 'success', permission_denials: [denial] }).ok, false)  // fail closed
+  const failed = { ...okResult, result: 'Stopped.\n```json\n{ "status": "failed", "error": "Bash denied" }\n```' }
+  assert.equal(runResultOf(failed).ok, false)
+  assert.ok(humanizeJsonlLine(ev(failed))!.startsWith(PERMISSION_BLOCKED_PREFIX))
+})
+
+test('reportedStatus takes the last status of the final summary, like batch-usage extractReported', () => {
+  assert.equal(reportedStatus('{"other":[{"status":"amber"}]} {"status": "completed"}'), 'completed')
+  assert.equal(reportedStatus('{"status":"completed"} then {"status":"failed"}'), 'failed')
+  assert.equal(reportedStatus('no json here'), null)
+  assert.equal(reportedStatus(undefined), null)
+})
+
+test('humanizeJsonlChunk hands back the run result from the result event only', () => {
+  const r = humanizeJsonlChunk('', ev({ type: 'system' }) + '\n' + ev(okResult) + '\n')
+  assert.deepEqual(r.result, { ok: true, denied: ['Bash: node scripts/agent-log.mjs list --unresolved'] })
+  assert.equal(humanizeJsonlChunk('', assistant({ type: 'text', text: 'hi' }) + '\n').result, undefined)
+  assert.equal(parseRunResult('not json'), null)
+  assert.equal(parseRunResult(ev({ type: 'assistant' })), null)
+})
+
+test('decideFinishStatus: recovered runs are done with warnings; blocked, failed or erroring runs are errors', () => {
+  const claude = (result?: { ok: boolean; denied: string[] }, output: string[] = []) => ({ tool: 'claude', status: 'running', output, result })
+  // Recovered: success result, a refused call, exit 0.
+  assert.deepEqual(decideFinishStatus(claude({ ok: true, denied: ['Bash: x'] }), 0), { status: 'done', warnings: ['Bash: x'] })
+  // Ended in error or reported failure with a refused call: Blocked.
+  assert.deepEqual(decideFinishStatus(claude({ ok: false, denied: ['Bash: x'] }), 0), { status: 'error' })
+  // Clean run.
+  assert.deepEqual(decideFinishStatus(claude({ ok: true, denied: [] }), 0), { status: 'done' })
+  // No result event but a Blocked line (older stream): still failed.
+  assert.deepEqual(decideFinishStatus(claude(undefined, [`${PERMISSION_BLOCKED_PREFIX} Bash: x`]), 0), { status: 'error' })
+  assert.deepEqual(decideFinishStatus(claude(undefined, ['hello']), 0), { status: 'done' })
+  // Exit code and kill win over the result.
+  assert.deepEqual(decideFinishStatus(claude({ ok: true, denied: ['Bash: x'] }), 1), { status: 'error' })
+  assert.deepEqual(decideFinishStatus({ ...claude({ ok: true, denied: [] }), status: 'killed' }, 0), { status: 'killed' })
+  // node/shell spawns: exit code only.
+  assert.deepEqual(decideFinishStatus({ tool: 'node', status: 'running', output: [`${PERMISSION_BLOCKED_PREFIX} x`] }, 0), { status: 'done' })
 })

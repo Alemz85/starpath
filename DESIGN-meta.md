@@ -70,7 +70,7 @@ Scoring v2 (`docs/scoring-v2.md`) colours **Match** and **Ease** each on their o
 
 ### Semantic
 
-`success`, `warning` (text on white: `warning-text`), `danger` mean **state**: application lifecycle (Interview amber, Offer green, Rejected red), process state (failed, overdue, due soon), the eligibility gate (green, amber, red; see § 7), and nothing else. A list of keywords is not a state; it gets neutral chips.
+`success`, `warning` (text on white: `warning-text`), `danger` mean **state**: application lifecycle (Interview amber, Offer green, Rejected red), process state (failed, finished with warnings, overdue, due soon), the eligibility gate (green, amber, red; see § 7), and nothing else. A list of keywords is not a state; it gets neutral chips.
 
 ### Contrast
 

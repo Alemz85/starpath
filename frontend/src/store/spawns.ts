@@ -18,7 +18,8 @@ import {
   humanizeJsonlChunk,
   isAuthFailureText,
   diagnoseFailureText,
-  PERMISSION_BLOCKED_PREFIX,
+  decideFinishStatus,
+  type RunResult,
 } from '@/lib/spawnFormat'
 import { spawnSource, type SpawnUsage } from '@/lib/usage'
 import { recordAppUsage } from '@/lib/usageLog'
@@ -55,6 +56,12 @@ export interface SpawnRecord {
   /** Tokens and cost, from the `result` event the Claude CLI ends its stream
    *  with. Set only for claude spawns that got that far (a killed run has none). */
   usage?: SpawnUsage
+  /** How a claude run ended, from its final `result` event (lib/spawnFormat
+   *  › RunResult). Absent for node/shell spawns and runs that died first. */
+  result?: RunResult
+  /** Calls the worker's permissions refused in a run that still finished its
+   *  job: the run is `done`, shown as done with warnings. */
+  warnings?: string[]
 }
 
 // Per-spawn carry-over buffer for split JSONL lines. The pure humanizer
@@ -63,10 +70,10 @@ export interface SpawnRecord {
 // clears it on start/clear so a re-run never inherits a stale half-line.
 const jsonlLineBuffer: Record<string, string> = {}
 
-function humanizeJsonlLines(id: string, chunk: string): { lines: string[]; usage?: SpawnUsage } {
-  const { lines, buffer, usage } = humanizeJsonlChunk(jsonlLineBuffer[id] ?? '', chunk)
+function humanizeJsonlLines(id: string, chunk: string): { lines: string[]; usage?: SpawnUsage; result?: RunResult } {
+  const { lines, buffer, usage, result } = humanizeJsonlChunk(jsonlLineBuffer[id] ?? '', chunk)
   jsonlLineBuffer[id] = buffer
-  return { lines, usage }
+  return { lines, usage, result }
 }
 
 interface SpawnsState {
@@ -145,10 +152,10 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     // Claude spawns produce JSONL — parse + humanize before appending so the
     // panel shows readable progress instead of raw `{"type":"assistant",…}`.
     // node/shell spawns pass through verbatim (already plain text).
-    const { lines: linesToAppend, usage } = cur.tool === 'claude'
+    const { lines: linesToAppend, usage, result } = cur.tool === 'claude'
       ? humanizeJsonlLines(id, chunk)
-      : { lines: [chunk], usage: undefined }
-    if (linesToAppend.length === 0 && !usage) return
+      : { lines: [chunk], usage: undefined, result: undefined }
+    if (linesToAppend.length === 0 && !usage && !result) return
     set(state => {
       const rec = state.spawns[id]
       if (!rec) return state
@@ -156,7 +163,7 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
       const capped = merged.length > OUTPUT_CAP
         ? merged.slice(merged.length - OUTPUT_CAP)
         : merged
-      return { spawns: { ...state.spawns, [id]: { ...rec, output: capped, ...(usage ? { usage } : {}) } } }
+      return { spawns: { ...state.spawns, [id]: { ...rec, output: capped, ...(usage ? { usage } : {}), ...(result ? { result } : {}) } } }
     })
   },
 
@@ -177,6 +184,7 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     }
     // A worker stopped by its permissions tells the user through Messages; if
     // the agent didn't manage to, post the alert for it (lib/blockedRunNotice).
+    // A run that recovered and finished carries no Blocked line, so no alert.
     if (finished && finished.tool === 'claude' && finished.status !== 'killed' && canWriteNow()) {
       const notice = blockedRunNotice(finished)
       if (notice) void ipc.run('node', notice).catch(() => {})
@@ -184,13 +192,11 @@ export const useSpawnsStore = create<SpawnsState>((set, get) => ({
     set(state => {
       const rec = state.spawns[id]
       if (!rec) return state
-      // A claude worker that hit its permissions failed even on exit 0
-      // (PERMISSION_BLOCKED_PREFIX in lib/spawnFormat.ts).
-      const blocked = rec.tool === 'claude' && rec.output.some(l => l.startsWith(PERMISSION_BLOCKED_PREFIX))
-      const status: SpawnStatus = rec.status === 'killed'
-        ? 'killed'
-        : exitCode === 0 && !blocked ? 'done' : 'error'
-      return { spawns: { ...state.spawns, [id]: { ...rec, status, exitCode, endedAt: Date.now() } } }
+      // A claude worker that hit its permissions failed even on exit 0, unless
+      // its result says it recovered and finished (lib/spawnFormat.ts
+      // › decideFinishStatus): then it is done, with the refused calls as warnings.
+      const { status, warnings } = decideFinishStatus(rec, exitCode)
+      return { spawns: { ...state.spawns, [id]: { ...rec, status, exitCode, endedAt: Date.now(), ...(warnings ? { warnings } : {}) } } }
     })
   },
 

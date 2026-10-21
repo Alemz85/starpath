@@ -130,6 +130,7 @@ export interface JsonlPermissionDenial {
 export interface JsonlEvent {
   type?: string
   subtype?: string
+  is_error?: boolean
   permission_denials?: JsonlPermissionDenial[]
   message?: { content?: JsonlAssistantBlock[] }
   result?: string
@@ -146,6 +147,8 @@ export interface HumanizeChunkResult {
   buffer: string
   /** Usage from the final `result` event when this chunk carried it. */
   usage?: SpawnUsage
+  /** How the run ended, from the final `result` event when this chunk carried it. */
+  result?: RunResult
 }
 
 // Humanize a raw stdout chunk against the carry-over buffer from the previous
@@ -158,16 +161,18 @@ export function humanizeJsonlChunk(prevBuffer: string, chunk: string): HumanizeC
   const buffer = parts.pop() ?? ''  // last item is incomplete — carry it over
   const lines: string[] = []
   let usage: SpawnUsage | undefined
+  let result: RunResult | undefined
   for (const raw of parts) {
     if (!raw.trim()) continue
     usage = parseResultUsage(raw) ?? usage
+    result = parseRunResult(raw) ?? result
     const formatted = humanizeJsonlLine(raw)
     if (formatted == null) continue
     for (const line of formatted.split('\n')) {
       if (line.trim()) lines.push(line)
     }
   }
-  return usage ? { lines, buffer, usage } : { lines, buffer }
+  return { lines, buffer, ...(usage ? { usage } : {}), ...(result ? { result } : {}) }
 }
 
 export function humanizeJsonlLine(raw: string): string | null {
@@ -180,11 +185,14 @@ export function humanizeJsonlLine(raw: string): string | null {
 
   if (evt.type === 'system') return null
   if (evt.type === 'result') {
-    const denied = permissionDenials(evt)
-    if (denied.length > 0) return `${PERMISSION_BLOCKED_PREFIX} ${denied.slice(0, 3).join('; ')}`
-    const capstone = evt.subtype === 'success' ? '✓ Done' : `× ${evt.subtype ?? 'error'}`
+    const { ok, denied } = runResultOf(evt)
+    if (denied.length > 0 && !ok) return `${PERMISSION_BLOCKED_PREFIX} ${denied.slice(0, 3).join('; ')}`
+    const capstone = denied.length > 0 ? DONE_WITH_WARNINGS
+      : evt.subtype === 'success' ? '✓ Done' : `× ${evt.subtype ?? 'error'}`
     const stats = formatResultStats(evt)
-    return stats ? `${capstone} — ${stats}` : capstone
+    const last = stats ? `${capstone} — ${stats}` : capstone
+    // A run that recovered still lists every call it was refused, above the capstone.
+    return denied.length > 0 ? `${PERMISSION_REFUSED_PREFIX} ${denied.join('; ')}\n${last}` : last
   }
   if (evt.type === 'assistant' && evt.message?.content) {
     const parts: string[] = []
@@ -202,11 +210,76 @@ export function humanizeJsonlLine(raw: string): string | null {
   return null
 }
 
-// A worker that hit its permissions failed, whatever its exit code: the CLI
-// denies the call, the model may carry on without it, and the run would read
-// as a success that silently skipped work. The capstone line starts with this
-// prefix; the store marks the run failed when it sees it.
+// A worker that hit its permissions and then ended in error, or reported its
+// own run as failed, was stopped by them: the capstone line starts with this
+// prefix and the store marks the run failed (Blocked).
 export const PERMISSION_BLOCKED_PREFIX = '× Blocked by worker permissions —'
+
+// A worker whose call was refused but which went on to finish its job (a
+// harmless read-only check denied, then the scan completed): the refused calls
+// are listed on a line with this prefix, the capstone reads DONE_WITH_WARNINGS,
+// and the store marks the run done with warnings, not failed.
+export const PERMISSION_REFUSED_PREFIX = '⚠ Refused by worker permissions —'
+export const DONE_WITH_WARNINGS = '✓ Done with warnings'
+
+/** How a claude run ended, read from its final `result` event. */
+export interface RunResult {
+  /** The CLI says success (`subtype: 'success'`, `is_error: false`) and the
+   *  worker's own final JSON, if any, does not say `"status": "failed"`. */
+  ok: boolean
+  /** Calls the CLI refused (`permission_denials`), humanized. */
+  denied: string[]
+}
+
+/**
+ * The worker's own verdict on its run: the last `"status"` in the result text
+ * (the final JSON summary, batch/batch-prompt.md), as
+ * scripts/lib/batch-usage.mjs › extractReported reads it. null when absent.
+ */
+export function reportedStatus(resultText: unknown): 'completed' | 'failed' | 'skipped_duplicate' | null {
+  if (typeof resultText !== 'string') return null
+  const all = [...resultText.matchAll(/"status"\s*:\s*"(completed|failed|skipped_duplicate)"/g)]
+  return all.length > 0 ? (all[all.length - 1][1] as 'completed' | 'failed' | 'skipped_duplicate') : null
+}
+
+/** Fail closed: anything but an explicit success with `is_error: false` is not ok. */
+export function runResultOf(evt: JsonlEvent): RunResult {
+  const ok = evt.subtype === 'success' && evt.is_error === false && reportedStatus(evt.result) !== 'failed'
+  return { ok, denied: permissionDenials(evt) }
+}
+
+/** RunResult from one raw JSONL line, or null when it is not a result event. */
+export function parseRunResult(raw: string): RunResult | null {
+  let evt: JsonlEvent
+  try { evt = JSON.parse(raw) as JsonlEvent } catch { return null }
+  return evt && evt.type === 'result' ? runResultOf(evt) : null
+}
+
+export type FinishedStatus = 'done' | 'error' | 'killed'
+
+/**
+ * The status a spawn ends with, and the refused calls to show as warnings.
+ * Pure: the store's `finish` calls it.
+ *   - stopped by the user → killed; a non-zero exit → error.
+ *   - a claude run whose calls were refused: done with warnings when its
+ *     result was a success and the worker didn't report failure, else error
+ *     (Blocked). A run with no result event but a Blocked line also fails.
+ */
+export function decideFinishStatus(rec: {
+  tool: string
+  status: string
+  output: string[]
+  result?: RunResult
+}, exitCode: number): { status: FinishedStatus; warnings?: string[] } {
+  if (rec.status === 'killed') return { status: 'killed' }
+  if (exitCode !== 0) return { status: 'error' }
+  if (rec.tool !== 'claude') return { status: 'done' }
+  if (rec.result) {
+    if (rec.result.denied.length === 0) return { status: 'done' }
+    return rec.result.ok ? { status: 'done', warnings: rec.result.denied } : { status: 'error' }
+  }
+  return rec.output.some(l => l.startsWith(PERMISSION_BLOCKED_PREFIX)) ? { status: 'error' } : { status: 'done' }
+}
 
 /** `["Bash: rm x", "Write: /abs/file"]` from a result event; [] when none. */
 export function permissionDenials(evt: JsonlEvent): string[] {

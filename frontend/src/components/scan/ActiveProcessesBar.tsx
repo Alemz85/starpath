@@ -148,7 +148,7 @@ function ProcessRow({
   })
   const isError = rec.status === 'error'
   const sub = subline(rec)
-  const statusLabel = statusWord(rec.status)
+  const statusLabel = statusWord(rec)
 
   // The label region is the only row-level button so the right-side action
   // buttons (stop / retry / sign-in / clear) aren't nested inside another
@@ -168,7 +168,7 @@ function ProcessRow({
         className="flex items-center gap-2.5 flex-1 min-w-0 h-full text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
       >
         <span className="w-4 inline-flex items-center justify-center shrink-0" aria-hidden="true">
-          <StatusIcon status={rec.status} />
+          <StatusIcon rec={rec} />
         </span>
         <span className="text-body font-medium text-text-1 truncate min-w-0 shrink-0 max-w-[45%]" aria-hidden="true">
           {rec.label}
@@ -292,9 +292,10 @@ function subline(rec: SpawnRecord): { text: string; title: string } {
   return { text: word, title: word }
 }
 
-function statusWord(status: SpawnStatus): string {
+function statusWord(rec: SpawnRecord): string {
+  const status = rec.status
   if (status === 'running') return 'running'
-  if (status === 'done')    return 'finished'
+  if (status === 'done')    return rec.warnings?.length ? 'finished with warnings' : 'finished'
   if (status === 'error')   return 'failed'
   return 'stopped'
 }
@@ -307,8 +308,11 @@ function lastOutputLine(output: string[]): string | null {
   return null
 }
 
-function StatusIcon({ status }: { status: SpawnStatus }) {
+function StatusIcon({ rec }: { rec: SpawnRecord }) {
+  const status = rec.status
   if (status === 'running') return <OrbitalLoader size={14} rings={2} strokeClass="text-accent" className="shrink-0" />
+  // Done, but some calls were refused on the way: warning state, not failure.
+  if (status === 'done' && rec.warnings?.length) return <AlertTriangle size={13} className="shrink-0 text-warning" />
   if (status === 'done')    return <Check size={13} className="shrink-0 text-success" />
   if (status === 'error')   return <AlertTriangle size={13} className="shrink-0 text-danger" />
   return <XIcon size={13} className="shrink-0 text-text-4" />  // killed

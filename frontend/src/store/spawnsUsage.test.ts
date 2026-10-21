@@ -9,12 +9,14 @@ const files = new Map<string, string>()
 const outputCbs: Cb[] = []
 const doneCbs: Cb[] = []
 const spawned: string[] = []
+const ran: string[][] = []
 
 ;(globalThis as { window?: unknown }).window = {
   electron: {
     readFile: async (p: string) => files.get(p) ?? null,
     writeFile: async (p: string, c: string) => { files.set(p, c) },
     spawn: async (id: string) => { spawned.push(id) },
+    run: async (_cmd: string, args: string[]) => { ran.push(args); return { code: 0, stdout: '', stderr: '' } },
     kill: async () => undefined,
     onSpawnOutput: (cb: Cb) => { outputCbs.push(cb) },
     onSpawnDone: (cb: Cb) => { doneCbs.push(cb) },
@@ -76,4 +78,29 @@ test('a claude spawn that dies before its result event records nothing', async (
   exit('d', 1)
   await settle()
   assert.equal(files.get('batch/logs/app-usage.tsv'), before)
+})
+
+test('finish: a claude run whose call was refused but which finished is done with warnings; one that stopped is an error', async () => {
+  const denial = { tool_name: 'Bash', tool_input: { command: 'node scripts/agent-log.mjs list' } }
+  const res = (extra: object) => JSON.stringify({
+    type: 'result', subtype: 'success', is_error: false, permission_denials: [denial], ...extra,
+  }) + '\n'
+  const st = useSpawnsStore.getState()
+  st.start('rec', 'Full scan', 'claude', ['-p', '/career-ops scan'])
+  st.start('blk', 'Full scan', 'claude', ['-p', '/career-ops scan'])
+  emit('rec', res({ result: 'Scan done.' }))
+  emit('blk', res({ is_error: true }))
+  exit('rec', 0); exit('blk', 0)
+  await settle()
+  const s = useSpawnsStore.getState().spawns
+  assert.equal(s.rec.status, 'done')
+  assert.deepEqual(s.rec.warnings, ['Bash: node scripts/agent-log.mjs list'])
+  assert.equal(s.blk.status, 'error')
+  assert.equal(s.blk.warnings, undefined)
+  // Only the run that stopped gets the Messages backstop (lib/blockedRunNotice).
+  const keys = ran.map(a => a[a.indexOf('--key') + 1])
+  assert.deepEqual(keys, ['blocked:blk'])
+  // Retrying clears the previous run's outcome.
+  st.retry('rec')
+  assert.equal(useSpawnsStore.getState().spawns.rec.warnings, undefined)
 })

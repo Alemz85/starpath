@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { agentPosted, blockedRunNotice, messageSourceFor } from './blockedRunNotice'
-import { PERMISSION_BLOCKED_PREFIX } from './spawnFormat'
+import { PERMISSION_BLOCKED_PREFIX, humanizeJsonlChunk } from './spawnFormat'
 
 const scanArgs = ['-p', '/career-ops scan']
 
@@ -39,4 +39,13 @@ test('messageSourceFor maps app spawns onto Messages sources', () => {
   assert.equal(messageSourceFor(['--append-system-prompt-file', 'x', '-p', 'go']), 'eval')
   assert.equal(messageSourceFor(['-p', '/career-ops pdf for X']), 'apply')
   assert.equal(messageSourceFor(['-p', '/career-ops positioning']), 'worker')
+})
+
+test('a run that recovered and finished posts no alert; one that stopped still does', () => {
+  const denial = { tool_name: 'Bash', tool_input: { command: 'node scripts/agent-log.mjs list' } }
+  const stream = (extra: object) => humanizeJsonlChunk('', JSON.stringify({
+    type: 'result', subtype: 'success', is_error: false, permission_denials: [denial], ...extra,
+  }) + '\n').lines
+  assert.equal(blockedRunNotice({ id: 'r', label: 'Full scan', args: scanArgs, output: stream({}) }), null)
+  assert.ok(blockedRunNotice({ id: 's', label: 'Full scan', args: scanArgs, output: stream({ is_error: true }) }))
 })

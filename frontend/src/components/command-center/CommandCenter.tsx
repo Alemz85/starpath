@@ -7,6 +7,7 @@ import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning, claudeArgs, isAuthFailure, diagnoseFailure, type SpawnRecord } from '@/store/spawns'
 import { useWriteGate } from '@/store/dataRoot'
 import { claudeEvalArgsResolved, filterAllPrompt, refreshCvSummary, sweepBatchWork } from '@/lib/evalSpawn'
+import { DONE_WITH_WARNINGS, PERMISSION_REFUSED_PREFIX } from '@/lib/spawnFormat'
 import { useScanFilter } from '@/store/scanFilter'
 import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
@@ -843,6 +844,8 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
               'whitespace-pre-wrap break-all',
               // Order matters — check most specific patterns first.
               line.startsWith('→ ')                       ? 'text-term-tool' :  // tool-use one-liner — muted theme tint
+              line.startsWith(PERMISSION_REFUSED_PREFIX) ||
+              line.startsWith(DONE_WITH_WARNINGS)         ? 'text-term-warn' :  // finished, but calls were refused
               line.startsWith('✓ Done')                   ? 'text-term-ok' :  // final success capstone
               /error/i.test(line)                         ? 'text-term-err' :
               /warn/i.test(line)                          ? 'text-term-warn' :
@@ -865,12 +868,14 @@ function ActivityPanel({ record }: { record: SpawnRecord | undefined }) {
           <span className="inline-block w-1.5 h-3 bg-accent-light animate-pulse rounded-sm align-middle ml-0.5" />
         )}
 
-        {record && !isRunning && record.status !== 'error' && (
+        {record && !isRunning && record.status !== 'error' && !record.warnings?.length && (
           <div className="mt-2 text-white/45">
             {record.status === 'done'   && '— exited cleanly —'}
             {record.status === 'killed' && '— stopped —'}
           </div>
         )}
+
+        {record && record.status === 'done' && !!record.warnings?.length && <WarningsCard warnings={record.warnings} />}
 
         {record && record.status === 'error' && <FailureCard record={record} />}
       </div>
@@ -927,6 +932,29 @@ function FailureCard({ record }: { record: SpawnRecord }) {
   )
 }
 
+// Shown at the foot of the log when a run finished its job although its
+// permissions refused some calls on the way: not a failure, but the user should
+// see what was refused (the full list, the log line above shows it too).
+function WarningsCard({ warnings }: { warnings: string[] }) {
+  return (
+    <div className="mt-3 font-sans rounded-lg border border-term-warn/25 bg-term-warn/5 px-3.5 py-3 flex items-start gap-3">
+      <AlertTriangle size={14} className="text-term-warn shrink-0 mt-0.5" aria-hidden />
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-medium text-white/85">
+          Finished with warnings
+          <span className="text-white/40 font-normal"> · {warnings.length} {warnings.length === 1 ? 'call' : 'calls'} refused</span>
+        </div>
+        <div className="text-label text-white/55 mt-0.5">
+          The run completed its job; these steps were refused by its permissions and skipped:
+        </div>
+        <ul className="mt-1 font-mono text-label text-white/55 break-all">
+          {warnings.map((w, i) => <li key={i}>{w}</li>)}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 function ElapsedChip({ record }: { record: SpawnRecord }) {
   // Force a re-render every second while the spawn is running, so the
   // elapsed text updates live. After the spawn finishes we freeze on the
@@ -964,7 +992,7 @@ function formatElapsed(ms: number): string {
 
 function statusGlyph(r: SpawnRecord): string {
   if (r.status === 'running') return '· running'
-  if (r.status === 'done')    return '· done'
+  if (r.status === 'done')    return r.warnings?.length ? '· done with warnings' : '· done'
   if (r.status === 'error')   return '· error'
   if (r.status === 'killed')  return '· stopped'
   return ''
