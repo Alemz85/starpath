@@ -19,7 +19,7 @@ import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore } from '@/store/spawns'
 import { useWriteGate } from '@/store/dataRoot'
-import { claudeEvalArgsResolved, refreshCvSummary, scoreOnlyEvalPrompt } from '@/lib/evalSpawn'
+import { claudeEvalArgsResolved, refreshCvSummary, scoreOnlyEvalPrompt, sweepBatchWork } from '@/lib/evalSpawn'
 import { ipc } from '@/lib/ipc'
 import { WantEase } from '@/components/shared/WantEase'
 import { blockedReason, isBlocked } from '@/lib/scoreBands'
@@ -243,6 +243,7 @@ export function AddListingModal() {
       // Refresh the CV-summary artifact the compact bundle reads (mtime-gated,
       // ms-fast; the bundle falls back to user/cv.md if it's missing).
       await refreshCvSummary()
+      void sweepBatchWork()
       startSpawn(
         ADD_LISTING_SPAWN_ID,
         `Evaluate ${guessedCompany ?? 'URL'}`,

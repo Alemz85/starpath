@@ -10,6 +10,7 @@ import {
   scoreOnlyEvalPrompt,
   inboxEvalPrompt,
   filterAllPrompt,
+  runBatchId,
   top5ReportsPrompt,
 } from './evalSpawn'
 import { NON_INTERACTIVE_SUFFIX, WORKER_FLAG } from './spawnFormat'
@@ -148,4 +149,9 @@ test('the whole-pipeline prompts park an unreadable posting once and skip it for
 
 test('every eval prompt can claim several row numbers in one call', () => {
   for (const [name, p] of ALL_PROMPTS()) assert.ok(p.includes('reserve-report-num.mjs --count <N>'), name)
+})
+
+test('every app eval run gets its own batch id, so runs never share scratch file names', () => {
+  assert.equal(runBatchId('pipeline-filter', new Date('2026-10-21T13:54:02.123Z')), 'pipeline-filter-20261021-135402')
+  for (const [name, p] of ALL_PROMPTS()) assert.ok(/Batch ID: [a-z0-9-]+-\d{8}-\d{6}\./.test(p), `${name} has a per-run batch id`)
 })

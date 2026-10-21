@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDataStore } from '@/store/data'
 import { useAppStore } from '@/store/app'
 import { useSpawnsStore, claudeArgs } from '@/store/spawns'
-import { claudeEvalArgsResolved, refreshCvSummary, top5ReportsPrompt } from '@/lib/evalSpawn'
+import { claudeEvalArgsResolved, refreshCvSummary, sweepBatchWork, top5ReportsPrompt } from '@/lib/evalSpawn'
 import { useWriteGate } from '@/store/dataRoot'
 import { ipc, type DbReportRow } from '@/lib/ipc'
 import {
@@ -207,6 +207,7 @@ export function ReportsView() {
     // Fire-and-forget CV-summary refresh — ms-fast; the bundle falls back to
     // user/cv.md when the artifact is missing.
     void refreshCvSummary()
+    void sweepBatchWork()
     startSpawn(TOP5_SPAWN_ID, 'Generate top 5 reports', 'claude', await claudeEvalArgsResolved(top5ReportsPrompt(), generateReportModel))
   }
 

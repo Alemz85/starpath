@@ -110,6 +110,27 @@ export function refreshCvSummary(): Promise<void> {
     .catch(() => undefined)
 }
 
+/**
+ * Clear worker scratch older than a day from batch/work/ before an eval spawn
+ * (scripts/sweep-batch-work.mjs). The batch runner deletes each worker's files;
+ * the app's spawns left theirs behind. Fire-and-forget like refreshCvSummary.
+ */
+export function sweepBatchWork(): Promise<void> {
+  return ipc.run('node', ['scripts/sweep-batch-work.mjs'])
+    .then(() => undefined)
+    .catch(() => undefined)
+}
+
+/**
+ * A batch id unique to this run (`pipeline-filter-20261021-135402`): workers
+ * name their batch/work/ scratch after it, and a fixed id let a run open the
+ * files an earlier run had left under the same names.
+ */
+export function runBatchId(base: string, now: Date = new Date()): string {
+  const iso = now.toISOString()
+  return `${base}-${iso.slice(0, 10).replace(/-/g, '')}-${iso.slice(11, 19).replace(/:/g, '')}`
+}
+
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
@@ -192,7 +213,7 @@ const MERGE_STEP =
  */
 export function scoreOnlyEvalPrompt(url: string, today: string = todayISO()): string {
   return (
-    preamble('add-listing', today) +
+    preamble(runBatchId('add-listing'), today) +
     `Evaluate this single listing: ${url}. ` +
     NO_REPORT_DEVIATION +
     MERGE_STEP +
@@ -207,7 +228,7 @@ export function scoreOnlyEvalPrompt(url: string, today: string = todayISO()): st
  */
 export function inboxEvalPrompt(url: string, today: string = todayISO()): string {
   return (
-    preamble('inbox-eval', today) +
+    preamble(runBatchId('inbox-eval'), today) +
     `Triage this single inbox URL: ${url}. ` +
     'First apply the user/portals.yml title filters and dedup against data/dedup-index.tsv, then ' +
     RELEVANCE_GATE +
@@ -225,7 +246,7 @@ export function inboxEvalPrompt(url: string, today: string = todayISO()): string
  */
 export function filterAllPrompt(today: string = todayISO()): string {
   return (
-    preamble('pipeline-filter', today) +
+    preamble(runBatchId('pipeline-filter'), today) +
     'Process EVERY pending URL in data/pipeline.md, one listing at a time: ' +
     UNREADABLE +
     MANY_LISTINGS +
@@ -247,7 +268,7 @@ export function filterAllPrompt(today: string = todayISO()): string {
  */
 export function top5ReportsPrompt(today: string = todayISO()): string {
   return (
-    preamble('pipeline-top5', today) +
+    preamble(runBatchId('pipeline-top5'), today) +
     'Process EVERY pending URL in data/pipeline.md: ' +
     UNREADABLE +
     MANY_LISTINGS +

@@ -6,7 +6,7 @@ import { useAppStore } from '@/store/app'
 import { useDataStore } from '@/store/data'
 import { useSpawnsStore, isAnyRunning, claudeArgs, isAuthFailure, diagnoseFailure, type SpawnRecord } from '@/store/spawns'
 import { useWriteGate } from '@/store/dataRoot'
-import { claudeEvalArgsResolved, filterAllPrompt, refreshCvSummary } from '@/lib/evalSpawn'
+import { claudeEvalArgsResolved, filterAllPrompt, refreshCvSummary, sweepBatchWork } from '@/lib/evalSpawn'
 import { useScanFilter } from '@/store/scanFilter'
 import { useNavStore } from '@/store/nav'
 import { ipc } from '@/lib/ipc'
@@ -179,6 +179,7 @@ export function ScoutingActionPanel({
     // Fire-and-forget CV-summary refresh — finishes in ms while the Claude
     // CLI boots; the bundle falls back to user/cv.md if the artifact is missing.
     void refreshCvSummary()
+    void sweepBatchWork()
     start(PIPELINE_FILTER_ID, 'Filter to Database', 'claude', await claudeEvalArgsResolved(filterAllPrompt(), pipelineModel))
   }
 
