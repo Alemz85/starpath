@@ -28,7 +28,7 @@ Nunca `run_in_background=True`: cuando el scan se lanza desde la app (`claude -p
 
 Leer `user/portals.yml` que contiene:
 - `search_queries`: Lista de queries WebSearch con `site:` filters por portal (descubrimiento amplio)
-- `tracked_companies`: Empresas específicas con `careers_url` para navegación directa
+- `tracked_companies`: Empresas específicas con `careers_url` para navegación directa. `brand: high | mid | low` (opcional; sin él cuenta como `mid`) es el filtro de marca: una entrada `brand: low` no gasta WebSearch (paso 6) y sus ofertas bajan en el triaje (`scripts/triage-pipeline.mjs`)
 - `title_filter`: Keywords positive/negative/seniority_boost para filtrado de títulos
 
 ## Estrategia de descubrimiento (3 niveles)
@@ -125,6 +125,8 @@ Los niveles son aditivos — se ejecutan todos, los resultados se mezclan y dedu
       - **company**: después del " @ " en el título, o extraer del dominio/path
    c. Acumular en lista de candidatos (dedup con Nivel 1+2)
 
+   Después, para cada empresa en `tracked_companies` con `enabled: true`, sin `api:` y con `scan_query` (`scan_method: websearch`), lo mismo con su `scan_query`. **Filtro de marca:** si la entrada tiene `brand: low`, no ejecutar su WebSearch (cada búsqueda cuesta tokens); anotarla en «Saltadas por marca baja» del resumen. Excepción: en un FILTERED RUN que nombra la empresa explícitamente, ejecutarla igualmente.
+
 6. **Filtrar por título** usando `title_filter` de `user/portals.yml`:
    - Al menos 1 keyword de `positive` debe aparecer en el título (case-insensitive)
    - 0 keywords de `negative` deben aparecer
@@ -208,6 +210,7 @@ Ofertas encontradas: N total
 Filtradas por título: N relevantes
 Duplicadas: N (ya evaluadas o en pipeline)
 Expiradas descartadas: N (links muertos, Nivel 3)
+Saltadas por marca baja: N (brand: low, sin WebSearch) — {empresas}
 No verificables: N (403 / timeout — revisar con navegador)
 Nuevas añadidas a pipeline.md: N
 
