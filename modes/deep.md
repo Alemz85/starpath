@@ -11,7 +11,7 @@ schema below so those consumers can rely on it.
 > **System-layer hygiene.** This mode is system layer — keep it generic. Every
 > example below uses placeholders. All *candidate-specific* framing (what angle
 > to play, which proof points matter) is read at runtime from `user/cv.md`,
-> `user/profile.yml`, `user/_profile.md`, and `user/article-digest.md`. Never
+> `user/profile.yml`, `user/_profile.md`, and `user/career-bank.md`. Never
 > write a real school, employer, metric, city, or company into this file.
 
 ## The artifact
@@ -72,7 +72,7 @@ reduced confidence in the `confidence:` field.
    vocabulary they use. Each must be concrete enough to drop into a message or an
    "ask them" question.
 8. **Candidate Angle** — read `user/cv.md`, `user/_profile.md`,
-   `user/article-digest.md` **at write time** and map *this* candidate to *this*
+   `user/career-bank.md` **at write time** and map *this* candidate to *this*
    company: the unique value they bring, which 1–2 proof points are most relevant,
    and the narrative thread to pull. Source every claim from the user files; if
    they're missing, write `unknown — user files not found` rather than inventing a

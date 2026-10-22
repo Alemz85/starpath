@@ -24,7 +24,7 @@ no fact. Read the files before you make a claim about the search:
 
 | To know… | Read |
 |----------|------|
-| Who they are, their CV, proof points | `user/cv.md`, `user/profile.yml`, `user/_profile.md`, `user/article-digest.md` |
+| Who they are, their CV, their full career record | `user/cv.md`, `user/profile.yml`, `user/_profile.md`, `user/career-bank.md` |
 | What they've decided to apply to, and where each stands | `data/applications.md` (statuses per `templates/states.yml`) |
 | The evaluated landscape (every listing: Match, Ease, tier, eligibility) | `data/scouting.md` |
 | What's queued but not yet evaluated | `data/pipeline.md` |

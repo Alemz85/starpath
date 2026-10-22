@@ -92,3 +92,22 @@ test('migrated checkout: links verified, user files read through private/, shado
   assert.match(out, /✗ real folder\/file shadows its link: jds/)
   assert.deepEqual(readdirSync(join(root, 'jds')), ['fabrikam-analyst.md'])
 })
+
+test('career bank: user/career-bank.md passes quietly; the old article-digest.md name is a warning, never an error', () => {
+  const root = makeRepo('career-bank')
+  const init = spawnSync(process.execPath, [PRIVATE, 'init', '--json', '--root', root], { env: ENV, encoding: 'utf-8' })
+  assert.equal(init.status, 0, init.stdout)
+  writeFileSync(join(root, 'private/user/cv.md'), '# Dana Fox\n')
+
+  writeFileSync(join(root, 'private/user/career-bank.md'), '# Career Bank\n')
+  let { out } = doctor(root)
+  assert.match(out, /✓ user\/career-bank\.md present/)
+  assert.doesNotMatch(out, /article-digest/)
+
+  rmSync(join(root, 'private/user/career-bank.md'))
+  writeFileSync(join(root, 'private/user/article-digest.md'), '# Digest\n')
+  ;({ out } = doctor(root))
+  assert.match(out, /! user\/article-digest\.md is the old name of the career bank/)
+  assert.match(out, /mv user\/article-digest\.md user\/career-bank\.md/)
+  assert.doesNotMatch(out, /✗ user\/article-digest/)
+})

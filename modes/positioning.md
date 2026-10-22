@@ -45,7 +45,7 @@ Read ALL of these if they exist. Skip any that are missing with a note.
 | `user/_profile.md` | Archetypes, narrative, comp targets, location policy |
 | `user/profile.yml` | Identity, dream companies, target roles |
 | `user/cv.md` | Current skill baseline |
-| `user/article-digest.md` | Proof points |
+| `user/career-bank.md` | Full career inventory (education, work, projects, skills) |
 | Previous positioning reports (`reports/positioning/positioning-*.md`) | For trajectory comparison |
 
 **RULE:** Do not open individual report files for the quantitative pass. Read `data/report-summaries.tsv` and `data/score-history.tsv` for all quantitative signals. Only open full `.md` reports (**max 5 total**) for qualitative color when you need specific gap phrasing or recommendation detail.

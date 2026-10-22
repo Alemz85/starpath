@@ -35,9 +35,9 @@ Brand affinity (no score effect, a recruiting channel): **Woodgrove Bank** and *
 
 | If the role is... | Emphasize about you... | Proof point sources |
 |-------------------|------------------------|---------------------|
-| Pricing & Commercial Analytics | Thesis on private-label elasticity; the markdown ladder from your internship | cv.md + article-digest.md |
+| Pricing & Commercial Analytics | Thesis on private-label elasticity; the markdown ladder from your internship | cv.md + career-bank.md |
 | Business / Data Analyst | The automated trading report; SQL and Python fluency | cv.md |
-| Strategy & Operations | Forecasting work that fed a real production plan | cv.md + article-digest.md |
+| Strategy & Operations | Forecasting work that fed a real production plan | cv.md + career-bank.md |
 | Graduate / Rotational Programme | Breadth: economics, analytics, a client capstone, society leadership | cv.md |
 
 ## Your Exit Narrative

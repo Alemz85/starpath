@@ -104,7 +104,7 @@ npm run pdf -- input.html output.pdf --format=a4        # A4 (default)
 
 ## sync-check
 
-Validates that the career-ops setup is internally consistent: `cv.md` exists and is not too short, `user/profile.yml` exists with required fields, no hardcoded metrics in `modes/_shared.md` or `batch/batch-prompt.md`, and `user/article-digest.md` freshness (warns if older than 30 days).
+Validates that the career-ops setup is internally consistent: `cv.md` exists and is not too short, `user/profile.yml` exists with required fields, no hardcoded metrics in `modes/_shared.md` or `batch/batch-prompt.md`, and `user/career-bank.md` freshness (warns if older than 30 days; an older install's `user/article-digest.md` is read instead, with a warning to rename it).
 
 ```bash
 npm run sync-check

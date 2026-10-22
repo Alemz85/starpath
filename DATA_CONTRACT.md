@@ -16,7 +16,7 @@ The repo-root paths below are **links into `private/`**, so every path in the mo
 
 | Path (link at the repo root) | Lives at | What |
 |------|---------|------|
-| `user/` | `private/user/` | `cv.md`, `profile.yml` (identity, targets, eligibility, scoring weights, calibration), `_profile.md` (archetypes, narrative, negotiation scripts), `portals.yml`, `article-digest.md` |
+| `user/` | `private/user/` | `cv.md`, `profile.yml` (identity, targets, eligibility, scoring weights, calibration), `_profile.md` (archetypes, narrative, negotiation scripts), `portals.yml`, `career-bank.md` (the career bank: full inventory of education, work, projects, skills, languages and interests that CVs and applications select from; older installs: `user/article-digest.md`, read as a fallback) |
 | `data/` | `private/data/` | trackers (`applications.md`, `scouting.md`, `pipeline.md`), histories (`scan-history.tsv`, `score-history.tsv`), `dedup-index.tsv`, `report-summaries.tsv`, `network.md`, `outreach.md`, `follow-ups.md`, `companies/` dossiers, the location caches (`col-cache.tsv`, `tax-cache.tsv`, `comp-cache.tsv`), `career-memory.md`, `agent-log.tsv`, `session-handoff.md`, `agent-messages.jsonl` (agent → user Messages), archives |
 | `reports/` | `private/reports/` | evaluation reports (`tier-1..4/`), `positioning/`, `briefs/` |
 | `interview-prep/` | `private/interview-prep/` | `story-bank.md`, per-listing prep |

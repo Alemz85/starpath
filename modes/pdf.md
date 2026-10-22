@@ -9,7 +9,7 @@
 
 ## Pipeline completo
 
-1. Lee `user/cv.md` y (si existe) `user/article-digest.md` como fuentes de verdad del candidato.
+1. Lee `user/cv.md` y (si existe) `user/career-bank.md` como fuentes de verdad del candidato. El career bank es el inventario completo (formación, experiencia, proyectos, skills, idiomas); `cv.md` es la selección actual de una página. Nunca uses un resultado marcado como confidencial.
 2. Pide al usuario el JD si no está en contexto (texto o URL).
 3. **Extrae y rankea las keywords del JD** — guarda el texto del JD en `/tmp/jd-{company}.txt` y ejecuta:
    ```bash
@@ -36,7 +36,7 @@
    - Formato: `<span class="competency-tag">keyword</span>` × 6-8.
 
    **7c. Selección y reordenación de proyectos** — para escoger los top 3-4:
-   - Puntúa cada proyecto de `user/cv.md` (y pruebas en `user/article-digest.md` si existe) contra el set de keywords del JD: +2 por phrase/bigram match, +1 por unigram match.
+   - Puntúa cada proyecto de `user/cv.md` (y entradas de `user/career-bank.md` si existe) contra el set de keywords del JD: +2 por phrase/bigram match, +1 por unigram match.
    - Selecciona los 3-4 con mayor score.
    - Dentro de cada proyecto, reordena bullets poniendo primero los que más keywords del JD contienen.
    - Reformula los bullets de los proyectos seleccionados con el vocabulario exacto del JD (ver § "Estrategia de keyword injection").
@@ -45,7 +45,7 @@
    - Calcula un score de relevancia para cada bullet: count de keywords del JD que aparecen (stem-lite).
    - Reordena bullets de mayor a menor score dentro del mismo rol.
    - El primer bullet de cada rol es el más expuesto al ATS y al recruiter scan — debe cubrir la keyword de mayor peso (`count` × type-factor) que ese rol pueda justificar.
-   - Reformula bullets usando vocabulario exacto del JD (§ "Estrategia de keyword injection"). Consulta `user/article-digest.md` para proof-points más específicos.
+   - Reformula bullets usando vocabulario exacto del JD (§ "Estrategia de keyword injection"). Consulta `user/career-bank.md` para hechos y variantes de bullets más específicos.
 
    **7e. Skills section** — extrae todos los skills técnicos y de idioma del candidato desde `user/cv.md`. No los inventes, no los amplifiques.
 
@@ -62,7 +62,7 @@
 
     Para cada keyword en `missing[]`, decide en orden:
 
-    a. **¿El candidato tiene experiencia real con este término?** Compruébalo en `user/cv.md` + `user/article-digest.md`.
+    a. **¿El candidato tiene experiencia real con este término?** Compruébalo en `user/cv.md` + `user/career-bank.md`.
        - **Sí** → reformula el logro más relevante usando el vocabulario exacto del JD (§ "Estrategia de keyword injection"). Prioriza: Summary primero si el término es de alta frecuencia (`count ≥ 3`), primer bullet del rol más relevante segundo, Skills section para términos técnicos discretos.
        - **No** → marca como "genuinamente ajeno al perfil". No toques nada. Si hay 3+ términos core genuinamente ajenos, ese es el síntoma de un fit bajo, no de un CV mal escrito.
 

@@ -7,7 +7,7 @@
  * 1. cv.md exists
  * 2. user/profile.yml exists and has required fields
  * 3. No hardcoded metrics in _shared.md or batch/batch-prompt.md
- * 4. user/article-digest.md freshness (if exists)
+ * 4. user/career-bank.md freshness (if exists; older installs: user/article-digest.md)
  * 5. Story-bank health (count + STAR+R completeness + quantified results)
  */
 
@@ -15,6 +15,7 @@ import { readFileSync, existsSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { parseStoryBank, bankHealth } from './lib/story-bank.mjs';
+import { resolveCareerBank, CAREER_BANK_RENAME_FIX } from './lib/career-bank.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = dirname(__dirname);
@@ -68,18 +69,21 @@ for (const { path, name } of filesToCheck) {
     if (line.includes('NEVER hardcode') || line.includes('NUNCA hardcode') || line.startsWith('#') || line.startsWith('<!--')) continue;
     const matches = line.match(metricPattern);
     if (matches) {
-      warnings.push(`${name}:${i + 1} — Possible hardcoded metric: "${matches[0]}". Should this be read from user/cv.md or user/article-digest.md?`);
+      warnings.push(`${name}:${i + 1} — Possible hardcoded metric: "${matches[0]}". Should this be read from user/cv.md or user/career-bank.md?`);
     }
   }
 }
 
-// 4. Check user/article-digest.md freshness
-const digestPath = join(projectRoot, 'user/article-digest.md');
-if (existsSync(digestPath)) {
-  const stats = statSync(digestPath);
+// 4. Check career bank freshness (user/career-bank.md; older installs: user/article-digest.md)
+const careerBank = resolveCareerBank(projectRoot);
+if (careerBank.path) {
+  const stats = statSync(careerBank.path);
   const daysSinceModified = (Date.now() - stats.mtimeMs) / (1000 * 60 * 60 * 24);
   if (daysSinceModified > 30) {
-    warnings.push(`user/article-digest.md is ${Math.round(daysSinceModified)} days old. Consider updating if your projects have new metrics.`);
+    warnings.push(`${careerBank.rel} is ${Math.round(daysSinceModified)} days old. Consider updating it with new courses, projects or results.`);
+  }
+  if (careerBank.legacy) {
+    warnings.push(`${careerBank.rel} is the old name of the career bank (still read). Rename it: ${CAREER_BANK_RENAME_FIX}`);
   }
 }
 

@@ -16,7 +16,7 @@ If you'd rather work in [claude.ai](https://claude.ai) without the desktop app:
    cp templates/user-examples/profile.yml    user/profile.yml
    cp templates/user-examples/portals.yml    user/portals.yml
    cp templates/user-examples/_profile.md    user/_profile.md       # optional
-   cp templates/user-examples/article-digest.md user/article-digest.md  # optional
+   cp templates/user-examples/career-bank.md user/career-bank.md        # optional
    ```
 
 2. Open [claude.ai](https://claude.ai) and attach (or paste) your CV + the four user files above. Tell Claude:
@@ -37,13 +37,13 @@ If you'd rather work in [claude.ai](https://claude.ai) without the desktop app:
 | `profile.yml` | Structured profile data: identity, target archetypes, dream companies, comp range, location, languages. The single source of truth for everything structured. | Partially — the Configuration tab in the app edits this directly with structured forms. |
 | `_profile.md` | Narrative candidate-context the AI reads before scoring: archetypes table, dream companies, exit narrative, negotiation scripts, location policy, proof points, scoring calibration. | **Yes** — the `career-ops-setup` skill (run during onboarding and on every Save in the Configuration tab) reads `cv.md` + `profile.yml` and generates / updates this. |
 | `portals.yml` | Title-keyword filters and tracked-company configs for the portal scanner. | Partially — the setup skill writes the keyword lists; the app's Add Company flow probes ATS APIs and writes individual company entries. |
-| `article-digest.md` | Optional. Detailed write-ups of your most impactful projects / articles / talks for grounding STAR stories during oferta evaluations. | No — these are your projects, you write them. |
+| `career-bank.md` | Optional. Your career bank: the complete inventory of everything you have done (education, work, projects, activities, skills with honest levels, languages and test scores, interests), far more than fits on a one-page CV. Each entry has the facts, results flagged public or confidential, tags, ready-made CV bullets and links to interview stories. CVs, cover letters, form answers and interview prep select from it; numbers come only from here or `cv.md`, and confidential results are never used. Older installs call it `article-digest.md` (still read as a fallback). | No — this is your record, you write it. |
 
 ## What gets read by which mode
 
 - Every mode (`scouting`, `oferta`, `pipeline`, `pdf`, etc.) reads `cv.md`, `profile.yml`, and `_profile.md` before scoring.
 - `scan` and `pipeline` read `portals.yml` for the title filters and tracked-company list.
-- `oferta` and `pdf` (CV tailoring) read `article-digest.md` when present for proof points.
+- `scouting`, `pdf` (CV tailoring), `apply`, `interview-prep` and the other drafting modes read `career-bank.md` when present and select from it.
 
 ## After you've filled them in
 

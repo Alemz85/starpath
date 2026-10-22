@@ -9,7 +9,8 @@
 #   _profile.md      — narrative, archetypes, negotiation scripts (the
 #                      candidate-context file the AI reads for every eval)
 #   portals.yml      — title filters and tracked companies for the scanner
-#   article-digest.md — optional, compact proof points from your portfolio
+#   career-bank.md   — optional, your full inventory (education, work, projects,
+#                      skills, languages, interests); the CV selects from it
 #
 # All five live under user/ which is gitignored — your data never leaves
 # your machine.

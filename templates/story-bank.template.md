@@ -11,7 +11,7 @@
      When the user has no story bank yet, copy this skeleton (header + the two
      sample stories below) to interview-prep/story-bank.md and replace the
      samples with the user's real stories sourced from user/cv.md +
-     user/article-digest.md. NEVER hardcode the user's actual projects into
+     user/career-bank.md. NEVER hardcode the user's actual projects into
      THIS template file — the samples here are fictional and illustrative only.
      ============================================================ -->
 

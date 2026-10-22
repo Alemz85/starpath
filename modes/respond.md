@@ -25,7 +25,7 @@ This is the post-application sibling of `contacto` (which starts cold outreach).
 - `user/profile.yml` — candidate name (signature), **comp target + floor**, availability / notice period, visa/location, preferred cities, scheduling link if any. The comp and availability answers are framed from this file.
 - `user/_profile.md` — archetypes, narrative, positioning, negotiation scripts. Pull the *angle* and any user-written comp/negotiation language from here.
 - `interview-prep/story-bank.md` — STAR+R stories. A "why us / tell me about a time…" screening question is answered with a real story, not a generic value statement. The bank's format + selection logic live in `scripts/lib/story-bank.mjs` (the same module `interview-prep.md` and `apply.md` use).
-- `user/article-digest.md` — published-work proof points (optional).
+- `user/career-bank.md` — the user's full career inventory (optional). Never use a result it marks confidential.
 - `reports/tier-*/{Company} - {Role}.md` — if a report exists, mine its company context (the specific hook / challenge) so the "why this company" answer is specific.
 
 > **System-layer hygiene:** this file stays generic. Every example below uses a placeholder ("your headline result", "your target comp", "your notice period"). At runtime, substitute the candidate's *actual* specifics from the files above. Never write a real number, school, employer, city, or company into this mode.

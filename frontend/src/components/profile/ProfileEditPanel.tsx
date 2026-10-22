@@ -640,7 +640,7 @@ function buildIncrementalPrompt(diff: DiffEntry[]): string {
     '',
     '2. user/portals.yml — only touch this if a language change affects lang_blocklist (e.g., a language was removed and now non-English postings in that language should be filtered out, or a language was added and an existing block is now wrong). Otherwise leave portals.yml alone.',
     '',
-    '3. Do NOT touch user/cv.md, user/article-digest.md, or any system-layer files (modes/, scripts/, batch/).',
+    '3. Do NOT touch user/cv.md, user/career-bank.md (or user/article-digest.md on older installs), or any system-layer files (modes/, scripts/, batch/).',
     '',
     'Be surgical. The diff is intentionally small; the edit set should be too. If a field changed but no narrative update is warranted, that is the correct answer — do not invent edits.',
   ].join('\n')
