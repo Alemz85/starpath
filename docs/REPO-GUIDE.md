@@ -66,7 +66,7 @@ To protect a term the gate can't infer (a contact's name, an address, a company 
 | `data/scan-history.tsv` | Scanner dedup history |
 | `data/score-history.tsv` | Per-archetype score log written by every evaluation (feeds `positioning`) |
 | `user/portals.yml` | Query and company config for `scan` |
-| `user/article-digest.md` | Compact proof points from portfolio (optional) |
+| `user/career-bank.md` | The career bank (optional): the user's complete inventory of education (courses, grades, theses, study tours), work and internships, projects, extracurriculars, skills with honest levels, languages and test scores, interests. Each entry has facts, results flagged public or confidential, tags, CV bullet variants and story links. CVs, cover letters, form answers and interview prep select from it; `user/cv.md` is the current one-page selection. Numbers and facts come only from it or `cv.md`; confidential results are never used in an application. Older installs: `user/article-digest.md`, read as a fallback (path resolution in `scripts/lib/career-bank.mjs`; `npm run doctor` warns with the `mv` fix). Template: `templates/user-examples/career-bank.md` |
 | `interview-prep/story-bank.md` | Accumulated STAR+R stories across evaluations |
 | `interview-prep/{Company} - {Role}.md` | Per-listing application prep (interview intel + STAR mapping) |
 | `templates/cv-template.html` | HTML template for CVs |

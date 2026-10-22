@@ -225,7 +225,7 @@ test('buildUserLayerChecks: all present → all pass', () => {
     profileYml: 'name: Test',
     profileMd: '# profile',
     portalsYml: 'companies: []',
-    articleDigest: 'digest',
+    careerBank: 'bank',
   };
   const checks = buildUserLayerChecks(files);
   assert.ok(checks.every(c => c.pass), 'All checks should pass when all files present');
@@ -237,7 +237,7 @@ test('buildUserLayerChecks: missing cv → fail check with fix', () => {
     profileYml: 'name: Test',
     profileMd: '# profile',
     portalsYml: 'companies: []',
-    articleDigest: null,
+    careerBank: null,
   };
   const checks = buildUserLayerChecks(files);
   const cvCheck = checks.find(c => c.label.includes('cv.md'));
@@ -248,7 +248,7 @@ test('buildUserLayerChecks: missing cv → fail check with fix', () => {
 
 test('buildUserLayerChecks: missing _profile.md → fail check', () => {
   const files = {
-    cv: 'x', profileYml: 'x', profileMd: null, portalsYml: 'x', articleDigest: null,
+    cv: 'x', profileYml: 'x', profileMd: null, portalsYml: 'x', careerBank: null,
   };
   const checks = buildUserLayerChecks(files);
   const mdCheck = checks.find(c => c.label.includes('_profile.md'));
@@ -256,14 +256,37 @@ test('buildUserLayerChecks: missing _profile.md → fail check', () => {
   assert.equal(mdCheck.pass, false);
 });
 
-test('buildUserLayerChecks: article-digest optional — missing is still pass', () => {
+test('buildUserLayerChecks: career bank optional — missing is still pass', () => {
   const files = {
-    cv: 'x', profileYml: 'x', profileMd: 'x', portalsYml: 'x', articleDigest: null,
+    cv: 'x', profileYml: 'x', profileMd: 'x', portalsYml: 'x', careerBank: null,
   };
   const checks = buildUserLayerChecks(files);
-  const adCheck = checks.find(c => c.label.includes('article-digest'));
-  assert.ok(adCheck, 'article-digest check should exist');
-  assert.equal(adCheck.pass, true, 'article-digest missing should not be a failure');
+  const cb = checks.find(c => c.label.includes('career-bank'));
+  assert.ok(cb, 'career-bank check should exist');
+  assert.equal(cb.pass, true, 'career bank missing should not be a failure');
+  assert.ok(!cb.warn, 'career bank missing is not a warning either');
+});
+
+test('buildUserLayerChecks: career-bank.md present → plain pass, no warning', () => {
+  const checks = buildUserLayerChecks({
+    cv: 'x', profileYml: 'x', profileMd: 'x', portalsYml: 'x', careerBank: '# bank', careerBankLegacy: false,
+  });
+  const cb = checks.find(c => c.label.includes('career-bank.md present'));
+  assert.ok(cb);
+  assert.equal(cb.pass, true);
+  assert.ok(!cb.warn);
+  assert.ok(!checks.some(c => c.label.includes('article-digest')), 'no mention of the old name');
+});
+
+test('buildUserLayerChecks: only the old article-digest.md → gentle warning with the mv fix', () => {
+  const checks = buildUserLayerChecks({
+    cv: 'x', profileYml: 'x', profileMd: 'x', portalsYml: 'x', careerBank: '# digest', careerBankLegacy: true,
+  });
+  const cb = checks.find(c => c.label.includes('article-digest'));
+  assert.ok(cb, 'legacy check should exist');
+  assert.equal(cb.pass, true, 'legacy name is not an error');
+  assert.equal(cb.warn, true, 'legacy name is a warning');
+  assert.match(String(cb.fix), /mv user\/article-digest\.md user\/career-bank\.md/);
 });
 
 // ── buildArtifactChecks ───────────────────────────────────────────────────

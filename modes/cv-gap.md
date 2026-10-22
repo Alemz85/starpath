@@ -46,8 +46,8 @@ The JSON contains:
 
 The whole point is an **honest** report, so frame it that way:
 
-- **Keyword gaps are not a license to keyword-stuff.** A missing term means one of two things: the user *has* the experience but isn't surfacing it in the role's vocabulary (a wording fix — reword a real bullet), or they genuinely *lack* it (a learn-it gap — don't fake it). Decide per term; pull real phrasing from `user/cv.md` and proof points from `user/article-digest.md`. **Never invent a skill the user doesn't have.**
-- **Quantify from real figures only.** When recommending the user add numbers to weak bullets, pull the metrics from `user/article-digest.md` or ask the user — never fabricate a percentage.
+- **Keyword gaps are not a license to keyword-stuff.** A missing term means one of two things: the user *has* the experience but isn't surfacing it in the role's vocabulary (a wording fix — reword a real bullet), or they genuinely *lack* it (a learn-it gap — don't fake it). Decide per term; pull real phrasing from `user/cv.md` and facts from `user/career-bank.md` (the full record the CV selects from). **Never invent a skill the user doesn't have.**
+- **Quantify from real figures only.** When recommending the user add numbers to weak bullets, pull the metrics from `user/career-bank.md` (public results only, never one marked confidential) or ask the user — never fabricate a percentage.
 - **Don't rewrite the CV for a targeting problem.** If the dimension drag is Experience bar, Competition, Brand Value, Role content, etc., the CV can't fix it — that's a sourcing change (scan keywords / `user/portals.yml`). Only **Skills Match** is a genuine CV lever, and even then only where the skill is real.
 
 ## Step 3 — Offer to Act
@@ -56,14 +56,14 @@ Ask whether the user wants to apply any recommendation:
 
 > "Want me to act on these? I can:
 > - Reword real bullets in `user/cv.md` to surface skills you have in the landscape's vocabulary (never inventing any)
-> - Quantify the flagged bullets using figures from `user/article-digest.md` (or ask you for the numbers)
+> - Quantify the flagged bullets using figures from `user/career-bank.md` (or ask you for the numbers)
 > - For the targeting drags, adjust scan keywords in `user/portals.yml` instead of touching the CV
 >
 > Say which ones, or 'all'."
 
 When acting:
 - CV edits → `user/cv.md` (user layer). Keep the user's real facts; reword, don't fabricate.
-- New proof points / metrics → `user/article-digest.md`.
+- New facts, results or metrics → `user/career-bank.md`.
 - Targeting/sourcing fixes → `user/portals.yml` / `user/_profile.md` (NEVER `_shared.md`).
 
 ## Notes

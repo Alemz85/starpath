@@ -38,6 +38,7 @@ import { isV2ScoutingHeader } from './scouting-core.mjs';
 import { isPersonalPath, PRIVATE_DIR } from './data-root.mjs';
 import { formatAge, remoteHint, groupOverrides } from './private-core.mjs';
 import { needsMigration } from './match-rename-migrate.mjs';
+import { CAREER_BANK_RENAME_FIX } from './career-bank.mjs';
 
 // The fix line for data written before the first axis was renamed from Want to Match.
 const MATCH_RENAME_FIX = 'run node scripts/migrate-match-rename.mjs --apply (safe to repeat)';
@@ -266,7 +267,9 @@ export function validateOutreachHeader(cols) {
  * Build check results for user-layer onboarding files.
  *
  * @param {Object} files - map of logical name → file content or null
- *   { cv, profileYml, profileMd, portalsYml, articleDigest }
+ *   { cv, profileYml, profileMd, portalsYml, careerBank, careerBankLegacy }
+ *   careerBank is the content of user/career-bank.md (or, on an older
+ *   install, user/article-digest.md, in which case careerBankLegacy is true).
  * @returns {Array<{ pass: boolean, label: string, fix?: string|string[] }>}
  */
 export function buildUserLayerChecks(files) {
@@ -319,13 +322,20 @@ export function buildUserLayerChecks(files) {
     });
   }
 
-  // article-digest.md (optional)
-  if (files.articleDigest != null) {
-    checks.push({ pass: true, label: 'user/article-digest.md present (proof-point library)' });
+  // career-bank.md (optional; older installs: article-digest.md)
+  if (files.careerBank != null && files.careerBankLegacy) {
+    checks.push({
+      pass: true,
+      warn: true, // still read as a fallback; renaming is a one-liner
+      label: 'user/article-digest.md is the old name of the career bank (still read as a fallback)',
+      fix: `Run: ${CAREER_BANK_RENAME_FIX}`,
+    });
+  } else if (files.careerBank != null) {
+    checks.push({ pass: true, label: 'user/career-bank.md present (career bank)' });
   } else {
     checks.push({
       pass: true, // optional — not a blocker
-      label: 'user/article-digest.md not found (optional — holds CV proof points)',
+      label: 'user/career-bank.md not found (optional — your full inventory of education, work, projects and skills)',
     });
   }
 

@@ -20,7 +20,7 @@ This mode answers that by grounding the verdict in `data/score-history.tsv` — 
 | `user/cv.md` | Current skill baseline — what the training would actually add vs. duplicate. |
 | `user/_profile.md` | The user's archetypes + North Star — to map the training to roles they target. |
 | `user/profile.yml` | Dream companies, target roles, comp targets — for the "does this open the doors I want" read. |
-| `user/article-digest.md` (if present) | Existing proof points — a training that produces an artifact the user already has is redundant. |
+| `user/career-bank.md` (if present) | The user's full inventory of courses, projects and skills — a training that produces something the user already has is redundant. |
 
 **RULE (system-layer hygiene):** This mode has NO hardcoded priority list of "good" trainings. What counts as high-ROI is whatever closes *this* user's measured drag for *their* archetypes. Read it from the data; don't assume the user is targeting any particular field, stack, or seniority.
 
@@ -92,7 +92,7 @@ Lead with the verdict and headline, then the trace, then a short honest close. A
 
 | Verdict | Meaning | What to tell the user |
 |---------|---------|-----------------------|
-| **WORTH IT** | Closes a real systemic drag, on archetypes the user targets, at proportionate effort, with a reusable artifact or recognized credential. | Do it. Name the dimension it lifts and the archetype it serves. Suggest sequencing the artifact so it lands on the CV / article-digest. |
+| **WORTH IT** | Closes a real systemic drag, on archetypes the user targets, at proportionate effort, with a reusable artifact or recognized credential. | Do it. Name the dimension it lifts and the archetype it serves. Suggest sequencing the artifact so it lands on the CV / career bank. |
 | **WORTH IT — but TIMEBOX** | Right gap + right archetypes, but the offer is over-scoped *or* the credential signal is thin. | Do a condensed version. Cap the hours; take only the modules that close the named gap; skip the parts that pad the runtime. If the value is purely the artifact, build the artifact directly without the full course. |
 | **SKIP** | The targeted dimension isn't dragging the user's evals, OR the archetypes don't appear in the corpus, OR the effort dwarfs the payoff. | Say why plainly. Then redirect: the script surfaces the user's actual top drag — point them at training (or a cheaper alternative) that closes *that* instead. |
 
@@ -109,7 +109,7 @@ The goal is the user's outcome, not course completion. A SKIP that redirects to 
 
 ## Learning loop
 
-If the user pushes back ("this cert is actually huge in my field", "I already have that skill", "the artifact doesn't transfer"), they're correcting your dimension/archetype mapping. Update `user/_profile.md` (e.g. an archetype-specific note on which credentials carry weight) or `user/article-digest.md` (existing proof points), never a system-layer file. The next verdict gets sharper.
+If the user pushes back ("this cert is actually huge in my field", "I already have that skill", "the artifact doesn't transfer"), they're correcting your dimension/archetype mapping. Update `user/_profile.md` (e.g. an archetype-specific note on which credentials carry weight) or `user/career-bank.md` (skills, courses and projects), never a system-layer file. The next verdict gets sharper.
 
 ## Rules
 

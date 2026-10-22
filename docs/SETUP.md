@@ -29,7 +29,7 @@ Edit `user/profile.yml` with your personal details: name, email, target roles, n
 
 Create `cv.md` in the project root with your full CV in markdown format. This is the source of truth for all evaluations and PDFs.
 
-(Optional) Create `user/article-digest.md` with proof points from your portfolio projects/articles.
+(Optional) Create `user/career-bank.md`, your career bank: the full inventory of your education, work, projects, activities, skills, languages and interests that CVs and applications select from. Start from `templates/user-examples/career-bank.md`.
 
 ### 4. Configure portals
 

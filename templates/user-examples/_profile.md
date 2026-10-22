@@ -63,7 +63,7 @@ When evaluating a posting from a dream company, **produce an extended report reg
 
 | If the role is... | Emphasize about you... | Proof point sources |
 |-------------------|------------------------|---------------------|
-| [Archetype 1] | [Which 2-3 things from your CV / projects / experience to lead with] | cv.md + article-digest.md |
+| [Archetype 1] | [Which 2-3 things from your CV / projects / experience to lead with] | cv.md + career-bank.md |
 | [Archetype 2] | [...] | cv.md |
 | ... | ... | ... |
 

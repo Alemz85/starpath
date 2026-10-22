@@ -26,7 +26,7 @@ and speculative outreach (no posting yet, but you want in).
   "currently in {city}" line.
 - `user/_profile.md` — archetypes, narrative, positioning. Pull the *angle* (how
   this candidate frames themselves) from here, not from assumptions.
-- `user/article-digest.md` — published work / portfolio proof points (optional).
+- `user/career-bank.md` — the user's full career inventory: projects, published work, activities (optional). Never use a result it marks confidential.
 - `data/applications.md`, `data/scouting.md` — to resolve `company + role` if the
   user names a company you've already evaluated (links outreach to the pipeline).
 - `reports/tier-*/{Company} - {Role}.md` — if a report exists, mine its company
@@ -175,7 +175,7 @@ sentences each, substitute real specifics at runtime:
 - **Interest** — a genuine reference to their work: a blog post, talk, OSS project,
   or publication. Real, specific, recent.
 - **Connection** — something the candidate is doing in the same space (from
-  `user/cv.md` / `user/article-digest.md`). **Not** a job pitch.
+  `user/cv.md` / `user/career-bank.md`). **Not** a job pitch.
 - **CTA** — *"I've been working on similar problems — would love your take on {topic}."*
 - **Rule:** do NOT ask for a job. The referral happens naturally if the
   conversation flows. A peer who enjoys talking to you refers you on their own.

@@ -439,7 +439,7 @@ export async function buildDemo({ asOf }) {
   put('user/profile.yml', docs.renderProfileYml(ctx))
   put('user/_profile.md', docs.renderProfileMd(ctx))
   put('user/portals.yml', docs.renderPortalsYml(ctx))
-  put('user/article-digest.md', docs.renderArticleDigest(ctx))
+  put('user/career-bank.md', docs.renderCareerBank(ctx))
 
   // ── reports/ ──
   for (const rec of recs) if (rec.reportPath) put(rec.reportPath, renderReport(rec, ctx))

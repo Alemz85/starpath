@@ -64,11 +64,11 @@ When `private/profiles/` exists, several search profiles live under `private/pro
 - **portals.yml** → target-role keywords for the scanner's Greenhouse/Ashby/Lever queries.
 - **applications.md** → header `| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |` (10 columns).
 
-Then get to know the user (superpower, what excites or drains them, deal-breakers, best achievement, published work) and store it in `user/profile.yml`, `user/_profile.md` or `user/article-digest.md`. **After every evaluation, learn:** if the user corrects a score or adds context, update those same files. Once set up, offer recurring scans (`/loop`, `/schedule`, or cron).
+Then get to know the user (superpower, what excites or drains them, deal-breakers, best achievement, published work) and store it in `user/profile.yml`, `user/_profile.md` or `user/career-bank.md`. **After every evaluation, learn:** if the user corrects a score or adds context, update those same files. Once set up, offer recurring scans (`/loop`, `/schedule`, or cron).
 
 ## CV Source of Truth
 
-`user/cv.md` is canonical; `user/article-digest.md` holds detailed proof points. **Never hardcode metrics**: read them from these files at evaluation time.
+`user/career-bank.md` is the user's complete inventory of everything they have done (education, work, projects, activities, skills with honest levels, languages and test scores, interests; each entry with facts, results flagged public or confidential, tags, CV bullet variants and story links), and CVs, cover letters, form answers and interview prep select from it, with `user/cv.md` as the current one-page selection (older installs: `user/article-digest.md`, read as a fallback). **Never hardcode metrics**: numbers and facts come only from these two files at evaluation time, and a result marked confidential never goes into an application.
 
 ## Skill Modes
 

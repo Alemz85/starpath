@@ -256,7 +256,7 @@ export function scanForBannedPhrases(text) {
 // Every answer must cite ≥1 verifiable concrete: a number, OR a proper noun the
 // candidate actually owns (a project / company / tool from their CV), OR a line
 // from the JD. The agent supplies the candidate's proof-vocabulary (tokens from
-// user/cv.md / article-digest) and the JD vocabulary; this checks the answer
+// user/cv.md / career-bank.md) and the JD vocabulary; this checks the answer
 // against them. A number is always a concrete. We deliberately do NOT hardcode any
 // candidate term — the vocabulary is passed in.
 

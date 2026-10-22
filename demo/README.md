@@ -12,7 +12,7 @@ This folder has the same layout as a private data root (`private/`), so the app 
 
 | Path | What |
 |------|------|
-| `user/` | CV, `profile.yml` (eligibility, calibration, preferred cities), `_profile.md`, `portals.yml`, `article-digest.md` |
+| `user/` | CV, `profile.yml` (eligibility, calibration, preferred cities), `_profile.md`, `portals.yml`, `career-bank.md` |
 | `data/scouting.md` | 25 evaluated listings: 3 Go, 3 Stretch, 2 Solid, 2 If pipeline thin, 2 Growth target, 11 Skip, 2 Blocked |
 | `data/applications.md` | 7 applications: Offer, Rejected, Interview, Discarded, Responded, Applied, Evaluated |
 | `data/pipeline.md` | 30 pending inbox URLs and 25 processed |

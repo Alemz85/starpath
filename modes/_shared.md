@@ -14,13 +14,13 @@
 | File | Path | When |
 |------|------|------|
 | cv.md | `user/cv.md` (project root) | ALWAYS |
-| user/article-digest.md | `user/article-digest.md` (if exists) | ALWAYS (detailed proof points) |
+| user/career-bank.md | `user/career-bank.md` (if exists; older installs: `user/article-digest.md`) | ALWAYS (the user's full career inventory; cv.md is the one-page selection from it) |
 | profile.yml | `user/profile.yml` | ALWAYS (candidate identity and targets) |
 | _profile.md | `user/_profile.md` | ALWAYS (user archetypes, narrative, negotiation) |
 | applications sent | `data/applications-sent/{company-slug}-{role-slug}-{YYYY-MM}.md` | When one matches the listing (what was actually submitted: CV version, cover letter, transcripts) |
 
-**RULE: NEVER hardcode metrics from proof points.** Read them from cv.md + user/article-digest.md at evaluation time.
-**RULE: For article/project metrics, user/article-digest.md takes precedence over cv.md.**
+**RULE: NEVER hardcode metrics from proof points.** Read them from cv.md + user/career-bank.md at evaluation time.
+**RULE: For facts and metrics, user/career-bank.md takes precedence over cv.md. Never use a result it marks confidential in any application output.**
 **RULE: Read _profile.md AFTER this file. User customizations in _profile.md override defaults here.**
 
 ---
@@ -669,7 +669,7 @@ After detecting the archetype, read `user/_profile.md` for the user's specific f
 ### ALWAYS
 
 0. **Cover letter:** If the form allows it, ALWAYS include one. Same visual design as CV. JD quotes mapped to proof points. 1 page max.
-1. Read cv.md, _profile.md, and user/article-digest.md (if exists) before evaluating
+1. Read cv.md, _profile.md, and user/career-bank.md (if exists) before evaluating
 1b. **First evaluation of each session:** Run `node scripts/cv-sync-check.mjs`. If warnings, notify user.
 2. Detect the role archetype and adapt framing per _profile.md
 3. Point at a CV item only when it changes the judgment — never walk the CV to prove coverage
@@ -690,7 +690,7 @@ After detecting the archetype, read `user/_profile.md` for the user's specific f
 | WebFetch | Fallback for extracting JDs from static pages |
 | Bash `node scripts/fetch-posting.mjs '<url>'` | JD + liveness straight from the ATS API (Greenhouse incl. EU, Lever, SmartRecruiters, Workday, Ashby) or, for amazon.jobs, jobs.picnic.app and careers.factorial.com, the site's own JSON/JSON-LD. No browser; first choice for fetching a JD on a supported host. **Always single-quote a URL in a shell command** (zsh globs an unquoted `?`/`&`) |
 | Playwright | Last rung for verifying offers, after `node scripts/check-liveness.mjs --no-browser '<url>'` (browser_navigate + browser_snapshot). **NEVER 2+ agents with Playwright in parallel.** |
-| Read | cv.md, _profile.md, user/article-digest.md, cv-template.html |
+| Read | cv.md, _profile.md, user/career-bank.md, cv-template.html |
 | Write | Temporary HTML for PDF, applications.md, reports .md |
 | Edit | Update tracker |
 | Canva MCP | Optional visual CV generation. Duplicate base design, edit text, export PDF. Requires `canva_resume_design_id` in profile.yml. |

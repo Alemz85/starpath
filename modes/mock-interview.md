@@ -138,7 +138,7 @@ Do **not** auto-write anything to disk during practice. If the candidate asks to
 ## Rules
 
 - **NEVER invent interview questions and attribute them to sources.** Generic bank prompts are clearly generic; inferred ones are tagged `[inferred from JD]`; only real candidate reports get a source.
-- **NEVER fabricate a metric** in a critique or a drafted story — pull numbers from `user/cv.md` / `user/article-digest.md`.
+- **NEVER fabricate a metric** in a critique or a drafted story — pull numbers from `user/cv.md` / `user/career-bank.md`.
 - **Ask one question at a time in the loop.** Dumping all questions + model answers defeats the rehearsal.
 - **Candidate specifics come from `user/*` at runtime** — archetypes, stories, proof points. Nothing about the candidate is baked into the mode or the scripts.
 - Generate in the language of the JD (EN default).

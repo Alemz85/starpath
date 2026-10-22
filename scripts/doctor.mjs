@@ -47,6 +47,7 @@ import { PROFILE_PATHS } from './lib/profile-core.mjs';
 import { LINKED_PATHS, PRIVATE_DIR, DEMO_DIR, dataRootFor, resolveDataRoot } from './lib/data-root.mjs';
 import { MOVE_ONLY_PATHS, classifyRootPath, linkOk } from './lib/private-core.mjs';
 import { gatherOverrideReport, overridesDataRoot } from './overrides.mjs';
+import { resolveCareerBank } from './lib/career-bank.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootArg = process.argv.indexOf('--root');
@@ -376,12 +377,14 @@ async function main() {
 
   // ── 3. User-layer onboarding ─────────────────────────────────────────────
   printSection('3. User-layer onboarding');
+  const careerBank = resolveCareerBank(dataRoot);
   const userFiles = {
     cv:            readFileSafe('user/cv.md'),
     profileYml:    readFileSafe('user/profile.yml'),
     profileMd:     readFileSafe('user/_profile.md'),
     portalsYml:    readFileSafe('user/portals.yml'),
-    articleDigest: readFileSafe('user/article-digest.md'),
+    careerBank:       careerBank.rel ? readFileSafe(careerBank.rel) : null,
+    careerBankLegacy: careerBank.legacy,
   };
   for (const check of buildUserLayerChecks(userFiles)) {
     record(check);

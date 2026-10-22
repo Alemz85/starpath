@@ -334,7 +334,7 @@ export function gapRecommendations(report, opts = {}) {
     recs.push({
       action: `Quantify ${proof.weak.length} result bullet(s) — only ${proof.quantifiedPct}% of your achievement bullets carry a number`,
       reasoning:
-        'Recruiters skim for measurable outcomes. Attach a metric (%, €/$, ×, time saved, count) to each impact bullet — pull the real figures from user/article-digest.md, never invent them.',
+        'Recruiters skim for measurable outcomes. Attach a metric (%, €/$, ×, time saved, count) to each impact bullet — pull the real figures from user/career-bank.md (or user/cv.md), never invent them.',
       impact: proof.quantifiedPct < 40 ? 'high' : 'medium',
     });
   }

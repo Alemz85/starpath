@@ -17,7 +17,7 @@ When the user asks to prep for an interview at a specific company+role, or when 
 2. **Company research artifact** at `data/companies/{slug}.md` (if fresh) — the deep-research cache written by `modes/deep.md`. Mine **Interview Style** (process scaffold), **Recent Signals** (freshest hooks for "questions to ask them"), and **Team & Role Context** (who you'd report to, what the team owns) before spending WebSearch budget. Access it via `scripts/company-research.mjs` — never re-derive the slug/path/freshness in prose.
 3. **Evaluation report** in `reports/` (if exists) — read for archetype, gaps, matched proof points
 4. **Story bank** at `interview-prep/story-bank.md` — read for existing prepared stories
-5. **CV** at `user/cv.md` + `user/article-digest.md` — read for proof points
+5. **CV** at `user/cv.md` + **career bank** at `user/career-bank.md` (the full record the CV selects from) — read for proof points; never use a result marked confidential
 6. **Profile** at `user/profile.yml` + `user/_profile.md` — read for candidate context
 7. **Past outcomes** — `node scripts/outcomes.mjs --chat`: the why table lists every application sent, how far it got, where it was rejected (stage) and the user's notes. Use it to point prep at the stages that went badly before ("the last two case rounds ended in a rejection: more time on case practice"), naming the applications. Below the gates it prints (`docs/scoring-statistical-design.md` § 3.7) these are individual cases, not a pattern: never write "you fail case rounds" from two of them.
 
@@ -153,7 +153,7 @@ For each gap, suggest: "You need a story about {competency/topic}. Consider: {sp
 
 **Drafting new stories — follow the template contract.** When the user asks to draft a missing story, build it in the exact `templates/story-bank.template.md` shape:
 - All five beats present (Situation, Task, Action, Result, Reflection). The Reflection ("+R") is what most banks skip — don't.
-- The **Result leads with a number** sourced from `user/cv.md` / `user/article-digest.md`. Never fabricate a metric.
+- The **Result leads with a number** sourced from `user/cv.md` / `user/career-bank.md`. Never fabricate a metric.
 - Add a `**Themes:**` line with honest tags drawn from (or normalizing to) the taxonomy above — these drive all future matching in this mode and in `apply.md`, and they're what the coverage map keys off.
 
 **Dedup rule:** Check the bank for a story with the same title (normalized: case/punctuation/emphasis-insensitive) before appending. If one exists, update it in place — never create a duplicate title. `check-story-bank.mjs` flags duplicate titles, incomplete stories (missing beats), and unquantified Results, so a sloppy append surfaces in the health check; re-run it after editing the bank to confirm it's clean.
