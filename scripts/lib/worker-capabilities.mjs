@@ -153,6 +153,23 @@ const EVAL_COMMANDS = [
   'node scripts/browser-read.mjs park',
 ]
 
+// The app's evaluations add the pipeline triage and merge, and may cite peer
+// rank / outreach.
+const EVAL_APP_COMMANDS = [
+  ...EVAL_COMMANDS,
+  'node scripts/merge-scouting.mjs',
+  'node scripts/peer-rank.mjs',
+  'node scripts/outreach-plan.mjs',
+  'npm run outreach-plan',
+  'node scripts/cv-sync-check.mjs',
+  'node scripts/check-liveness.mjs',
+  'node scripts/triage-pipeline.mjs',
+  'node scripts/rebuild-dedup-index.mjs',
+  // Promotes a `go` hit through the locked, logged tracker path
+  // (CLAUDE.md § Pipeline Integrity 2); the worker never edits the file.
+  'node scripts/promote-to-applications.mjs',
+]
+
 // Chat: attended, so broad. What it may never do, even when asked: change
 // permissions or the git hooks, push, rewrite history, run the backup (it
 // pushes private/ to its remote), install the scheduler, or edit the tracker
@@ -211,27 +228,25 @@ export const WORKER_CAPABILITIES = {
     deny: ['Edit(./user/**)', ...TRACKERS.map((p) => `Edit(./${p})`)],
   },
   // The app's eval spawns: Add listing, inbox Evaluate, Filter to Database,
-  // top-5 reports, popover Generate Report (which runs modes/scouting.md and
-  // may cite peer rank / outreach). They also triage data/pipeline.md and
-  // merge their own scouting TSVs.
+  // top-5 reports (which run modes/scouting.md and may cite peer rank /
+  // outreach). They also triage data/pipeline.md and merge their own
+  // scouting TSVs.
   'eval-app': {
-    summary: 'App evaluations and pipeline triage (Add listing, Filter to Database, top 5, Generate report)',
+    summary: 'App evaluations and pipeline triage (Add listing, Filter to Database, top 5)',
     writes: [...EVAL_WRITES, 'data/pipeline.md'],
     tmp: [],
-    commands: [
-      ...EVAL_COMMANDS,
-      'node scripts/merge-scouting.mjs',
-      'node scripts/peer-rank.mjs',
-      'node scripts/outreach-plan.mjs',
-      'npm run outreach-plan',
-      'node scripts/cv-sync-check.mjs',
-      'node scripts/check-liveness.mjs',
-      'node scripts/triage-pipeline.mjs',
-      'node scripts/rebuild-dedup-index.mjs',
-      // Promotes a `go` hit through the locked, logged tracker path
-      // (CLAUDE.md § Pipeline Integrity 2); the worker never edits the file.
-      'node scripts/promote-to-applications.mjs',
-    ],
+    commands: EVAL_APP_COMMANDS,
+    web: 'fetch+search',
+    deny: ['Edit(./user/**)', ...TRACKERS.map((p) => `Edit(./${p})`)],
+  },
+  // Popover Generate report: the user asked for one listing's report, so a
+  // Blocked or Skip listing gets one too, under reports/tier-4/. Evaluations
+  // never write a T4 report (modes/scouting.md); only this kind may.
+  report: {
+    summary: 'Generate report for one listing (Database popover), T4 included',
+    writes: [...EVAL_WRITES, 'reports/tier-4/**', 'data/pipeline.md'],
+    tmp: [],
+    commands: EVAL_APP_COMMANDS,
     web: 'fetch+search',
     deny: ['Edit(./user/**)', ...TRACKERS.map((p) => `Edit(./${p})`)],
   },

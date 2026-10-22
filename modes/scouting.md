@@ -101,9 +101,9 @@ Then check the report against itself:
 
 The report format depends on the **verdict** the script returns. **Always compute the full dimensional table first** (unless the listing is Blocked), then read the verdict — the same table appears in every report so positioning can read it.
 
-Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thin` → `T2` · `growth` → `T3` · `skip` / `blocked` → `T4`. Reports live under `reports/tier-{N}/`; T4 writes no file.
+Physical storage uses the tier keys: `go` → `T1` · `stretch` / `solid` / `thin` → `T2` · `growth` → `T3` · `skip` / `blocked` → `T4`. Reports live under `reports/tier-{N}/`; a T4 evaluation writes no file. The one exception is a report the user asks for (the app's Generate report on a Blocked or Skip row, render-only): it goes to `reports/tier-4/{Company} - {Role}.md` in the same format, and its job description is saved like any other report's.
 
-**Save the job description.** Every report (T1–T3) keeps its posting text, because postings disappear. Right after writing the report, write the job description you fetched, verbatim, to `jds/{num}-{company-slug}-{role-slug}.md` with the Write tool. `{num}` is the report number (the scouting row's `{num}`, 3 digits), and each slug is the lowercase ASCII name with every run of other characters replaced by one `-`, at most 60 characters (`Nimbus Robotics` + `Data Analyst (Lyon)` → `jds/012-nimbus-robotics-data-analyst-lyon.md`). Write nothing for T4 (no report), when the fetch returned no posting text (never rebuild a posting from memory or search snippets), or when that file already exists (a re-evaluation keeps the first copy). Format, exactly:
+**Save the job description.** Every report (T1–T3, and a T4 report the user asked for) keeps its posting text, because postings disappear. Right after writing the report, write the job description you fetched, verbatim, to `jds/{num}-{company-slug}-{role-slug}.md` with the Write tool. `{num}` is the report number (the scouting row's `{num}`, 3 digits), and each slug is the lowercase ASCII name with every run of other characters replaced by one `-`, at most 60 characters (`Nimbus Robotics` + `Data Analyst (Lyon)` → `jds/012-nimbus-robotics-data-analyst-lyon.md`). Write nothing for a T4 evaluation (no report), when the fetch returned no posting text (never rebuild a posting from memory or search snippets), or when that file already exists (a re-evaluation keeps the first copy). Format, exactly:
 
 ```markdown
 # {Company} — {Role}
@@ -307,7 +307,7 @@ Write a TSV entry to `batch/scouting-additions/{num}-{company-slug}.tsv` (let `s
 {num}	{date}	{company}	{role}	{match}	{ease}	{tier}	{eligibility}	[{num}](reports/tier-{N}/{Company} - {Role}.md)	{deadline}	{promotion_hint}	{one-line summary}
 ```
 
-**Report file path:** reports live in **`reports/tier-{N}/{Company} - {Role}.md`** where `{N}` is the tier digit (1, 2 or 3). T4 (skip and blocked) uses `—` for the report column and writes nothing to disk.
+**Report file path:** reports live in **`reports/tier-{N}/{Company} - {Role}.md`** where `{N}` is the tier digit (1, 2 or 3). T4 (skip and blocked) uses `—` for the report column and writes nothing to disk; only a report the user asks for later lands in `reports/tier-4/` (§ Output Behavior).
 
 Column order:
 1. `num` — sequential number (integer)

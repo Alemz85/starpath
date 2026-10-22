@@ -295,7 +295,7 @@ function spawnReport(entry: ScoreEntry) {
       if (spawns[id]?.status === 'running') return
       if (spawns[id]) clear(id)
       const model = useAppStore.getState().models.generateReport
-      start(id, `Generate Report: ${entry.company} — ${entry.role}`, 'claude', claudeArgs(reportPrompt(entry), model, 'eval-app'))
+      start(id, `Generate Report: ${entry.company} — ${entry.role}`, 'claude', claudeArgs(reportPrompt(entry), model, 'report'))
     },
   )
 }

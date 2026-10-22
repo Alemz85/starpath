@@ -55,7 +55,7 @@ export const NON_INTERACTIVE_SUFFIX =
 export const WORKER_FLAG = '--starpath-worker'
 
 export const WORKER_KINDS = [
-  'eval', 'eval-app', 'scan', 'apply-flow', 'positioning',
+  'eval', 'eval-app', 'report', 'scan', 'apply-flow', 'positioning',
   'profile-sync', 'company-probe', 'cv-import', 'setup', 'chat',
 ] as const
 
