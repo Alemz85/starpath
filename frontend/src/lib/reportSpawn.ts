@@ -2,6 +2,8 @@
 // spawn id, so reports for different listings run side by side, each its own
 // worker in Activity; a second click on a listing whose report is already
 // running is refused by the id (the spawn store keeps one record per id).
+// They run as worker kind `report`: the app's eval permissions plus
+// reports/tier-4/, since a Blocked or Skip listing gets its report on request.
 // Reports write separate files (reports/tier-N/{Company} - {Role}.md, its
 // jds/ archive) and only append to shared TSVs through locked scripts, so
 // parallel workers don't collide.
@@ -21,7 +23,7 @@ export function reportSpawnId(entry: { company: string; role: string }): string 
 // data/score-history.tsv + data/scouting.md verbatim — no re-scoring, no new
 // score-history row.
 const REUSE_INSTR =
-  'RENDER-ONLY mode: do not re-score. Read the dimensional row from data/score-history.tsv (match by company + role) and the rollup score + tier from data/scouting.md, and copy those numbers verbatim into the report header and dimensional table. Write the prose sections (Role summary, Gaps, Comp, Recommendation, Career path impact) normally from the JD — do not narrate, justify, or comment on the score numbers; treat them as given. Do NOT append a new row to data/score-history.tsv, and never edit data/scouting.md: the app finds the report by its file name ({Company} - {Role}.md).'
+  'RENDER-ONLY mode: do not re-score. Read the dimensional row from data/score-history.tsv (match by company + role) and the rollup score + tier from data/scouting.md, and copy those numbers verbatim into the report header and dimensional table. Write the prose sections (Role summary, Gaps, Comp, Recommendation, Career path impact) normally from the JD — do not narrate, justify, or comment on the score numbers; treat them as given. Do NOT append a new row to data/score-history.tsv, and never edit data/scouting.md: the app finds the report by its file name ({Company} - {Role}.md). The user asked for this report, so a Blocked or Skip (T4) listing gets one too, under reports/tier-4/.'
 
 /** The `/career-ops scouting …` task for one listing's report. */
 export function reportPrompt(entry: { company: string; role: string; url?: string | null }): string {

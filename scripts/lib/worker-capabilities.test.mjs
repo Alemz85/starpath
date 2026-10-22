@@ -94,12 +94,12 @@ test('Bash counts as a write tool: an unattended kind has Bash only through name
 })
 
 test('user/ and the trackers are never writable by a worker that reads postings', () => {
-  for (const kind of ['eval', 'eval-app', 'scan', 'apply-flow']) {
+  for (const kind of ['eval', 'eval-app', 'report', 'scan', 'apply-flow']) {
     const allowed = editRules(kind)
     assert.ok(!allowed.some((r) => /\.\/(private\/\*\*\/)?user\/(\*\*|cv\.md|profile\.yml|_profile\.md)\)/.test(r)), kind)
     assert.ok(!allowed.some((r) => r.includes('data/scouting.md')), kind)
   }
-  for (const kind of ['eval', 'eval-app']) {
+  for (const kind of ['eval', 'eval-app', 'report']) {
     assert.ok(disallowedRules(kind).includes('Edit(./user/**)'), kind)
     assert.ok(disallowedRules(kind).includes('Edit(./private/**/user/**)'), kind)
     assert.ok(disallowedRules(kind).includes('Edit(./data/applications.md)'), kind)
@@ -110,10 +110,10 @@ test('user/ and the trackers are never writable by a worker that reads postings'
 
 test('eval workers write only under batch/ and reports/, plus their data rows and caches', () => {
   const dataRows = ['score-history.tsv', 'report-summaries.tsv', 'comp-cache.tsv', 'tax-cache.tsv', 'col-cache.tsv']
-  for (const kind of ['eval', 'eval-app']) {
+  for (const kind of ['eval', 'eval-app', 'report']) {
     for (const p of WORKER_CAPABILITIES[kind].writes) {
       const ok = p.startsWith('batch/') || p.startsWith('reports/tier-') || p === 'jds/**' ||
-        dataRows.some((f) => p === `data/${f}`) || (kind === 'eval-app' && p === 'data/pipeline.md')
+        dataRows.some((f) => p === `data/${f}`) || (kind !== 'eval' && p === 'data/pipeline.md')
       assert.ok(ok, `${kind} writes ${p}`)
     }
     assert.deepEqual(WORKER_CAPABILITIES[kind].tmp, [], kind)
@@ -166,6 +166,21 @@ test('the app eval worker adds the pipeline inbox and its merge, nothing broader
   const extraWrites = editRules('eval-app').filter((r) => !editRules('eval').includes(r))
   assert.deepEqual(extraWrites, ['Edit(./data/pipeline.md)', 'Edit(./private/**/data/pipeline.md)'])
   assert.ok(bashRules('eval-app').includes('Bash(node scripts/merge-scouting.mjs:*)'))
+})
+
+// modes/scouting.md: a T4 evaluation writes no report; a report the user asks
+// for (popover Generate report) may, under reports/tier-4/. Only that kind.
+test('only the report worker writes reports/tier-4/, and that is all it adds to eval-app', () => {
+  const extraWrites = editRules('report').filter((r) => !editRules('eval-app').includes(r))
+  assert.deepEqual(extraWrites, ['Edit(./reports/tier-4/**)', 'Edit(./private/**/reports/tier-4/**)'])
+  assert.deepEqual(editRules('eval-app').filter((r) => !editRules('report').includes(r)), [])
+  assert.deepEqual(bashRules('report'), bashRules('eval-app'))
+  assert.deepEqual(disallowedRules('report'), disallowedRules('eval-app'))
+  for (const kind of WORKER_KINDS.filter((k) => k !== 'report' && !WORKER_CAPABILITIES[k].attended)) {
+    assert.ok(!editRules(kind).some((r) => r.includes('tier-4')), kind)
+  }
+  const popover = readFileSync(join(ROOT, 'frontend/src/components/shared/RowActionPopover.tsx'), 'utf8')
+  assert.ok(popover.includes("claudeArgs(reportPrompt(entry), model, 'report')"), 'Generate report spawns as the report kind')
 })
 
 test('chat is attended: it edits the checkout and runs starpath scripts, but never pushes, backs up or edits the tracker', () => {
@@ -316,6 +331,7 @@ test('the frontend lists exactly the table kinds', () => {
 const KIND_INSTRUCTIONS = {
   eval: ['batch/batch-prompt.md'],
   'eval-app': ['batch/batch-prompt.md', 'modes/scouting.md', 'modes/pipeline.md', 'frontend/src/lib/evalSpawn.ts'],
+  report: ['modes/scouting.md', 'frontend/src/lib/reportSpawn.ts'],
   scan: ['modes/scan.md'],
   'apply-flow': ['modes/pdf.md', 'modes/apply.md', 'modes/interview-prep.md'],
   positioning: ['modes/positioning.md'],
@@ -359,11 +375,11 @@ test('every unattended worker can post to Messages, under its own source', () =>
 // unattended evaluation may park it; only an attended chat or session puts it
 // back (requeue), after a person saved the posting.
 test('eval workers may park a listing for a browser read, never requeue it', () => {
-  for (const kind of ['eval', 'eval-app']) {
+  for (const kind of ['eval', 'eval-app', 'report']) {
     const bash = allowedRules(kind).filter((r) => r.includes('browser-read'))
     assert.deepEqual(bash, ['Bash(node scripts/browser-read.mjs park:*)'], kind)
   }
-  for (const kind of UNATTENDED.filter((k) => !['eval', 'eval-app'].includes(k))) {
+  for (const kind of UNATTENDED.filter((k) => !['eval', 'eval-app', 'report'].includes(k))) {
     assert.ok(!allowedRules(kind).some((r) => r.includes('browser-read')), kind)
   }
   const here = dirname(fileURLToPath(import.meta.url))
