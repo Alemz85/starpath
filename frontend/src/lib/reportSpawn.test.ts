@@ -18,11 +18,15 @@ test('each listing gets its own report spawn id, stable across clicks', () => {
   assert.equal(reportSpawnId(B), 'report-nimbus-robotics--strategy-intern-summer-2027-lyon')
 })
 
-test('the report prompt is render-only, uses the URL when there is one, and never touches the tracker', () => {
+test('the report prompt starts from the stored scores, re-scores only on a new fact, and uses the URL when there is one', () => {
   const withUrl = reportPrompt(A)
   assert.ok(withUrl.startsWith('/career-ops scouting https://jobs.example.com/nimbus/1 — '))
-  assert.ok(withUrl.includes('RENDER-ONLY mode: do not re-score'))
-  assert.ok(withUrl.includes('never edit data/scouting.md'))
+  assert.ok(withUrl.includes('START FROM THE STORED SCORES'))
+  assert.ok(withUrl.includes('RE-SCORE ONLY ON A NEW FACT'))
+  assert.ok(withUrl.includes('Re-score anchoring'), 'judged dimensions stay anchored on the prior run')
+  assert.ok(withUrl.includes('merge-scouting.mjs'), 'a re-score goes through the merge script')
+  assert.ok(withUrl.includes('is not a new fact'), 'a different estimate keeps the stored numbers')
+  assert.ok(withUrl.includes('Never edit data/scouting.md directly'))
   assert.ok(withUrl.includes('under reports/tier-4/'), 'a Blocked or Skip listing gets its report on request')
   assert.ok(reportPrompt(C).startsWith('/career-ops scouting for Lumen Freight — Data Analyst Intern — '))
   assert.ok(reportPrompt({ ...A, url: 'local:jds/x.md' }).startsWith('/career-ops scouting for '), 'a non-http URL is not passed on')
