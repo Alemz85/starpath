@@ -28,7 +28,9 @@ Three layers; full list in `DATA_CONTRACT.md`.
 
 **Where does a new file go?** Anything about the user, their search or their data goes under `private/` (or a linked path such as `data/`). A personal doc or note goes in `private/docs/`. Never in `docs/`, `modes/`, the repo root or `demo/`.
 
-**Overrides instead of generalising.** To make a system file specific to this user (worked examples with their real schools, a mode tuned to their search, their CV template), write their version to `private/overrides/<same path>` (replaces the default) or `private/overrides/<path minus .md>.append.md` (added after it). Before reading any `modes/X.md`, `batch/batch-prompt.md` or `templates/*` file, check for both. Edit the public default only to change it for everyone, and keep it generic. Settings keep their homes: scoring weights, calibration and targets in `user/profile.yml`; archetypes, narrative and negotiation scripts in `user/_profile.md`; companies to scan in `user/portals.yml`.
+**Overrides instead of generalising.** To make a system file specific to this user (worked examples with their real schools, a mode tuned to their search, their CV template), write their version to `private/overrides/<same path>` (replaces the default) or `private/overrides/<path minus .md>.append.md` (added after it). Before reading any `modes/X.md`, `batch/batch-prompt.md` or `templates/*` file, check for both. Edit the public default only to change it for everyone, and keep it generic. Settings keep their homes: scoring weights, calibration and targets in `user/profile.yml`; archetypes, the professional pitch and negotiation scripts in `user/_profile.md`; companies to scan in `user/portals.yml`.
+
+**Narrative vs structured.** What you learn about the person as a person (how they like to work and be talked to, what drives or drains them, decisions and the reasons behind them, life context, open threads) goes in `data/career-memory.md`: the shared context every agent reads before advising them, and the app chat reads first. Structured data stays in its home (`user/profile.yml`, `user/portals.yml`, the tables in `user/_profile.md`, `user/career-bank.md`, the trackers). Edit the memory in place, date time-sensitive lines, and don't copy tracker statuses into it except as context for a decision; when a tracker and the memory disagree, the tracker wins.
 
 ### System Layer Hygiene
 
@@ -64,7 +66,7 @@ When `private/profiles/` exists, several search profiles live under `private/pro
 - **portals.yml** → target-role keywords for the scanner's Greenhouse/Ashby/Lever queries.
 - **applications.md** → header `| # | Date | Company | Role | Score | Status | PDF | Deadline | Report | Notes |` (10 columns).
 
-Then get to know the user (superpower, what excites or drains them, deal-breakers, best achievement, published work) and store it in `user/profile.yml`, `user/_profile.md` or `user/career-bank.md`. **After every evaluation, learn:** if the user corrects a score or adds context, update those same files. Once set up, offer recurring scans (`/loop`, `/schedule`, or cron).
+Then get to know the user (superpower, what excites or drains them, deal-breakers, best achievement, published work): the narrative goes in `data/career-memory.md`, structured facts in `user/profile.yml`, `user/_profile.md` or `user/career-bank.md`. **After every evaluation, learn:** if the user corrects a score or adds context, update those same files. Once set up, offer recurring scans (`/loop`, `/schedule`, or cron).
 
 ## CV Source of Truth
 

@@ -19,6 +19,8 @@
 
 **Layout.** Everything personal lives in `private/` (gitignored, its own git repo; `DATA_CONTRACT.md` has the full table). The repo-root `user/ data/ reports/ interview-prep/ output/ jds/` and `batch/{tracker-additions,scouting-additions,logs,jobspy-merged}` are relative directory links into it; `batch/{batch-state.tsv,batch-input.tsv,cv-summary.md}` are file links. That is why every repo-relative path in modes, prompts and scripts still works. Search behaves as before: `rg term data/` follows the link, a repo-wide search skips it because it is ignored.
 
+**Narrative vs structured data about the user.** `data/career-memory.md` is the narrative context (working style, decisions and reasons, life context, open threads) that every agent reads before advising the user; the app chat loads it at the start of every conversation (`modes/chat.md` § Memory). Structured data keeps its homes: `user/profile.yml`, `user/portals.yml`, `user/_profile.md` (archetypes, playbook and scoring tables, pitch), `user/career-bank.md` (inventory) and the trackers (statuses). The rule itself is in `CLAUDE.md` § Data Contract.
+
 **Resolution in code.** `scripts/lib/data-root.mjs` is the single source of truth:
 - `resolveDataRoot({ repoRoot, configured, env, allowDemo })`: the app's saved choice (`config.json` → `dataPath`, e.g. `'demo'`), then `$STARPATH_DATA` (absolute, repo-relative, `demo` or `private`), then `<repo>/private`, then (app only) `<repo>/demo`.
 - `dataRootFor(repoRoot)`: the same for CLI scripts, falling back to the repo root on an un-migrated checkout. Scripts the app runs on the demo (`daily-brief`, `followup-cadence`, `analyze-patterns`) read through it; the rest use repo-relative paths and work through the links.
