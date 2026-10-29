@@ -39,7 +39,7 @@ import type {
   StatusChangeRequest, StatusChangeResult, StatusHistoryQuery, StatusLogEntry,
 } from '../src/lib/statusLog'
 import type { ListingDates, ListingDatesMap } from '../src/lib/listingDates'
-import { resolveLogoDomain, userDomains, type UserDomains } from '../src/lib/companyDomain'
+import { logoDomains, userDomains, type UserDomains } from '../src/lib/companyDomain'
 import { load as loadYaml } from 'js-yaml'
 import type { AgentMessage, MessageStatus, MessageStatusResult } from '../src/lib/messages'
 
@@ -1308,9 +1308,6 @@ ipcMain.handle('logo:fetch', async (_e, company: unknown) => {
   // brands, so the demo shows initials and makes no logo requests at all.
   if (root.kind === 'demo') return null
   const base = dataBase(root)
-  const d = resolveLogoDomain(name, base ? readPortalDomains(base) : undefined)
-  const safeName = d.replace(/[^a-z0-9.-]/gi, '_')
-
   const userData = app.getPath('userData')
   if (!legacyLogoCacheGone) {
     fs.rmSync(path.join(userData, 'logo-cache'), { recursive: true, force: true })
@@ -1318,26 +1315,29 @@ ipcMain.handle('logo:fetch', async (_e, company: unknown) => {
   }
   const cacheDir = path.join(userData, LOGO_CACHE)
   fs.mkdirSync(cacheDir, { recursive: true })
-  const cachePath = path.join(cacheDir, `${safeName}.b64`)
 
-  // Return from disk cache if present
-  if (fs.existsSync(cachePath)) {
-    return fs.readFileSync(cachePath, 'utf-8')
-  }
+  for (const d of logoDomains(name, base ? readPortalDomains(base) : undefined)) {
+    const cachePath = path.join(cacheDir, `${d.replace(/[^a-z0-9.-]/gi, '_')}.b64`)
 
-  // Try sources in order — main process is not subject to renderer CSP.
-  // fallback=false makes unavatar answer 404 instead of a placeholder face.
-  const sources = [
-    `https://unavatar.io/${d}?fallback=false`,
-    `https://www.google.com/s2/favicons?domain=${d}&sz=128`,
-  ]
+    // Return from disk cache if present
+    if (fs.existsSync(cachePath)) {
+      return fs.readFileSync(cachePath, 'utf-8')
+    }
 
-  for (const url of sources) {
-    const result = await fetchToBuffer(url)
-    if (result) {
-      const dataUrl = `data:${result.mime};base64,${result.buf.toString('base64')}`
-      fs.writeFileSync(cachePath, dataUrl, 'utf-8')
-      return dataUrl
+    // Try sources in order — main process is not subject to renderer CSP.
+    // fallback=false makes unavatar answer 404 instead of a placeholder face.
+    const sources = [
+      `https://unavatar.io/${d}?fallback=false`,
+      `https://www.google.com/s2/favicons?domain=${d}&sz=128`,
+    ]
+
+    for (const url of sources) {
+      const result = await fetchToBuffer(url)
+      if (result) {
+        const dataUrl = `data:${result.mime};base64,${result.buf.toString('base64')}`
+        fs.writeFileSync(cachePath, dataUrl, 'utf-8')
+        return dataUrl
+      }
     }
   }
 

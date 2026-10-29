@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { domainFromCareersUrl, guessDomain, OVERRIDES, resolveLogoDomain, userDomains } from '@/lib/companyDomain'
+import { domainFromCareersUrl, guessDomain, logoDomains, OVERRIDES, resolveLogoDomain, userDomains } from '@/lib/companyDomain'
 
 test('exact overrides resolve case- and whitespace-insensitively', () => {
   assert.equal(guessDomain('Google'), 'google.com')
@@ -89,4 +89,16 @@ test('user domains: explicit beats overrides, overrides beat careers hosts, care
   assert.equal(resolveLogoDomain('Figma'), 'figma.com')
   assert.deepEqual(userDomains(null), { explicit: {}, careers: {} })
   assert.equal(resolveLogoDomain('Netflix', userDomains({ company_domains: { netflix: 'netflix.dev' } })), 'netflix.dev')
+})
+
+test('a domain from the user\'s data is tried first, then the name guess', () => {
+  const user = userDomains({
+    company_domains: { Tailspin: 'tailspin.io' },
+    tracked_companies: [{ name: 'Contoso', careers_url: 'https://lifeatcontoso.com/jobs' }],
+  })
+  assert.deepEqual(logoDomains('Contoso', user), ['lifeatcontoso.com', 'contoso.com'])
+  assert.deepEqual(logoDomains('Tailspin', user), ['tailspin.io', 'tailspin.com'])
+  assert.deepEqual(logoDomains('Google', user), ['google.com'])
+  assert.deepEqual(logoDomains('Woodgrove'), ['woodgrove.com'])
+  assert.deepEqual(logoDomains('Fabrikam', userDomains({ company_domains: { Fabrikam: 'fabrikam.com' } })), ['fabrikam.com'])
 })
