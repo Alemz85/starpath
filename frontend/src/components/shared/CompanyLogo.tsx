@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { ipc } from '@/lib/ipc'
-import { guessDomain } from '@/lib/companyDomain'
 
 // ─── Avatar fallback ─────────────────────────────────────────────────────────
 
@@ -36,7 +35,6 @@ interface CompanyLogoProps {
 
 export function CompanyLogo({ company, size = 20, className }: CompanyLogoProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null)
-  const domain = guessDomain(company)
   const radius = size <= 16 ? 3 : size <= 24 ? 4 : 6
   const [from, to] = hashPalette(company)
   const abbr = initials(company)
@@ -44,11 +42,12 @@ export function CompanyLogo({ company, size = 20, className }: CompanyLogoProps)
 
   useEffect(() => {
     let cancelled = false
-    ipc.fetchLogo(domain).then(url => {
+    // The main process picks the domain (it can read user/portals.yml).
+    ipc.fetchLogo(company).then(url => {
       if (!cancelled) setDataUrl(url)
     })
     return () => { cancelled = true }
-  }, [domain])
+  }, [company])
 
   const baseStyle: React.CSSProperties = {
     width: size, height: size, minWidth: size,

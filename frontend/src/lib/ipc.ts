@@ -118,7 +118,7 @@ export const ipc = {
   },
 
   // Logo cache
-  fetchLogo:            (domain: string)             => api().fetchLogo(domain) as Promise<string | null>,
+  fetchLogo:            (company: string)            => api().fetchLogo(company) as Promise<string | null>,
 
   // DB-backed query layer. Returns rows shaped to match the corresponding
   // ScoreEntry / ApplicationEntry / ScoutingEntry / ReportFile types, with

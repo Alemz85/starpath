@@ -1,12 +1,15 @@
-// Company name → domain heuristic, feeding the logo fetcher
-// (CompanyLogo → ipc.fetchLogo(domain)). Pure and dependency-free so the
-// guessing logic — which decides whether a company's real logo loads or it
-// falls back to initials — is unit-testable in isolation.
+// Company name → domain for the logo fetcher (CompanyLogo → ipc.fetchLogo →
+// the main process's `logo:fetch`). Pure and dependency-free so the logic
+// that decides whether a company's real logo loads, or it falls back to
+// initials, is unit-testable in isolation.
 //
-// Three passes, in order:
-//   1. exact override (lowercased, trimmed)
-//   2. word-boundary prefix override ("Google Cloud" → google.com)
-//   3. cleaned fallback (strip legal/suffix noise, dot-com it)
+// resolveLogoDomain, in order:
+//   1. the user's own domain for the company (user/portals.yml: a
+//      `company_domains` map, or a tracked company's non-ATS careers_url)
+//   2. guessDomain: exact override, a name that is already a domain
+//      ("Contoso.io"), word-boundary prefix override ("Google Cloud" →
+//      google.com), then the cleaned fallback (strip legal/suffix noise and
+//      accents, dot-com it)
 
 export const OVERRIDES: Record<string, string> = {
   'amazon': 'amazon.com', 'aws': 'aws.amazon.com', 'amazon web services': 'aws.amazon.com',
@@ -46,9 +49,17 @@ export const OVERRIDES: Record<string, string> = {
   'adyen': 'adyen.com', 'mollie': 'mollie.com',
 }
 
+/** Lowercase, trimmed, accents folded ("Crème Studio" → "creme studio"): the lookup key for a name. */
+export function nameKey(company: string): string {
+  return company.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
+
+const DOMAIN_RE = /^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/
+
 export function guessDomain(company: string): string {
-  const lower = company.toLowerCase().trim()
+  const lower = nameKey(company)
   if (OVERRIDES[lower]) return OVERRIDES[lower]
+  if (DOMAIN_RE.test(lower)) return lower
 
   // Word-boundary prefix match: an override key counts only when the company
   // name continues with a non-alphanumeric separator (e.g. "Google Cloud",
@@ -67,4 +78,68 @@ export function guessDomain(company: string): string {
     .replace(/[^a-z0-9]/g, '')
     .trim()
   return `${cleaned || 'unknown'}.com`
+}
+
+// Job-board hosts: a careers_url on one of these says nothing about the
+// company's own domain.
+const ATS_HOSTS = [
+  'greenhouse.io', 'ashbyhq.com', 'lever.co', 'smartrecruiters.com', 'myworkdayjobs.com',
+  'workable.com', 'teamtailor.com', 'personio.de', 'personio.com', 'recruitee.com',
+  'successfactors.com', 'successfactors.eu', 'icims.com', 'taleo.net', 'jobvite.com',
+  'bamboohr.com', 'join.com', 'linkedin.com', 'indeed.com', 'welcometothejungle.com',
+]
+
+/**
+ * The company's own domain from a careers URL ("https://jobs.nimbus.app/…" →
+ * nimbus.app), or null when the URL is on a job board or doesn't parse.
+ */
+export function domainFromCareersUrl(url: string): string | null {
+  let host: string
+  try { host = new URL(url).hostname.toLowerCase() } catch { return null }
+  if (ATS_HOSTS.some(h => host === h || host.endsWith(`.${h}`))) return null
+  host = host.replace(/^(www|jobs|careers|career|work|join)\./, '')
+  return DOMAIN_RE.test(host) ? host : null
+}
+
+export interface PortalsLike {
+  company_domains?: Record<string, unknown> | null
+  tracked_companies?: Array<{ name?: unknown; careers_url?: unknown; domain?: unknown }> | null
+}
+
+export interface UserDomains {
+  /** `company_domains` map and per-entry `domain:` keys: always win. */
+  explicit: Record<string, string>
+  /** Hosts of tracked companies' careers_url (job boards skipped). */
+  careers: Record<string, string>
+}
+
+/** The user's name → domain maps from a parsed user/portals.yml, keyed by nameKey(). */
+export function userDomains(portals: PortalsLike | null | undefined): UserDomains {
+  const out: UserDomains = { explicit: {}, careers: {} }
+  const clean = (d: unknown) => {
+    const v = typeof d === 'string' ? d.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '') : ''
+    return DOMAIN_RE.test(v) ? v : null
+  }
+  for (const c of portals?.tracked_companies ?? []) {
+    if (typeof c?.name !== 'string') continue
+    const own = clean(c.domain)
+    if (own) out.explicit[nameKey(c.name)] = own
+    const host = typeof c.careers_url === 'string' ? domainFromCareersUrl(c.careers_url) : null
+    if (host) out.careers[nameKey(c.name)] = host
+  }
+  for (const [name, d] of Object.entries(portals?.company_domains ?? {})) {
+    const v = clean(d)
+    if (v) out.explicit[nameKey(name)] = v
+  }
+  return out
+}
+
+/**
+ * The domain to fetch a company's logo from. A well-known brand keeps its
+ * override even when its careers site lives on another domain, unless
+ * the user named a domain for it explicitly.
+ */
+export function resolveLogoDomain(company: string, user?: UserDomains): string {
+  const key = nameKey(company)
+  return user?.explicit[key] ?? OVERRIDES[key] ?? user?.careers[key] ?? guessDomain(company)
 }

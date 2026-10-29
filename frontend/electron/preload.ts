@@ -132,7 +132,7 @@ const electronAPI = {
   run: (cmd: string, args: string[]) => ipcRenderer.invoke('shell:run', cmd, args),
 
   // Logo cache (fetched by main process, stored on disk)
-  fetchLogo: (domain: string) => ipcRenderer.invoke('logo:fetch', domain),
+  fetchLogo: (company: string) => ipcRenderer.invoke('logo:fetch', company),
 
   // Shell (streaming)
   spawn: (id: string, cmd: string, args: string[]) => ipcRenderer.invoke('shell:spawn', id, cmd, args),

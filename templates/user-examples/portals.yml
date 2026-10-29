@@ -195,6 +195,14 @@ search_queries:
 # A few examples below. Add your target companies here, or use the
 # Configuration → Portals tab in the app to add them with API probing.
 
+# Company logos: the app finds a company's logo from its domain, taken from
+# a tracked company's careers_url when that isn't a job board (Greenhouse,
+# Ashby, Workday…), else guessed from the name (name.com). When the guess is
+# wrong, name the domain here (any company, tracked or not) or put
+# `domain:` on its tracked_companies entry.
+company_domains: {}
+#  Nimbus Robotics: nimbus-robotics.io
+
 tracked_companies:
 
   # Example: a Greenhouse company
