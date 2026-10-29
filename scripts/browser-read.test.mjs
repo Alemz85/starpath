@@ -91,6 +91,20 @@ test('requeue: refuses a missing file, then moves the line back and resolves the
   } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
+test('close: a parked posting found gone moves to Filtered Out and resolves the alert', () => {
+  const root = makeRoot()
+  try {
+    assert.equal(run(root, 'park', '--url', URL, '--why', '403').code, 0)
+    const r = run(root, 'close', '--url', URL, '--why', 'page not found')
+    assert.equal(r.code, 0, r.out)
+    assert.match(r.out, /filtered out \(posting closed\): Nimbus Robotics — Strategy Analyst/)
+    const text = pipeline(root)
+    assert.ok(!text.includes('## Needs a browser read'))
+    assert.match(text, /^- \[!\] FILTERED \| https:\/\/jobs\.example\.com\/nimbus-robotics\/strategy-analyst-4417\?gh_src=abc \| Nimbus Robotics \| Strategy Analyst \| posting closed — page not found \(\d{4}-\d{2}-\d{2}\)$/m)
+    assert.deepEqual(messages(root).map((m) => m.status), ['resolved'])
+  } finally { rmSync(root, { recursive: true, force: true }) }
+})
+
 test('bad input fails with usage, and leaves no lock behind', () => {
   const root = makeRoot()
   try {

@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  PARKED_HEADING, cell, jdSavedPath, malformedParkedLines, messageKey, parkInPipeline, parkMessage,
+  PARKED_HEADING, cell, closeInPipeline, jdSavedPath, malformedParkedLines, messageKey, parkInPipeline, parkMessage,
   parkedEntries, parseParkedLine, requeueInPipeline, savedJdEntries, savedJdFor, suggestedJdPath, urlId, checkJdPath,
 } from './browser-read-core.mjs'
 import { parsePendingEntries } from './triage-core.mjs'
@@ -116,6 +116,26 @@ test('requeue keeps another parked listing and its section', () => {
   text = parkInPipeline(text, { url: URL_B, why: '403', date: DATE }).text
   const r = requeueInPipeline(text, { url: URL_B, jdFile: 'jds/contoso-ops-analyst.md', date: DATE })
   assert.deepEqual(parkedEntries(r.text).map((p) => p.company), ['Nimbus Robotics'])
+})
+
+test('close moves a parked listing to Filtered Out and drops the empty section', () => {
+  const parked = parkInPipeline(PIPE, { url: URL_A, why: '403', date: '2026-10-20' }).text
+  const r = closeInPipeline(parked, { url: URL_A, why: 'page says it no longer exists', date: DATE })
+  assert.equal(r.wasParked, true)
+  assert.equal(r.line, `- [!] FILTERED | ${URL_A} | Nimbus Robotics | Strategy Analyst | posting closed — page says it no longer exists (${DATE})`)
+  assert.ok(!r.text.includes(PARKED_HEADING))
+  const lines = r.text.split('\n')
+  assert.equal(lines.indexOf(r.line), lines.indexOf('## Filtered Out') + 2)
+  assert.deepEqual(parsePendingEntries(r.text).map((e) => e.company), ['Contoso'])
+  assert.equal(countPendingPipelineLines(r.text), 1)
+  assert.equal(r.text.split('\n').filter((l) => l.includes(URL_A)).length, 1)
+})
+
+test('close creates Filtered Out when missing and needs names for an unknown URL', () => {
+  const bare = '# Pipeline — Pending Evaluations\n\n## Pending\n'
+  assert.throws(() => closeInPipeline(bare, { url: URL_A, date: DATE }), /--company and --role/)
+  const r = closeInPipeline(bare, { url: URL_A, company: 'Nimbus Robotics', role: 'Strategy Analyst', date: DATE })
+  assert.match(r.text, /## Filtered Out\n- \[!\] FILTERED \| .* \| posting closed — gone when opened in a browser \(2026-10-21\)\n+$/)
 })
 
 test('the saved-JD path must stay under jds/', () => {

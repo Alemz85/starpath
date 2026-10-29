@@ -325,3 +325,7 @@ pastes the job description for one, or says they've read it and gives you the te
    It moves the listing back to Pending with a `JD saved:` note (the next evaluation
    reads the file instead of fetching) and resolves the alert.
 3. Say so in one line and offer to evaluate it now.
+
+If they say the page is gone (not found, closed, no longer accepting applications), run
+`node scripts/browser-read.mjs close --url '<url>' --why '<what the page showed>'`
+instead: the listing moves to Filtered Out and the alert resolves.

@@ -10,7 +10,8 @@
  * text under `jds/` (by pasting it into the app's chat, or a Claude Code
  * session reading it in a browser), *requeue* puts the line back in Pending
  * with a `JD saved: <path>` note, and the next evaluation reads that file
- * instead of fetching the page.
+ * instead of fetching the page. When the page turns out to be gone, *close*
+ * moves the line to `## Filtered Out` instead.
  *
  * Parked line (the `[!]` box keeps it out of every Pending parser, the way
  * `- [!] FILTERED` lines are):
@@ -32,6 +33,7 @@ import { archiveFileName } from './jd-archive-core.mjs'
 
 export const PARKED_HEADING = '## Needs a browser read'
 export const PARKED_TAG = 'BROWSER READ'
+export const FILTERED_HEADING = '## Filtered Out'
 export const KEY_PREFIX = 'browser-read:'
 export const JD_SAVED = 'JD saved:'
 export const PIPELINE_SCAFFOLD = '# Pipeline — Pending Evaluations\n\n## Pending\n'
@@ -244,6 +246,25 @@ export function requeueInPipeline(text, { url, jdFile, date, company, role }) {
   if (!names.company || !names.role) throw fail('EBADARGS', 'name the listing: --company and --role (it is not in data/pipeline.md)')
   const line = pendingLine({ url: u, ...names, note: jdSavedNote(jd, date) })
   insertInSection(lines, '## Pending', line)
+  dropIfEmpty(lines, PARKED_HEADING)
+  return { text: joinLines(lines), line, ...names, wasParked: taken.parked.length > 0, wasPending: taken.pending.length > 0 }
+}
+
+/**
+ * The person who opened a parked (or pending) listing found the posting gone:
+ * its lines become one `- [!] FILTERED` line under `## Filtered Out`, so no
+ * Pending parser counts it and the scanner still treats the URL as seen.
+ * Returns `{ text, line, company, role, wasParked, wasPending }`.
+ */
+export function closeInPipeline(text, { url, why, date, company, role }) {
+  const u = checkUrl(url)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) throw fail('EBADARGS', 'date must be YYYY-MM-DD')
+  const lines = splitLines(text)
+  const taken = takeLines(lines, u)
+  const names = pickNames({ company, role }, taken)
+  if (!names.company || !names.role) throw fail('EBADARGS', 'name the listing: --company and --role (it is not in data/pipeline.md)')
+  const line = `- [!] FILTERED | ${u} | ${names.company} | ${names.role} | posting closed — ${cell(why) || 'gone when opened in a browser'} (${date})`
+  insertInSection(lines, FILTERED_HEADING, line, '## Pending')
   dropIfEmpty(lines, PARKED_HEADING)
   return { text: joinLines(lines), line, ...names, wasParked: taken.parked.length > 0, wasPending: taken.pending.length > 0 }
 }

@@ -22,6 +22,10 @@
  *     back to Pending with a `JD saved: <path>` note, which tells the next
  *     evaluation to read the file instead of fetching, and resolves the alert.
  *
+ *   node scripts/browser-read.mjs close --url '<url>' [--why '<what the page showed>'] [--company …] [--role …] [--json]
+ *     The person who opened it found the posting gone: moves the line to
+ *     `## Filtered Out` (`posting closed — <why> (date)`) and resolves the alert.
+ *
  *   node scripts/browser-read.mjs list [--json]           parked listings
  *   node scripts/browser-read.mjs saved-jd --url '<url>'  the saved JD path for a pending URL (empty when none)
  *
@@ -40,7 +44,7 @@ import { writeFileAtomic } from './lib/write-file-atomic.mjs'
 import { SOURCES } from './lib/messages-core.mjs'
 import { messagesPathFor, postMessage, readMessages, setMessageStatus } from './lib/messages-store.mjs'
 import {
-  checkJdPath, messageKey, parkInPipeline, parkMessage, parkedEntries, requeueInPipeline, savedJdFor,
+  checkJdPath, closeInPipeline, messageKey, parkInPipeline, parkMessage, parkedEntries, requeueInPipeline, savedJdFor,
 } from './lib/browser-read-core.mjs'
 
 const argv = process.argv.slice(2)
@@ -63,7 +67,7 @@ const readPipeline = () => (existsSync(PIPELINE) ? readFileSync(PIPELINE, 'utf-8
 
 function usage(msg) {
   if (msg) console.error(`error: ${msg}`)
-  console.error("usage: node scripts/browser-read.mjs park --url '<url>' --company … --role … --why … | requeue --url '<url>' --jd-file jds/<file>.md | list | saved-jd --url '<url>'")
+  console.error("usage: node scripts/browser-read.mjs park --url '<url>' --company … --role … --why … | requeue --url '<url>' --jd-file jds/<file>.md | close --url '<url>' [--why …] | list | saved-jd --url '<url>'")
   process.exit(2)
 }
 
@@ -111,10 +115,22 @@ function requeue() {
   if (open.length) console.log(`resolved ${open.map((m) => m.id).join(', ')}`)
 }
 
+function close() {
+  const input = { url: flag('--url'), why: flag('--why'), company: flag('--company'), role: flag('--role'), date: today() }
+  const result = editPipeline('browser-read close', (text) => closeInPipeline(text, input))
+  const key = messageKey(input.url.trim())
+  const open = readMessages(MESSAGES).filter((m) => m.key === key && m.status === 'open')
+  for (const m of open) setMessageStatus(MESSAGES, m.id, 'resolved', { note: 'The posting is closed; moved to Filtered Out.' })
+  if (JSON_OUT) return console.log(JSON.stringify({ filtered: result.line, wasParked: result.wasParked, resolved: open.map((m) => m.id) }))
+  console.log(`filtered out (posting closed): ${result.company} — ${result.role}`)
+  if (open.length) console.log(`resolved ${open.map((m) => m.id).join(', ')}`)
+}
+
 function main() {
   switch (command) {
     case 'park': return park()
     case 'requeue': return requeue()
+    case 'close': return close()
     case 'list': {
       const parked = parkedEntries(readPipeline())
       if (JSON_OUT) return console.log(JSON.stringify(parked))

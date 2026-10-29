@@ -39,6 +39,8 @@ import type {
   StatusChangeRequest, StatusChangeResult, StatusHistoryQuery, StatusLogEntry,
 } from '../src/lib/statusLog'
 import type { ListingDates, ListingDatesMap } from '../src/lib/listingDates'
+import { resolveLogoDomain, userDomains, type UserDomains } from '../src/lib/companyDomain'
+import { load as loadYaml } from 'js-yaml'
 import type { AgentMessage, MessageStatus, MessageStatusResult } from '../src/lib/messages'
 
 const execAsync = promisify(exec)
@@ -583,8 +585,8 @@ function createWindow(): void {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           isDev
-            ? `default-src 'self' 'unsafe-inline' 'unsafe-eval' ${DEV_URL}; img-src 'self' data: https://logo.clearbit.com https://unavatar.io https://www.google.com https://t1.gstatic.com;`
-            : "default-src 'self' 'unsafe-inline'; img-src 'self' data: https://logo.clearbit.com https://unavatar.io https://www.google.com https://t1.gstatic.com; connect-src 'none';",
+            ? `default-src 'self' 'unsafe-inline' 'unsafe-eval' ${DEV_URL}; img-src 'self' data: https://unavatar.io https://www.google.com https://t1.gstatic.com;`
+            : "default-src 'self' 'unsafe-inline'; img-src 'self' data: https://unavatar.io https://www.google.com https://t1.gstatic.com; connect-src 'none';",
         ],
       },
     })
@@ -1276,14 +1278,45 @@ function fetchToBuffer(url: string): Promise<{ buf: Buffer; mime: string } | nul
   })
 }
 
-ipcMain.handle('logo:fetch', async (_e, domain: unknown) => {
-  const d = validateString(domain, 'domain')
+// The user's company → domain hints from user/portals.yml, re-read when the
+// file changes (a `company_domains` entry fixes a wrong logo without a rebuild).
+let portalDomains: { path: string; mtimeMs: number; domains: UserDomains } | null = null
+
+function readPortalDomains(base: string): UserDomains | undefined {
+  const file = path.join(base, 'user/portals.yml')
+  try {
+    const { mtimeMs } = fs.statSync(file)
+    if (portalDomains?.path !== file || portalDomains.mtimeMs !== mtimeMs) {
+      const parsed = loadYaml(fs.readFileSync(file, 'utf-8'))
+      portalDomains = { path: file, mtimeMs, domains: userDomains(parsed && typeof parsed === 'object' ? parsed : null) }
+    }
+    return portalDomains.domains
+  } catch {
+    return undefined
+  }
+}
+
+// v2: v1 kept unavatar's placeholder face for unknown domains and logos from
+// guessed domains that belonged to someone else; start clean once.
+const LOGO_CACHE = 'logo-cache-v2'
+let legacyLogoCacheGone = false
+
+ipcMain.handle('logo:fetch', async (_e, company: unknown) => {
+  const name = validateString(company, 'company')
+  const root = await getDataRoot()
   // The demo's companies are fictional; their guessed domains belong to real
   // brands, so the demo shows initials and makes no logo requests at all.
-  if ((await getDataRoot()).kind === 'demo') return null
+  if (root.kind === 'demo') return null
+  const base = dataBase(root)
+  const d = resolveLogoDomain(name, base ? readPortalDomains(base) : undefined)
   const safeName = d.replace(/[^a-z0-9.-]/gi, '_')
 
-  const cacheDir = path.join(app.getPath('userData'), 'logo-cache')
+  const userData = app.getPath('userData')
+  if (!legacyLogoCacheGone) {
+    fs.rmSync(path.join(userData, 'logo-cache'), { recursive: true, force: true })
+    legacyLogoCacheGone = true
+  }
+  const cacheDir = path.join(userData, LOGO_CACHE)
   fs.mkdirSync(cacheDir, { recursive: true })
   const cachePath = path.join(cacheDir, `${safeName}.b64`)
 
@@ -1292,10 +1325,10 @@ ipcMain.handle('logo:fetch', async (_e, domain: unknown) => {
     return fs.readFileSync(cachePath, 'utf-8')
   }
 
-  // Try sources in order — main process is not subject to renderer CSP
+  // Try sources in order — main process is not subject to renderer CSP.
+  // fallback=false makes unavatar answer 404 instead of a placeholder face.
   const sources = [
-    `https://logo.clearbit.com/${d}`,
-    `https://unavatar.io/${d}`,
+    `https://unavatar.io/${d}?fallback=false`,
     `https://www.google.com/s2/favicons?domain=${d}&sz=128`,
   ]
 
