@@ -3,7 +3,7 @@
 // that decides whether a company's real logo loads, or it falls back to
 // initials, is unit-testable in isolation.
 //
-// resolveLogoDomain, in order:
+// logoDomains, in order:
 //   1. the user's own domain for the company (user/portals.yml: a
 //      `company_domains` map, or a tracked company's non-ATS careers_url)
 //   2. guessDomain: exact override, a name that is already a domain
@@ -135,11 +135,20 @@ export function userDomains(portals: PortalsLike | null | undefined): UserDomain
 }
 
 /**
- * The domain to fetch a company's logo from. A well-known brand keeps its
- * override even when its careers site lives on another domain, unless
- * the user named a domain for it explicitly.
+ * The domains to try for a company's logo, best first. A well-known brand
+ * keeps its override even when its careers site lives on another domain,
+ * unless the user named a domain for it explicitly. When the pick came from
+ * the user's data, the name guess follows as a fallback: a careers-only
+ * domain often has no logo of its own.
  */
-export function resolveLogoDomain(company: string, user?: UserDomains): string {
+export function logoDomains(company: string, user?: UserDomains): string[] {
   const key = nameKey(company)
-  return user?.explicit[key] ?? OVERRIDES[key] ?? user?.careers[key] ?? guessDomain(company)
+  const first = user?.explicit[key] ?? OVERRIDES[key] ?? user?.careers[key]
+  const guess = guessDomain(company)
+  return first && first !== guess ? [first, guess] : [guess]
+}
+
+/** The first domain logoDomains would try. */
+export function resolveLogoDomain(company: string, user?: UserDomains): string {
+  return logoDomains(company, user)[0]
 }
