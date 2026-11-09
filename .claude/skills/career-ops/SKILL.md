@@ -3,7 +3,7 @@ name: career-ops
 description: AI job search command center -- evaluate offers, generate CVs, scan portals, track applications
 user_invocable: true
 args: mode
-argument-hint: "[scouting | positioning | ofertas | contacto | respond | interview-prep | apply | apply-kit | pdf | deep | training | project | mock-interview | network | tracker | pipeline | scan | batch | db | deadlines | patterns | followup | calibrate | comp-bench | cv-gap]"
+argument-hint: "[scouting | positioning | ofertas | contacto | respond | interview-prep | apply | apply-kit | pdf | deep | training | project | mock-interview | network | tracker | pipeline | scan | batch | db | deadlines | patterns | followup | calibrate | comp-bench | cv-gap | retro]"
 ---
 
 # career-ops -- Router
@@ -43,6 +43,7 @@ Determine the mode from `{{mode}}`:
 | `calibrate` | `calibrate` |
 | `comp-bench` | `comp-bench` |
 | `cv-gap` | `cv-gap` |
+| `retro` | `retro` |
 
 Every route above is `modes/{mode}.md`. `modes/_shared.md` is the shared rubric loaded alongside some of them, and `modes/chat.md` is the starpath app's chat prompt (appended by the app, never a command).
 
@@ -96,6 +97,7 @@ Pipeline and data:
   /career-ops patterns      -> Analyze rejection patterns and improve targeting
   /career-ops calibrate     -> Scoring-calibration feedback (read-only)
   /career-ops cv-gap        -> What the CV is missing vs evaluated roles
+  /career-ops retro         -> Turn what this session taught about how you work into rules (you apply them by id)
 
 Inbox: add URLs to data/pipeline.md → /career-ops pipeline
 Or paste a JD directly to evaluate it.
@@ -121,7 +123,7 @@ Applies to: `scouting`, `ofertas`, `pdf`, `contacto`, `apply`, `pipeline`, `scan
 ### Standalone modes (only their mode file):
 Read `modes/{mode}.md`
 
-Applies to: `tracker`, `deep`, `training`, `project`, `patterns`, `followup`, `positioning`, `respond`, `interview-prep`, `apply-kit`, `mock-interview`, `network`, `db`, `deadlines`, `calibrate`, `comp-bench`, `cv-gap` (the ones that need `_shared.md` say so in their own file)
+Applies to: `tracker`, `deep`, `training`, `project`, `patterns`, `followup`, `positioning`, `respond`, `interview-prep`, `apply-kit`, `mock-interview`, `network`, `db`, `deadlines`, `calibrate`, `comp-bench`, `cv-gap`, `retro` (the ones that need `_shared.md` say so in their own file)
 
 ### Modes delegated to subagent:
 For `scan`, `apply` (with Playwright), and `pipeline` (3+ URLs): launch as Agent with the content of `_shared.md` + `modes/{mode}.md` injected into the subagent prompt. Always in the foreground (never `run_in_background`) and wait for its result: under `claude -p` the process exits when the main thread finishes, and a background agent dies mid-run without writing anything. **No Agent tool in this session** (the app's unattended workers have none, by design): run the mode inline in the main thread instead, every step of it; the missing subagent is never a reason to skip a step.
