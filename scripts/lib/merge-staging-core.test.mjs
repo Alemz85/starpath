@@ -678,3 +678,83 @@ test('indexListingDates: one parse answers many lookups, same answers as lookupL
   assert.equal(lookup({ company: 'Nimbus', role: 'Analyst' }).display.kind, 'posted');
   assert.equal(indexListingDates('')({ company: 'Nimbus', role: 'Analyst' }), null);
 });
+
+// ── multi-city programmes: a new city of a known (company, role) ─────────
+
+const city = (url, location, o = {}) => wide({ url, first_seen: '2026-04-01', portal: 'greenhouse-api', title: 'Graduate Programme', company: 'Nimbus Robotics', location, status: 'added', scan_dates: '2026-04-01', ...o });
+const offer = (url, location, o = {}) => ({ url, company: 'Nimbus Robotics', title: 'Graduate Programme', location, ...o });
+const seedFrom = (rows, pairs = []) => seedScanSeen({ historyRows: rows, historyColumns: HISTORY_COLUMNS, companyRolePairs: pairs });
+
+test('classifyScanOffer: same title in a NEW city → new; same city (any spelling) → duplicate-role', () => {
+  const seen = seedFrom([city('https://b.example/lyon', 'Lyon, France')]);
+  assert.equal(classifyScanOffer(offer('https://b.example/porto', 'Porto, Portugal'), seen).decision, 'new');
+  for (const loc of ['Lyon', 'LYON (Hybrid)', 'Lyon, FR', 'Remote - Lyon']) {
+    assert.equal(classifyScanOffer(offer('https://b.example/lyon-2', loc), seen).decision, 'duplicate-role', loc);
+  }
+});
+
+test('classifyScanOffer: unknown location on either side → duplicate-role', () => {
+  const known = seedFrom([city('https://b.example/lyon', 'Lyon')]);
+  for (const loc of ['', 'Remote', 'France']) {
+    assert.equal(classifyScanOffer(offer('https://b.example/x', loc), known).decision, 'duplicate-role', `new side ${JSON.stringify(loc)}`);
+  }
+  const unknown = seedFrom([city('https://b.example/old', ''), city('https://b.example/lyon', 'Lyon')]);
+  assert.equal(classifyScanOffer(offer('https://b.example/porto', 'Porto'), unknown).decision, 'duplicate-role', 'a history row with no location blocks every city');
+  const wild = seedFrom([city('https://b.example/rem', 'Remote, Portugal')]);
+  assert.equal(classifyScanOffer(offer('https://b.example/porto', 'Porto'), wild).decision, 'duplicate-role');
+});
+
+test('classifyScanOffer: multi-city overlap is a duplicate; the history `locations` cell counts', () => {
+  const seen = seedFrom([city('https://b.example/multi', 'Lyon', { locations: 'Lyon|Porto' })]);
+  assert.equal(classifyScanOffer(offer('https://b.example/p', 'Porto'), seen).decision, 'duplicate-role');
+  assert.equal(classifyScanOffer(offer('https://b.example/np', 'Nice; Porto'), seen).decision, 'duplicate-role');
+  assert.equal(classifyScanOffer(offer('https://b.example/n', 'Nice', { locations: ['Nice'] }), seen).decision, 'new');
+});
+
+test('classifyScanOffer: a key seen only from a tracker (no location) blocks every city', () => {
+  const seen = seedFrom([city('https://b.example/lyon', 'Lyon')], [['Nimbus Robotics', 'Graduate Programme']]);
+  assert.equal(classifyScanOffer(offer('https://b.example/porto', 'Porto'), seen).decision, 'duplicate-role');
+  const trackerOnly = seedFrom([], [['Nimbus Robotics', 'Graduate Programme']]);
+  assert.equal(classifyScanOffer(offer('https://b.example/porto', 'Porto'), trackerOnly).decision, 'duplicate-role');
+});
+
+test('classifyScanOffer: url and id rules still win over a new city; no seenLocations = plain key check', () => {
+  const seen = seedFrom([city('https://b.example/lyon', 'Lyon', { posting_id: '7' })]);
+  assert.equal(classifyScanOffer(offer('https://b.example/lyon?utm_source=x', 'Porto'), seen).decision, 'duplicate-url');
+  assert.equal(classifyScanOffer(offer('https://b.example/renamed', 'Porto', { source: 'greenhouse-api', externalId: '7' }), seen).decision, 'duplicate-id');
+  const legacy = { seenUrls: new Set(), seenKeys: new Set(seen.seenKeys) };
+  assert.equal(classifyScanOffer(offer('https://b.example/porto', 'Porto'), legacy).decision, 'duplicate-role');
+});
+
+test('mergeHistory: two cities of one programme in one batch both land, a third repeat of one city does not', () => {
+  const r = mergeHistory([], [
+    city('https://b.example/lyon', 'Lyon'),
+    city('https://b.example/porto', 'Porto'),
+    city('https://b.example/lyon-again', 'Lyon, France'),
+    city('https://b.example/nowhere', ''),
+  ], '2026-05-01', { columns: HISTORY_COLUMNS });
+  assert.equal(r.appended, 2);
+  assert.equal(r.droppedDuplicateRole, 2);
+  assert.deepEqual([...r.appendedUrls].sort(), ['https://b.example/lyon', 'https://b.example/porto']);
+});
+
+test('mergeHistory: a new city of a role already on disk is appended; the same city is not', () => {
+  const r = mergeHistory([city('https://b.example/lyon', 'Lyon')], [
+    city('https://b.example/lyon-2', 'Lyon (Hybrid)'),
+    city('https://b.example/porto', 'Porto'),
+  ], '2026-05-01', { columns: HISTORY_COLUMNS });
+  assert.equal(r.appended, 1);
+  assert.equal(r.droppedDuplicateRole, 1);
+  assert.equal(r.rows.at(-1).split('\t')[0], 'https://b.example/porto');
+});
+
+test('filterPipelineLines: a line whose history row was just appended passes the role check', () => {
+  const line = (u) => `- [ ] ${u} | Nimbus Robotics | Graduate Programme`;
+  const seenKeys = new Set([companyRoleKey('Nimbus Robotics', 'Graduate Programme')]);
+  const r = filterPipelineLines(
+    [line('https://b.example/porto'), line('https://b.example/nice'), line('https://b.example/lyon-again')],
+    { seenKeys, appendedUrls: new Set(['https://b.example/porto', 'https://b.example/nice']) }
+  );
+  assert.deepEqual(r.toAppend, [line('https://b.example/porto'), line('https://b.example/nice')]);
+  assert.equal(r.droppedDuplicateRole, 1);
+});

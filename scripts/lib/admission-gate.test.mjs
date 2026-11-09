@@ -12,7 +12,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseBlacklist, blacklistReason, createAdmissionGate, gateFromPortals } from './admission-gate.mjs';
-import { seedScanSeen } from './merge-staging-core.mjs';
+import { seedScanSeen, companyRoleKey } from './merge-staging-core.mjs';
 import { HISTORY_COLUMNS, buildHistoryRow, parseHistoryFile, getCell } from './scan-history.mjs';
 import { runScan } from '../scan.mjs';
 import { runMerge } from '../merge-scan-staging.mjs';
@@ -20,7 +20,7 @@ import { runMerge } from '../merge-scan-staging.mjs';
 const PORTALS_CFG = {
   title_filter: { positive: ['Analyst'], negative: ['Senior'] },
   lang_blocklist: ['(m/w/d)'],
-  location_allowlist: ['aldervale', 'remote'],
+  location_allowlist: ['aldervale', 'brightwater', 'remote'],
 };
 
 // ── blacklist file ─────────────────────────────────────────────────────────
@@ -108,6 +108,30 @@ test('screen / locate / classify / claim are the same stages admit() composes', 
   assert.equal(g.blocksCompany('Nimbus Robotics'), false);
 });
 
+test('seen stage: a known (company, role) passes only in a city no earlier posting named', () => {
+  const hist = (url, location, title = 'Graduate Analyst') =>
+    buildHistoryRow({ url, source: 'greenhouse-api', title, company: 'Nimbus Robotics', location }, '2026-10-01');
+  const seen = seedScanSeen({
+    historyRows: [hist('https://boards.example.com/g/a', 'Aldervale'), hist('https://boards.example.com/t/a', 'Aldervale', 'Tracked Analyst')],
+    companyRolePairs: [['Nimbus Robotics', 'Tracked Analyst']],
+    historyColumns: HISTORY_COLUMNS,
+  });
+  const g = gate({ seen });
+  const a = (o) => g.admit(job({ title: 'Graduate Analyst', externalId: '', ...o }));
+  assert.equal(a({ url: 'https://boards.example.com/g/b', location: 'Brightwater' }).ok, true, 'new city');
+  assert.equal(a({ url: 'https://boards.example.com/g/c', location: 'Brightwater, Freeland' }).decision, 'duplicate-role', 'claimed this run');
+  assert.equal(a({ url: 'https://boards.example.com/g/d', location: 'aldervale (hybrid)' }).decision, 'duplicate-role', 'same city as history');
+  assert.equal(a({ url: 'https://boards.example.com/g/e', location: '' }).decision, 'duplicate-role', 'unknown location');
+  assert.equal(a({ url: 'https://boards.example.com/g/f', location: 'Remote' }).decision, 'duplicate-role', 'remote is not a city');
+  assert.equal(g.admit(job({ title: 'Tracked Analyst', url: 'https://boards.example.com/t/b', location: 'Brightwater', externalId: '' })).decision,
+    'duplicate-role', 'a key also on a tracker (no location) blocks every city');
+});
+
+test('a gate built without seenLocations keeps the plain (company, role) check', () => {
+  const g = createAdmissionGate({ seen: { seenUrls: new Set(), seenKeys: new Set([companyRoleKey('Nimbus Robotics', 'Ops Analyst')]) } });
+  assert.equal(g.admit(job({ location: 'Brightwater' })).decision, 'duplicate-role');
+});
+
 test('an empty gate admits everything new', () => {
   const g = createAdmissionGate();
   assert.equal(g.admit(job()).ok, true);
@@ -120,7 +144,7 @@ title_filter:
   positive: ["Analyst"]
   negative: ["Senior"]
 lang_blocklist: ["(m/w/d)"]
-location_allowlist: ["aldervale", "remote"]
+location_allowlist: ["aldervale", "brightwater", "remote"]
 tracked_companies:
   - name: Nimbus Robotics
     api: https://boards-api.greenhouse.io/v1/boards/nimbus-demo/jobs
@@ -141,8 +165,13 @@ const LISTINGS = [
   ['Known Analyst', 'Nimbus Robotics', 'Aldervale', 'https://boards.example.com/nimbus/8', 'g8'],         // known url
   ['Renamed Analyst', 'Nimbus Robotics', 'Aldervale', 'https://boards.example.com/nimbus/9-new', 'g9'],   // known id
   ['Role Dup Analyst', 'Nimbus Robotics', 'Aldervale', 'https://boards.example.com/nimbus/10-new', 'g10'], // known (company, role)
+  ['Role Dup Analyst', 'Nimbus Robotics', 'Brightwater', 'https://boards.example.com/nimbus/11', 'g11'],  // known role, new city
+  ['Graduate Analyst', 'Nimbus Robotics', 'Aldervale', 'https://boards.example.com/nimbus/12', 'g12'],    // new
+  ['Graduate Analyst', 'Nimbus Robotics', 'Brightwater', 'https://boards.example.com/nimbus/13', 'g13'],  // new (second city, same run)
+  ['Graduate Analyst', 'Nimbus Robotics', 'Aldervale (Hybrid)', 'https://boards.example.com/nimbus/14', 'g14'], // repeat of a city this run
+  ['Graduate Analyst', 'Nimbus Robotics', '', 'https://boards.example.com/nimbus/15', 'g15'],             // unknown location
 ];
-const EXPECTED_NEW = ['Data Analyst', 'Ops Analyst'];
+const EXPECTED_NEW = ['Data Analyst', 'Graduate Analyst', 'Graduate Analyst', 'Ops Analyst', 'Role Dup Analyst'];
 
 /** Existing scan-history: the three known postings. */
 function historyText() {
@@ -208,6 +237,11 @@ test('parity: the same listings admit the same set through scan.mjs and through 
       // the pipeline got exactly the admitted listings, no more
       const pipeline = readFileSync(join(mergeDir, 'data/pipeline.md'), 'utf-8');
       for (const t of EXPECTED_NEW) assert.match(pipeline, new RegExp(`\\| ${t}`));
+      const count = (text, t) => text.split('\n').filter((l) => l.endsWith(`| ${t}`) || l.includes(`| ${t} |`)).length;
+      assert.equal(count(pipeline, 'Graduate Analyst'), 2, 'merge pipeline: one line per admitted city');
+      assert.equal(count(pipeline, 'Role Dup Analyst'), 1, 'merge pipeline: the new city of a known role');
+      const scanPipeline = readFileSync(join(scanDir, 'data/pipeline.md'), 'utf-8');
+      assert.equal(count(scanPipeline, 'Graduate Analyst'), 2, 'scan pipeline: one line per admitted city');
       for (const t of ['Senior Analyst', 'Credit Analyst', 'Risk Analyst', 'Pricing Analyst', 'm/w/d']) assert.doesNotMatch(pipeline, new RegExp(t.replace(/[()/]/g, '\\$&')));
     } finally { rmSync(mergeDir, { recursive: true, force: true }); }
   } finally { rmSync(scanDir, { recursive: true, force: true }); }

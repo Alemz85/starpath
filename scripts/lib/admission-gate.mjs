@@ -16,7 +16,9 @@
  *   title       positive/negative keyword filter (scan-core.buildTitleFilter)
  *   language    lang_blocklist
  *   location    kept when ANY of the job's locations is allowed
- *   seen        canonical URL → ATS posting id → normalized (company, role)
+ *   seen        canonical URL → ATS posting id → normalized (company, role),
+ *               where a (company, role) already seen still passes in a city no
+ *               earlier posting of it named (lib/location-identity.mjs)
  *
  * `admit()` runs the whole chain in that order; `prefilter()` is everything but
  * the seen-set (the JobSpy merge runs its own dedup after it). scan.mjs uses the same stage
@@ -39,6 +41,7 @@ import {
 } from '../scan-core.mjs';
 import { classifyScanOffer } from './merge-staging-core.mjs';
 import { splitLocations, anyLocationAllowed } from './listing-fields.mjs';
+import { recordLocations } from './location-identity.mjs';
 
 // ── Blacklist ───────────────────────────────────────────────────────────────
 
@@ -106,7 +109,7 @@ export function blacklistReason(blacklist, { company, url }) {
  * @param {(location:string)=>boolean} [opts.locationFilter] true = keep
  * @param {string[]} [opts.knownPlaces] names the location splitter may treat as separate places
  * @param {ReturnType<typeof parseBlacklist>} [opts.blacklist]
- * @param {{seenUrls:Set<string>, seenKeys:Set<string>, seenIds?:Set<string>}} [opts.seen]
+ * @param {{seenUrls:Set<string>, seenKeys:Set<string>, seenIds?:Set<string>, seenLocations?:Map<string, Set<string>>}} [opts.seen]
  */
 export function createAdmissionGate({
   titleFilter = () => true,
@@ -116,7 +119,15 @@ export function createAdmissionGate({
   blacklist = null,
   seen = { seenUrls: new Set(), seenKeys: new Set(), seenIds: new Set() },
 } = {}) {
-  const seenSets = { seenUrls: seen.seenUrls, seenKeys: seen.seenKeys, seenIds: seen.seenIds || new Set() };
+  // `seenLocations` (per (company, role) key, the cities already seen) lets a
+  // new city of a multi-city programme through. A key it does not list was
+  // seen somewhere unknown and keeps blocking every city.
+  const seenSets = {
+    seenUrls: seen.seenUrls,
+    seenKeys: seen.seenKeys,
+    seenIds: seen.seenIds || new Set(),
+    seenLocations: seen.seenLocations || new Map(),
+  };
   const stats = { blacklist: 0, title: 0, language: 0, location: 0, duplicate: 0, admitted: 0 };
 
   /**
@@ -168,7 +179,10 @@ export function createAdmissionGate({
   function claim(c) {
     if (c.canonicalUrl) seenSets.seenUrls.add(c.canonicalUrl);
     if (c.idKey) seenSets.seenIds.add(c.idKey);
-    if (c.key) seenSets.seenKeys.add(c.key);
+    if (c.key) {
+      seenSets.seenKeys.add(c.key);
+      recordLocations(seenSets.seenLocations, c.key, c.places);
+    }
   }
 
   /**

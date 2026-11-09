@@ -196,6 +196,7 @@ export function runMerge({ log = console.log } = {}) {
   let historyDupUrls = 0;
   let rows = existingRows;
   let rejectedUrls = new Set();
+  let appendedUrls = new Set();
   let gateDrops = {};
 
   if (stagingHistoryExists) {
@@ -210,6 +211,7 @@ export function runMerge({ log = console.log } = {}) {
     historyDupRoles = result.droppedDuplicateRole;
     historyDupUrls = result.droppedDuplicateUrl;
     rejectedUrls = result.rejectedUrls;
+    appendedUrls = result.appendedUrls;
     gateDrops = result.gateDrops;
     saveHistory(columns, rows);
   }
@@ -220,7 +222,10 @@ export function runMerge({ log = console.log } = {}) {
   //    brand-new job appended to history this run must still reach the
   //    pipeline, while a cross-URL duplicate — whose original is on disk, so
   //    its key is in historyKeys — is correctly suppressed. Within-batch
-  //    pipeline dedup is handled inside filterPipelineLines.
+  //    pipeline dedup is handled inside filterPipelineLines. Pipeline lines
+  //    carry no location, so a line whose history row was just appended as
+  //    new (a new city of a role already on disk) passes the role check:
+  //    the history merge saw its city and made the call (appendedUrls).
   let pipelineAppended = 0;
   let pipelineDupRoles = 0;
   let pipelineLowQuality = 0;
@@ -232,7 +237,7 @@ export function runMerge({ log = console.log } = {}) {
 
     const seenUrls = new Set([...urlsInPipeline(), ...urlsInApplications()]);
     const seenKeys = new Set(historyKeys);
-    const result = filterPipelineLines(stagingLines, { seenUrls, seenKeys, prefilter, rejectedUrls });
+    const result = filterPipelineLines(stagingLines, { seenUrls, seenKeys, prefilter, rejectedUrls, appendedUrls });
     pipelineAppended = result.appended;
     pipelineDupRoles = result.droppedDuplicateRole;
     pipelineLowQuality = result.droppedLowQuality;
