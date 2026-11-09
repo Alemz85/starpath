@@ -16,7 +16,13 @@
  * listing. The v1 10/11-column forms are retired — v1 data was archived, so
  * they are rejected with a warning rather than converted.
  *
- * Dedup: company normalized + role fuzzy match + report number match.
+ * Identity (lib/scouting-identity.mjs): an addition updates a row only when
+ * it is the SAME listing — same posting id / URL (from the report header's
+ * **URL:**, else data/score-history.tsv), or the same company and row number,
+ * or, when neither side has a URL, the same company + role (boilerplate
+ * dropped) + city. A different URL or city makes it a new row; a similar
+ * title alone never overwrites a row: the addition gets its own row and a
+ * warning names both rows so a person can dedup by hand.
  * Re-evaluation: a newer evaluation of the same listing REPLACES the old row
  * (the score is point-in-time, not a high-water mark); the note records
  * "Re-eval (M a→b, E c→d)". An addition dated before the existing row is
@@ -42,15 +48,13 @@
  * Run: node career-ops/merge-scouting.mjs [--dry-run] [--verify]
  */
 
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, readdirSync, mkdirSync, renameSync, existsSync, appendFileSync, openSync, readSync, closeSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { execFileSync } from 'child_process';
 import {
   companyKey,
   normalizeRoleForIndex,
-  roleVariantMatch,
-  extractReportNum,
   isV2ScoutingHeader,
   parseScoutingRow,
   parseScoutingTsv,
@@ -64,12 +68,14 @@ import { refreshApplicationRows } from './lib/tracker-core.mjs';
 import { acquireLockSync, lockPathFor, withLockSync } from './lib/dir-lock.mjs';
 import { writeFileAtomic } from './lib/write-file-atomic.mjs';
 import { isReserved, pickEntryNum, releaseNum } from './lib/report-nums.mjs';
-import { reportLinkTarget } from './lib/report-link.mjs';
+import { reportLinkTarget, normalizeReportPath } from './lib/report-link.mjs';
+import { parseReportHeader, indexScoreHistory, resolveIdentity, findSameListing } from './lib/scouting-identity.mjs';
 
 const CAREER_OPS = process.env.CAREER_OPS_ROOT || dirname(dirname(fileURLToPath(import.meta.url)));
 const SCOUTING_FILE = join(CAREER_OPS, 'data/scouting.md');
 const APPLICATIONS_FILE = join(CAREER_OPS, 'data/applications.md');
 const DEDUP_INDEX_FILE = join(CAREER_OPS, 'data/dedup-index.tsv');
+const SCORE_HISTORY_FILE = join(CAREER_OPS, 'data/score-history.tsv');
 const DEDUP_INDEX_HEADER = 'company_normalized\trole_normalized\tlast_seen_date';
 const ADDITIONS_DIR = join(CAREER_OPS, 'batch/scouting-additions');
 const MERGED_DIR = join(ADDITIONS_DIR, 'merged');
@@ -79,6 +85,43 @@ const VERIFY = process.argv.includes('--verify');
 /** The link target of a `[n](reports/…md)` cell, or null. */
 function reportPath(cell) {
   return reportLinkTarget(cell);
+}
+
+/**
+ * Header of the report a `[n](reports/…md)` cell links to, or null. Reads only
+ * the first few KB and never throws: a missing, unreadable or out-of-tree
+ * report just means "no identity from the report".
+ */
+const reportHeaderCache = new Map();
+function reportHeader(cell) {
+  const target = reportPath(cell);
+  if (!target) return null;
+  const rel = normalizeReportPath(target);
+  if (!rel.startsWith('reports/') || rel.split('/').includes('..')) return null;
+  if (reportHeaderCache.has(rel)) return reportHeaderCache.get(rel);
+  let header = null;
+  let fd;
+  try {
+    fd = openSync(join(CAREER_OPS, rel), 'r');
+    const buf = Buffer.alloc(8192);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    header = parseReportHeader(buf.subarray(0, n).toString('utf-8'));
+  } catch {
+    header = null;
+  } finally {
+    if (fd !== undefined) try { closeSync(fd); } catch { /* ignore */ }
+  }
+  reportHeaderCache.set(rel, header);
+  return header;
+}
+
+function loadScoreHistory() {
+  try {
+    return existsSync(SCORE_HISTORY_FILE) ? indexScoreHistory(readFileSync(SCORE_HISTORY_FILE, 'utf-8')) : new Map();
+  } catch (e) {
+    console.warn(`⚠️  Could not read data/score-history.tsv (${e.message}); matching on report headers only`);
+    return new Map();
+  }
 }
 
 function appendDedupIndex(company, role, date) {
@@ -161,10 +204,24 @@ let skipped = 0;
 const newRows = [];
 const mergedNums = []; // TSV numbers to release from the reservation folder
 const merged = []; // every addition that landed (added or updated), for the applications refresh
-// Rows this run already rewrote. Only an exact role or report-path match may
-// land on one again: a loose match would compare the next addition with the
-// role the previous one just wrote, chaining sibling listings into one row.
-const touched = new Set();
+const history = loadScoreHistory();
+// Identity of each existing row (lib/scouting-identity.mjs), resolved once; a
+// row this run rewrote takes the identity of the addition that rewrote it.
+const rowIdentity = new Map();
+const rewritten = new Set();
+function identityOf(e, additionPath) {
+  if (rewritten.has(e)) return rowIdentity.get(e);
+  // Reports are named `{Company} - {Role}.md`: when this row links the
+  // addition's own report path, the file may now hold the incoming listing,
+  // so it says nothing about this row.
+  if (additionPath && reportPath(e.report) === additionPath) return resolveIdentity(e, { report: null, history });
+  if (!rowIdentity.has(e)) rowIdentity.set(e, resolveIdentity(e, { report: reportHeader(e.report), history }));
+  return rowIdentity.get(e);
+}
+const rowLabel = (e) => `#${e.num} ${e.company} — ${e.role} (${e.date})`;
+// Additions split off as a different listing from a same-company look-alike
+// are kept out of the applications refresh, which matches on company + role.
+const noRefresh = new Set();
 
 // A file holds one addition per line: one per listing from a batch worker, or
 // a whole run's rows from an app run that scored many listings at once.
@@ -178,24 +235,15 @@ for (const { line, label } of additionLines) {
   if (!addition) { skipped++; continue; }
   mergedNums.push(addition.num);
 
-  // Match the listing, most specific first. Numbers come last and only within
-  // the same company: parallel workers can pick the same next number (two
-  // listings both arriving as #13), so a number alone must never decide which
-  // row a result overwrites.
-  const normCompany = companyKey(addition.company);
-  const sameCompany = (e) => companyKey(e.company) === normCompany;
-  const roleKey = normalizeRoleForIndex(addition.role);
+  // Update a row only when this is the SAME listing: same posting URL / id,
+  // else same company + row number, else (no URL on a side) same company +
+  // role + city. A number is only evidence within one company: parallel
+  // workers once picked the same next number for two listings.
   const path = reportPath(addition.report);
-  const untouched = (e) => !touched.has(e);
-  let dup =
-    existing.find(e => sameCompany(e) && normalizeRoleForIndex(e.role) === roleKey) ||
-    (path && existing.find(e => reportPath(e.report) === path)) ||
-    existing.find(e => sameCompany(e) && untouched(e) && roleVariantMatch(addition.role, e.role)) ||
-    null;
-  if (!dup) {
-    const reportNum = extractReportNum(addition.report);
-    dup = existing.find(e => sameCompany(e) && untouched(e) && ((reportNum && extractReportNum(e.report) === reportNum) || e.num === addition.num)) || null;
-  }
+  const additionIdentity = resolveIdentity(addition, { report: reportHeader(addition.report), history });
+  const candidates = existing.map((e) => ({ num: e.num, company: e.company, role: e.role, date: e.date, identity: identityOf(e, path), entry: e }));
+  const found = findSameListing({ ...addition, identity: additionIdentity }, candidates);
+  const dup = found.row ? found.row.entry : null;
 
   if (dup) {
     if (shouldReplaceScoutingRow(dup, addition)) {
@@ -205,9 +253,10 @@ for (const { line, label } of additionLines) {
         const newLine = formatScoutingRow(buildReEvalRow(dup, addition));
         fileLines[idx] = newLine;
         Object.assign(dup, parseScoutingRow(newLine)); // keep `existing` in sync for later additions in this batch
-        touched.add(dup);
+        rowIdentity.set(dup, additionIdentity);
+        rewritten.add(dup);
         updated++;
-        merged.push(addition);
+        merged.push({ ...addition, scoutingNum: dup.num });
         appendDedupIndex(addition.company, addition.role, addition.date);
       }
     } else {
@@ -222,8 +271,15 @@ for (const { line, label } of additionLines) {
     const report = /^\[\d+\]/.test(addition.report) ? addition.report.replace(/^\[\d+\]/, `[${entryNum}]`) : addition.report;
     newRows.push(formatScoutingRow({ ...addition, num: entryNum, report }));
     added++;
-    merged.push({ ...addition, report });
+    const entry = { ...addition, report, scoutingNum: entryNum };
+    merged.push(entry);
     console.log(`➕ Add #${entryNum}: ${addition.company} — ${addition.role} (M ${addition.match} · E ${addition.ease}, ${addition.tier}, ${addition.eligibility.split(':')[0]})`);
+    for (const c of found.conflicts) {
+      const prefix = c.verdict === 'ambiguous' ? '⚠️  Possible duplicate' : 'ℹ️  Kept apart';
+      console.warn(`${prefix}: new #${entryNum} ${addition.company} — ${addition.role} (${addition.date}) vs existing ${rowLabel(c.row.entry)}: ${c.reason}.` +
+        (c.verdict === 'ambiguous' ? ' Added as its own row; if they are one listing, delete the extra row in data/scouting.md and run node scripts/rebuild-dedup-index.mjs.' : ''));
+    }
+    if (found.conflicts.length > 0) noRefresh.add(entry);
     appendDedupIndex(addition.company, addition.role, addition.date);
   }
 }
@@ -247,10 +303,13 @@ if (newRows.length > 0) {
 let refreshed = 0;
 if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) withLockSync(lockPathFor(APPLICATIONS_FILE), () => {
   const appLines = readFileSync(APPLICATIONS_FILE, 'utf-8').split('\n');
-  const updates = merged.map(a => ({
+  for (const a of merged.filter((m) => noRefresh.has(m))) {
+    console.log(`ℹ️  applications.md not refreshed from new #${a.scoutingNum} ${a.company} — ${a.role}: it is a different listing from a look-alike scouting row`);
+  }
+  const updates = merged.filter((m) => !noRefresh.has(m)).map(a => ({
     company: a.company, role: a.role,
     match: Number.parseFloat(a.match), ease: Number.parseFloat(a.ease),
-    report: a.report,
+    report: a.report, scoutingNum: a.scoutingNum,
   }));
   const { lines, changed, matched } = refreshApplicationRows(appLines, updates);
   for (const c of changed) console.log(`📝 applications.md #${c.num} ${c.company} — ${c.role}: ${c.from} → ${c.to}`);
@@ -262,7 +321,9 @@ if (merged.length > 0 && existsSync(APPLICATIONS_FILE)) withLockSync(lockPathFor
   for (const { num, update } of matched) {
     for (let i = 0; i < fileLines.length; i++) {
       const e = parseScoutingRow(fileLines[i]);
-      if (!e || companyKey(e.company) !== companyKey(update.company) || e.role !== update.role) continue;
+      // Only the row this addition landed in: a same-titled row for another
+      // city or posting is a different listing, not this application.
+      if (!e || e.num !== update.scoutingNum || companyKey(e.company) !== companyKey(update.company) || e.role !== update.role) continue;
       const hint = `PROMOTED-${num}`;
       if (e.hint !== hint) fileLines[i] = formatScoutingRow({ ...e, hint });
     }
