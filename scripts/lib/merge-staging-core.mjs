@@ -49,6 +49,7 @@ import {
   pickDisplayDate,
 } from './scan-history.mjs';
 import { parseLocationsCell } from './listing-fields.mjs';
+import { ANY_LOCATION, locationTokens, recordLocations, isNewLocation } from './location-identity.mjs';
 
 // The ORIGINAL scan-history header (8 columns): what every scan-history.tsv
 // must at least carry, and what `npm run doctor` validates against. The files
@@ -265,7 +266,9 @@ export function dataLines(text, { hasHeader = true } = {}) {
 /**
  * Index existing scan-history rows: a canonical-URL→rowIndex map (for re-seen
  * scan-date bumps) plus the set of normalized (company, role) keys already
- * present.
+ * present, and `companyRoleLocations`: per key, the place tokens its rows name
+ * (lib/location-identity.mjs; a row with no usable location records
+ * ANY_LOCATION, so that key keeps blocking every city).
  *
  * `rows` is the array of raw TSV data lines (no header). URLs are stored under
  * their canonical form so a re-seen posting whose URL only differs by a
@@ -276,17 +279,29 @@ export function dataLines(text, { hasHeader = true } = {}) {
 export function indexHistory(rows, columns = HISTORY_COLUMNS) {
   const urlToIndex = new Map();
   const companyRoleSeen = new Set();
+  const companyRoleLocations = new Map();
   const idToIndex = new Map();
   rows.forEach((line, i) => {
     const cols = line.split('\t');
     const url = cols[COL_URL];
     if (url) urlToIndex.set(canonicalizeUrl(url), i);
     const key = companyRoleKey(cols[COL_COMPANY], cols[COL_TITLE]);
-    if (key) companyRoleSeen.add(key);
+    if (key) {
+      companyRoleSeen.add(key);
+      recordLocations(companyRoleLocations, key, rowLocationTokens(line, columns));
+    }
     const idKey = postingIdKey(getCell(line, columns, 'portal'), getCell(line, columns, 'posting_id'));
     if (idKey) idToIndex.set(idKey, i);
   });
-  return { urlToIndex, companyRoleSeen, idToIndex };
+  return { urlToIndex, companyRoleSeen, companyRoleLocations, idToIndex };
+}
+
+/** Place tokens of a scan-history row: its `location` and `locations` cells together. */
+export function rowLocationTokens(line, columns = HISTORY_COLUMNS) {
+  return locationTokens([
+    getCell(line, columns, 'location'),
+    ...parseLocationsCell(getCell(line, columns, 'locations')),
+  ]);
 }
 
 /** Append/refresh the scan_dates column (index 7) with `date`, idempotently. */
@@ -310,7 +325,9 @@ export function appendScanDate(row, date) {
  * Dedup precedence per staging row:
  *   1. Known canonical URL → bump that row's scan_dates to `today` (re-seen).
  *   2. Known (company, role) — already in history or accepted this run, under
- *      a different URL → DROP as a cross-URL duplicate.
+ *      a different URL → DROP as a cross-URL duplicate, unless the row names a
+ *      city no earlier row of that key named (a multi-city programme posted
+ *      city by city; an unknown location on either side is still a duplicate).
  *   3. Otherwise   → append as a new row.
  *
  * Pure: takes the current rows + staging lines, returns the new rows array
@@ -330,15 +347,16 @@ export function appendScanDate(row, date) {
  *
  * @returns {{rows: string[], appended: number, updatedScanDates: number,
  *            droppedDuplicateRole: number, droppedDuplicateUrl: number,
- *            acceptedKeys: Set<string>, acceptedUrls: Set<string>,
+ *            acceptedKeys: Set<string>, acceptedUrls: Set<string>, appendedUrls: Set<string>,
  *            gateDrops: Record<string, number>, rejectedUrls: Set<string>}}
  *
  * `acceptedUrls` holds CANONICAL urls (so the pipeline pass can compare against
- * the same canonical space).
+ * the same canonical space). `appendedUrls` is the subset appended as new rows
+ * (the pipeline pass lets those past its location-blind role check).
  */
 export function mergeHistory(existingRows, stagingLines, today, { columns = HISTORY_COLUMNS, stagingColumns = columns, prefilter = null } = {}) {
   const rows = existingRows.slice();
-  const { urlToIndex, companyRoleSeen, idToIndex } = indexHistory(rows, columns);
+  const { urlToIndex, companyRoleSeen, companyRoleLocations, idToIndex } = indexHistory(rows, columns);
 
   let appended = 0;
   let updatedScanDates = 0;
@@ -417,7 +435,8 @@ export function mergeHistory(existingRows, stagingLines, today, { columns = HIST
 
     // 2. Same (company, role) under a different URL → cross-URL duplicate.
     const key = companyRoleKey(cols[COL_COMPANY], cols[COL_TITLE]);
-    if (key && companyRoleSeen.has(key)) {
+    const places = rowLocationTokens(line, columns);
+    if (key && companyRoleSeen.has(key) && !isNewLocation(companyRoleLocations, key, places)) {
       droppedDuplicateRole++;
       continue;
     }
@@ -428,6 +447,7 @@ export function mergeHistory(existingRows, stagingLines, today, { columns = HIST
     appendedUrls.add(url);
     if (key) {
       companyRoleSeen.add(key);
+      recordLocations(companyRoleLocations, key, places);
       acceptedKeys.add(key);
     }
     rows.push(line);
@@ -443,6 +463,7 @@ export function mergeHistory(existingRows, stagingLines, today, { columns = HIST
     droppedDuplicateUrl,
     acceptedKeys,
     acceptedUrls,
+    appendedUrls,
     gateDrops,
     rejectedUrls,
   };
@@ -483,7 +504,12 @@ export function mergeHistory(existingRows, stagingLines, today, { columns = HIST
  * @param {string[]} [opts.historyRows] raw scan-history.tsv data lines (no header)
  * @param {Iterable<[string,string]>} [opts.companyRolePairs] extra `[company, role]`
  *        tuples (e.g. parsed from applications.md)
- * @returns {{seenUrls: Set<string>, seenKeys: Set<string>, seenIds: Set<string>}}
+ * @returns {{seenUrls: Set<string>, seenKeys: Set<string>, seenIds: Set<string>,
+ *            seenLocations: Map<string, Set<string>>}}
+ *
+ * `seenLocations` holds, per key, the place tokens history rows named. A pair
+ * from `companyRolePairs` carries no location, so its key records ANY_LOCATION
+ * and keeps blocking every city.
  */
 export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [], historyColumns = HISTORY_COLUMNS } = {}) {
   const seenUrls = new Set();
@@ -492,21 +518,26 @@ export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [
     if (u) seenUrls.add(canonicalizeUrl(u));
   }
   const seenKeys = new Set();
+  const seenLocations = new Map();
   // Scan-history rows contribute BOTH their canonical URLs (so a re-seen
   // posting maps back onto its row) and their (company, role) keys (the
   // cross-run safety net scan.mjs used to miss by reading role dedup from
   // applications.md alone). indexHistory canonicalizes URLs the same way.
   if (historyRows.length) {
-    const { urlToIndex, companyRoleSeen, idToIndex } = indexHistory(historyRows, historyColumns);
+    const { urlToIndex, companyRoleSeen, companyRoleLocations, idToIndex } = indexHistory(historyRows, historyColumns);
     for (const u of urlToIndex.keys()) seenUrls.add(u);
     for (const k of companyRoleSeen) seenKeys.add(k);
+    for (const [k, places] of companyRoleLocations) seenLocations.set(k, places);
     for (const id of idToIndex.keys()) seenIds.add(id);
   }
   for (const [company, role] of companyRolePairs) {
     const key = companyRoleKey(company, role);
-    if (key) seenKeys.add(key);
+    if (key) {
+      seenKeys.add(key);
+      recordLocations(seenLocations, key, [ANY_LOCATION]);
+    }
   }
-  return { seenUrls, seenKeys, seenIds };
+  return { seenUrls, seenKeys, seenIds, seenLocations };
 }
 
 /**
@@ -515,37 +546,49 @@ export function seedScanSeen({ urls = [], historyRows = [], companyRolePairs = [
  *
  *   1. canonical URL already seen     → 'duplicate-url'  (re-seen; bump scan_dates)
  *   2. ATS posting id already seen    → 'duplicate-id'   (same posting, new URL; re-seen)
- *   3. canonical (company, role) seen → 'duplicate-role' (cross-URL/boilerplate dup; skip)
- *   4. otherwise                      → 'new'            (keep)
+ *   3. canonical (company, role) seen → 'duplicate-role' (cross-URL/boilerplate dup; skip),
+ *      unless the offer names a city no earlier posting of that key named
+ *      (`seenLocations`, see lib/location-identity.mjs). A key missing from
+ *      `seenLocations`, a key seen somewhere unknown, or an offer with no
+ *      usable location is always a duplicate, so without `seenLocations` this
+ *      is the plain key check.
+ *   4. otherwise                     → 'new'            (keep)
  *
  * Pure and side-effect-free. The caller owns mutation: on 'new' it should add
- * the returned `canonicalUrl` and `key` to the seen sets so later offers in the
+ * the returned `canonicalUrl` and `key` to the seen sets (and `places` to
+ * `seenLocations` under `key`, via recordLocations) so later offers in the
  * same scan dedup against it (matching the previous intra-scan behaviour). The
  * returned `canonicalUrl` is also what the caller compares against the history
  * URL→index map to decide whether a 'duplicate-url' is a known-history re-seen
  * (bump scan_dates) versus a pipeline/apps URL it shouldn't touch.
  *
- * @param {{url?:string, company?:string, title?:string, source?:string, externalId?:string, postingId?:string, dedupKey?:string}} offer
- * @param {{seenUrls:Set<string>, seenKeys:Set<string>, seenIds?:Set<string>}} seen
- * @returns {{decision:'new'|'duplicate-url'|'duplicate-id'|'duplicate-role', canonicalUrl:string, key:string, idKey:string}}
+ * @param {{url?:string, company?:string, title?:string, source?:string, externalId?:string, postingId?:string, dedupKey?:string, location?:string, locations?:string[], extraLocations?:string[]}} offer
+ * @param {{seenUrls:Set<string>, seenKeys:Set<string>, seenIds?:Set<string>, seenLocations?:Map<string, Set<string>>}} seen
+ * @returns {{decision:'new'|'duplicate-url'|'duplicate-id'|'duplicate-role', canonicalUrl:string, key:string, idKey:string, places:Set<string>}}
  */
-export function classifyScanOffer(offer, { seenUrls, seenKeys, seenIds = new Set() }) {
+export function classifyScanOffer(offer, { seenUrls, seenKeys, seenIds = new Set(), seenLocations }) {
   const canonicalUrl = canonicalizeUrl(offer?.url || '');
   const key = companyRoleKey(offer?.company || '', offer?.title || '');
   // `dedupKey` is a provider's own identity key (scripts/providers); otherwise
   // `<source>:<externalId>`. `postingId` is the wave-1 name for `externalId`.
   const idKey = offer?.dedupKey || postingIdKey(offer?.source, offer?.externalId ?? offer?.postingId);
+  const places = offerLocationTokens(offer);
   if (canonicalUrl && seenUrls.has(canonicalUrl)) {
-    return { decision: 'duplicate-url', canonicalUrl, key, idKey };
+    return { decision: 'duplicate-url', canonicalUrl, key, idKey, places };
   }
   // Same ATS posting id under a new URL (slug rename, changed tracking scheme).
   if (idKey && seenIds.has(idKey)) {
-    return { decision: 'duplicate-id', canonicalUrl, key, idKey };
+    return { decision: 'duplicate-id', canonicalUrl, key, idKey, places };
   }
-  if (key && seenKeys.has(key)) {
-    return { decision: 'duplicate-role', canonicalUrl, key, idKey };
+  if (key && seenKeys.has(key) && !isNewLocation(seenLocations, key, places)) {
+    return { decision: 'duplicate-role', canonicalUrl, key, idKey, places };
   }
-  return { decision: 'new', canonicalUrl, key, idKey };
+  return { decision: 'new', canonicalUrl, key, idKey, places };
+}
+
+/** Place tokens of a scanned offer: `location`, `locations` and `extraLocations` together. */
+export function offerLocationTokens(offer) {
+  return locationTokens([offer?.location, ...(offer?.locations || []), ...(offer?.extraLocations || [])]);
 }
 
 const PIPELINE_LINE_RE = /- \[[ x]\] (https?:\/\/\S+)(?:\s*\|\s*([^|]*?)\s*\|\s*(.*))?$/;
@@ -568,7 +611,10 @@ export function parsePipelineLine(line) {
  *   - its canonical URL is already in the pipeline/applications (or appeared
  *     earlier in this batch under a tracking-param twin), OR
  *   - its (company, role) key was already appended this run / already lives in
- *     scan-history (passed via `seenKeys`), OR
+ *     scan-history (passed via `seenKeys`) — unless its canonical URL is in
+ *     `appendedUrls`, the rows mergeHistory just appended as new (a pipeline
+ *     line carries no location, so the history merge, which saw the row's
+ *     city, has the final word on a multi-city repeat), OR
  *   - it's a low-quality row (no usable title / placeholder company) — these
  *     are kept out of the human-facing inbox.
  *
@@ -581,7 +627,7 @@ export function parsePipelineLine(line) {
  */
 export function filterPipelineLines(
   stagingLines,
-  { seenUrls = new Set(), seenKeys = new Set(), prefilter = null, rejectedUrls = new Set() } = {}
+  { seenUrls = new Set(), seenKeys = new Set(), prefilter = null, rejectedUrls = new Set(), appendedUrls = new Set() } = {}
 ) {
   const urlSeen = new Set([...seenUrls].map(canonicalizeUrl));
   const keySeen = new Set(seenKeys);
@@ -615,7 +661,7 @@ export function filterPipelineLines(
       continue;
     }
     const key = companyRoleKey(company, title);
-    if (key && keySeen.has(key)) {
+    if (key && keySeen.has(key) && !appendedUrls.has(canon)) {
       droppedDuplicateRole++;
       continue;
     }

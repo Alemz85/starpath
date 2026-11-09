@@ -66,6 +66,7 @@ import {
 } from './lib/merge-staging-core.mjs';
 import { http as defaultHttp } from './lib/http.mjs';
 import { splitLocations } from './lib/listing-fields.mjs';
+import { recordLocations } from './lib/location-identity.mjs';
 import {
   HISTORY_COLUMNS,
   parseHistoryFile,
@@ -435,7 +436,7 @@ export async function runScan({
   let totalReseen = 0;
   const newOffers = [];
   const reseen = new Map();     // history row index → fresh posting (scan_dates bump + back-fill)
-  const batchByKey = new Map(); // (company, role) key → offer kept this run (for location union)
+  const batchByKey = new Map(); // (company, role) key → [{ offer, places }] kept this run (for location union)
   const errors = [];
 
   const tasks = targets.map(({ entry: company, hit, key: boardId }) => async () => {
@@ -507,18 +508,31 @@ export async function runScan({
         const c = gate.classify(job);
         if (c.decision !== 'new') {
           totalDupes++;
-          // The same role listed again for another city in this very run:
-          // fold the extra cities into the offer we kept instead of dropping them.
+          // The same role listed again in this very run, overlapping a city we
+          // kept (or with no usable location): fold its extra cities into that
+          // offer instead of dropping them. A new city of the role is its own
+          // offer ('new' above), so it never lands here.
           if (c.decision === 'duplicate-role' && batchByKey.has(c.key)) {
-            const kept0 = batchByKey.get(c.key);
-            kept0.locations = splitLocations([...kept0.locations, ...job.locations], { knownPlaces: gate.knownPlaces });
+            const kept = batchByKey.get(c.key);
+            const target = c.places.size === 0
+              ? kept[0]
+              : kept.find((k) => [...c.places].some((p) => k.places.has(p)));
+            if (target) {
+              target.offer.locations = splitLocations([...target.offer.locations, ...job.locations], { knownPlaces: gate.knownPlaces });
+              for (const p of c.places) target.places.add(p);
+              // What the kept offer now says is what history will say next run.
+              if (job.locations.length) recordLocations(gate.seen.seenLocations, c.key, c.places);
+            }
           }
           continue;
         }
         gate.claim(c);
         const { _workdayPath, ...offer } = job;
         newOffers.push(offer);
-        if (c.key) batchByKey.set(c.key, offer);
+        if (c.key) {
+          if (!batchByKey.has(c.key)) batchByKey.set(c.key, []);
+          batchByKey.get(c.key).push({ offer, places: new Set(c.places) });
+        }
         kept++;
       }
       recordOutcome(health, {
