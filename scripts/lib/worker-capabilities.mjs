@@ -189,6 +189,9 @@ const CHAT_COMMANDS = [
   { pattern: 'cp private/CV/applications/*.pdf output/*.pdf' },
 ]
 
+/** No worker may apply learned rules (modes/retro.md); a test pins it for every kind. */
+export const LEARN_APPLY_DENY = ['Bash(node scripts/learn.mjs *apply*)', 'Bash(npm run learn*apply*)']
+
 const CHAT_DENY = [
   'Bash(node scripts/*..*)',
   'Edit(./.claude/**)',
@@ -203,6 +206,10 @@ const CHAT_DENY = [
   'Bash(node scripts/install-hooks.mjs*)',
   'Bash(npm run schedule*)',
   'Bash(node scripts/scheduled-run.mjs*)',
+  // Learned rules reach user/_profile.md only when the user applies them at
+  // a terminal (scripts/learn.mjs refuses headless runs too); chat may check
+  // and list them, never apply.
+  ...LEARN_APPLY_DENY,
 ]
 
 /**

@@ -95,6 +95,7 @@ One evaluation mode (`scouting`); per-listing follow-ups (Tailor CV, Prep Applic
 | Wants comp benchmarked vs the landscape | `comp-bench` |
 | Wants scoring-calibration feedback (read-only) | `calibrate` |
 | Wants to know what the CV is missing vs evaluated roles | `cv-gap` |
+| Wants this session's lessons kept as rules (the user applies them by id) | `retro` |
 
 ## Ethical Use -- CRITICAL
 
