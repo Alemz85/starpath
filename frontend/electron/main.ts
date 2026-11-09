@@ -40,6 +40,8 @@ import type {
 } from '../src/lib/statusLog'
 import type { ListingDates, ListingDatesMap } from '../src/lib/listingDates'
 import { logoDomains, userDomains, type UserDomains } from '../src/lib/companyDomain'
+import { logoCacheNames, outcomeForStatus, provisionalIsStale, RATE_LIMIT_PAUSE_MS } from '../src/lib/logoCache'
+import { withCacheFlag } from '../src/lib/cacheFlag'
 import { load as loadYaml } from 'js-yaml'
 import type { AgentMessage, MessageStatus, MessageStatusResult } from '../src/lib/messages'
 
@@ -1193,6 +1195,20 @@ function workerCapabilities(repoPath: string): Promise<WorkerCapabilitiesModule>
   return importRepoModule<WorkerCapabilitiesModule>(repoPath, 'scripts/lib/worker-capabilities.mjs')
 }
 
+// `claude --help`, read once per app run: which optional flags this CLI knows.
+// null when it could not be read (then no optional flag is added).
+let claudeHelp: Promise<string | null> | null = null
+
+function claudeHelpText(env: NodeJS.ProcessEnv): Promise<string | null> {
+  claudeHelp ??= new Promise((resolve) => {
+    execFile('claude', ['--help'], { env, timeout: 10_000 }, (err, stdout, stderr) => {
+      const text = `${stdout ?? ''}${stderr ?? ''}`
+      resolve(err && !text ? null : text)
+    })
+  })
+  return claudeHelp
+}
+
 ipcMain.handle('shell:spawn', async (_e, id: unknown, cmd: unknown, args: unknown) => {
   const sid = validateString(id, 'id')
   const c = validateString(cmd, 'cmd')
@@ -1203,6 +1219,11 @@ ipcMain.handle('shell:spawn', async (_e, id: unknown, cmd: unknown, args: unknow
       const repo = getRepoPath() ?? ''
       const caps = await workerCapabilities(repo)
       argv = caps.expandWorkerArgs(argv, { tmpdirs: caps.osTmpdirs(), cwds: caps.osCwds(repo) })
+      // Eval spawns keep a byte-identical system prompt so the API prompt
+      // cache serves repeat evals; this flag keeps git-status churn out of it.
+      if (argv.includes('--append-system-prompt-file')) {
+        argv = withCacheFlag(argv, await claudeHelpText(spawnEnv(await getDataRoot())))
+      }
     } catch (e) {
       mainWindow?.webContents.send('shell:output', sid, `❌ Refused: ${e instanceof Error ? e.message : String(e)}\n`)
       mainWindow?.webContents.send('shell:done', sid, 1)
@@ -1254,27 +1275,35 @@ ipcMain.handle('shell:kill', (_e, id: unknown) => {
 
 // ─── IPC: Logo cache ─────────────────────────────────────────────────────────
 
-function fetchToBuffer(url: string): Promise<{ buf: Buffer; mime: string } | null> {
+type LogoFetch = { outcome: 'ok'; buf: Buffer; mime: string } | { outcome: 'missing' | 'unavailable' }
+
+function fetchLogoImage(url: string, hops = 3): Promise<LogoFetch> {
   return new Promise((resolve) => {
     const lib = url.startsWith('https') ? https : http
     const req = lib.get(url, { timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (res) => {
-      // Follow one redirect
-      if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
-        resolve(fetchToBuffer(res.headers.location))
+      const status = res.statusCode
+      if (status && [301, 302, 303, 307, 308].includes(status) && res.headers.location) {
+        res.resume()
+        if (hops <= 0) { resolve({ outcome: 'unavailable' }); return }
+        let next: string
+        try { next = new URL(res.headers.location, url).toString() } catch { resolve({ outcome: 'missing' }); return }
+        resolve(fetchLogoImage(next, hops - 1))
         return
       }
-      if (res.statusCode !== 200) { resolve(null); return }
+      const outcome = outcomeForStatus(status)
+      if (outcome !== 'ok') { res.resume(); resolve({ outcome }); return }
       const chunks: Buffer[] = []
       res.on('data', (c: Buffer) => chunks.push(c))
       res.on('end', () => {
         const buf = Buffer.concat(chunks)
         const mime = (res.headers['content-type'] ?? 'image/png').split(';')[0].trim()
-        resolve(buf.length > 200 ? { buf, mime } : null)
+        // A few hundred bytes is an empty or 1px placeholder, not a logo.
+        resolve(buf.length > 200 ? { outcome: 'ok', buf, mime } : { outcome: 'missing' })
       })
-      res.on('error', () => resolve(null))
+      res.on('error', () => resolve({ outcome: 'unavailable' }))
     })
-    req.on('error', () => resolve(null))
-    req.on('timeout', () => { req.destroy(); resolve(null) })
+    req.on('error', () => resolve({ outcome: 'unavailable' }))
+    req.on('timeout', () => { req.destroy(); resolve({ outcome: 'unavailable' }) })
   })
 }
 
@@ -1301,13 +1330,28 @@ function readPortalDomains(base: string): UserDomains | undefined {
 const LOGO_CACHE = 'logo-cache-v2'
 let legacyLogoCacheGone = false
 
+// One request per company at a time: a list that shows the same company in
+// twenty rows mounts twenty logos at once, and each would otherwise spend one
+// of the logo source's rate-limited requests before the first answer is cached.
+const logoInFlight = new Map<string, Promise<string | null>>()
+let logoSourcePausedUntil = 0
+
 ipcMain.handle('logo:fetch', async (_e, company: unknown) => {
   const name = validateString(company, 'company')
   const root = await getDataRoot()
   // The demo's companies are fictional; their guessed domains belong to real
   // brands, so the demo shows initials and makes no logo requests at all.
   if (root.kind === 'demo') return null
-  const base = dataBase(root)
+  const key = `${dataBase(root) ?? ''}\n${name}`
+  let pending = logoInFlight.get(key)
+  if (!pending) {
+    pending = fetchCompanyLogo(name, dataBase(root)).finally(() => logoInFlight.delete(key))
+    logoInFlight.set(key, pending)
+  }
+  return pending
+})
+
+async function fetchCompanyLogo(name: string, base: string | null): Promise<string | null> {
   const userData = app.getPath('userData')
   if (!legacyLogoCacheGone) {
     fs.rmSync(path.join(userData, 'logo-cache'), { recursive: true, force: true })
@@ -1315,34 +1359,53 @@ ipcMain.handle('logo:fetch', async (_e, company: unknown) => {
   }
   const cacheDir = path.join(userData, LOGO_CACHE)
   fs.mkdirSync(cacheDir, { recursive: true })
+  const toDataUrl = (r: { buf: Buffer; mime: string }) => `data:${r.mime};base64,${r.buf.toString('base64')}`
 
   for (const d of logoDomains(name, base ? readPortalDomains(base) : undefined)) {
-    const cachePath = path.join(cacheDir, `${d.replace(/[^a-z0-9.-]/gi, '_')}.b64`)
+    const names = logoCacheNames(d)
+    const keptPath = path.join(cacheDir, names.kept)
+    const provisionalPath = path.join(cacheDir, names.provisional)
 
-    // Return from disk cache if present
-    if (fs.existsSync(cachePath)) {
-      return fs.readFileSync(cachePath, 'utf-8')
+    if (fs.existsSync(keptPath)) return fs.readFileSync(keptPath, 'utf-8')
+
+    // A stand-in favicon from a day the logo source was unavailable: show it,
+    // and ask the logo source again once it is a day old.
+    let provisional: string | null = null
+    try {
+      provisional = fs.readFileSync(provisionalPath, 'utf-8')
+      if (!provisionalIsStale(fs.statSync(provisionalPath).mtimeMs, Date.now())) return provisional
+    } catch { /* none yet */ }
+
+    // Main process is not subject to renderer CSP. fallback=false makes
+    // unavatar answer 404 instead of a placeholder face.
+    const paused = Date.now() < logoSourcePausedUntil
+    const logo: LogoFetch = paused ? { outcome: 'unavailable' } : await fetchLogoImage(`https://unavatar.io/${d}?fallback=false`)
+    if (logo.outcome === 'ok') {
+      const dataUrl = toDataUrl(logo)
+      fs.writeFileSync(keptPath, dataUrl, 'utf-8')
+      fs.rmSync(provisionalPath, { force: true })
+      return dataUrl
+    }
+    if (logo.outcome === 'unavailable' && !paused) logoSourcePausedUntil = Date.now() + RATE_LIMIT_PAUSE_MS
+
+    if (provisional) {
+      // Still unavailable: keep the stand-in for another day.
+      const now = new Date()
+      try { fs.utimesSync(provisionalPath, now, now) } catch { /* shown anyway */ }
+      return provisional
     }
 
-    // Try sources in order — main process is not subject to renderer CSP.
-    // fallback=false makes unavatar answer 404 instead of a placeholder face.
-    const sources = [
-      `https://unavatar.io/${d}?fallback=false`,
-      `https://www.google.com/s2/favicons?domain=${d}&sz=128`,
-    ]
-
-    for (const url of sources) {
-      const result = await fetchToBuffer(url)
-      if (result) {
-        const dataUrl = `data:${result.mime};base64,${result.buf.toString('base64')}`
-        fs.writeFileSync(cachePath, dataUrl, 'utf-8')
-        return dataUrl
-      }
+    const favicon = await fetchLogoImage(`https://www.google.com/s2/favicons?domain=${d}&sz=128`)
+    if (favicon.outcome === 'ok') {
+      const dataUrl = toDataUrl(favicon)
+      // Kept for good only when the logo source said it has nothing better.
+      fs.writeFileSync(logo.outcome === 'missing' ? keptPath : provisionalPath, dataUrl, 'utf-8')
+      return dataUrl
     }
   }
 
   return null
-})
+}
 
 // ─── IPC: SQLite cache ────────────────────────────────────────────────────────
 //

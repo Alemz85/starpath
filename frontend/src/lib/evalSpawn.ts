@@ -50,11 +50,11 @@ export type { ClaudeModel }
  *
  * Prompt caching (token-cost lever 4): the bundle is passed verbatim — a
  * byte-identical system prompt across spawns is what lets the API prompt
- * cache serve repeat evals. The batch runner additionally feature-detects
- * `--exclude-dynamic-system-prompt-sections` (keeps git-status churn out of
- * the default system prompt); adding it here needs a main-process CLI
- * capability probe first — an unknown flag would fail every spawn on older
- * CLIs. Tracked in TODO.md § Token-cost reduction, lever 4.
+ * cache serve repeat evals. `--exclude-dynamic-system-prompt-sections`
+ * (keeps git-status churn out of the default system prompt) is added by main
+ * at spawn time, only when the installed CLI lists it (`withCacheFlag`,
+ * lib/cacheFlag.ts): an unknown flag would fail every spawn on older CLIs.
+ * The batch runner feature-detects it the same way.
  */
 export function claudeEvalArgs(
   taskPrompt: string,
